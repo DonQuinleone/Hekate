@@ -13,6 +13,7 @@ import { z } from "zod";
 import { actorOf, projectAccess } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
+import type { Subdomains } from "../hosts.ts";
 import type { Mailer } from "../mail.ts";
 import { notifyNow } from "../notifications.ts";
 import type { TenantVariables } from "../tenancy.ts";
@@ -83,6 +84,7 @@ export const projectDeletionRoutes = (deps: {
   trustProxy: boolean;
   mailer: Mailer;
   publicUrl: string;
+  subdomains?: Subdomains | null;
 }) => {
   const { db, audit } = deps;
   /** The project, as this member reaches it; 404 for one they cannot see. */

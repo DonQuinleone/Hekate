@@ -73,6 +73,7 @@ import { SchedulePage } from "~/routes/schedule";
 import { ScoreMarkingPage } from "~/routes/score-marking";
 import { SearchPage } from "~/routes/search";
 import { SessionPage, SessionsPage } from "~/routes/sessions";
+import { SignUpLinkPage, SignUpPage } from "~/routes/sign-up";
 import { StagePlanPage } from "~/routes/stage-plan";
 import { TakeLogPage } from "~/routes/take-log";
 import { TasksPage } from "~/routes/tasks";
@@ -82,7 +83,7 @@ import { WorkflowsPage } from "~/routes/workflows";
 import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
 
 /** Pages that are not a member's, where a session ending means nothing to undo. */
-const outside = /^\/(sign-in|setup|invite|guest|second-factor|suspended|u\/|g(\/|$))/;
+const outside = /^\/(sign-in|sign-up|setup|invite|guest|second-factor|suspended|u\/|g(\/|$))/;
 
 /**
  * A member whose session ends mid-visit (it ran out, or was ended from another device) is
@@ -231,6 +232,20 @@ const invite = createRoute({
   component: function InviteRoute() {
     const { token } = invite.useParams();
     return <InvitePage token={token} />;
+  },
+});
+/** Making a workspace without an operator (#184), as the instance's registration allows. */
+const signUp = createRoute({
+  getParentRoute: () => root,
+  path: "/sign-up",
+  component: SignUpPage,
+});
+const signUpLink = createRoute({
+  getParentRoute: () => root,
+  path: "/sign-up/$token",
+  component: function SignUpLinkRoute() {
+    const { token } = signUpLink.useParams();
+    return <SignUpLinkPage token={token} />;
   },
 });
 
@@ -748,11 +763,19 @@ const instanceHome = createRoute({
   path: "/instance",
   component: () => <InstancePage section="overview" />,
 });
+/** A ticket open on the desk (#182), or a workspace and its tab opened from one. */
+const instanceSearch = z.object({
+  ticket: z.uuid().optional().catch(undefined),
+  workspace: z.uuid().optional().catch(undefined),
+  tab: z.enum(["members"]).optional().catch(undefined),
+});
 const instanceSection = createRoute({
   getParentRoute: () => app,
   path: "/instance/$section",
+  validateSearch: (search: Record<string, unknown>) => instanceSearch.parse(search),
   component: function InstanceRoute() {
     const { section } = instanceSection.useParams();
+    const search = instanceSection.useSearch();
     return (
       <InstancePage
         section={
@@ -760,6 +783,7 @@ const instanceSection = createRoute({
             ? (section as InstanceSection)
             : "overview"
         }
+        search={search}
       />
     );
   },
@@ -836,12 +860,31 @@ const settingsHome = createRoute({
     throw redirect({ to: "/settings/$section", params: { section: "general" } });
   },
 });
+/**
+ * Support (#181): a ticket open, a new one being written, and the file or review the help menu
+ * was opened on, as `file:<id>`.
+ */
+const settingsSearch = z.object({
+  ticket: z.uuid().optional().catch(undefined),
+  // The router reads `?new=1` as a number; a link written by hand may say either.
+  new: z
+    .unknown()
+    .transform((v) => (v === 1 || v === "1" ? ("1" as const) : undefined))
+    .optional(),
+  from: z
+    .string()
+    .regex(/^(file|review):[0-9a-f-]{36}$/)
+    .optional()
+    .catch(undefined),
+});
 const settings = createRoute({
   getParentRoute: () => app,
   path: "/settings/$section",
+  validateSearch: (search: Record<string, unknown>) => settingsSearch.parse(search),
   component: function SettingsRoute() {
     const { section } = settings.useParams();
-    return <WorkspaceSettingsPage section={section} />;
+    const search = settings.useSearch();
+    return <WorkspaceSettingsPage section={section} search={search} />;
   },
 });
 
@@ -866,6 +909,8 @@ export const router = createRouter({
     suspended,
     setup,
     signIn,
+    signUp,
+    signUpLink,
     invite,
     uploadLink,
     guestLink,

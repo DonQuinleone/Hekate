@@ -1188,6 +1188,7 @@ export function FileBrowser({
         <UploadRequestDialog
           projectId={projectId}
           folders={folders ?? []}
+          tracks={withTracks ? (trackList ?? []) : []}
           folderId={folderId}
           onClose={() => setRequesting(false)}
         />

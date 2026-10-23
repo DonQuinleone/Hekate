@@ -1,6 +1,8 @@
 import {
   type AlignmentPoints,
   type Anchor,
+  type ApiScope,
+  type ApiTokenKind,
   approvalRules,
   auditActions,
   auditActorTypes,
@@ -61,6 +63,9 @@ import {
   type TaskEventDetail,
   type TaskEventKind,
   type TemplateContent,
+  type TicketAuthor,
+  type TicketKind,
+  type TicketState,
   taskPriorities,
   taskStatuses,
   transferStatuses,
@@ -69,6 +74,7 @@ import {
   type WorkflowEffect,
   type WorkflowRun,
   type WorkflowStatus,
+  type WorkspaceExportStatus,
   type WorkspacePlanStatus,
 } from "@hekate/shared";
 import { type SQL, sql } from "drizzle-orm";
@@ -163,10 +169,18 @@ export const organisations = pgTable("organisations", {
   suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   suspendedReason: text("suspended_reason"),
   /**
-   * When a suspended workspace is to be purged, with everything in it: set by an operator,
-   * a grace period ahead, and cleared if it is reinstated first.
+   * When a suspended workspace is to be purged, with everything in it: set by an operator, or
+   * by its owners (#186), a grace period ahead, and cleared if it is kept first.
    */
   deleteAfter: timestamp("delete_after", { withTimezone: true }),
+  /**
+   * An owner asked to delete the workspace (#186), for a second owner to confirm. Confirmed, it
+   * is suspended for its deletion and `deleteAfter` is set, as an operator's deletion sets it.
+   * A plain account id, as the access log keeps them: a foreign key added to this long-standing
+   * table would be a constraint the release before could not run against (decision 198).
+   */
+  deletionRequestedBy: text("deletion_requested_by"),
+  deletionRequestedAt: timestamp("deletion_requested_at", { withTimezone: true }),
   /**
    * Limits an operator sets (#175), seeded from the instance's defaults: bytes stored, and
    * members. Null is no limit. Uploads and new members are refused at the limit.
@@ -1806,6 +1820,12 @@ export const uploadRequests = pgTable(
     projectId: projectId(),
     /** Where files arrive; null for the project's top level. */
     folderId: uuid("folder_id").references(() => folders.id, { onDelete: "set null" }),
+    /**
+     * A track whose next version each file becomes once measured (#425); null for a request
+     * into a folder. Its foreign key follows in a later release, as adding one to a table the
+     * release before knows contracts the schema (decision 198).
+     */
+    trackId: uuid("track_id"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     /** What is wanted, shown to the visitor. */
@@ -2222,6 +2242,48 @@ export const downloadTickets = pgTable(
     uniqueIndex("download_tickets_token_idx").on(t.tokenHash),
     // A file, or every score of a project; never both, never neither.
     check("download_tickets_target", sql`(${t.fileId} is null) <> (${t.projectId} is null)`),
+  ],
+);
+
+/**
+ * An export of everything a workspace holds (#186): its records as JSON and its files'
+ * originals, decrypted into a tar archive that is encrypted with age to `recipient`, whose
+ * secret key was shown once to whoever asked and is never kept. The archive is stored as
+ * ordinary encrypted blobs, in parts no larger than a backend takes as one object, and goes
+ * after a week. It leaves only through a one-time link for the session that asked (`ticket*`).
+ */
+export const workspaceExports = pgTable(
+  "workspace_exports",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    /** Who asked; null once their account is gone. */
+    requestedBy: text("requested_by").references(() => users.id, { onDelete: "set null" }),
+    /** Asked by one of the instance's operators rather than an owner of the workspace. */
+    byOperator: boolean("by_operator").notNull().default(false),
+    /** The age public key (`age1…`) the archive is encrypted to. Public; never a secret. */
+    recipient: text("recipient").notNull(),
+    /** Queued, building, ready, failed or expired (packages/shared, workspace-export.ts). */
+    status: text("status").$type<WorkspaceExportStatus>().notNull().default("queued"),
+    /** The archive's parts, in order: none until it is ready, and none again once it expires. */
+    blobIds: uuid("blob_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    /** The archive's size as it downloads, and how many stored files it holds. */
+    byteSize: bigint("byte_size", { mode: "number" }),
+    fileCount: integer("file_count"),
+    /** Why it failed, in words for whoever asked. */
+    error: text("error"),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /** When a ready archive is removed. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** The one-time download link waiting, as a hash, for the session that asked for it. */
+    ticketHash: text("ticket_hash"),
+    ticketSessionId: text("ticket_session_id"),
+    ticketExpiresAt: timestamp("ticket_expires_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index("workspace_exports_org_idx").on(t.organisationId, t.id),
+    uniqueIndex("workspace_exports_ticket_idx").on(t.ticketHash),
   ],
 );
 
@@ -2712,6 +2774,98 @@ export const workspaceUsage = pgTable(
   },
   (t) => [uniqueIndex("workspace_usage_month_idx").on(t.organisationId, t.month)],
 );
+
+// Support (docs/domain.md)
+
+/**
+ * A ticket (#181): a question from a workspace to the people who run the instance, with a
+ * reference made on sending (unique across the instance, so an operator can find it), a type,
+ * and a severity the workspace's plan allowed when it was sent.
+ */
+export const tickets = pgTable(
+  "tickets",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    reference: text("reference").notNull(),
+    subject: text("subject").notNull(),
+    kind: text("kind").$type<TicketKind>().notNull(),
+    severity: text("severity").$type<SupportSeverity>().notNull(),
+    state: text("state").$type<TicketState>().notNull().default("waiting"),
+    requesterId: text("requester_id").references(() => users.id, { onDelete: "set null" }),
+    /** Their name when they asked, for when the account has gone. */
+    requesterName: text("requester_name").notNull(),
+    /** The failure they saw (#159), which the operators look up. */
+    errorReference: text("error_reference"),
+    /** The file or review they asked from, and whether the operators may open it. */
+    itemKind: text("item_kind").$type<"file" | "review">(),
+    itemId: uuid("item_id"),
+    operatorAccess: boolean("operator_access").notNull().default(false),
+    /** When an operator first answered, for the desk's first-reply time. */
+    firstReplyAt: timestamp("first_reply_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("tickets_reference_idx").on(t.reference),
+    index("tickets_organisation_idx").on(t.organisationId, t.updatedAt),
+    index("tickets_state_idx").on(t.state, t.updatedAt),
+  ],
+);
+
+/** One message in a ticket's thread: from the workspace, an operator, or Hekate itself. */
+export const ticketMessages = pgTable(
+  "ticket_messages",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    author: text("author").$type<TicketAuthor>().notNull(),
+    authorId: text("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** Their name as it was, kept when the account goes. */
+    authorName: text("author_name").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ticket_messages_ticket_idx").on(t.organisationId, t.ticketId, t.createdAt)],
+);
+
+/**
+ * A file attached to a ticket's message (#181): a screenshot or a log, its bytes an encrypted
+ * blob like any other, reached only by those who may read the ticket, each download logged.
+ */
+export const ticketAttachments = pgTable(
+  "ticket_attachments",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => ticketMessages.id, { onDelete: "cascade" }),
+    blobId: uuid("blob_id")
+      .notNull()
+      .references(() => blobs.id, { onDelete: "no action" }),
+    name: text("name").notNull(),
+    contentType: text("content_type").notNull(),
+    byteSize: bigint("byte_size", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ticket_attachments_message_idx").on(t.organisationId, t.messageId)],
+);
+
+/**
+ * The desk's canned replies (#182): answers it gives often, to start a reply from. Global: the
+ * desk is the instance's, and a reply names no workspace.
+ */
+export const cannedReplies = pgTable("canned_replies", {
+  id: id(),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  ...timestamps,
+});
 
 // Notifications (docs/domain.md)
 
@@ -3406,5 +3560,69 @@ export const projectTransfers = pgTable(
       .where(sql`${t.status} in ('pending', 'moving')`),
     index("project_transfers_from_idx").on(t.fromOrganisationId, t.status),
     index("project_transfers_to_idx").on(t.toOrganisationId, t.status),
+  ],
+);
+
+// API tokens (#198)
+
+/**
+ * An API token: a member's own (`personal`), or one of the workspace's service tokens, which act
+ * as the workspace through an account of their own (`user_id`, which no one signs in as). Either
+ * reaches its workspace alone, within its scopes. Only a SHA-256 hash of the token is stored; the
+ * token is shown once, when it is made. Revoked tokens stay, so the API log can name them.
+ */
+export const apiTokens = pgTable(
+  "api_tokens",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    kind: text("kind").$type<ApiTokenKind>().notNull(),
+    /** Who it acts as: the member, or the service token's own account. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** Its first characters (`hk_pat_7f3a`), to tell it apart in settings and the log. */
+    hint: text("hint").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    scopes: text("scopes").array().$type<ApiScope[]>().notNull(),
+    /** Null: until it is revoked. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** When it was last used, to the minute. */
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    revokedBy: text("revoked_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    index("api_tokens_organisation_idx").on(t.organisationId, t.kind),
+    index("api_tokens_user_idx").on(t.userId),
+  ],
+);
+
+/**
+ * The API log (#157, #198): each call made with a token, its answer and how long it took. The
+ * path is kept without its query; nothing of the request's body or headers is.
+ */
+export const apiRequests = pgTable(
+  "api_requests",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    tokenId: uuid("token_id").references(() => apiTokens.id, { onDelete: "set null" }),
+    /** The token's name and kind when the call was made. */
+    tokenName: text("token_name").notNull(),
+    tokenKind: text("token_kind").$type<ApiTokenKind>().notNull(),
+    method: text("method").notNull(),
+    path: text("path").notNull(),
+    status: integer("status").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    ipAddress: text("ip_address"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("api_requests_org_idx").on(t.organisationId, t.id),
+    index("api_requests_token_idx").on(t.tokenId),
   ],
 );

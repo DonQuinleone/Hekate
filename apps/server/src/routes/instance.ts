@@ -38,15 +38,19 @@ import {
   newerReleases,
   newWorkspaceInput,
   type OperatorRow,
+  OWNER_DELETION_REASON,
   operatorInput,
   operatorMoveInput,
   operatorParam as operatorParamSchema,
   planInput,
   promoCodeInput,
+  SERVICE_ACCOUNT_DOMAIN,
   settingsChanges,
+  signUpInvitationInput,
   suspendWorkspaceInput,
   WORKSPACE_DELETE_GRACE_DAYS,
   waiveInput,
+  workspaceExportInput,
   workspaceLimits,
   workspacePlanInput,
   workspaceSettingsOf,
@@ -76,7 +80,7 @@ import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { confirmIdentity } from "../account-deletion.ts";
-import { type Audit, requestInfo } from "../audit.ts";
+import { type Actor, type Audit, requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
 import {
   type BillingDeps,
@@ -91,7 +95,15 @@ import { billingReports, invoicesCsv, recognitionCsv } from "../billing/reports.
 import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { replayDelivery } from "../events.ts";
+import {
+  exportsOf,
+  exportTicket,
+  redeemExportTicket,
+  startExport,
+  viewOf as viewOfExport,
+} from "../export/workspace-export.ts";
 import { createFlags } from "../flags.ts";
+import { linkBase, type Subdomains } from "../hosts.ts";
 import { inspectFile, inspectReview, inspectSession } from "../inspect.ts";
 import { recordInstanceEvent } from "../instance-events.ts";
 import type { InstanceSettingsStore } from "../instance-settings.ts";
@@ -102,7 +114,9 @@ import { escapeLike, logCsv, readLog } from "../logs.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { listPlans, savePlan, workspacePlanOf } from "../plans.ts";
 import { admit } from "../rate-limit.ts";
+import { listSignUpInvitations, newSignUpLink, revokeSignUpInvitation } from "../sign-up.ts";
 import { signal } from "../signals.ts";
+import type { Storage } from "../storage.ts";
 import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
 import { HEKATE_VERSION, systemInformation } from "../system-info.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
@@ -110,6 +124,8 @@ import { nearQuota, workspaceUsageOf } from "../usage.ts";
 import { pendingRewrap } from "../workspace-keys.ts";
 import { operatorMove } from "./project-transfers.ts";
 import { retryFile } from "./retry.ts";
+import { supportDeskRoutes } from "./support-desk.ts";
+import { refusal, sendExport } from "./workspace-lifecycle.ts";
 
 /**
  * The instance side (#155, decision 062). Operators manage every workspace; a workspace's
@@ -125,9 +141,13 @@ export interface InstanceOptions {
   trustProxy: boolean;
   mailer: Mailer;
   publicUrl: string;
+  /** Each workspace's own address for the links it sends, with subdomains on (#437). */
+  subdomains?: Subdomains | null;
   keyring: Keyring;
   jobs: Pick<Jobs, "send">;
   backends: Backends;
+  /** Where a workspace's export (#186) and tickets' attachments (#182) are read from. */
+  storage: Storage;
   audit: Audit;
   /** The instance's settings (#160), shared with the rest of the server. */
   settings: InstanceSettingsStore;
@@ -184,6 +204,7 @@ export async function instanceAccess(
     keyNeeded: !!operator && options.operatorSecurityKey && session?.factor !== "passkey",
     owned,
     billing: (options.environment.modules?.billing ?? "off") !== "off",
+    support: options.environment.modules?.support === "app",
   };
 }
 
@@ -221,6 +242,22 @@ const operatorsOnly = createMiddleware<{ Variables: InstanceVariables }>(async (
 
 /** Writes what an operator did, for the Overview and the audit (#157); kept here for its callers. */
 export { recordInstanceEvent };
+
+/**
+ * An operator, as a workspace's access log names them (#186): not one of its members, so the
+ * instance's own actor, with their name and address and the word operator.
+ */
+async function operatorActor(db: Database, userId: string): Promise<Actor> {
+  const [user] = await db
+    .select({ name: schema.users.name, email: schema.users.email })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId));
+  return {
+    type: "system",
+    userId,
+    label: user ? `${user.name} <${user.email}> (operator)` : `${userId} (operator)`,
+  };
+}
 
 const startOfToday = () => {
   const day = new Date();
@@ -504,7 +541,8 @@ export function instanceRoutes(options: InstanceOptions) {
           .select({ name: schema.users.name })
           .from(schema.users)
           .where(eq(schema.users.id, c.var.userId));
-        const link = `${options.publicUrl.replace(/\/$/, "")}/invite/${token}`;
+        // At the new workspace's own address with subdomains on (#437).
+        const link = `${linkBase(options, slug)}/invite/${token}`;
         // The workspace stands whether or not the mail goes: when it does not, the operator is
         // told, and passes on the link by hand.
         let mailed = true;
@@ -895,6 +933,86 @@ export function instanceRoutes(options: InstanceOptions) {
           .catch((error) => console.error("The rewrap could not be queued:", error));
         return c.json({ version });
       })
+      // Its exports (#186): an operator's, as an owner's, encrypted to a key shown once (or to
+      // their own), made in the background, and downloaded through a one-time link for this
+      // session. Each request and download is in the workspace's access log and the instance's.
+      .get("/workspaces/:id/exports", idParam, async (c) => {
+        const { id } = c.req.valid("param");
+        await workspaceName(db, id);
+        return c.json({ exports: await exportsOf(db, id) });
+      })
+      .post(
+        "/workspaces/:id/exports",
+        idParam,
+        zValidator("json", workspaceExportInput),
+        async (c) => {
+          const { id } = c.req.valid("param");
+          const name = await workspaceName(db, id);
+          const actor = await operatorActor(db, c.var.userId);
+          const request = requestInfo(c, options.trustProxy);
+          const { row, key } = await startExport(
+            { db, jobs: options.jobs },
+            {
+              organisationId: id,
+              requestedBy: c.var.userId,
+              byOperator: true,
+              recipient: c.req.valid("json").recipient,
+            },
+            async (tx, exportId, ownKey) => {
+              await options.audit.record(
+                id,
+                actor,
+                { action: "organisation.export_request", details: { exportId, ownKey } },
+                request,
+                tx,
+              );
+              await recordInstanceEvent(tx, {
+                actorId: c.var.userId,
+                action: "workspace.export_requested",
+                target: name,
+                details: { organisationId: id, exportId },
+                ipAddress: request.ipAddress ?? null,
+              });
+            },
+          ).catch(refusal);
+          const [me] = await db
+            .select({ name: schema.users.name })
+            .from(schema.users)
+            .where(eq(schema.users.id, c.var.userId));
+          return c.json({ export: viewOfExport(row, me?.name ?? null), key }, 201);
+        },
+      )
+      .post(
+        "/workspaces/:id/exports/:exportId/download",
+        zValidator("param", z.object({ id: z.uuid(), exportId: z.uuid() })),
+        async (c) => {
+          const { id, exportId } = c.req.valid("param");
+          const token = await exportTicket(db, id, exportId, c.var.sessionId).catch(refusal);
+          return c.json({ url: `/api/instance/workspaces/${id}/exports/download/${token}` }, 201);
+        },
+      )
+      .get(
+        "/workspaces/:id/exports/download/:token",
+        zValidator("param", z.object({ id: z.uuid(), token: z.string().min(20).max(100) })),
+        async (c) => {
+          const { id, token } = c.req.valid("param");
+          const name = await workspaceName(db, id);
+          const row = await redeemExportTicket(db, id, token, c.var.sessionId).catch(refusal);
+          await recordInstanceEvent(db, {
+            actorId: c.var.userId,
+            action: "workspace.export_downloaded",
+            target: name,
+            details: { organisationId: id, exportId: row.id },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return sendExport(
+            { db, storage: options.storage, audit: options.audit, trustProxy: options.trustProxy },
+            c,
+            row,
+            await operatorActor(db, c.var.userId),
+          );
+        },
+      )
       // Deleting is for a suspended workspace, and waits out a grace period: until then,
       // reinstating it, or cancelling, keeps everything.
       .post("/workspaces/:id/delete", idParam, async (c) => {
@@ -935,7 +1053,16 @@ export function instanceRoutes(options: InstanceOptions) {
         await db.transaction(async (tx) => {
           const [row] = await tx
             .update(schema.organisations)
-            .set({ deleteAfter: null, updatedAt: new Date() })
+            // Its owners' request goes too (#186). Suspended by an operator, it stays so until it
+            // is reinstated; suspended only for its owners' deletion, it opens again.
+            .set({
+              deleteAfter: null,
+              deletionRequestedBy: null,
+              deletionRequestedAt: null,
+              suspendedAt: sql`case when ${schema.organisations.suspendedReason} = ${OWNER_DELETION_REASON} then null else ${schema.organisations.suspendedAt} end`,
+              suspendedReason: sql`case when ${schema.organisations.suspendedReason} = ${OWNER_DELETION_REASON} then null else ${schema.organisations.suspendedReason} end`,
+              updatedAt: new Date(),
+            })
             .where(
               and(eq(schema.organisations.id, id), isNotNull(schema.organisations.deleteAfter)),
             )
@@ -1093,6 +1220,9 @@ export function instanceRoutes(options: InstanceOptions) {
               suspendedAt: null,
               suspendedReason: null,
               deleteAfter: null,
+              // Its owners' deletion too (#186), had they asked for one.
+              deletionRequestedBy: null,
+              deletionRequestedAt: null,
               updatedAt: new Date(),
             })
             .where(
@@ -1275,6 +1405,23 @@ export function instanceRoutes(options: InstanceOptions) {
         });
         return c.json(done);
       })
+      // The support desk (#182): every workspace's tickets, with tickets in the app.
+      .use("/support", operatorsOnly)
+      .use("/support/*", operatorsOnly)
+      .route(
+        "/support",
+        supportDeskRoutes({
+          db,
+          storage: options.storage,
+          audit: options.audit,
+          mailer: options.mailer,
+          publicUrl: options.publicUrl,
+          trustProxy: options.trustProxy,
+          modules: options.environment.modules,
+          settings: options.settings,
+          subdomains: options.environment.subdomains ?? null,
+        }),
+      )
       // Promo codes (#178): kept whether or not billing is on; used only while it is.
       .use("/promos", operatorsOnly)
       .use("/promos/*", operatorsOnly)
@@ -1351,7 +1498,16 @@ export function instanceRoutes(options: InstanceOptions) {
           crowded,
         ] = await Promise.all([
           db.select({ n: count() }).from(schema.organisations),
-          db.select({ n: count() }).from(schema.users).where(isNull(schema.users.deletedAt)),
+          // People: not the accounts service tokens act through (#198).
+          db
+            .select({ n: count() })
+            .from(schema.users)
+            .where(
+              and(
+                isNull(schema.users.deletedAt),
+                sql`${schema.users.email} not like ${`%@${SERVICE_ACCOUNT_DOMAIN}`}`,
+              ),
+            ),
           db.select({ n: sum(schema.blobs.byteSize) }).from(schema.blobs),
           db
             .select({ n: count() })
@@ -1954,7 +2110,9 @@ export function instanceRoutes(options: InstanceOptions) {
         });
       })
       .put("/settings", zValidator("json", instanceSettingsInput), async (c) => {
-        const input = c.req.valid("json");
+        // The support desk's part is saved from the desk alone (#182), so a Settings page
+        // loaded before a change there never undoes it.
+        const { support: _desk, ...input } = c.req.valid("json");
         await db.transaction(async (tx) => {
           const { before, after } = await options.settings.write(tx, input, c.var.userId);
           // Every other replica reads them again when this commits (#188).
@@ -1974,9 +2132,15 @@ export function instanceRoutes(options: InstanceOptions) {
                       ? "New workspaces' storage quota"
                       : change.action === "defaults.member_limit"
                         ? "New workspaces' member limit"
-                        : change.action.startsWith("logs.")
-                          ? `The ${String(change.details.kind) === "auth" ? "authentication" : String(change.details.kind)} log`
-                          : "A second factor",
+                        : change.action.startsWith("support.")
+                          ? "The support desk"
+                          : change.action.startsWith("logs.")
+                            ? `The ${String(change.details.kind) === "auth" ? "authentication" : String(change.details.kind)} log`
+                            : change.action.startsWith("registration.")
+                              ? "Registration"
+                              : change.action.startsWith("billing.")
+                                ? "Billing's rules"
+                                : "A second factor",
               details: change.details,
               ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
             });
@@ -1984,6 +2148,71 @@ export function instanceRoutes(options: InstanceOptions) {
         // Committed: every read from now on is the new settings.
         options.settings.forget();
         return c.json({ settings: await options.settings.get(), environment: options.environment });
+      })
+      // Invitations to make a workspace (#184), for registration that is invite-only or open.
+      .use("/sign-up-invitations", operatorsOnly)
+      .use("/sign-up-invitations/*", operatorsOnly)
+      .get("/sign-up-invitations", async (c) =>
+        c.json({ invitations: await listSignUpInvitations(db) }),
+      )
+      .post("/sign-up-invitations", zValidator("json", signUpInvitationInput), async (c) => {
+        const { mode } = (await options.settings.get()).registration;
+        if (mode === "closed")
+          throw new CodedException(
+            409,
+            "sign_up_closed",
+            "Registration is closed: make the workspace on the Workspaces page instead.",
+          );
+        const email = c.req.valid("json").email.toLowerCase();
+        const token = await db.transaction(async (tx) => {
+          const made = await newSignUpLink(tx, {
+            email,
+            invitedBy: c.var.userId,
+            lifetimeMs: INVITATION_LIFETIME_MS,
+          });
+          await recordInstanceEvent(tx, {
+            actorId: c.var.userId,
+            action: "registration.invited",
+            target: email,
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return made;
+        });
+        const [inviter] = await db
+          .select({ name: schema.users.name })
+          .from(schema.users)
+          .where(eq(schema.users.id, c.var.userId));
+        const link = `${options.publicUrl.replace(/\/$/, "")}/sign-up/${token}`;
+        const days = Math.round(INVITATION_LIFETIME_MS / (24 * 60 * 60 * 1000));
+        // The invitation stands whether or not the mail goes: when it does not, the operator
+        // is told, and passes on the link by hand.
+        let mailed = true;
+        try {
+          await sendEmail(options.mailer, email, {
+            subject: "You are invited to make a workspace on Hekate",
+            heading: "Make a workspace",
+            body: [
+              `${inviter?.name ?? "The instance's operators"} invited you to make a workspace of your own. Open the link to name it and choose its address. It lasts ${days} days and works once.`,
+            ],
+            action: { label: "Make a workspace", url: link },
+            foot: "If you were not expecting this, ignore it: nothing is made without the link.",
+          });
+        } catch (error) {
+          console.error("The invitation to make a workspace was not sent:", error);
+          mailed = false;
+        }
+        return c.json({ link, mailed }, 201);
+      })
+      .delete("/sign-up-invitations/:id", idParam, async (c) => {
+        const email = await revokeSignUpInvitation(db, c.req.valid("param").id);
+        if (!email) throw new NotFound("invitation");
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "registration.invitation_revoked",
+          target: email,
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.json({ invitations: await listSignUpInvitations(db) });
       })
       // The instance's flags (#159): read as the server runs, so turning one needs no restart.
       .use("/flags", operatorsOnly)

@@ -40,6 +40,7 @@ import { commentSheet } from "../comment-sheet.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { emitEvent } from "../events.ts";
 import type { ViewerVariables } from "../guests.ts";
+import type { LinkRoots } from "../hosts.ts";
 import type { Mailer } from "../mail.ts";
 import { type NotificationActor, notifyNow, projectPeople } from "../notifications.ts";
 import { referencesOfFile } from "../references.ts";
@@ -413,7 +414,7 @@ export const fileCommentRoutes = (
   db: Database,
   audit: Audit,
   trustProxy: boolean,
-  mail: { mailer: Mailer; publicUrl: string },
+  mail: { mailer: Mailer } & LinkRoots,
 ) =>
   new Hono<{ Variables: ViewerVariables }>()
     // Whom a member may mention here (#133): the project's people, by name. Guests mention nobody.
@@ -1019,7 +1020,7 @@ export const fileCommentRoutes = (
  * started the thread and the others who replied in it. A mention wins over a reply.
  */
 async function tellAboutComment(
-  deps: { db: Database; mailer: Mailer; publicUrl: string },
+  deps: { db: Database; mailer: Mailer } & LinkRoots,
   c: {
     organisationId: string;
     projectId: string;
@@ -1117,7 +1118,7 @@ async function tellAboutComment(
  * `/api/comments/:id`: editing your own words, and resolving or reopening a thread (triage).
  * A comment on a file whose project the caller cannot see does not exist for them.
  */
-export const commentRoutes = (db: Database, mail: { mailer: Mailer; publicUrl: string }) =>
+export const commentRoutes = (db: Database, mail: { mailer: Mailer } & LinkRoots) =>
   new Hono<{ Variables: TenantVariables }>()
     .patch("/:id", idParam, zValidator("json", editCommentInput), async (c) => {
       const organisationId = c.var.organisationId;

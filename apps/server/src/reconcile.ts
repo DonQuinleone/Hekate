@@ -17,7 +17,9 @@ const {
   filePages,
   organisations,
   storageFindings,
+  ticketAttachments,
   uploads,
+  workspaceExports,
 } = schema;
 
 /** Uploads that may still finish: their keys and blobs belong to them, not to the sweep. */
@@ -279,12 +281,32 @@ export async function reconcileStorage(
                 .from(commentAttachments)
                 .where(inOrg(commentAttachments, owner, eq(commentAttachments.blobId, blobs.id))),
             ),
+            // Nor a ticket's attachment (#181).
+            notExists(
+              db
+                .select({ x: sql`1` })
+                .from(ticketAttachments)
+                .where(inOrg(ticketAttachments, owner, eq(ticketAttachments.blobId, blobs.id))),
+            ),
             // Nor a video's caption file (#146).
             notExists(
               db
                 .select({ x: sql`1` })
                 .from(captionTracks)
                 .where(inOrg(captionTracks, owner, eq(captionTracks.blobId, blobs.id))),
+            ),
+            // Nor a part of a workspace's export (#186), which goes when its week is over.
+            notExists(
+              db
+                .select({ x: sql`1` })
+                .from(workspaceExports)
+                .where(
+                  inOrg(
+                    workspaceExports,
+                    owner,
+                    sql`${blobs.id} = any(${workspaceExports.blobIds})`,
+                  ),
+                ),
             ),
             // Nor an upload that may still finish and make a file of it.
             notExists(

@@ -85,6 +85,13 @@ export const auditActions = [
   /** A member added a passkey or hardware security key to their account, or removed one. */
   "account.passkey_added",
   "account.passkey_removed",
+  /**
+   * An API token (#198) was made, renamed or given other scopes, or revoked: a member's own, or
+   * one of the workspace's service tokens. The token itself is never written; its name and hint are.
+   */
+  "api_token.create",
+  "api_token.change",
+  "api_token.revoke",
   /** A member deleted their account; what they did stays, as a former member's. */
   "account.deleted",
   /** A member signed in with the workspace's directory; the first time also makes them one. */
@@ -105,6 +112,19 @@ export const auditActions = [
   "organisation.channel_remove",
   /** An admin set, changed or removed the workspace's own mail (#161). */
   "organisation.mail",
+  /**
+   * An owner, or an operator, asked for an export of everything the workspace holds (#186), and
+   * someone downloaded a finished one.
+   */
+  "organisation.export_request",
+  "organisation.export_download",
+  /**
+   * An owner asked to delete the workspace (#186); a second owner confirmed it, so it is
+   * suspended and purged after its grace period; the request was withdrawn, or it was kept.
+   */
+  "organisation.deletion_request",
+  "organisation.deletion_confirm",
+  "organisation.deletion_cancel",
   /** A project was archived (its open reviews closing), or brought back. */
   "project.archive",
   "project.unarchive",
@@ -127,6 +147,8 @@ export const auditActions = [
   "project.transfer_refuse",
   "project.transfer_cancel",
   "project.transfer",
+  /** Someone in the workspace, or an operator, downloaded a file attached to a ticket (#181). */
+  "support.attachment_download",
 ] as const;
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;

@@ -12,6 +12,7 @@ import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
 import {
   files as allFiles,
+  tracks as allTracks,
   type File,
   type Folder,
   folders,
@@ -862,6 +863,9 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
   const canUpload = viewer.can(project.id, "upload");
   const uploading = state === "processing";
   const [requesting, setRequesting] = useState(false);
+  // Where an upload request's files go: a folder, or a track's next version (#425).
+  const [requestInto, setRequestInto] = useState("f-day2");
+  const requestTrack = allTracks.find((t) => t.id === requestInto);
   const empty = state === "empty" || items.length === 0;
   return (
     <div className="flex flex-col gap-4">
@@ -948,7 +952,7 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
       {requesting && (
         <Dialog
           title="Upload request"
-          description="A link for someone outside the project to upload into a folder. They need no account."
+          description="A link for someone outside the project to upload into a folder, or as a track's next version. They need no account."
           onClose={() => setRequesting(false)}
           footer={
             <>
@@ -976,14 +980,28 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
             <div className="grid gap-4 @md/app:grid-cols-3">
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Into
-                <Select defaultValue="f-day2">
-                  {folders
-                    .filter((f) => f.projectId === project.id)
-                    .map((f) => (
-                      <option key={f.id} value={f.id}>
-                        {f.name}
-                      </option>
-                    ))}
+                <Select value={requestInto} onChange={(e) => setRequestInto(e.target.value)}>
+                  <optgroup label="Folder">
+                    <option value="">Top of the project</option>
+                    {folders
+                      .filter((f) => f.projectId === project.id)
+                      .map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name}
+                        </option>
+                      ))}
+                  </optgroup>
+                  {project.profile === "music" && (
+                    <optgroup label="As the next version of">
+                      {allTracks
+                        .filter((t) => t.projectId === project.id)
+                        .map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
                 </Select>
               </label>
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
@@ -995,6 +1013,12 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
                 <Input type="date" defaultValue="2026-10-20" />
               </label>
             </div>
+            {requestTrack && (
+              <p className="text-[12px] text-ink-3">
+                Each file sent becomes the next version of {requestTrack.name} once it has been
+                processed, and arrives beside the track.
+              </p>
+            )}
             <div className="grid gap-4 @md/app:grid-cols-2">
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Password (optional)

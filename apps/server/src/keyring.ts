@@ -30,6 +30,11 @@ export interface Keyring {
    * any wrapped by a previous master key with the current one. Run at start-up.
    */
   reconcile(): Promise<{ rewrapped: number }>;
+  /**
+   * Forget an organisation's keys held in memory, zeroed, once it has been purged (#186): its
+   * wrapped keys went with its rows, and nothing here should outlive them.
+   */
+  forget(organisationId: string): void;
 }
 
 /** A transaction, or the database itself, to write a new key version with. */
@@ -112,6 +117,14 @@ export function createKeyring(db: Database, master: MasterKeys): Keyring {
     version,
 
     current,
+
+    forget(organisationId) {
+      for (const [id, key] of cache)
+        if (id.startsWith(`${organisationId}:`)) {
+          key.fill(0);
+          cache.delete(id);
+        }
+    },
 
     async rotate(organisationId, tx) {
       const { version: from } = await current(organisationId);

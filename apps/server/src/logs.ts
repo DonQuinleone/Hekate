@@ -1,5 +1,6 @@
 import type { Database } from "@hekate/db";
 import {
+  type ApiLogRow,
   type AuditLogRow,
   type AuthLogRow,
   type GatewayLogRow,
@@ -267,6 +268,61 @@ export async function webhookLog(
   };
 }
 
+/** Every call made with an API token (#198); one workspace's where filtered. */
+export async function apiLog(
+  db: Database,
+  filters: Filters,
+  now = new Date(),
+): Promise<{ rows: ApiLogRow[]; next: string | null }> {
+  const conditions: SQL[] = [sql`r.id >= ${sinceOf(filters, now)}::uuid`];
+  if (filters.before) conditions.push(sql`r.id < ${filters.before}::uuid`);
+  if (filters.workspace) conditions.push(sql`r.organisation_id = ${filters.workspace}::uuid`);
+  if (filters.q) {
+    const like = `%${escapeLike(filters.q)}%`;
+    conditions.push(
+      sql`(r.token_name ilike ${like} or r.path ilike ${like} or r.method ilike ${like}
+           or r.status::text = ${filters.q} or r.ip_address ilike ${like} or o.name ilike ${like})`,
+    );
+  }
+  const rows = await db.execute<{
+    id: string;
+    at: Date | string;
+    workspace_id: string;
+    workspace_name: string;
+    token_id: string | null;
+    token_name: string;
+    token_kind: ApiLogRow["token"]["kind"];
+    method: string;
+    path: string;
+    status: number;
+    duration_ms: number;
+    ip_address: string | null;
+  }>(sql`
+    select r.id, r.created_at as at, o.id as workspace_id, o.name as workspace_name,
+           r.token_id, r.token_name, r.token_kind, r.method, r.path, r.status, r.duration_ms,
+           r.ip_address
+    from api_requests r
+    join organisations o on o.id = r.organisation_id
+    where ${all(conditions)}
+    order by r.id desc
+    limit ${filters.limit + 1}`);
+  const page = rows.slice(0, filters.limit);
+  return {
+    rows: page.map((r) => ({
+      id: r.id,
+      at: new Date(r.at).toISOString(),
+      workspace: { id: r.workspace_id, name: r.workspace_name },
+      token: { id: r.token_id, name: r.token_name, kind: r.token_kind },
+      method: r.method,
+      path: r.path,
+      status: r.status,
+      durationMs: r.duration_ms,
+      ipAddress: r.ip_address,
+    })),
+    next: rows.length > filters.limit ? (page.at(-1)?.id ?? null) : null,
+  };
+}
+
 /** Every event the billing gateway sent (#178); one workspace's where filtered. */
 export async function gatewayLog(
   db: Database,
@@ -319,7 +375,7 @@ export async function gatewayLog(
   };
 }
 
-type AnyLogRow = AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow | GatewayLogRow;
+type AnyLogRow = AuditLogRow | AuthLogRow | ApiLogRow | MailLogRow | WebhookLogRow | GatewayLogRow;
 
 /** A log's page, of whichever kind. */
 export function readLog(
@@ -333,6 +389,7 @@ export function readLog(
 }> {
   if (kind === "audit") return auditLog(db, filters, now);
   if (kind === "auth") return authLog(db, filters, now);
+  if (kind === "api") return apiLog(db, filters, now);
   if (kind === "webhooks") return webhookLog(db, filters, now);
   if (kind === "gateway") return gatewayLog(db, filters, now);
   return mailLog(db, filters, now);
@@ -349,6 +406,17 @@ const csvColumns: Record<LogKind, string[]> = {
     "workspace",
     "ip_address",
     "user_agent",
+  ],
+  api: [
+    "created_at",
+    "workspace",
+    "token",
+    "kind",
+    "method",
+    "path",
+    "status",
+    "duration_ms",
+    "ip_address",
   ],
   mail: ["occurred_at", "to", "subject", "result", "error"],
   webhooks: [
@@ -393,6 +461,20 @@ function csvOf(kind: LogKind, row: AnyLogRow): string {
       r.workspace?.name,
       r.ipAddress,
       r.userAgent,
+    ]);
+  }
+  if (kind === "api") {
+    const r = row as ApiLogRow;
+    return csvLine([
+      r.at,
+      r.workspace.name,
+      r.token.name,
+      r.token.kind,
+      r.method,
+      r.path,
+      r.status,
+      r.durationMs,
+      r.ipAddress,
     ]);
   }
   if (kind === "webhooks") {

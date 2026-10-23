@@ -371,12 +371,17 @@ export function AccountPage({ section }: { section: string }) {
                       <option value="never">Never</option>
                     </Select>
                   </label>
-                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                  {/* A token reaches the workspace it was made in alone (#198): switch workspace
+                      to make one for another. */}
+                  <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                     Workspace
-                    <Select defaultValue="eh">
-                      <option value="eh">Endless Hall Records</option>
-                    </Select>
-                  </label>
+                    <span className="flex h-8 items-center text-[14px] text-ink">
+                      Endless Hall Records
+                    </span>
+                    <span className="text-[12px] text-ink-3">
+                      Switch workspace to make one for another.
+                    </span>
+                  </div>
                 </div>
               </div>
             </Dialog>

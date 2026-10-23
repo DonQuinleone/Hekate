@@ -47,6 +47,7 @@ const instanceIcons: Record<InstanceSection, IconName> = {
   workspaces: "building",
   operators: "fingerprint",
   billing: "chart",
+  support: "comment",
   health: "pulse",
   logs: "list",
   settings: "settings",
@@ -427,9 +428,26 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
   );
 }
 
-/** Help, beside the bell: the documentation now; tickets come with the support module. */
+/**
+ * Help, beside the bell: the documentation, and with the support module (#181) the workspace's
+ * tickets and a new one, which knows the file or review it was asked from; or the operators'
+ * own desk or mailbox where the instance answers elsewhere.
+ */
 function HelpMenu() {
   const [open, setOpen, box] = usePopover();
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const { data: me } = useQuery(meQuery);
+  const support = me?.support;
+  const docs = support?.docsUrl ?? docsUrl;
+  const on = /^\/(files|reviews)\/([0-9a-f-]{36})/.exec(pathname);
+  const from = on ? `${on[1] === "files" ? "file" : "review"}:${on[2]}` : undefined;
+  const elsewhere =
+    support?.mode === "link" && support.address
+      ? support.address
+      : support?.mode === "mail" && support.address
+        ? `mailto:${support.address}`
+        : null;
   return (
     <div ref={box} className="relative">
       <button
@@ -453,9 +471,34 @@ function HelpMenu() {
             { label: "Keyboard shortcuts", hint: "?", onSelect: openShortcutMap },
             {
               label: "View documentation",
-              hint: docsUrl.replace(/^https?:\/\//, ""),
-              onSelect: () => window.open(docsUrl, "_blank", "noopener"),
+              hint: docs.replace(/^https?:\/\//, "").replace(/\/$/, ""),
+              onSelect: () => window.open(docs, "_blank", "noopener"),
             },
+            ...(support?.mode === "app"
+              ? [
+                  {
+                    label: "My tickets",
+                    onSelect: () =>
+                      void navigate({ to: "/settings/$section", params: { section: "support" } }),
+                  },
+                  {
+                    label: "Contact support",
+                    onSelect: () =>
+                      void navigate({
+                        to: "/settings/$section",
+                        params: { section: "support" },
+                        search: { new: "1" as const, ...(from ? { from } : {}) },
+                      }),
+                  },
+                ]
+              : elsewhere
+                ? [
+                    {
+                      label: "Contact support",
+                      onSelect: () => window.open(elsewhere, "_blank", "noopener"),
+                    },
+                  ]
+                : []),
           ]}
         />
       )}

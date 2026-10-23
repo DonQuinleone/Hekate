@@ -39,12 +39,14 @@ describe("instance settings", () => {
         updates: { channel: "beta" },
         maintenance: { on: false, message: "" },
         defaults: { guestLinkDays: 14, storageQuota: 1e12, memberLimit: 25 },
-        logs: { audit: 730, auth: 365, mail: 90, webhooks: 90 },
+        logs: { audit: 730, auth: 365, mail: 90, webhooks: 90, api: 30 },
         billing: {
           currency: "EUR",
           dunning: { warn: 5, warnAgain: 14, suspend: 30 },
           trialDays: 30,
         },
+        registration: { mode: "closed" },
+        support: { statusUrl: "https://status.example", onCall: "user-1" },
       }),
     ).toEqual([
       { action: "settings.second_factor_on", details: {} },
@@ -58,6 +60,8 @@ describe("instance settings", () => {
       { action: "billing.trial_days", details: { days: 30 } },
       { action: "logs.retention", details: { kind: "audit", days: 730 } },
       { action: "logs.retention", details: { kind: "webhooks", days: 90 } },
+      { action: "support.status_page", details: { url: "https://status.example" } },
+      { action: "support.on_call", details: { userId: "user-1" } },
     ]);
     expect(settingsChanges(on, on)).toEqual([]);
   });
@@ -85,7 +89,7 @@ describe("instance settings", () => {
     // Kept for good is a choice too: a save that leaves out the logs keeps it.
     const forever = {
       ...defaultInstanceSettings,
-      logs: { audit: null, auth: null, mail: 30 as const, webhooks: null },
+      logs: { audit: null, auth: null, mail: 30 as const, webhooks: null, api: null },
     };
     const { logs: __, ...olderStill } = older;
     expect(withStored(olderStill, forever).logs).toEqual({
@@ -93,11 +97,18 @@ describe("instance settings", () => {
       auth: null,
       mail: 30,
       webhooks: null,
+      api: null,
     });
-    // A client from before the webhook log leaves its retention as stored.
+    // A client from before the webhook log, or the API log (#198), leaves their retention as
+    // stored.
     expect(
       withStored({ ...olderStill, logs: { audit: 730, auth: null, mail: 30 } }, forever).logs,
-    ).toEqual({ audit: 730, auth: null, mail: 30, webhooks: null });
+    ).toEqual({ audit: 730, auth: null, mail: 30, webhooks: null, api: null });
+    // The Settings page never sends the desk's settings (#182); they stay as the desk saved them.
+    const desk = { ...defaultInstanceSettings, support: { statusUrl: null, onCall: "user-1" } };
+    const { support: ___, ...fromSettings } = older;
+    expect(withStored(fromSettings, desk).support).toEqual({ statusUrl: null, onCall: "user-1" });
+    expect(instanceSettingsOf({ logs: {} }).support).toEqual({ statusUrl: null, onCall: null });
   });
 
   it("reads billing's rules over the defaults, and keeps them through an older client's save (#180)", () => {
@@ -121,5 +132,23 @@ describe("instance settings", () => {
     };
     const { billing: _, ...older } = stored;
     expect(withStored(older, stored).billing).toEqual(stored.billing);
+  });
+
+  it("reads registration as closed until an operator opens it, and keeps it through an older client's save (#184)", () => {
+    expect(instanceSettingsOf({}).registration).toEqual({ mode: "closed" });
+    expect(instanceSettingsOf({ registration: { mode: "open" } }).registration.mode).toBe("open");
+    // Something not known is read as the defaults, never as open.
+    expect(instanceSettingsOf({ registration: { mode: "everyone" } })).toEqual(
+      defaultInstanceSettings,
+    );
+    const stored = { ...defaultInstanceSettings, registration: { mode: "invite" as const } };
+    const { registration: _, ...older } = stored;
+    expect(withStored(older, stored).registration).toEqual({ mode: "invite" });
+    expect(withStored({ ...older, registration: { mode: "open" } }, stored).registration).toEqual({
+      mode: "open",
+    });
+    expect(settingsChanges(stored, { ...stored, registration: { mode: "open" } })).toEqual([
+      { action: "registration.mode", details: { mode: "open" } },
+    ]);
   });
 });

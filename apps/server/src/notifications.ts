@@ -14,6 +14,7 @@ import {
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { render } from "./email/render.ts";
 import { emitEvent } from "./events.ts";
+import { type LinkRoots, linkBase } from "./hosts.ts";
 import type { Mailer } from "./mail.ts";
 
 const {
@@ -220,8 +221,9 @@ export interface MailWorkspace {
  * One notification by mail, sent as it happens. A kind with a workspace template takes the
  * workspace's subject line; the rest say what happened.
  */
-export function instantMail(n: NotificationRow, publicUrl: string, workspace: MailWorkspace) {
-  const base = publicUrl.replace(/\/$/, "");
+export function instantMail(n: NotificationRow, address: string, workspace: MailWorkspace) {
+  // The workspace's own address with subdomains on (#437), PUBLIC_URL otherwise.
+  const base = address.replace(/\/$/, "");
   const line = lineOf(n);
   const subject = n.mail
     ? subjectFor(n.mail.template, workspace.subjects, {
@@ -251,8 +253,8 @@ export function instantMail(n: NotificationRow, publicUrl: string, workspace: Ma
 }
 
 /** Several notifications gathered into one mail, oldest first. */
-export function digestMail(rows: NotificationRow[], workspace: string, publicUrl: string) {
-  const base = publicUrl.replace(/\/$/, "");
+export function digestMail(rows: NotificationRow[], workspace: string, address: string) {
+  const base = address.replace(/\/$/, "");
   const count = `${rows.length} update${rows.length === 1 ? "" : "s"}`;
   return render({
     workspace,
@@ -278,14 +280,23 @@ export function digestDue(frequency: DigestFrequency, lastDigestAt: Date | null,
   return !lastDigestAt || lastDigestAt.getTime() < now.getTime() - 60 * 60 * 1000;
 }
 
-async function mailWorkspace(db: Db, n: NotificationRow): Promise<MailWorkspace> {
+async function mailWorkspace(
+  db: Db,
+  roots: LinkRoots,
+  n: NotificationRow,
+): Promise<MailWorkspace & { address: string }> {
   const [workspace] = await db
-    .select({ name: organisations.name, settings: organisations.settings })
+    .select({
+      name: organisations.name,
+      slug: organisations.slug,
+      settings: organisations.settings,
+    })
     .from(organisations)
     .where(eq(organisations.id, n.organisationId));
   return {
     name: workspace?.name ?? "Hekate",
     subjects: workspaceSettingsOf(workspace?.settings).emailSubjects,
+    address: linkBase(roots, workspace?.slug),
   };
 }
 
@@ -299,7 +310,7 @@ async function emailOf(db: Db, userId: string) {
  * mail goes, in one statement, so a second sender (the queue, or another run) finds it
  * taken; a mail that fails releases the claim for the next run to try again.
  */
-async function sendOnce(db: Database, mailer: Mailer, publicUrl: string, n: NotificationRow) {
+async function sendOnce(db: Database, mailer: Mailer, roots: LinkRoots, n: NotificationRow) {
   const claimedAt = new Date();
   const [claimed] = await db
     .update(notifications)
@@ -316,12 +327,14 @@ async function sendOnce(db: Database, mailer: Mailer, publicUrl: string, n: Noti
   if (!claimed) return false;
   const to = await emailOf(db, n.userId);
   try {
-    if (to)
+    if (to) {
+      const workspace = await mailWorkspace(db, roots, n);
       await mailer.send({
         to,
-        ...instantMail(n, publicUrl, await mailWorkspace(db, n)),
+        ...instantMail(n, workspace.address, workspace),
         organisationId: n.organisationId,
       });
+    }
     return true;
   } catch (error) {
     console.warn(`Could not send a notification by mail: ${String(error)}`);
@@ -345,7 +358,7 @@ const workspaces = async (db: Database) =>
 export async function deliverInstant(
   db: Database,
   mailer: Mailer,
-  publicUrl: string,
+  roots: LinkRoots,
   now = new Date(),
 ) {
   let sent = 0;
@@ -366,7 +379,7 @@ export async function deliverInstant(
       .limit(100);
     for (const n of due) {
       try {
-        if (await sendOnce(db, mailer, publicUrl, n)) sent++;
+        if (await sendOnce(db, mailer, roots, n)) sent++;
       } catch {
         return sent;
       }
@@ -379,7 +392,7 @@ export async function deliverInstant(
 export async function deliverDigests(
   db: Database,
   mailer: Mailer,
-  publicUrl: string,
+  roots: LinkRoots,
   now = new Date(),
 ) {
   // Who has a digest waiting, workspace by workspace.
@@ -432,7 +445,7 @@ export async function deliverDigests(
         .for("update", { skipLocked: true });
       if (rows.length === 0) return;
       const [workspace] = await tx
-        .select({ name: organisations.name })
+        .select({ name: organisations.name, slug: organisations.slug })
         .from(organisations)
         .where(eq(organisations.id, organisationId));
       const to = await emailOf(tx, userId);
@@ -440,7 +453,7 @@ export async function deliverDigests(
         if (to)
           await mailer.send({
             to,
-            ...digestMail(rows, workspace?.name ?? "Hekate", publicUrl),
+            ...digestMail(rows, workspace?.name ?? "Hekate", linkBase(roots, workspace?.slug)),
             organisationId,
           });
       } catch (error) {
@@ -479,14 +492,14 @@ export async function deliverDigests(
  * the next delivery run.
  */
 export async function notifyNow(
-  deps: { db: Database; mailer: Mailer; publicUrl: string },
+  deps: { db: Database; mailer: Mailer } & LinkRoots,
   event: NotificationEvent,
 ) {
   const rows = await recordNotification(deps.db, event);
   for (const n of rows) {
     if (n.mailMode !== "instant") continue;
     // A failure leaves it queued for the delivery job.
-    await sendOnce(deps.db, deps.mailer, deps.publicUrl, n).catch(() => false);
+    await sendOnce(deps.db, deps.mailer, deps, n).catch(() => false);
   }
   return rows;
 }

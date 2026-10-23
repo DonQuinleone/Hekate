@@ -1,21 +1,24 @@
 import { type Database, inOrg, schema, withAuditPurge } from "@hekate/db";
 import type { Backends } from "@hekate/storage";
 import { and, eq, inArray, isNotNull, lte } from "drizzle-orm";
-import { recordInstanceEvent } from "./routes/instance.ts";
+import { recordInstanceEvent } from "./instance-events.ts";
+import type { Keyring } from "./keyring.ts";
 
 /**
- * Deletes a workspace an operator set to be deleted, once its grace period is over (#174):
- * every row it owns, its access log among them, and then every stored object under its
- * prefix in every backend. The rows go first, in one transaction, so a failure leaves the
- * workspace whole; bytes left behind by a backend that fails are orphans, which the storage
- * reconciliation reports and removes. Unfinished uploads are aborted first. Returns how many
- * objects it removed, or null when it did not purge.
+ * Deletes a workspace set to be deleted, by an operator (#174) or by its owners (#186), once its
+ * grace period is over: every row it owns (its keys, its exports and its access log among them,
+ * the log through its explicit purge, decision 020), then every stored object under its prefix
+ * in every backend, then whatever of its keys this process holds in memory. The rows go first,
+ * in one transaction, so a failure leaves the workspace whole; bytes left behind by a backend
+ * that fails are orphans, which the storage reconciliation reports and removes. Unfinished
+ * uploads are aborted first. Returns how many objects it removed, or null when it did not purge.
  */
 export async function purgeWorkspace(
   db: Database,
   backends: Backends,
   organisationId: string,
   now = new Date(),
+  keyring?: Pick<Keyring, "forget">,
 ) {
   if (!(await due(db, organisationId, now))) return null;
   // Unfinished uploads keep their parts where no listing of the prefix finds them, so they
@@ -49,7 +52,7 @@ export async function purgeWorkspace(
       .from(schema.organisations)
       .where(eq(schema.organisations.id, organisationId))
       .for("update");
-    // Reinstated, or its deletion cancelled, since it was chosen: it stays.
+    // Reinstated, or kept, since it was chosen: it stays.
     if (!row?.suspendedAt || !row.deleteAfter || row.deleteAfter > now) return null;
     // A variation holds on to its file, so variations go before the cascade reaches files.
     await tx.delete(schema.variations).where(inOrg(schema.variations, organisationId));
@@ -69,6 +72,7 @@ export async function purgeWorkspace(
       console.error(`Purging ${name} from storage ${backendName} stopped:`, error);
     }
   }
+  keyring?.forget(organisationId);
   await recordInstanceEvent(db, {
     actorId: null,
     action: "workspace.purged",
@@ -91,7 +95,12 @@ async function due(db: Pick<Database, "select">, organisationId: string, now: Da
 }
 
 /** Purges every workspace whose grace period is over. Run hourly. */
-export async function purgeDueWorkspaces(db: Database, backends: Backends, now = new Date()) {
+export async function purgeDueWorkspaces(
+  db: Database,
+  backends: Backends,
+  now = new Date(),
+  keyring?: Pick<Keyring, "forget">,
+) {
   const due = await db
     .select({ id: schema.organisations.id })
     .from(schema.organisations)
@@ -99,6 +108,7 @@ export async function purgeDueWorkspaces(db: Database, backends: Backends, now =
       and(isNotNull(schema.organisations.suspendedAt), lte(schema.organisations.deleteAfter, now)),
     );
   let purged = 0;
-  for (const w of due) if ((await purgeWorkspace(db, backends, w.id, now)) !== null) purged += 1;
+  for (const w of due)
+    if ((await purgeWorkspace(db, backends, w.id, now, keyring)) !== null) purged += 1;
   return purged;
 }

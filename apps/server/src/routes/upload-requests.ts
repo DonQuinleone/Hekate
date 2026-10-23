@@ -17,13 +17,16 @@ import { type Audit, requestInfo } from "../audit.ts";
 import { workspaceEmail } from "../email/templates.ts";
 import { NotFound } from "../errors.ts";
 import { hashToken } from "../guests.ts";
+import { type LinkRoots, workspaceLinkBase } from "../hosts.ts";
 import type { Jobs } from "../jobs.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { notifyNow } from "../notifications.ts";
+import { measuredKind, versionFromRequest } from "../request-versions.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { uploadEngine, uploadView } from "../upload-engine.ts";
 import { hashPassword, newRequestToken, passwordMatches } from "../upload-requests.ts";
+import type { RunnerDeps } from "../workflow-runner.ts";
 import { chunkBody, chunkIndex } from "./uploads.ts";
 
 const {
@@ -34,20 +37,22 @@ const {
   folders,
   files,
   projects,
+  tracks,
   organisations,
   users,
 } = schema;
 type RequestRow = typeof uploadRequests.$inferSelect;
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
-export interface UploadRequestDeps {
+export interface UploadRequestDeps extends LinkRoots {
   db: Database;
   storage: Storage;
   jobs: Pick<Jobs, "send">;
   audit: Audit;
   mailer: Mailer;
-  publicUrl: string;
   trustProxy: boolean;
+  /** The workflows a request's versions move on (#425); without asking for reviews if absent. */
+  runner?: RunnerDeps;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -76,6 +81,7 @@ function memberView(row: RequestRow, arrived: number, now = new Date()) {
     id: row.id,
     projectId: row.projectId,
     folderId: row.folderId,
+    trackId: row.trackId,
     name: row.name,
     wanted: row.wanted,
     fileLimit: row.fileLimit,
@@ -105,7 +111,9 @@ const gone = () =>
  */
 export const uploadRequestRoutes = (deps: UploadRequestDeps) => {
   const { db, audit } = deps;
-  const link = (token: string) => `${deps.publicUrl.replace(/\/$/, "")}/u/${token}`;
+  /** A request's link: at its workspace's own address with subdomains on (#437). */
+  const link = async (organisationId: string, token: string) =>
+    `${await workspaceLinkBase(db, deps, organisationId)}/u/${token}`;
 
   /** A request of the caller's workspace that they may organise, or 404. */
   const organisable = async (c: { var: TenantVariables }, id: string) => {
@@ -163,6 +171,23 @@ export const uploadRequestRoutes = (deps: UploadRequestDeps) => {
               );
             if (!folder) throw new NotFound("Folder");
           }
+          // A track of this project, in this workspace (#425): its files arrive beside it.
+          let trackFolder: string | null = null;
+          if (input.trackId) {
+            const [track] = await db
+              .select({ id: tracks.id, folderId: tracks.folderId })
+              .from(tracks)
+              .where(
+                inOrg(
+                  tracks,
+                  organisationId,
+                  eq(tracks.id, input.trackId),
+                  eq(tracks.projectId, projectId),
+                ),
+              );
+            if (!track) throw new NotFound("Track");
+            trackFolder = track.folderId;
+          }
           const expiresAt = endOfDay(input.expiresOn);
           const days = Math.ceil((expiresAt.getTime() - Date.now()) / DAY_MS);
           if (days < 1 || days > UPLOAD_REQUEST_MAX_DAYS) {
@@ -176,7 +201,8 @@ export const uploadRequestRoutes = (deps: UploadRequestDeps) => {
             .values({
               organisationId,
               projectId,
-              folderId: input.folderId,
+              folderId: input.trackId ? trackFolder : input.folderId,
+              trackId: input.trackId ?? null,
               createdBy: c.var.userId,
               name: input.name,
               wanted: input.wanted,
@@ -193,7 +219,12 @@ export const uploadRequestRoutes = (deps: UploadRequestDeps) => {
             {
               action: "upload_request.create",
               projectId,
-              details: { request: row.id, name: row.name, fileLimit: row.fileLimit },
+              details: {
+                request: row.id,
+                name: row.name,
+                fileLimit: row.fileLimit,
+                ...(row.trackId ? { trackId: row.trackId } : {}),
+              },
             },
             requestInfo(c, deps.trustProxy),
           );
@@ -215,7 +246,7 @@ export const uploadRequestRoutes = (deps: UploadRequestDeps) => {
                   workspace: organisation?.name ?? "Hekate",
                   requester: requester?.name ?? "Someone",
                   file: row.wanted || row.name,
-                  url: link(token),
+                  url: await link(organisationId, token),
                   days,
                 },
                 workspaceSettingsOf(organisation?.settings).emailSubjects,
@@ -224,7 +255,10 @@ export const uploadRequestRoutes = (deps: UploadRequestDeps) => {
             );
           }
           // The link is shown this once: only its hash is kept.
-          return c.json({ request: memberView(row, 0), link: link(token) }, 201);
+          return c.json(
+            { request: memberView(row, 0), link: await link(organisationId, token) },
+            201,
+          );
         },
       )
 
@@ -291,7 +325,7 @@ export const uploadRequestRoutes = (deps: UploadRequestDeps) => {
           .update(uploadRequests)
           .set({ tokenHash: hashToken(token) })
           .where(inOrg(uploadRequests, row.organisationId, eq(uploadRequests.id, row.id)));
-        return c.json({ link: link(token) });
+        return c.json({ link: await link(row.organisationId, token) });
       })
   );
 };
@@ -371,6 +405,16 @@ export const uploadLinkRoutes = (deps: UploadRequestDeps) => {
     return found;
   };
 
+  /** Where a file arrives: the request's folder, or beside its track wherever that is now. */
+  const arrivalFolder = async (row: RequestRow) => {
+    if (!row.trackId) return row.folderId;
+    const [track] = await db
+      .select({ folderId: tracks.folderId })
+      .from(tracks)
+      .where(inOrg(tracks, row.organisationId, eq(tracks.id, row.trackId)));
+    return track ? track.folderId : row.folderId;
+  };
+
   const refuseUnlessOpen = (row: RequestRow, arrived: number) => {
     const state = uploadRequestState(row, arrived);
     if (state === "full")
@@ -425,7 +469,7 @@ export const uploadLinkRoutes = (deps: UploadRequestDeps) => {
         const row = await engine.begin({
           organisationId: request.organisationId,
           projectId: request.projectId,
-          folderId: request.folderId,
+          folderId: await arrivalFolder(request),
           name: input.name,
           size: input.size,
           contentType: input.contentType,
@@ -541,6 +585,17 @@ export const uploadLinkRoutes = (deps: UploadRequestDeps) => {
           text: `${sender} sent ${file.name} for ${request.name}`,
           link: `/files/${file.id}`,
         });
+      }
+      // Sent to a track (#425): a file that is measured becomes its version once it has been
+      // (the measuring job sees to it); anything else, now. A failure is left in the log: the
+      // file has arrived either way.
+      if (created && request.trackId && !measuredKind(file.kind)) {
+        await versionFromRequest(
+          { ...deps, ...(deps.runner ?? { db, jobs: deps.jobs }) },
+          { organisationId: request.organisationId, fileId: file.id },
+        ).catch((error: unknown) =>
+          console.warn(`Could not make a version from file ${file.id}: ${String(error)}`),
+        );
       }
       // The visitor sees only that it arrived: never the file itself.
       return c.json({ arrived: { name: file.name, size: file.byteSize } }, created ? 201 : 200);

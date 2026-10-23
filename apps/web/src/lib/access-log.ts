@@ -48,6 +48,11 @@ const actionWords = {
   "organisation.channel_change": "Channel changed",
   "organisation.channel_remove": "Channel removed",
   "organisation.mail": "Workspace mail changed",
+  "organisation.export_request": "Workspace export asked for",
+  "organisation.export_download": "Workspace export downloaded",
+  "organisation.deletion_request": "Workspace deletion asked for",
+  "organisation.deletion_confirm": "Workspace deletion confirmed",
+  "organisation.deletion_cancel": "Workspace deletion withdrawn",
   "account.lockout": "Account locked after failed sign-ins",
   "account.password_reset": "Password reset with an emailed code",
   "account.second_factor_added": "Second factor added",
@@ -55,6 +60,9 @@ const actionWords = {
   "account.recovery_codes": "New recovery codes generated",
   "account.passkey_added": "Passkey or hardware security key added",
   "account.passkey_removed": "Passkey or hardware security key removed",
+  "api_token.create": "API token made",
+  "api_token.change": "API token changed",
+  "api_token.revoke": "API token revoked",
   "account.deleted": "Account deleted",
   "account.directory_sign_in": "Signed in with the directory",
   "account.sso_sign_in": "Signed in with single sign-on",
@@ -70,6 +78,7 @@ const actionWords = {
   "project.transfer_refuse": "Project move refused",
   "project.transfer_cancel": "Project move withdrawn",
   "project.transfer": "Project moved between workspaces",
+  "support.attachment_download": "Ticket attachment downloaded",
 } satisfies Record<AuditAction, string>;
 
 /** Plain words for what each entry records; every action has some, or this does not compile. */

@@ -1,4 +1,5 @@
 import {
+  type ApiLogRow,
   type AuditLogRow,
   type AuthLogRow,
   type CheckState,
@@ -34,6 +35,11 @@ import {
   type MailLogRow,
   mailProviders,
   parseErrorReference,
+  type RegistrationMode,
+  registrationModes,
+  registrationNames,
+  type SignUpInvitation,
+  slugFrom,
   type UpdateChannel,
   updateChannels,
   type WebhookLogRow,
@@ -56,6 +62,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { ApiLogEntry } from "~/components/api-tokens";
 import { Gauge, Spark } from "~/components/charts";
 import { Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
@@ -67,6 +74,7 @@ import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { ConfirmStep } from "~/components/project-transfer";
 import { Danger, Row, Section, SwitchRow } from "~/components/settings";
+import { InstanceSupport } from "~/components/support-desk";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
@@ -76,6 +84,7 @@ import { Segmented } from "~/components/ui/segmented";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { MemberLimitSelect, QuotaSelect, UsageRows } from "~/components/usage";
+import { WorkspaceExports } from "~/components/workspace-lifecycle";
 import { actionCopy } from "~/lib/access-log";
 import { shortAgent } from "~/lib/agent";
 import { api } from "~/lib/api";
@@ -105,6 +114,8 @@ import {
   json,
   logQueryString,
   noticeQuery,
+  signUpInfoQuery,
+  signUpInvitationsQuery,
   useOperatorMove,
   useWorkspaceLimits,
 } from "~/lib/queries";
@@ -115,7 +126,15 @@ const since = formatDates({ day: "numeric", month: "short", year: "numeric" });
  * `/instance` and its sections (#155, decision 062): the instance side, in the same shell.
  * Operators see every section; a workspace's owner sees their own workspaces and no more.
  */
-export function InstancePage({ section }: { section: InstanceSection }) {
+export function InstancePage({
+  section,
+  search = {},
+}: {
+  section: InstanceSection;
+  /** A ticket open on the desk (#182), or a workspace (and its tab) opened from one. */
+  search?: { ticket?: string; workspace?: string; tab?: "members" };
+}) {
+  const navigate = useNavigate();
   const { data: access, isPending } = useQuery(instanceAccessQuery);
   if (isPending) return null;
   if (!access)
@@ -132,7 +151,15 @@ export function InstancePage({ section }: { section: InstanceSection }) {
   const current = sections.includes(section) ? section : (sections[0] ?? "workspaces");
   const meta = instanceSections[current];
   const operatorView = access.operator && !access.keyNeeded;
-  if (current === "workspaces") return <Workspaces access={access} />;
+  if (current === "workspaces")
+    return (
+      <Workspaces
+        key={search.workspace ?? "all"}
+        access={access}
+        open={search.workspace}
+        tab={search.tab}
+      />
+    );
   return (
     <Page className="gap-10">
       <PageHeader
@@ -152,6 +179,18 @@ export function InstancePage({ section }: { section: InstanceSection }) {
           {current === "overview" && operatorView && <Overview />}
           {current === "operators" && operatorView && <Operators />}
           {current === "billing" && operatorView && <InstanceBilling />}
+          {current === "support" && operatorView && (
+            <InstanceSupport
+              ticketId={search.ticket}
+              onTicket={(ticket) =>
+                void navigate({
+                  to: "/instance/$section",
+                  params: { section: "support" },
+                  search: ticket ? { ticket } : {},
+                })
+              }
+            />
+          )}
           {current === "settings" && operatorView && <Settings />}
           {current === "health" && operatorView && <SystemHealthPage />}
           {current === "logs" && operatorView && <Logs />}
@@ -774,6 +813,202 @@ function Flags() {
 }
 
 /**
+ * Registration (#184): who may make a workspace, and, unless only operators may, the invitations
+ * to make one still waiting.
+ */
+function Registration({
+  mode,
+  publicUrl,
+  disabled,
+  onChange,
+}: {
+  mode: RegistrationMode;
+  publicUrl: string;
+  disabled: boolean;
+  onChange: (mode: RegistrationMode) => void;
+}) {
+  const [inviting, setInviting] = useState(false);
+  // The trial as the sign-up page offers it: billing on, a length, and a plan to try.
+  const { data: info } = useQuery(signUpInfoQuery);
+  const trial =
+    mode !== "closed" && info?.trialDays ? ` Each starts a ${info.trialDays}-day trial.` : "";
+  const hint =
+    mode === "closed"
+      ? "Operators make them, on the Workspaces page."
+      : mode === "invite"
+        ? `Someone an operator invites makes their own, at the link in the invitation.${trial}`
+        : `Anyone who confirms their email, at ${publicUrl.replace(/\/$/, "")}/sign-up.${trial}`;
+  return (
+    <>
+      <Section
+        title="Registration"
+        action={
+          mode === "closed" ? undefined : (
+            <Button variant="secondary" size="md" onClick={() => setInviting(true)}>
+              Invite…
+            </Button>
+          )
+        }
+      >
+        <Row name="New workspaces" hint={hint}>
+          <Select
+            aria-label="Who may make a workspace"
+            value={mode}
+            disabled={disabled}
+            onChange={(e) => onChange(e.target.value as RegistrationMode)}
+            className="w-48"
+          >
+            {registrationModes.map((m) => (
+              <option key={m} value={m}>
+                {registrationNames[m]}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        {mode !== "closed" && <SignUpInvitations />}
+      </Section>
+      {inviting && <InviteToSignUp onClose={() => setInviting(false)} />}
+    </>
+  );
+}
+
+const until = formatDates({ day: "numeric", month: "short" });
+
+/** Operators' invitations to make a workspace, each withdrawn from its menu. */
+function SignUpInvitations() {
+  const client = useQueryClient();
+  const { data: invitations, error } = useQuery(signUpInvitationsQuery);
+  const withdraw = useMutation({
+    mutationFn: async (id: string) =>
+      (
+        await json<{ invitations: SignUpInvitation[] }>(
+          await api.instance["sign-up-invitations"][":id"].$delete({ param: { id } }),
+        )
+      ).invitations,
+    onSuccess: (next) => client.setQueryData(signUpInvitationsQuery.queryKey, next),
+  });
+  if (error) return <Row name="Invitations" hint={error.message} />;
+  if (!invitations) return null;
+  if (invitations.length === 0)
+    return (
+      <Row
+        name="Invitations"
+        hint="None waiting. Invite someone to make a workspace of their own: the link works once, for a week."
+      />
+    );
+  return (
+    <>
+      {invitations.map((i) => (
+        <Row
+          key={i.id}
+          name={<span className="block truncate">{i.email}</span>}
+          hint={`Invited by ${i.invitedBy ?? "an operator"} · the link works until ${until.format(new Date(i.expiresAt))}`}
+          inline
+        >
+          <ActionMenu
+            always
+            label={i.email}
+            actions={[{ label: "Withdraw", danger: true, onSelect: () => withdraw.mutate(i.id) }]}
+          />
+        </Row>
+      ))}
+      {withdraw.isError && <Row name="Not withdrawn" hint={withdraw.error.message} />}
+    </>
+  );
+}
+
+/** Invites someone to make a workspace of their own, by email (#184). */
+function InviteToSignUp({ onClose }: { onClose: () => void }) {
+  const client = useQueryClient();
+  const [email, setEmail] = useState("");
+  /** The invitation's link, when its mail could not be sent, to pass on by hand. */
+  const [unsent, setUnsent] = useState<string | null>(null);
+  const invite = useMutation({
+    mutationFn: async () =>
+      json<{ link: string; mailed: boolean }>(
+        await api.instance["sign-up-invitations"].$post({ json: { email } }),
+      ),
+    onSuccess: async ({ link, mailed }) => {
+      await client.invalidateQueries({ queryKey: signUpInvitationsQuery.queryKey });
+      if (mailed) onClose();
+      else setUnsent(link);
+    },
+  });
+  if (unsent)
+    return (
+      <Dialog
+        title="Invitation made"
+        description="It could not be mailed. Pass this link on yourself: it works once, for a week."
+        onClose={onClose}
+        width="sm"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => void navigator.clipboard?.writeText(unsent)}
+            >
+              <Icon name="copy" size={13} />
+              Copy the link
+            </Button>
+            <Button variant="primary" size="md" onClick={onClose}>
+              Done
+            </Button>
+          </>
+        }
+      >
+        <Field label="Invitation link">
+          <Input value={unsent} readOnly onFocus={(e) => e.currentTarget.select()} />
+        </Field>
+      </Dialog>
+    );
+  return (
+    <Dialog
+      title="Invite someone to make a workspace"
+      description="They name it and choose its address at the link, and become its owner. The link works once, for a week."
+      onClose={onClose}
+      width="sm"
+      footer={
+        <>
+          <Button variant="ghost" size="md" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            type="submit"
+            form="invite-to-sign-up"
+            disabled={invite.isPending}
+          >
+            Send invitation
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="invite-to-sign-up"
+        onSubmit={(e) => {
+          e.preventDefault();
+          invite.mutate();
+        }}
+      >
+        <Field label="Email" error={invite.error?.message ?? null}>
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="owner@lantern.example"
+            autoComplete="off"
+            required
+            autoFocus
+          />
+        </Field>
+      </form>
+    </Dialog>
+  );
+}
+
+/**
  * The instance's settings (#160), as the prototype has them: what an operator decides for every
  * workspace, each change recorded, beside what the environment sets, read-only.
  */
@@ -790,6 +1025,7 @@ function Settings() {
     onSuccess: (next) => {
       client.setQueryData(instanceOwnSettingsQuery.queryKey, next);
       void client.invalidateQueries({ queryKey: noticeQuery.queryKey });
+      void client.invalidateQueries({ queryKey: signUpInfoQuery.queryKey });
     },
   });
   const mailTest = useMutation({
@@ -823,6 +1059,12 @@ function Settings() {
           <span className="truncate text-[13px] text-ink-2">{modules.statusUrl ?? "None"}</span>
         </Row>
       </Section>
+      <Registration
+        mode={settings.registration.mode}
+        publicUrl={env.publicUrl}
+        disabled={save.isPending}
+        onChange={(mode) => save.mutate({ ...settings, registration: { mode } })}
+      />
       <Section
         title="Security"
         intro="What every workspace must do, whatever its own settings say."
@@ -934,6 +1176,7 @@ function Settings() {
             ],
             ["auth", "Authentication", "Every sign-in, refusal and lockout."],
             ["mail", "Email", "Every message handed to instance mail."],
+            ["api", "API", "Every call made with an API token."],
             [
               "webhooks",
               "Webhooks",
@@ -1246,6 +1489,7 @@ const logTime = formatDates({
 const logLabels: Record<LogKind, string> = {
   audit: "Audit",
   auth: "Authentication",
+  api: "API",
   mail: "Email",
   webhooks: "Webhooks",
   gateway: "Gateway",
@@ -1260,6 +1504,7 @@ const logNotes: Record<LogKind, string> = {
   audit:
     "Every action an operator took on the instance, and every change in a workspace with the files people downloaded. Streams and page renders stay in each workspace's access log.",
   auth: "Every sign-in, refusal and lockout, with the address and the browser. After four wrong passwords each try waits longer, and ten in fifteen minutes lock the account for fifteen.",
+  api: "Every call made with an API token, with its answer and how long it took. Each workspace's admins see their own in its settings, under API.",
   mail: "Every message handed to instance mail, and what came back. Without SMTP, messages are written to the server's log.",
   webhooks:
     "Every delivery to a workspace's channels and its attempts. A channel that keeps failing pauses itself for five minutes; Debug tools send a delivery again.",
@@ -1338,10 +1583,8 @@ function Logs() {
   useEffect(() => {
     if (workspaces.hasNextPage && !workspaces.isFetchingNextPage) void workspaces.fetchNextPage();
   }, [workspaces.hasNextPage, workspaces.isFetchingNextPage, workspaces.fetchNextPage]);
-  const rows: (AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow | GatewayLogRow)[] =
-    log.data?.pages.flatMap(
-      (p): (AuditLogRow | AuthLogRow | MailLogRow | WebhookLogRow | GatewayLogRow)[] => p.rows,
-    ) ?? [];
+  type AnyRow = AuditLogRow | AuthLogRow | ApiLogRow | MailLogRow | WebhookLogRow | GatewayLogRow;
+  const rows: AnyRow[] = log.data?.pages.flatMap((p): AnyRow[] => p.rows) ?? [];
   const exportUrl = `/api/instance/logs/${kind}/export?${new URLSearchParams(logQueryString(filters))}`;
   const body = (
     <>
@@ -1470,6 +1713,8 @@ function Logs() {
               </span>
             </div>
           ))
+        ) : kind === "api" ? (
+          (rows as ApiLogRow[]).map((r) => <ApiLogEntry key={r.id} row={r} workspace />)
         ) : kind === "webhooks" ? (
           (rows as WebhookLogRow[]).map((r) => <WebhookEntry key={r.id} row={r} />)
         ) : kind === "gateway" ? (
@@ -1853,11 +2098,20 @@ const filters: { value: WorkspaceFilter; label: string }[] = [
  * The workspaces this viewer may see, as a full-height split (#174): the list at the left,
  * searched and filtered, paging as it scrolls; the chosen workspace's tabs at the right.
  */
-function Workspaces({ access }: { access: InstanceAccess }) {
+function Workspaces({
+  access,
+  open,
+  tab,
+}: {
+  access: InstanceAccess;
+  /** A workspace to open first, as a ticket on the desk does (#182), and its tab. */
+  open?: string;
+  tab?: "members";
+}) {
   const operator = access.operator && !access.keyNeeded;
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<WorkspaceFilter>("");
-  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(open ?? null);
   const [creating, setCreating] = useState(false);
   const search = useDeferredValue(q.trim());
   const list = useInfiniteQuery(
@@ -1865,7 +2119,10 @@ function Workspaces({ access }: { access: InstanceAccess }) {
   );
   const workspaces = list.data?.pages.flatMap((p) => p.workspaces) ?? [];
   const total = list.data?.pages[0]?.total ?? 0;
-  const current = workspaces.find((w) => w.id === chosen) ?? workspaces[0];
+  // The one asked for opens even before the list has loaded as far as it.
+  const current =
+    workspaces.find((w) => w.id === chosen) ??
+    (chosen === open && open ? { id: open } : workspaces[0]);
   const more = useRef<HTMLDivElement>(null);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = list;
   useEffect(() => {
@@ -1959,7 +2216,14 @@ function Workspaces({ access }: { access: InstanceAccess }) {
           </div>
         </div>
         <div className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {current && <WorkspaceDetail key={current.id} id={current.id} operator={operator} />}
+          {current && (
+            <WorkspaceDetail
+              key={current.id}
+              id={current.id}
+              operator={operator}
+              tab={current.id === open ? tab : undefined}
+            />
+          )}
         </div>
       </div>
     </>
@@ -1990,10 +2254,18 @@ type WorkspaceTab =
   | "keys";
 
 /** One workspace: what it is, where it stands, and its tabs. */
-function WorkspaceDetail({ id, operator }: { id: string; operator: boolean }) {
+function WorkspaceDetail({
+  id,
+  operator,
+  tab: first,
+}: {
+  id: string;
+  operator: boolean;
+  tab?: WorkspaceTab;
+}) {
   const client = useQueryClient();
   const { data: w } = useQuery(instanceWorkspaceQuery(id));
-  const [tab, setTab] = useState<WorkspaceTab>("overview");
+  const [tab, setTab] = useState<WorkspaceTab>(first ?? "overview");
   const [suspending, setSuspending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reinstate = useMutation({
@@ -2077,7 +2349,7 @@ function WorkspaceDetail({ id, operator }: { id: string; operator: boolean }) {
           />
         </TabsContent>
         <TabsContent value="keys" className="flex flex-col gap-6 pt-6">
-          <WorkspaceKeys id={id} operator={operator} />
+          <WorkspaceKeys id={id} name={w.name} operator={operator} />
         </TabsContent>
       </Tabs>
     </div>
@@ -2629,7 +2901,7 @@ function DeleteWorkspace({
   );
 }
 
-function WorkspaceKeys({ id, operator }: { id: string; operator: boolean }) {
+function WorkspaceKeys({ id, name, operator }: { id: string; name: string; operator: boolean }) {
   const client = useQueryClient();
   const { data: k } = useQuery(instanceKeysQuery(id));
   const [error, setError] = useState<string | null>(null);
@@ -2679,6 +2951,8 @@ function WorkspaceKeys({ id, operator }: { id: string; operator: boolean }) {
           {error}
         </p>
       )}
+      {/* Its export (#186): for leaving or for an audit; its owners have theirs in Settings. */}
+      {operator && <WorkspaceExports scope={{ kind: "instance", id }} name={name} />}
     </Section>
   );
 }
@@ -2799,15 +3073,6 @@ function NewWorkspace({ onClose, onMade }: { onClose: () => void; onMade: (id: s
     </Dialog>
   );
 }
-
-const slugFrom = (name: string) =>
-  name
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 40)
-    .replace(/-$/, "");
 
 function SuspendWorkspace({
   workspace,

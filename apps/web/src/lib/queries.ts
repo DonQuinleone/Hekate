@@ -127,6 +127,8 @@ import {
   type SessionSummary,
   type SessionTodoChange,
   type SharedTake,
+  type SignUpInfo,
+  type SignUpInvitation,
   type SpectrogramAnalysis,
   type SsoServiceProvider,
   type SsoSettings,
@@ -139,6 +141,7 @@ import {
   type StagePlanInput,
   type StandingGrant,
   type StartTake,
+  type SupportModule,
   type SystemHealth,
   type SystemInformation,
   searchResponse,
@@ -192,6 +195,7 @@ import {
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { notMemberAddress } from "./hosts";
 import { outboxStore } from "./outbox-store";
 import { baseOf, outcomeOf, type PendingWrite, rolledAt } from "./take-outbox";
 import { uuidv7 } from "./uuidv7";
@@ -273,9 +277,10 @@ export interface Me {
     locale?: string | null;
     /**
      * Suspended, and why: nobody gets in until it is reinstated. `payable` when billing
-     * suspended it for a payment overdue (#178): its owners may still pay.
+     * suspended it for a payment overdue (#178): its owners may still pay. `deleteAfter` when
+     * its owners are deleting it (#186): they may keep it, or export it, until that day.
      */
-    suspended?: { reason: string | null; payable?: boolean } | null;
+    suspended?: { reason: string | null; payable?: boolean; deleteAfter?: string | null } | null;
     /** Where it answers, with workspace subdomains on (#176). */
     url?: string | null;
   }[];
@@ -284,6 +289,8 @@ export interface Me {
   root?: string | null;
   /** The billing module is on (#178): the workspace's Billing settings show. */
   billing?: boolean;
+  /** How the instance answers support (#181): the help menu and the Support page follow it. */
+  support?: SupportModule;
   /**
    * Whether they have a code app and how many passkeys, what this workspace asks of a sign-in
    * (a second factor; a hardware security key), whether this sign-in met it, and recovery codes left.
@@ -313,7 +320,8 @@ export const meQuery = queryOptions({
       // to their own.
       if (body?.error?.code === "not_member_here") {
         const { root } = await json<SignInMethods>(await api["sign-in-methods"].$get());
-        if (root) return leaveFor(`${root}/`);
+        if (root)
+          return leaveFor(notMemberAddress(root, window.location.pathname, window.location.search));
       }
     }
     return json<Me>(res);
@@ -342,12 +350,32 @@ export interface SignInMethods {
   workspace: { name: string; slug: string; providerId: string | null } | null;
   /** The root's address, with workspace subdomains on. */
   root: string | null;
+  /** Open sign-up (#184): anyone may make a workspace, from the root's sign-in. */
+  signUp?: boolean;
 }
 
 export const signInMethodsQuery = queryOptions({
   queryKey: ["sign-in-methods"],
   queryFn: async () => json<SignInMethods>(await api["sign-in-methods"].$get()),
   staleTime: 5 * 60_000,
+});
+
+/** What the sign-up page offers (#184): the instance's registration, and the trial. */
+export const signUpInfoQuery = queryOptions({
+  queryKey: ["sign-up"],
+  queryFn: async () => json<SignUpInfo>(await api["sign-up"].$get()),
+  staleTime: 60_000,
+});
+
+/** Operators' invitations to make a workspace, still waiting (#184). */
+export const signUpInvitationsQuery = queryOptions({
+  queryKey: ["instance", "sign-up-invitations"],
+  queryFn: async () =>
+    (
+      await json<{ invitations: SignUpInvitation[] }>(
+        await api.instance["sign-up-invitations"].$get(),
+      )
+    ).invitations,
 });
 
 /** Go to another of the instance's addresses: nothing here settles meanwhile. */
@@ -2133,6 +2161,8 @@ export interface Version {
   number: number;
   /** Who added it, by name; null once their account is gone. */
   createdByName: string | null;
+  /** Who sent its file through an upload request, where no member added it (#425). */
+  sentBy?: string | null;
   /** How it was cut from the takes: an edit decision list in the project. */
   edlFileId: string | null;
   /** Who let it in past the project's version checks, when someone had to. */
@@ -4969,6 +4999,8 @@ export interface UploadRequest {
   id: string;
   projectId: string;
   folderId: string | null;
+  /** A track whose next version each file becomes once processed (#425); null for a folder. */
+  trackId: string | null;
   name: string;
   wanted: string;
   fileLimit: number;

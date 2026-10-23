@@ -113,7 +113,8 @@ export const transferTables = {
    * the access log (append-only, so the project's history stays in the log it was written to).
    * Guests, tags and delivery profiles the project uses are matched in the gaining workspace,
    * by address, name or label, or copied there. Its channels, and the events they were sent,
-   * stay too: an event names a project as it was when it happened.
+   * stay too: an event names a project as it was when it happened. So do its tickets (#181),
+   * which are the workspace's whatever they were about.
    */
   workspace: [
     "members",
@@ -137,8 +138,15 @@ export const transferTables = {
     "workspace_mail_suppressions",
     "workspace_plans",
     "billing_accounts",
+    "api_tokens",
+    "api_requests",
     "invoices",
     "workspace_usage",
+    // An export (#186) is of the workspace as it was; the project's files in it stay there.
+    "workspace_exports",
+    "tickets",
+    "ticket_messages",
+    "ticket_attachments",
   ],
 } as const;
 

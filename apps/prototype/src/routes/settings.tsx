@@ -69,7 +69,8 @@ const sections = [
   { id: "notifications", label: "Notifications and integrations", group: "Access" },
   { id: "api", label: "API and OAuth clients", group: "Access" },
   { id: "billing", label: "Billing", group: "Plan and help" },
-  { id: "support", label: "Support", group: "Plan and help" },
+  // Shown only with the support module on (#181).
+  ...(env.support === "off" ? [] : [{ id: "support", label: "Support", group: "Plan and help" }]),
   { id: "transfers", label: "Transfers", group: "Operations" },
   { id: "storage", label: "Storage", group: "Operations" },
   { id: "leaks", label: "Leak tracing", group: "Operations" },
@@ -349,8 +350,7 @@ export function SettingsPage({
                 Open
               </Button>
             </Row>
-            <Row name="Status" hint="No incidents in 41 days">
-              <Dot state="approved" />
+            <Row name="Status" hint={env.statusUrl.replace(/^https?:\/\//, "")}>
               <Button
                 variant="ghost"
                 size="md"
@@ -418,11 +418,7 @@ export function SettingsPage({
                   ))}
                 </div>
               </div>
-              <Row
-                name="Status"
-                hint="No incidents in 41 days. Something down for everyone is posted here first."
-              >
-                <Dot state="approved" />
+              <Row name="Status" hint="Something down for everyone is posted here first.">
                 <Button
                   variant="ghost"
                   size="md"
@@ -487,9 +483,21 @@ export function SettingsPage({
                     </Button>
                   </div>
                 </div>
+                {/* The last failure this person saw here, offered to attach (#159, #181). */}
+                <label className="flex items-start gap-2 text-[13px] text-ink-2">
+                  <input type="checkbox" defaultChecked className="mt-1" />
+                  <span>
+                    Attach error <span className="tabular">HK-7F3A-2C</span>
+                    <span className="block text-[12px] text-ink-3">
+                      The last error you saw here, 12 minutes ago. The operators see its whole
+                      story.
+                    </span>
+                  </span>
+                </label>
+                {/* Only when Contact support was opened on a file or a review. */}
                 <label className="flex items-center gap-2 text-[13px] text-ink-2">
-                  <input type="checkbox" defaultChecked /> Let the operators open the file or review
-                  in question
+                  <input type="checkbox" defaultChecked /> Let the operators open the file in
+                  question
                 </label>
                 <div className="flex items-center gap-2">
                   <Button
@@ -600,9 +608,10 @@ export function SettingsPage({
                   always
                   label={t.name}
                   actions={[
+                    { label: "Rename…", onSelect: () => {} },
                     { label: "Change scopes…", onSelect: () => {} },
                     "divider",
-                    { label: "Revoke", danger: true, onSelect: () => {} },
+                    { label: "Revoke…", danger: true, onSelect: () => {} },
                   ]}
                 />
               </Row>
@@ -628,6 +637,54 @@ export function SettingsPage({
               ["org:read", "Members, roles and settings, read-only"],
             ].map(([k, v]) => (
               <Row key={k} name={<span className="tabular">{k}</span>} hint={v} />
+            ))}
+          </Section>
+          {/* The workspace's own API log (#198): what the instance's Logs show operators, for
+              this workspace alone. */}
+          <Section
+            title="API log"
+            intro="The latest calls made with this workspace's tokens, members' own among them, over the last week."
+          >
+            {[
+              [
+                "14 Oct, 09:58:12",
+                "Release pipeline (service)",
+                "GET /api/projects",
+                "200",
+                "38 ms",
+              ],
+              [
+                "14 Oct, 09:58:13",
+                "Release pipeline (service)",
+                "POST /api/projects/…/folders",
+                "403",
+                "4 ms",
+              ],
+              ["14 Oct, 08:41:02", "Logic Pro export", "POST /api/uploads", "201", "112 ms"],
+            ].map(([when, token, call, status, time]) => (
+              <div
+                key={when}
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_minmax(0,1.4fr)_60px_70px]"
+              >
+                <span className="tabular text-ink-3">{when}</span>
+                <span
+                  className={cn(
+                    "tabular justify-self-end @3xl/app:order-4 @3xl/app:justify-self-start",
+                    status === "403" ? "text-signal" : "text-ink-3",
+                  )}
+                >
+                  {status}
+                </span>
+                <span className="col-span-2 truncate text-ink-2 @3xl/app:order-2 @3xl/app:col-span-1">
+                  {token}
+                </span>
+                <span className="tabular col-span-2 truncate text-ink @3xl/app:order-3 @3xl/app:col-span-1">
+                  {call}
+                </span>
+                <span className="tabular hidden text-right text-ink-3 @3xl/app:order-5 @3xl/app:block">
+                  {time}
+                </span>
+              </div>
             ))}
           </Section>
         </>
@@ -684,6 +741,26 @@ export function SettingsPage({
               <Dot state="approved" />
             </Row>
             <Row name="North Choir Collective" hint="Member" />
+          </Section>
+          {/* #186: an owner's export, encrypted with age to a key shown once, kept a week. */}
+          <Section
+            title="Export"
+            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
+          >
+            <Row
+              name="Export everything"
+              hint="Every record as JSON and every file as it was uploaded, in one archive encrypted with age. Kept 7 days for its download."
+            >
+              <Button variant="secondary" size="md">
+                Start an export…
+              </Button>
+            </Row>
+            <Row name="20 October, 18:04" hint="38.2 GB · 1,204 files · until 27 October">
+              <Button variant="ghost" size="md">
+                <Icon name="download" size={13} />
+                Download
+              </Button>
+            </Row>
           </Section>
           <Danger>
             <Row

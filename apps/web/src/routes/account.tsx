@@ -12,6 +12,7 @@ import {
   SecondFactorSection,
   SessionsSection,
 } from "~/components/account-sections";
+import { TokensSection, UsingTheApiSection } from "~/components/api-tokens";
 import { PageHeader } from "~/components/page-header";
 import { PasskeysSection } from "~/components/passkeys";
 import { type NavSection, Row, Section, SettingsLayout } from "~/components/settings";
@@ -37,6 +38,11 @@ const sections: (NavSection & { intro: string })[] = [
     label: "Security",
     intro:
       "How sign-in is guarded, and every browser and device signed in as you. Sign out any you do not recognise, then change your password.",
+  },
+  {
+    id: "tokens",
+    label: "API tokens",
+    intro: "For scripts and tools of your own, against Hekate's API.",
   },
   {
     id: "notifications",
@@ -206,6 +212,12 @@ export function AccountPage({ section }: { section: string }) {
             <SecondFactorSection />
             <PasskeysSection />
             <SessionsSection />
+          </>
+        )}
+        {current.id === "tokens" && (
+          <>
+            <TokensSection kind="personal" />
+            <UsingTheApiSection />
           </>
         )}
         {current.id === "notifications" && <Notifications />}

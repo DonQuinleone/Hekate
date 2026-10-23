@@ -101,6 +101,20 @@ const screens: Screen[] = [
     ready: "text=Join Endless Hall Records",
     as: "signed-out",
   },
+  // Registration (#184), invite-only in the seed: the sign-up page says so, and an operator's
+  // invitation opens the form.
+  {
+    name: "sign-up-invite-only",
+    path: () => "/sign-up",
+    ready: "text=Workspaces are by invitation",
+    as: "signed-out",
+  },
+  {
+    name: "sign-up-link",
+    path: (s) => s.signUpPath,
+    ready: "text=Make your workspace",
+    as: "signed-out",
+  },
   {
     name: "upload-link",
     path: (s) => s.uploadLinkPath,
@@ -172,6 +186,11 @@ const screens: Screen[] = [
     name: "account-notifications",
     path: () => "/account/notifications",
     ready: "main >> text=Maple Leaf Rag",
+  },
+  {
+    name: "account-tokens",
+    path: () => "/account/tokens",
+    ready: "main >> text=Logic Pro export",
   },
   {
     name: "project-overview",
@@ -468,8 +487,30 @@ const screens: Screen[] = [
     path: () => "/settings/notifications",
     ready: "main >> text=Release desk >> nth=0",
   },
+  {
+    name: "settings-api",
+    path: () => "/settings/api",
+    ready: "main [data-log-entry] >> nth=0",
+  },
   { name: "settings-log", path: () => "/settings/log", ready: "main [data-log-entry]" },
   { name: "settings-billing", path: () => "/settings/billing", ready: "main >> text=HK-0002" },
+  // Support (#181): the workspace's tickets, and a new one with the deflection first.
+  {
+    name: "settings-support",
+    path: () => "/settings/support",
+    ready: "main >> text=Score page 7 will not render",
+  },
+  {
+    name: "settings-support-new",
+    path: () => "/settings/support?new=1",
+    ready: "main >> text=Before you ask",
+  },
+  // The desk (#182): every workspace's tickets, its figures and its settings.
+  {
+    name: "instance-support",
+    path: () => "/instance/support",
+    ready: "main >> text=Raise our quota before Friday",
+  },
   {
     name: "settings-operations",
     path: () => "/settings/operations",
@@ -1193,6 +1234,43 @@ for (const [name, steps, ready] of [
   });
 }
 
+// Support (#181, #182): a ticket as the workspace sees it, as the desk does, the desk's canned
+// replies, and the help menu that leads to them.
+for (const [name, path, open, ready] of [
+  [
+    "settings-support-ticket",
+    "/settings/support",
+    "button:Score page 7 will not render",
+    "[role=dialog] >> text=Mark resolved",
+  ],
+  [
+    "instance-support-ticket",
+    "/instance/support",
+    "button:Raise our quota before Friday",
+    "[role=dialog] >> text=Open the account",
+  ],
+  [
+    "instance-support-replies",
+    "/instance/support",
+    "button:Manage",
+    "[role=dialog] >> text=Quota raised",
+  ],
+  ["help-menu", "/", "button:Help", "[role=menu] >> text=Contact support"],
+] as const) {
+  test(name, async ({ page }) => {
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto(path);
+    const [role, label] = open.split(":") as ["button", string];
+    await page
+      .getByRole(role, { name: new RegExp(label) })
+      .first()
+      .click();
+    await settle(page, ready);
+    await saveScreen(page, name);
+    await checkScreen(page);
+  });
+}
+
 // A workspace near its storage quota (#175), as its Storage tab shows it to an operator.
 test("instance-workspace-quota", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
@@ -1239,6 +1317,29 @@ test("instance-logs-webhooks", async ({ page }) => {
   await page.getByRole("tab", { name: "Webhooks" }).click();
   await settle(page, "main >> text=Release desk >> nth=0");
   await saveScreen(page, "instance-logs-webhooks");
+  await checkScreen(page);
+});
+
+// Logs (#198): every call made with an API token, the release pipeline's among them.
+test("instance-logs-api", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/instance/logs");
+  await settle(page, "main [data-log-entry] >> nth=0");
+  await page.getByRole("tab", { name: "API" }).click();
+  await settle(page, "main >> text=Release pipeline (service) >> nth=0");
+  await saveScreen(page, "instance-logs-api");
+  await checkScreen(page);
+});
+
+// A new API token (#198): its name, the least scopes it needs, and when it runs out. Opened,
+// not made, so the account keeps what the seed gave it.
+test("account-token-new", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/account/tokens");
+  await settle(page, "main >> text=Logic Pro export");
+  await page.getByRole("button", { name: "Token", exact: true }).click();
+  await settle(page, "[role=dialog] >> text=Pick the least it needs.");
+  await saveScreen(page, "account-token-new");
   await checkScreen(page);
 });
 
@@ -1567,6 +1668,130 @@ test("project-settings-deletion", async ({ page }) => {
   await saveScreen(page, "project-settings-deletion-confirm");
   await checkScreen(page);
 });
+
+/** A workspace's exports as the page is told of them (#186): one ready, one an operator's, gone. */
+const exportsShown = {
+  exports: [
+    {
+      id: "0199f0a0-0000-7000-8000-000000000001",
+      status: "ready",
+      requestedBy: "Alex Rivera",
+      byOperator: false,
+      recipient: `age1${"q".repeat(58)}`,
+      createdAt: "2026-10-20T18:04:00Z",
+      finishedAt: "2026-10-20T18:31:00Z",
+      byteSize: 38_200_000_000,
+      fileCount: 1204,
+      expiresAt: "2026-10-27T18:31:00Z",
+      error: null,
+    },
+    {
+      id: "0199f0a0-0000-7000-8000-000000000002",
+      status: "expired",
+      requestedBy: "Tomas Varga",
+      byOperator: true,
+      recipient: `age1${"p".repeat(58)}`,
+      createdAt: "2026-10-02T09:12:00Z",
+      finishedAt: "2026-10-02T09:40:00Z",
+      byteSize: null,
+      fileCount: null,
+      expiresAt: null,
+      error: null,
+    },
+  ],
+};
+
+// Exporting the workspace (#186): its exports, starting one, and the key shown once. Every
+// answer is amended in the page alone, so nothing is exported. The key is put together here so
+// that no secret scanner mistakes the file for one holding a real key.
+test("settings-export", async ({ page }) => {
+  await page.route("**/api/organisation/exports", async (route) => {
+    if (route.request().method() === "GET") return route.fulfill({ json: exportsShown });
+    await route.fulfill({
+      status: 201,
+      json: {
+        export: { ...exportsShown.exports[0], status: "queued", byteSize: null, fileCount: null },
+        key: `${["AGE", "SECRET", "KEY"].join("-")}-1${"Q".repeat(58)}`,
+      },
+    });
+  });
+  await page.goto("/settings/general");
+  await settle(page, "main >> text=until 27 October");
+  await saveScreen(page, "settings-export");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Start an export…" }).click();
+  await settle(page, "[role=dialog] >> text=Your own age key (optional)");
+  await saveScreen(page, "settings-export-start");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Start the export" }).click();
+  await settle(page, "[role=dialog] >> text=Keep this key");
+  await saveScreen(page, "settings-export-key");
+  await checkScreen(page);
+});
+
+// Deleting the workspace (#186): asked for by one owner, confirmed by another typing its name.
+// The answer is amended in this page alone, so nothing is ever deleted.
+test("settings-workspace-deletion", async ({ page }) => {
+  await page.route("**/api/organisation/deletion", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({
+      json: {
+        deletion: {
+          requestedBy: "Mira Solberg",
+          requestedAt: "2026-10-15T09:30:00Z",
+          mayConfirm: true,
+          mayCancel: true,
+          confirmableAt: null,
+          deleteAfter: null,
+        },
+      },
+    });
+  });
+  await page.goto("/settings/general");
+  await settle(page, "main >> text=Deletion asked for");
+  await saveScreen(page, "settings-workspace-deletion");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Delete…" }).click();
+  await page
+    .getByRole("textbox", { name: "Type Endless Hall Records to confirm" })
+    .fill("Endless Hall Records");
+  await settle(page, "[role=dialog] button:has-text('Delete in 30 days'):not([disabled])");
+  await saveScreen(page, "settings-workspace-deletion-confirm");
+  await checkScreen(page);
+});
+
+// A workspace its owners are deleting (#186), as its owner sees it: the day it goes, keeping
+// it, and its export. Who they are is amended in the page alone, so nothing is suspended.
+for (const [name, viewport] of [
+  ["workspace-being-deleted", { width: 1440, height: 900 }],
+  ["workspace-being-deleted-phone", { width: 390, height: 844 }],
+] as const) {
+  test(name, async ({ page }) => {
+    await page.route("**/api/me", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as {
+        activeOrganisationId: string;
+        organisations: { id: string; suspended: unknown }[];
+      };
+      for (const o of body.organisations)
+        if (o.id === body.activeOrganisationId)
+          o.suspended = {
+            reason: "Its owners are deleting it.",
+            payable: false,
+            deleteAfter: "2026-11-22T09:30:00Z",
+          };
+      await route.fulfill({ response, json: body });
+    });
+    await page.route("**/api/organisation/exports", (route) =>
+      route.fulfill({ json: exportsShown }),
+    );
+    await page.setViewportSize(viewport);
+    await page.goto("/suspended");
+    await settle(page, "text=Download the export");
+    await saveScreen(page, name);
+    await checkScreen(page);
+  });
+}
 
 // Moving a project to another workspace (#240). The answers are amended in the page alone, so
 // nothing ever moves: one waiting on this person's approval, then the asking, with a
@@ -2564,6 +2789,12 @@ test("project-upload-request", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Upload request" });
   await expect(dialog.getByText("String stems")).toBeVisible();
   await saveScreen(page, "project-upload-request");
+  await checkScreen(page);
+  // To a track (#425): each file sent becomes its next version, as the form says.
+  await dialog.getByRole("combobox", { name: "Into" }).selectOption({ label: "Maple Leaf Rag" });
+  await expect(dialog.getByText("becomes the next version of Maple Leaf Rag")).toBeVisible();
+  await expect(dialog.getByText("Next mix")).toBeVisible();
+  await saveScreen(page, "project-upload-request-track");
   await checkScreen(page);
 });
 

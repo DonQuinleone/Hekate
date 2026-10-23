@@ -949,6 +949,15 @@ setup("seed", async ({ page, browser }) => {
       expiresOn: new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10),
     },
   );
+  // And one (#425) whose file becomes Maple Leaf Rag's next version once measured.
+  await api(page, "POST", `/api/projects/${music.id}/upload-requests`, {
+    name: "Next mix",
+    wanted: "The next mix of Maple Leaf Rag, with the piano brought forward.",
+    folderId: null,
+    trackId: track.id,
+    fileLimit: 1,
+    expiresOn: new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10),
+  });
 
   // The guest signs in from the link they were sent, which the log holds without a mail server.
   let guestLink: string | undefined;
@@ -1159,6 +1168,23 @@ setup("seed", async ({ page, browser }) => {
   }
   await lanternOwner.close();
 
+  // Registration (#184): invite-only, with one invitation to make a workspace waiting.
+  const { settings: instanceSettings } = await api<{ settings: Record<string, unknown> }>(
+    page,
+    "GET",
+    "/api/instance/settings",
+  );
+  await api(page, "PUT", "/api/instance/settings", {
+    ...instanceSettings,
+    registration: { mode: "invite" },
+  });
+  const { link: signUpLink } = await api<{ link: string }>(
+    page,
+    "POST",
+    "/api/instance/sign-up-invitations",
+    { email: "owner@hollow-reed.example" },
+  );
+
   // The project's workflows (#25, #26), made last so no version arrives to start them: the
   // album's review, switched on, and a delivery still a draft, with something to look at.
   const step = (
@@ -1236,6 +1262,38 @@ setup("seed", async ({ page, browser }) => {
       ],
     },
   });
+
+  // API tokens (#198): two of the owner's own (one since run out) and a service token for the
+  // release pipeline, whose calls, one of them refused for want of a scope, fill the API log.
+  const { secret: pipeline } = await api<{ secret: string }>(
+    page,
+    "POST",
+    "/api/organisation/tokens",
+    { name: "Release pipeline", scopes: ["files:read", "reviews:read"], expiresInDays: 365 },
+  );
+  await api(page, "POST", "/api/me/tokens", {
+    name: "Logic Pro export",
+    scopes: ["files:write"],
+    expiresInDays: null,
+  });
+  await api(page, "POST", "/api/me/tokens", {
+    name: "Old laptop",
+    scopes: ["files:read", "files:write", "comments", "downloads"],
+    expiresInDays: 30,
+  });
+  for (const [method, path] of [
+    ["GET", "/api/projects"],
+    ["GET", `/api/projects/${music.id}/files`],
+    ["GET", `/api/projects/${music.id}/reviews`],
+    ["POST", `/api/projects/${music.id}/folders`],
+  ] as const) {
+    const call = await page.request.fetch(path, {
+      method,
+      headers: { authorization: `Bearer ${pipeline}` },
+      ...(method === "POST" ? { data: { name: "Refused" } } : {}),
+    });
+    expect(call.status(), `${method} ${path}`).toBe(method === "POST" ? 403 : 200);
+  }
 
   // The same moment for every run, so dates and "ago" read the same in every capture.
   const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", {
@@ -1447,6 +1505,44 @@ setup("seed", async ({ page, browser }) => {
       if (code.code === "BETA") await api(page, "POST", `/api/instance/promos/${promo.id}/end`);
     }
 
+    // Support (#181, #182): Endless Hall Records asks about a score that will not render, with
+    // the error it saw, and the desk has answered; an idea of theirs is resolved; Saltmarsh
+    // Films waits on the desk at High. The desk keeps two canned replies.
+    type Sent = { ticket: { id: string } };
+    const score7 = await api<Sent>(page, "POST", "/api/organisation/support/tickets", {
+      subject: "Score page 7 will not render",
+      kind: "problem",
+      severity: "normal",
+      message:
+        "Maple Leaf Rag - Score.pdf shows pages 1 to 6 and then a blank. The file opens fine elsewhere.",
+      errorReference: "HK-7F3A-2C",
+    });
+    await api(page, "POST", `/api/instance/support/tickets/${score7.ticket.id}/messages`, {
+      body: "The PDF has a damaged cross-reference table at page 7, which the viewer refuses where other readers repair it. Re-exporting it from the engraver fixes it now; the next release repairs it too.",
+    });
+    const idea = await api<Sent>(page, "POST", "/api/organisation/support/tickets", {
+      subject: "Can we have a second delivery profile?",
+      kind: "idea",
+      severity: "low",
+      message: "Streaming and vinyl need different loudness targets; one profile is not enough.",
+    });
+    await api(page, "POST", `/api/organisation/support/tickets/${idea.ticket.id}/resolve`);
+    const [tomas] = await sql<{ id: string }[]>`select id from users where name = 'Tomas Varga'`;
+    const quota = uuidv7();
+    await sql`insert into tickets (id, organisation_id, reference, subject, kind, severity, state,
+        requester_id, requester_name)
+      values (${quota}, ${saltmarsh?.id ?? null}, 'T-62B3-41', 'Raise our quota before Friday''s delivery',
+        'billing', 'high', 'waiting', ${tomas?.id ?? null}, 'Tomas Varga')`;
+    await sql`insert into ticket_messages (id, organisation_id, ticket_id, author, author_id,
+        author_name, body)
+      values (${uuidv7()}, ${saltmarsh?.id ?? null}, ${quota}, 'member', ${tomas?.id ?? null},
+        'Tomas Varga', 'We are at 92% of our storage with the delivery due Friday. Can the quota go up this week? Happy to move to the next plan.')`;
+    for (const reply of [
+      { title: "Fixed in the next patch", body: "This is fixed in the next release." },
+      { title: "Quota raised", body: "Your storage quota is raised; it applies at once." },
+    ])
+      await api(page, "POST", "/api/instance/support/replies", reply);
+
     // Where the workspace's events go (#161): a Slack channel, a Teams one and a webhook that
     // kept failing and paused, with a few deliveries for the webhook log. Their addresses are
     // never opened here: the events are dispatched already, and the webhook stays paused.
@@ -1527,6 +1623,15 @@ setup("seed", async ({ page, browser }) => {
         (18000000 + 15000000 * sin(n / 100.0))::bigint, 0.38, 8, 10500000000, 17179869184
       from generate_series(1, 1440) as n`;
 
+    // The tokens' uses and ends, against the fixed clock: one used two hours ago, one
+    // yesterday, and the old laptop's six weeks ago and run out since.
+    const at = (hours: number) => new Date(Date.parse(FIXED_TIME) + hours * 60 * 60_000);
+    await sql`update api_tokens set last_used_at = ${at(-2)}, expires_at = ${at(80 * 24)}
+      where name = 'Release pipeline'`;
+    await sql`update api_tokens set last_used_at = ${at(-26)} where name = 'Logic Pro export'`;
+    await sql`update api_tokens set last_used_at = ${at(-41 * 24)}, expires_at = ${at(-13 * 24)}
+      where name = 'Old laptop'`;
+
     const columns = await sql<{ table_name: string; column_name: string }[]>`
       select table_name, column_name from information_schema.columns
       where table_schema = 'public' and data_type like 'timestamp%'
@@ -1548,6 +1653,9 @@ setup("seed", async ({ page, browser }) => {
       );
       if (appendOnly) await sql.unsafe(`alter table "${table}" enable trigger user`);
     }
+    // The desk's first reply, as long after its ticket as on a good day (#182).
+    await sql`update tickets set first_reply_at = created_at + interval '108 minutes'
+      where first_reply_at is not null`;
   } finally {
     await sql.end();
   }
@@ -1567,6 +1675,7 @@ setup("seed", async ({ page, browser }) => {
     shareId: shared,
     taskId: lateTask,
     invitationPath: new URL(invitation).pathname,
+    signUpPath: new URL(signUpLink).pathname,
     uploadLinkPath: new URL(uploadLink).pathname,
     usedGuestPath: guestLink,
     generalProjectId: general.id,

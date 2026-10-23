@@ -12,16 +12,19 @@ import {
   type GuestVerification,
   guestLinkDays,
   locales,
+  mayExportWorkspace,
   type ProfileRef,
   type ProjectProfile,
   playerTools,
   profiles,
   type SecondFactorPolicy,
+  type SupportMode,
   secondFactorPolicies,
   type WorkspaceSettingsInput,
 } from "@hekate/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { ScopesSection, TokensSection, WorkspaceApiLogSection } from "~/components/api-tokens";
 import { Avatar } from "~/components/avatar";
 import { BillingSection } from "~/components/billing";
 import { deliveryHint, ProfileEditor, ProfileOptions } from "~/components/delivery-profiles";
@@ -33,14 +36,16 @@ import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
 import { PlayerToolsTable } from "~/components/player-tools";
 import { TransfersSection } from "~/components/project-transfer";
-import { Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
+import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { SsoSection } from "~/components/sso";
+import { type AskedFrom, SupportSection } from "~/components/support";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { StatusDot } from "~/components/ui/status";
 import { UsageRows } from "~/components/usage";
+import { DeleteWorkspace, WorkspaceExports } from "~/components/workspace-lifecycle";
 import { actionCopy } from "~/lib/access-log";
 import { shortAgent } from "~/lib/agent";
 import { cn } from "~/lib/cn";
@@ -100,7 +105,8 @@ const allSections: SectionSpec[] = [
     label: "General",
     group: "Workspace",
     from: "admin",
-    intro: "The workspace's name, how new projects start, guest links and its language.",
+    intro:
+      "The workspace's name, how new projects start, guest links and its language; for owners, exporting or deleting it.",
   },
   {
     id: "defaults",
@@ -148,12 +154,28 @@ const allSections: SectionSpec[] = [
     docs: "/use/integrations/",
   },
   {
+    id: "api",
+    label: "API",
+    group: "Access",
+    from: "admin",
+    intro: "Tokens that act for the workspace, what a token may be given, and every call one made.",
+    docs: "/use/api-tokens/",
+  },
+  {
     id: "billing",
     label: "Billing",
     group: "Plan and help",
     from: "admin",
     intro: "The plan, what it includes, what it costs, and every invoice.",
     docs: "/operate/billing/",
+  },
+  {
+    id: "support",
+    label: "Support",
+    group: "Plan and help",
+    from: "member",
+    intro: "Ask the people who run this instance, with the error reference if there is one.",
+    docs: "/use/support/",
   },
   {
     id: "transfers",
@@ -190,12 +212,24 @@ const allSections: SectionSpec[] = [
 
 const rank: Record<Role, number> = { owner: 3, admin: 2, member: 1 };
 
+/** The file or review the help menu was opened on, from `file:<id>` or `review:<id>`. */
+const askedFrom = (from?: string): AskedFrom | undefined => {
+  const [kind, id] = from?.split(":") ?? [];
+  return (kind === "file" || kind === "review") && id ? { kind, id } : undefined;
+};
+
 /**
- * The sections a role may open. Members see Members alone; the server checks every call again.
- * Billing shows only with the billing module on (#179).
+ * The sections a role may open. Members see Members, Transfers and Support; the server checks
+ * every call again. Billing shows only with the billing module on (#179), Support only with the
+ * support module (#181).
  */
-export const sectionsFor = (role: Role, billing = false) =>
-  allSections.filter((s) => rank[role] >= rank[s.from] && (s.id !== "billing" || billing));
+export const sectionsFor = (role: Role, billing = false, support: SupportMode = "off") =>
+  allSections.filter(
+    (s) =>
+      rank[role] >= rank[s.from] &&
+      (s.id !== "billing" || billing) &&
+      (s.id !== "support" || support !== "off"),
+  );
 
 function General({ role }: { role: Role }) {
   const { data: me } = useQuery(meQuery);
@@ -257,6 +291,19 @@ function General({ role }: { role: Role }) {
           />
         ))}
       </Section>
+      {mayExportWorkspace(role) && (
+        <>
+          <Section
+            title="Export"
+            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
+          >
+            <WorkspaceExports scope={{ kind: "workspace" }} name={workspace.name} />
+          </Section>
+          <Danger>
+            <DeleteWorkspace name={workspace.name} />
+          </Danger>
+        </>
+      )}
     </>
   );
 }
@@ -1244,11 +1291,18 @@ function AccessLog() {
 }
 
 /** `/settings/$section`: the workspace's settings, reached from the account menu (decision 038). */
-export function WorkspaceSettingsPage({ section }: { section: string }) {
+export function WorkspaceSettingsPage({
+  section,
+  search = {},
+}: {
+  section: string;
+  /** Support's ticket open, a new one being written, and where it was asked from (#181). */
+  search?: { ticket?: string; new?: "1"; from?: string };
+}) {
   const { data: me } = useQuery(meQuery);
   if (!me) return null;
   const role = me.organisations.find((o) => o.id === me.activeOrganisationId)?.role ?? "member";
-  const sections = sectionsFor(role, me.billing);
+  const sections = sectionsFor(role, me.billing, me.support?.mode);
   const current =
     sections.find((s) => s.id === section) ?? sections.find((s) => s.id === "members");
   if (!current) return null;
@@ -1277,9 +1331,23 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
           </>
         )}
         {current.id === "notifications" && <ChannelsSection />}
+        {current.id === "api" && (
+          <>
+            <TokensSection kind="service" />
+            <ScopesSection />
+            <WorkspaceApiLogSection />
+          </>
+        )}
         {current.id === "storage" && <Storage role={role} />}
         {current.id === "transfers" && <TransfersSection />}
         {current.id === "billing" && <BillingSection owner={role === "owner"} />}
+        {current.id === "support" && (
+          <SupportSection
+            ticketId={search.ticket}
+            writing={search.new === "1"}
+            from={askedFrom(search.from)}
+          />
+        )}
         {current.id === "log" && <AccessLog />}
         {current.id === "operations" && <Operations />}
       </SettingsLayout>

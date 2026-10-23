@@ -11,6 +11,7 @@ import { stripeGateway } from "./billing/stripe-gateway.ts";
 import { createSend } from "./channels.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { deliver, dispatchEvents, onEventWritten } from "./events.ts";
+import { buildExport, expireExports, exportFailed } from "./export/workspace-export.ts";
 import { createFlags } from "./flags.ts";
 import { subdomainsOf } from "./hosts.ts";
 import { createInstanceSettings } from "./instance-settings.ts";
@@ -28,6 +29,7 @@ import { playbackSecret } from "./playback.ts";
 import { purgeDueProjects } from "./project-purge.ts";
 import { purgeRequestLimits } from "./rate-limit.ts";
 import { remindDue } from "./reminders.ts";
+import { versionFromRequest } from "./request-versions.ts";
 import { purgeDownloadTickets } from "./routes/downloads.ts";
 import type { SetupGate } from "./setup-code.ts";
 import { purgeAttempts } from "./sign-in.ts";
@@ -119,16 +121,18 @@ export async function boot(
           tax: config.STRIPE_TAX,
         })
       : null;
+  // Workspace subdomains (#176), where they are on.
+  const subdomains = subdomainsOf(config.PUBLIC_URL, config.WORKSPACE_SUBDOMAINS);
+  // What links in mail are made from: each workspace's own address with subdomains on (#437).
+  const links = { publicUrl: config.PUBLIC_URL, subdomains };
   const billing = {
     db,
     gateway,
     mailer,
-    publicUrl: config.PUBLIC_URL,
+    ...links,
     // The rules as an operator last set them (#180), read when the job runs.
     rules: async () => (await settings.get()).billing,
   };
-  // Workspace subdomains (#176), where they are on.
-  const subdomains = subdomainsOf(config.PUBLIC_URL, config.WORKSPACE_SUBDOMAINS);
   const auth = createAuth({
     db,
     subdomains,
@@ -245,15 +249,15 @@ export async function boot(
       if (config.HEKATE_UPDATE_CHECK) await checkReleases(db);
     });
     await taking.work("notifications-mail", async () => {
-      await deliverInstant(db, mailer, config.PUBLIC_URL);
+      await deliverInstant(db, mailer, links);
     });
     await taking.work("notifications-digest", async () => {
-      await deliverDigests(db, mailer, config.PUBLIC_URL);
+      await deliverDigests(db, mailer, links);
     });
     await taking.work("events-dispatch", async () => {
       await dispatchEvents(db, jobs);
     });
-    const delivering = { db, keyring, jobs, send: sendToChannel, publicUrl: config.PUBLIC_URL };
+    const delivering = { db, keyring, jobs, send: sendToChannel, ...links };
     await taking.work(
       "event-delivery",
       async ({ organisationId, deliveryId }) => {
@@ -286,9 +290,22 @@ export async function boot(
       const steps = await runDunning(billing);
       if (steps > 0) console.log(`Dunning took ${steps} step(s)`);
     });
+    await taking.work("workspace-export", async ({ organisationId, exportId }, job) => {
+      try {
+        await buildExport({ db, storage }, organisationId, exportId, job.signal);
+      } catch (error) {
+        // The last attempt: its list says it failed, and the error report says why (#159).
+        if (job.retryCount >= (jobDefinitions["workspace-export"].options.retryLimit ?? 0))
+          await exportFailed(db, organisationId, exportId);
+        throw error;
+      }
+    });
     await taking.work("workspaces-purge", async () => {
-      const purged = await purgeDueWorkspaces(db, backends);
+      const purged = await purgeDueWorkspaces(db, backends, new Date(), keyring);
       if (purged > 0) console.log(`Purged ${purged} deleted workspace(s)`);
+      // Exports a week old (#186), and any whose job was lost.
+      const expired = await expireExports(db, storage);
+      if (expired > 0) console.log(`Removed ${expired} workspace export(s) past their week`);
       // Projects whose deletion was confirmed seven days ago (#240).
       const projects = await purgeDueProjects(db, storage, audit);
       if (projects > 0) console.log(`Deleted ${projects} project(s) for good`);
@@ -296,7 +313,7 @@ export async function boot(
       if (rewrapped > 0) console.log(`Rewrapped ${rewrapped} key(s) a rotation left behind`);
     });
     await taking.work("reviews-remind", async () => {
-      await remindDue({ db, mailer, audit, publicUrl: config.PUBLIC_URL });
+      await remindDue({ db, mailer, audit, ...links });
       // Tasks due today or late (#140), on the same hour.
       await remindTasksDue(db);
     });
@@ -304,12 +321,15 @@ export async function boot(
     const runner = {
       db,
       jobs,
-      reviews: { db, audit, mailer, publicUrl: config.PUBLIC_URL, trustProxy: false },
+      reviews: { db, audit, mailer, ...links, trustProxy: false },
     };
     await taking.work("workflow-wait", async (data) => {
       await clockElapsed(runner, data);
     });
     await taking.work("workflow-checks", async (data) => {
+      // A file an upload request sent to a track becomes its next version now (#425), before
+      // the workflows look at what was measured.
+      await versionFromRequest({ ...runner, storage, mailer, ...links }, data);
       await fileMeasured(runner, data);
     });
     await taking.work("workflow-waits-sweep", async () => {
@@ -342,6 +362,7 @@ export async function boot(
     modules: {
       billing: config.HEKATE_BILLING,
       support: config.HEKATE_SUPPORT,
+      supportAddress: config.HEKATE_SUPPORT_ADDRESS ?? null,
       docsUrl: config.HEKATE_DOCS_URL,
       statusUrl: config.HEKATE_STATUS_URL ?? null,
     },

@@ -7,6 +7,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import type { Actor, GuestActor } from "./access.ts";
+import type { ApiTokenContext } from "./api-tokens.ts";
 import type { Auth } from "./auth.ts";
 import {
   checkGuestCode,
@@ -22,6 +23,7 @@ import {
   assertSecondFactor,
   organisationFor,
   type SecondFactorRule,
+  tokenSessionId,
 } from "./tenancy.ts";
 
 const { guests, guestLinks, guestSessions, organisations } = schema;
@@ -355,6 +357,8 @@ export interface ViewerVariables {
   /** The member's sign-in session, or the guest's session: playback is bound to it. */
   sessionId: string;
   organisationId: string;
+  /** Set where the request came with an API token (#198), acting as a member. */
+  apiToken?: ApiTokenContext;
 }
 
 /**
@@ -363,6 +367,20 @@ export interface ViewerVariables {
  */
 export const requireViewer = (auth: Auth, db: Database, rule: SecondFactorRule) =>
   createMiddleware<{ Variables: ViewerVariables }>(async (c, next) => {
+    // An API token acts as its member (or its service account), in its own workspace alone.
+    const token = c.var.apiToken;
+    if (token) {
+      c.set("actor", {
+        kind: "member",
+        userId: token.userId,
+        organisationId: token.organisationId,
+        organisationRole: token.role,
+      });
+      c.set("sessionId", tokenSessionId(token));
+      c.set("organisationId", token.organisationId);
+      await next();
+      return;
+    }
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (session) {
       const membership = await organisationFor(
@@ -405,6 +423,7 @@ export const requireViewer = (auth: Auth, db: Database, rule: SecondFactorRule) 
 export interface PlaySessionVariables {
   sessionId: string;
   who: { kind: "member"; userId: string } | GuestActor;
+  apiToken?: ApiTokenContext;
 }
 
 /**
@@ -413,6 +432,9 @@ export interface PlaySessionVariables {
  */
 export const requirePlaySession = (auth: Auth, db: Database) =>
   createMiddleware<{ Variables: PlaySessionVariables }>(async (c, next) => {
+    // Playback is bound to a browser's session; no API token reaches it (scopeFor refuses it
+    // first), and none is taken here either.
+    if (c.var.apiToken) throw new HTTPException(401, { message: "Sign in to continue" });
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (session) {
       c.set("sessionId", session.session.id);

@@ -16,9 +16,11 @@ import { cn } from "~/lib/cn";
 import { dayHere, formatDates } from "~/lib/locale";
 import {
   type Folder,
+  type Track,
   type UploadRequest,
   uploadRequestQuery,
   uploadRequestsQuery,
+  useItemWords,
   useUploadRequests,
 } from "~/lib/queries";
 import { destinations } from "./file-forms";
@@ -65,11 +67,12 @@ function LinkField({ url }: { url: string }) {
 function RequestRow({
   request,
   projectId,
-  folderName,
+  place,
 }: {
   request: UploadRequest;
   projectId: string;
-  folderName: string;
+  /** Where its files go: "Into Day 2", or "As the next version of Maple Leaf Rag". */
+  place: string;
 }) {
   const [open, setOpen] = useState(false);
   const { close, relink } = useUploadRequests(projectId);
@@ -99,7 +102,7 @@ function RequestRow({
       {open && (
         <div className="flex flex-col gap-2 pb-3 pl-6">
           <p className="m-0 text-[12px] text-ink-3">
-            Into {folderName}, until {dayFormat.format(new Date(request.expiresAt))}
+            {place}, until {dayFormat.format(new Date(request.expiresAt))}
             {request.hasPassword ? ", with a password" : ""}.
           </p>
           {data && data.arrived.length === 0 && (
@@ -159,21 +162,26 @@ function RequestRow({
 
 /**
  * Upload requests (#139), as the prototype offers them beside new folders: a link for someone
- * outside the project to upload into a folder, with no account. The link is shown once, as it
- * is made; earlier requests are listed under the form with what arrived and who sent it.
+ * outside the project to upload into a folder, with no account, or (#425) to send a track its
+ * next versions. The link is shown once, as it is made; earlier requests are listed under the
+ * form with what arrived and who sent it.
  */
 export function UploadRequestDialog({
   projectId,
   folders,
+  tracks,
   folderId,
   onClose,
 }: {
   projectId: string;
   folders: Folder[];
+  /** The project's tracks, offered as a destination; none where it holds none. */
+  tracks: Pick<Track, "id" | "name">[];
   folderId: string | null;
   onClose: () => void;
 }) {
   const { create } = useUploadRequests(projectId);
+  const { words } = useItemWords(projectId);
   const { data } = useQuery(uploadRequestsQuery(projectId));
   const [name, setName] = useState("");
   const [wanted, setWanted] = useState("");
@@ -185,6 +193,12 @@ export function UploadRequestDialog({
   const places = destinations(folders, new Set());
   const folderName = (id: string | null) =>
     (id && places.find((p) => p.id === id)?.label) || "the top of the project";
+  const trackName = (id: string) => tracks.find((t) => t.id === id)?.name ?? `the ${words.track}`;
+  const asNext = `As the next ${words.version} of`;
+  const placeOf = (r: Pick<UploadRequest, "folderId" | "trackId">) =>
+    r.trackId ? `${asNext} ${trackName(r.trackId)}` : `Into ${folderName(r.folderId)}`;
+  // The destination is a folder's id, or a track's marked as one (#425).
+  const intoTrack = into.startsWith("track:") ? into.slice("track:".length) : null;
 
   const fileLimit = Number(limit);
   const limitWrong =
@@ -196,7 +210,8 @@ export function UploadRequestDialog({
     create.mutate({
       name: name.trim(),
       wanted: wanted.trim(),
-      folderId: into || null,
+      folderId: intoTrack ? null : into || null,
+      ...(intoTrack ? { trackId: intoTrack } : {}),
       fileLimit,
       expiresOn: expires,
       ...(password ? { password } : {}),
@@ -209,7 +224,7 @@ export function UploadRequestDialog({
   return (
     <Dialog
       title="Upload request"
-      description="A link for someone outside the project to upload into a folder. They need no account."
+      description={`A link for someone outside the project to upload into a folder, or as a ${words.track}'s next ${words.version}. They need no account.`}
       onClose={onClose}
       footer={
         made ? (
@@ -239,8 +254,10 @@ export function UploadRequestDialog({
             <LinkField url={made.link} />
             <p className="m-0 text-[12px] text-ink-3">
               {email.trim() ? `Sent to ${email.trim()}. ` : ""}
-              Send it to whoever has the files. It is shown only now; a new link replaces it. Files
-              arrive in {folderName(made.request.folderId)}, and are listed here with who sent them.
+              Send it to whoever has the files. It is shown only now; a new link replaces it.{" "}
+              {made.request.trackId
+                ? `Each file becomes the next ${words.version} of ${trackName(made.request.trackId)} once it has been processed, and is listed here with who sent it.`
+                : `Files arrive in ${folderName(made.request.folderId)}, and are listed here with who sent them.`}
             </p>
           </div>
         ) : (
@@ -264,12 +281,23 @@ export function UploadRequestDialog({
             <div className="grid gap-4 @md/app:grid-cols-[minmax(0,1.5fr)_minmax(0,0.7fr)_minmax(0,1fr)]">
               <Field label="Into">
                 <Select value={into} onChange={(e) => setInto(e.target.value)}>
-                  <option value="">Top of the project</option>
-                  {places.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
+                  <optgroup label="Folder">
+                    <option value="">Top of the project</option>
+                    {places.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {tracks.length > 0 && (
+                    <optgroup label={asNext}>
+                      {tracks.map((t) => (
+                        <option key={t.id} value={`track:${t.id}`}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </Select>
               </Field>
               <Field
@@ -292,6 +320,12 @@ export function UploadRequestDialog({
                 />
               </Field>
             </div>
+            {intoTrack && (
+              <p className="m-0 text-[12px] text-ink-3">
+                Each file sent becomes the next {words.version} of {trackName(intoTrack)} once it
+                has been processed, and arrives beside the {words.track}.
+              </p>
+            )}
             <div className="grid gap-4 @md/app:grid-cols-2">
               <Field
                 label="Password (optional)"
@@ -322,12 +356,7 @@ export function UploadRequestDialog({
             <h3 className="eyebrow m-0">Requests in this project</h3>
             <ul className="m-0 list-none p-0">
               {(made ? [made.request, ...earlier] : earlier).map((r) => (
-                <RequestRow
-                  key={r.id}
-                  request={r}
-                  projectId={projectId}
-                  folderName={folderName(r.folderId)}
-                />
+                <RequestRow key={r.id} request={r} projectId={projectId} place={placeOf(r)} />
               ))}
             </ul>
           </section>

@@ -3,12 +3,14 @@ import {
   atLeast,
   factorDemand,
   isDunningReason,
+  OWNER_DELETION_REASON,
   sessionMeets,
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { and, asc, eq } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
+import type { ApiTokenContext } from "./api-tokens.ts";
 import type { Auth } from "./auth.ts";
 import { CodedException } from "./errors.ts";
 import { pinnedWorkspace } from "./hosts.ts";
@@ -20,6 +22,8 @@ import type { OrganisationRole } from "@hekate/shared";
 export interface SessionVariables {
   userId: string;
   sessionId: string;
+  /** Set where the request came with an API token (#198) rather than a session. */
+  apiToken?: ApiTokenContext;
 }
 
 export interface TenantVariables extends SessionVariables {
@@ -27,9 +31,20 @@ export interface TenantVariables extends SessionVariables {
   organisationRole: OrganisationRole;
 }
 
-/** Requires a signed-in member. Responds 401 otherwise. */
+/**
+ * Requires a signed-in member, or an API token (#198) acting as one; a token's "session" is
+ * the token itself, so what is bound to a session (a download's link) is bound to it. Responds
+ * 401 otherwise.
+ */
 export const requireSession = (auth: Auth) =>
   createMiddleware<{ Variables: SessionVariables }>(async (c, next) => {
+    const token = c.var.apiToken;
+    if (token) {
+      c.set("userId", token.userId);
+      c.set("sessionId", tokenSessionId(token));
+      await next();
+      return;
+    }
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     if (!session) throw new HTTPException(401, { message: "Sign in to continue" });
     c.set("userId", session.user.id);
@@ -165,8 +180,11 @@ export async function assertSignedInThrough(
 export async function assertOpen(
   db: Database,
   organisationId: string,
-  /** Its owners may still pay when billing (#178) suspended it for a payment overdue. */
-  paying = false,
+  /**
+   * The suspension this request passes, if any: its owners may still pay when billing (#178)
+   * suspended it for a payment overdue, and keep or export it while they are deleting it (#186).
+   */
+  passes: { paying?: boolean; deleting?: boolean } = {},
 ) {
   const [row] = await db
     .select({
@@ -175,7 +193,10 @@ export async function assertOpen(
     })
     .from(schema.organisations)
     .where(eq(schema.organisations.id, organisationId));
-  if (row?.suspendedAt && !(paying && isDunningReason(row.reason)))
+  const passed =
+    (passes.paying === true && isDunningReason(row?.reason)) ||
+    (passes.deleting === true && row?.reason === OWNER_DELETION_REASON);
+  if (row?.suspendedAt && !passed)
     throw new CodedException(
       403,
       "workspace_suspended",
@@ -197,15 +218,30 @@ export const requireOrganisation = (
   owing: ReadonlySet<string> = new Set(),
   /** Where an owner pays for a workspace suspended for a payment overdue (#179). */
   payable: ReadonlySet<string> = new Set(),
+  /**
+   * Where an owner keeps, or exports, a workspace suspended because its owners are deleting it
+   * (#186): paths starting with one of these.
+   */
+  deletable: readonly string[] = [],
 ) =>
   createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
+    // A token is its workspace's alone, checked as the request came in (api-tokens.ts).
+    const token = c.var.apiToken;
+    if (token) {
+      c.set("organisationId", token.organisationId);
+      c.set("organisationRole", token.role);
+      await next();
+      return;
+    }
     const membership = await organisationFor(db, c.var.userId, c.var.sessionId, pinnedWorkspace(c));
     if (!owing.has(c.req.path)) {
-      await assertOpen(
-        db,
-        membership.organisationId,
-        membership.role === "owner" && payable.has(c.req.path),
-      );
+      const owner = membership.role === "owner";
+      await assertOpen(db, membership.organisationId, {
+        paying: owner && payable.has(c.req.path),
+        deleting:
+          owner &&
+          deletable.some((prefix) => c.req.path === prefix || c.req.path.startsWith(`${prefix}/`)),
+      });
       await assertSignedInThrough(db, c.var.sessionId, membership);
       await assertSecondFactor(db, c.var.sessionId, membership, rule);
     }
@@ -213,6 +249,9 @@ export const requireOrganisation = (
     c.set("organisationRole", membership.role);
     await next();
   });
+
+/** What a token's requests are bound to where a session's would be. */
+export const tokenSessionId = (token: { id: string }) => `token:${token.id}`;
 
 export async function membershipOf(db: Database, userId: string, organisationId: string) {
   const [row] = await db

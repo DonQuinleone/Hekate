@@ -189,14 +189,24 @@ export const jobDefinitions = {
     options: { retryLimit: 5, retryDelay: 60, retryBackoff: true, expireInSeconds: 2 * 60 * 60 },
   },
   /**
-   * Delete the workspaces whose grace period after an operator deleted them is over, and rewrap
-   * any a key rotation left behind. Hourly.
+   * Delete the workspaces whose grace period after an operator, or their owners (#186), deleted
+   * them is over, remove exports a week old, and rewrap any a key rotation left behind. Hourly.
    */
   "workspaces-purge": {
     lane: "system",
     data: z.object({}),
     options: { retryLimit: 1, expireInSeconds: 2 * 60 * 60 },
     schedule: "37 * * * *",
+  },
+  /**
+   * Make an export of everything a workspace holds (#186): its records and its files' originals,
+   * in one archive encrypted to the key its owner or an operator was shown. Long, for a large
+   * workspace; tried once more if it fails.
+   */
+  "workspace-export": {
+    lane: "system",
+    data: z.object({ organisationId: z.uuid(), exportId: z.uuid() }),
+    options: { retryLimit: 1, retryDelay: 300, expireInSeconds: 23 * 60 * 60 },
   },
   /** Count each workspace's month so far (#175): storage and its peak, people, plays. Hourly. */
   "usage-refresh": {

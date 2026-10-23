@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   hostKind,
+  linkBase,
   passkeyOrigins,
   rootAddress,
   subdomainsOf,
@@ -65,5 +66,21 @@ describe("workspace subdomains (#176)", () => {
     expect([given, workspace].map((o) => origins.includes(o))).toEqual([true, true]);
     const off = passkeyOrigins([given], null);
     expect([given, workspace].map((o) => off.includes(o))).toEqual([true, false]);
+  });
+
+  it("make links in mail at each workspace's own host, and at PUBLIC_URL with them off (#437)", () => {
+    expect(linkBase({ publicUrl: "https://review.example/", subdomains }, "lantern")).toBe(
+      "https://lantern.review.example",
+    );
+    expect(linkBase({ publicUrl: "https://review.example/", subdomains: null }, "lantern")).toBe(
+      "https://review.example",
+    );
+    expect(linkBase({ publicUrl: "https://review.example" }, "lantern")).toBe(
+      "https://review.example",
+    );
+    // A workspace not found (gone meanwhile) falls back to the root.
+    expect(linkBase({ publicUrl: "https://review.example", subdomains }, undefined)).toBe(
+      "https://review.example",
+    );
   });
 });

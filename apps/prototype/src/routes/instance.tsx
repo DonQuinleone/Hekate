@@ -12,7 +12,6 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
-import { Switch } from "~/components/ui/toggle";
 import { env, severities, tickets } from "~/data";
 import { cn } from "~/lib/cn";
 import { useViewer } from "~/viewer/context";
@@ -1651,7 +1650,11 @@ export function InstancePage({ section }: { section: string }) {
             />
             <Tile label="First reply" value="1.8 h" hint="median this month · target 4 h" />
             <Tile label="Resolved" value="14" hint="this month" />
-            <Tile label="Status page" value="Up" hint="no incidents in 41 days" />
+            <Tile
+              label="Status page"
+              value="Linked"
+              hint={env.statusUrl.replace(/^https?:\/\//, "")}
+            />
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Input
@@ -1716,10 +1719,29 @@ export function InstancePage({ section }: { section: string }) {
             </Row>
             <Row
               name="Status page"
-              hint="status.review.endlesshall.example · incidents posted from here"
+              hint={`${env.statusUrl.replace(/^https?:\/\//, "")} · linked from the help menu and the Support page`}
             >
               <Button variant="ghost" size="md">
-                Post an incident
+                Edit
+              </Button>
+            </Row>
+            <Row
+              name="On call"
+              hint="Hears of each new ticket first, and is told at once of an Emergency."
+            >
+              <Select defaultValue="Alex Rivera" aria-label="On call" className="w-52">
+                <option value="">Nobody</option>
+                {operators.map((o) => (
+                  <option key={o.email}>{o.name}</option>
+                ))}
+              </Select>
+            </Row>
+            <Row
+              name="Canned replies"
+              hint="Rate-limited channel · Quota raised · Fixed in the next patch"
+            >
+              <Button variant="ghost" size="md">
+                Manage
               </Button>
             </Row>
           </Section>
@@ -2385,15 +2407,35 @@ export function InstancePage({ section }: { section: string }) {
               <span className="tabular text-[13px] text-ink-2">None</span>
             </Row>
           </Section>
-          <Section title="Registration">
-            <Row name="New workspaces" hint="Who may create one.">
-              <Select defaultValue="admin" className="w-56">
-                <option value="admin">Operators only</option>
+          {/* #184: one choice, not a choice and a switch that said the same thing twice. */}
+          <Section
+            title="Registration"
+            action={
+              <Button variant="secondary" size="md">
+                Invite…
+              </Button>
+            }
+          >
+            <Row
+              name="New workspaces"
+              hint="Someone an operator invites makes their own, at the link in the invitation. Each starts a 14-day trial."
+            >
+              <Select defaultValue="invite" aria-label="Who may make a workspace" className="w-48">
+                <option value="closed">Operators only</option>
                 <option value="invite">Anyone invited</option>
                 <option value="open">Anyone</option>
               </Select>
             </Row>
-            <SwitchRow name="Allow sign-up without an invitation" checked={false} />
+            <Row
+              name="tomas@example.test"
+              hint="Invited by Ines Arlow · the link works until 30 Oct"
+            >
+              <ActionMenu
+                always
+                label="tomas@example.test"
+                actions={[{ label: "Withdraw", danger: true, onSelect: () => {} }]}
+              />
+            </Row>
           </Section>
           <Section
             title="Security"

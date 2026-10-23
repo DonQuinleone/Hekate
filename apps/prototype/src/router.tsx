@@ -13,11 +13,13 @@ import { GuestShell, Shell } from "~/components/shell";
 import { appRoot } from "~/lib/dom";
 import { AccountPage } from "~/routes/account";
 import {
+  DeletingPage,
   GuestLinkPage,
   GuestSignedOutPage,
   InstallerPage,
   InvitationPage,
   SignInPage,
+  SignUpPage,
   SuspendedPage,
   UploadRequestPage,
 } from "~/routes/arrive";
@@ -142,6 +144,15 @@ const signIn = createRoute({
     return <SignInPage view={search.view} />;
   },
 });
+const signUp = createRoute({
+  getParentRoute: () => root,
+  path: "/sign-up",
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["view"]),
+  component: function SignUpRoute() {
+    const search = signUp.useSearch();
+    return <SignUpPage view={search.view} />;
+  },
+});
 const guestLink = createRoute({
   getParentRoute: () => root,
   path: "/guest/link",
@@ -171,6 +182,11 @@ const suspended = createRoute({
   getParentRoute: () => root,
   path: "/suspended",
   component: SuspendedPage,
+});
+const deleting = createRoute({
+  getParentRoute: () => root,
+  path: "/deleting",
+  component: DeletingPage,
 });
 const uploadRequest = createRoute({
   getParentRoute: () => root,
@@ -421,8 +437,10 @@ export const router = createRouter({
     guestLink,
     guestOut,
     install,
+    signUp,
     invite,
     suspended,
+    deleting,
     uploadRequest,
     app.addChildren([
       home,

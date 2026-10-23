@@ -1,6 +1,11 @@
 import { isIP } from "node:net";
 import { type Database, inOrg, schema } from "@hekate/db";
-import type { AuditAction, AuditActorType, AuditQuery } from "@hekate/shared";
+import {
+  type AuditAction,
+  type AuditActorType,
+  type AuditQuery,
+  isServiceAccount,
+} from "@hekate/shared";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import { and, desc, eq, gte, lt, lte, type SQL } from "drizzle-orm";
 import type { Context } from "hono";
@@ -115,7 +120,14 @@ export function createAudit(db: Database): Audit {
         .select({ name: users.name, email: users.email })
         .from(users)
         .where(eq(users.id, userId));
-      return { type: "member", userId, label: user ? `${user.name} <${user.email}>` : userId };
+      // A service token (#198) acts through an account of its own, with an address that is
+      // no one's: it is named as the token it is.
+      const label = !user
+        ? userId
+        : isServiceAccount(user.email)
+          ? `${user.name} (service token)`
+          : `${user.name} <${user.email}>`;
+      return { type: "member", userId, label };
     },
 
     async guest(guestId) {

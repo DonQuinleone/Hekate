@@ -7,11 +7,13 @@ import {
   type InstanceModules,
   type InstanceNotice,
   type MailStepInput,
+  TICKET_ATTACHMENT_MAX_BYTES,
 } from "@hekate/shared";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
+import { tokenAuth } from "./api-tokens.ts";
 import type { Audit } from "./audit.ts";
 import { type Auth, SESSION_DAYS } from "./auth.ts";
 import type { Gateway } from "./billing/gateway.ts";
@@ -27,6 +29,7 @@ import type { Mailer } from "./mail.ts";
 import { countRequests, metricsHandler } from "./metrics/index.ts";
 import type { Sampler } from "./metrics/sampler.ts";
 import { rateLimit } from "./rate-limit.ts";
+import { personalTokenRoutes, serviceTokenRoutes } from "./routes/api-tokens.ts";
 import { attachmentRoutes } from "./routes/attachments.ts";
 import { billingRoutes } from "./routes/billing.ts";
 import { billingHookRoutes } from "./routes/billing-hooks.ts";
@@ -83,9 +86,11 @@ import { searchRoutes } from "./routes/search.ts";
 import { projectSessionRoutes, sessionRoutes } from "./routes/sessions.ts";
 import { setupRoutes } from "./routes/setup.ts";
 import { signInMethodRoutes } from "./routes/sign-in-methods.ts";
+import { signUpRoutes } from "./routes/sign-up.ts";
 import { ssoRoutes } from "./routes/sso.ts";
 import { projectStagePlanRoutes, stagePlanRoutes } from "./routes/stage-plans.ts";
 import { storageSettingsRoutes } from "./routes/storage-settings.ts";
+import { supportRoutes } from "./routes/support.ts";
 import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
 import { sharedTakeRoutes, takeRoutes, trackTakeRoutes } from "./routes/takes.ts";
 import { projectTaskRoutes, taskRoutes } from "./routes/tasks.ts";
@@ -98,14 +103,20 @@ import {
   variationRoutes,
   versionRoutes,
 } from "./routes/tracks.ts";
-import { uploadLinkRoutes, uploadRequestRoutes } from "./routes/upload-requests.ts";
+import {
+  type UploadRequestDeps,
+  uploadLinkRoutes,
+  uploadRequestRoutes,
+} from "./routes/upload-requests.ts";
 import { uploadRoutes } from "./routes/uploads.ts";
 import { trackWorkflowRunRoutes, workflowRunRoutes } from "./routes/workflow-runs.ts";
 import { projectWorkflowRoutes, workflowRoutes } from "./routes/workflows.ts";
+import { workspaceDeletionRoutes, workspaceExportRoutes } from "./routes/workspace-lifecycle.ts";
 import { workspaceMailRoutes } from "./routes/workspace-mail.ts";
 import { securityHeaders } from "./security-headers.ts";
 import type { SetupGate } from "./setup-code.ts";
 import type { Storage } from "./storage.ts";
+import { supportModuleOf } from "./support.ts";
 import { traced } from "./telemetry.ts";
 import { requireOrganisation, requireSession } from "./tenancy.ts";
 import { type RunnerDeps, reviewSettled } from "./workflow-runner.ts";
@@ -182,11 +193,30 @@ export interface AppDeps {
 
 export function createApi(deps: AppDeps) {
   const settings = deps.settings ?? createInstanceSettings(deps.db);
+  // What links sent out are made from: each workspace's own address with subdomains on (#437).
+  const links = { publicUrl: deps.publicUrl, subdomains: deps.subdomains ?? null };
+  const modules: InstanceModules = deps.modules ?? {
+    billing: "off",
+    support: "off",
+    docsUrl: "https://docs.hekate.studio",
+    statusUrl: null,
+  };
+  // Tickets (#181): the workspace's routes and the instance's desk share these.
+  const support = {
+    db: deps.db,
+    storage: deps.storage,
+    audit: deps.audit,
+    mailer: deps.mailer,
+    publicUrl: deps.publicUrl,
+    trustProxy: deps.trustProxy ?? false,
+    modules,
+    settings,
+  };
   const billing = {
     db: deps.db,
     gateway: deps.gateway ?? null,
     mailer: deps.mailer,
-    publicUrl: deps.publicUrl,
+    ...links,
     // The rules as an operator last set them (#180).
     rules: async () => (await settings.get()).billing,
   };
@@ -199,9 +229,11 @@ export function createApi(deps: AppDeps) {
   // A workspace billing suspended for a payment overdue (#179): its owners may still read
   // what is owed and change the card, and nothing else.
   const payable = new Set(["/api/organisation/billing", "/api/organisation/billing/portal"]);
+  // A workspace its owners are deleting (#186): its owners may still keep it, or export it.
+  const deletable = ["/api/organisation/deletion", "/api/organisation/exports"];
   const member = [
     requireSession(deps.auth),
-    requireOrganisation(deps.db, rule, new Set(), payable),
+    requireOrganisation(deps.db, rule, new Set(), payable, deletable),
   ] as const;
   const checks = createHealthChecks(deps.db, {
     backends: deps.storage.backends,
@@ -230,14 +262,26 @@ export function createApi(deps: AppDeps) {
     trustProxy: deps.trustProxy ?? false,
     workDir: deps.workDir,
   };
-  const taskMail = { db: deps.db, mailer: deps.mailer, publicUrl: deps.publicUrl };
-  const uploadRequestDeps = {
+  const taskMail = { db: deps.db, mailer: deps.mailer, ...links };
+  const tokenDeps = { db: deps.db, audit: deps.audit, trustProxy: deps.trustProxy ?? false };
+  // Exporting and deleting the workspace (#186).
+  const lifecycle = {
+    db: deps.db,
+    storage: deps.storage,
+    audit: deps.audit,
+    jobs: deps.jobs,
+    mailer: deps.mailer,
+    publicUrl: deps.publicUrl,
+    trustProxy: deps.trustProxy ?? false,
+    billing,
+  };
+  const uploadRequestDeps: UploadRequestDeps = {
     db: deps.db,
     storage: deps.storage,
     jobs: deps.jobs,
     audit: deps.audit,
     mailer: deps.mailer,
-    publicUrl: deps.publicUrl,
+    ...links,
     trustProxy: deps.trustProxy ?? false,
   };
   const uploadLinkLimit = rateLimit(
@@ -250,12 +294,14 @@ export function createApi(deps: AppDeps) {
     db: deps.db,
     audit: deps.audit,
     mailer: deps.mailer,
-    publicUrl: deps.publicUrl,
+    ...links,
     trustProxy: deps.trustProxy ?? false,
   };
   // Workflows ask for reviews, and a review's outcome moves its workflow on (#25).
   const runner: RunnerDeps = { db: deps.db, jobs: deps.jobs, reviews: reviewDeps };
   reviewDeps.onSettled = (review, by) => reviewSettled(runner, review, by);
+  // A version an upload request makes moves the track's workflows on (#425).
+  uploadRequestDeps.runner = runner;
   return (
     new Hono()
       // Before anything that reads the database: liveness must answer while it stalls (#156).
@@ -284,10 +330,11 @@ export function createApi(deps: AppDeps) {
           operatorSecurityKey: deps.operatorSecurityKey ?? true,
           trustProxy: deps.trustProxy ?? false,
           mailer: deps.mailer,
-          publicUrl: deps.publicUrl,
+          ...links,
           keyring: deps.keyring,
           jobs: deps.jobs,
           backends: deps.storage.backends,
+          storage: deps.storage,
           audit: deps.audit,
           settings,
           system: { build: deps.build ?? "dev", checkOn: deps.updateCheck ?? false },
@@ -314,16 +361,18 @@ export function createApi(deps: AppDeps) {
               : null,
             passwordLeakCheck: deps.passwordLeakCheck ?? false,
             sessionDays: SESSION_DAYS,
-            modules: deps.modules ?? {
-              billing: "off",
-              support: "off",
-              docsUrl: "https://docs.hekate.studio",
-              statusUrl: null,
-            },
+            modules,
           },
         }),
       )
-      .route("/sign-in-methods", signInMethodRoutes(deps.db, deps.subdomains ?? null))
+      .route(
+        "/sign-in-methods",
+        signInMethodRoutes(
+          deps.db,
+          deps.subdomains ?? null,
+          async () => (await settings.get()).registration.mode,
+        ),
+      )
       // Which names Caddy may get a certificate for (#176): asked before each one.
       .route("/tls", tlsRoutes(deps.db, deps.subdomains ?? null))
       // The billing gateway's events (#178): no session, a signature instead.
@@ -356,9 +405,27 @@ export function createApi(deps: AppDeps) {
           maxPasskeys: deps.maxPasskeys ?? 5,
           subdomains: deps.subdomains ?? null,
           billing: (deps.modules?.billing ?? "off") !== "off",
+          support: () => supportModuleOf(modules, settings),
         }),
       )
+      // A member's own API tokens (#198), in this workspace.
+      .route("/me/tokens", personalTokenRoutes(tokenDeps))
       .route("/invitations", invitationRoutes(deps.db, deps.auth))
+      // Making a workspace without an operator (#184), as the instance's registration allows.
+      .route(
+        "/sign-up",
+        signUpRoutes({
+          db: deps.db,
+          auth: deps.auth,
+          settings,
+          mailer: deps.mailer,
+          publicUrl: deps.publicUrl,
+          billing: (deps.modules?.billing ?? "off") !== "off",
+          leakCheck: deps.passwordLeakCheck ?? false,
+          trustProxy: deps.trustProxy ?? false,
+          subdomains: deps.subdomains ?? null,
+        }),
+      )
       .use("/organisation/*", ...member)
       .route(
         "/organisation/directory",
@@ -380,7 +447,10 @@ export function createApi(deps: AppDeps) {
         }),
       )
       .route("/organisation/plan", planRoutes(deps.db, (deps.modules?.billing ?? "off") !== "off"))
+      // The workspace's service tokens (#198), and the calls its tokens made.
+      .route("/organisation/tokens", serviceTokenRoutes(tokenDeps))
       .route("/organisation/billing", billingRoutes(billing))
+      .route("/organisation/support", supportRoutes(support))
       .route(
         "/organisation/channels",
         channelRoutes({
@@ -389,7 +459,7 @@ export function createApi(deps: AppDeps) {
           audit: deps.audit,
           jobs: deps.jobs,
           send: deps.sendToChannel ?? createSend(deps.webhookTrustedOrigins ?? []),
-          publicUrl: deps.publicUrl,
+          ...links,
           trusted: deps.webhookTrustedOrigins ?? [],
           trustProxy: deps.trustProxy ?? false,
         }),
@@ -426,12 +496,14 @@ export function createApi(deps: AppDeps) {
           removing: (deps.storageReconcile ?? "remove") === "remove",
         }),
       )
+      .route("/organisation/exports", workspaceExportRoutes(lifecycle))
+      .route("/organisation/deletion", workspaceDeletionRoutes(lifecycle))
       .route(
         "/organisation",
         organisationRoutes(
           deps.db,
           deps.mailer,
-          deps.publicUrl,
+          links,
           deps.storage,
           deps.audit,
           deps.trustProxy ?? false,
@@ -482,7 +554,7 @@ export function createApi(deps: AppDeps) {
         trackRoutes(
           deps.db,
           deps.jobs,
-          { mailer: deps.mailer, publicUrl: deps.publicUrl },
+          { mailer: deps.mailer, ...links },
           deps.audit,
           deps.trustProxy ?? false,
           deps.storage,
@@ -533,7 +605,7 @@ export function createApi(deps: AppDeps) {
           jobs: deps.jobs,
           audit: deps.audit,
           mailer: deps.mailer,
-          publicUrl: deps.publicUrl,
+          ...links,
           trustProxy: deps.trustProxy ?? false,
         }),
       )
@@ -582,7 +654,7 @@ export function createApi(deps: AppDeps) {
         "/files",
         fileCommentRoutes(deps.db, deps.audit, deps.trustProxy ?? false, {
           mailer: deps.mailer,
-          publicUrl: deps.publicUrl,
+          ...links,
         }),
       )
       .route("/files", fileManageRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
@@ -623,10 +695,7 @@ export function createApi(deps: AppDeps) {
       )
       .route("/guest", guestRoutes(reviewDeps))
       .use("/comments/*", ...member)
-      .route(
-        "/comments",
-        commentRoutes(deps.db, { mailer: deps.mailer, publicUrl: deps.publicUrl }),
-      )
+      .route("/comments", commentRoutes(deps.db, { mailer: deps.mailer, ...links }))
       .route("/comments", sharedTakeRoutes(downloads))
       .use("/templates", ...member)
       .use("/templates/*", ...member)
@@ -645,6 +714,10 @@ export type Api = ReturnType<typeof createApi>;
 
 /** Where a comment's attachment is sent, which takes up to its own limit. */
 const ATTACHMENT_PATH = /^\/api\/files\/[^/]+\/comments\/[^/]+\/attachments$/;
+
+/** Where a ticket's attachment is sent, from the workspace or the desk (#181, #182). */
+const TICKET_ATTACHMENT_PATH =
+  /^\/api\/(organisation|instance)\/support\/tickets\/[^/]+\/messages\/[^/]+\/attachments$/;
 
 /** The largest request body outside the upload chunks, which carry their own limit. */
 export const MAX_BODY_BYTES = 2 * 1024 * 1024;
@@ -686,11 +759,23 @@ export function createApp(given: AppDeps) {
                 413,
               ),
           })(c, next)
-        : bodyLimit({
-            maxSize: MAX_BODY_BYTES,
-            onError: (c) =>
-              c.json({ error: { code: "too_large", message: "That request is too large." } }, 413),
-          })(c, next),
+        : TICKET_ATTACHMENT_PATH.test(c.req.path)
+          ? bodyLimit({
+              maxSize: TICKET_ATTACHMENT_MAX_BYTES,
+              onError: (c) =>
+                c.json(
+                  { error: { code: "too_large", message: "An attachment can be at most 10 MB" } },
+                  413,
+                ),
+            })(c, next)
+          : bodyLimit({
+              maxSize: MAX_BODY_BYTES,
+              onError: (c) =>
+                c.json(
+                  { error: { code: "too_large", message: "That request is too large." } },
+                  413,
+                ),
+            })(c, next),
   );
   // Maintenance mode (#154): uploads wait until it is over, the files they would send kept.
   app.use("/api/*", async (c, next) => {
@@ -706,7 +791,11 @@ export function createApp(given: AppDeps) {
       );
     await next();
   });
-  // Public sign-up is closed: accounts come from setup and, later, invitations.
+  // API tokens (#198): a call that carries one is let in on it alone, within its scopes, and
+  // logged; one that carries none goes on to the session checks.
+  app.use("/api/*", tokenAuth({ db: deps.db, trustProxy: deps.trustProxy ?? false }));
+  // Better Auth's own sign-up stays closed: accounts come from setup, invitations, and the
+  // instance's sign-up (#184, `/api/sign-up`), which confirms the email first.
   app.all("/api/auth/sign-up/*", () => {
     throw new HTTPException(403, { message: "Sign-up is by invitation" });
   });

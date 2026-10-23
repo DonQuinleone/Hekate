@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type BillingRules, billingRules, defaultBillingRules } from "./billing.ts";
 import type { BounceProvider } from "./mail-bounces.ts";
 import { defaultWorkspaceSettings, guestLinkDays } from "./organisation.ts";
+import { registrationModes } from "./registration.ts";
 import { updateChannels } from "./releases.ts";
 import { workspaceLimits } from "./usage.ts";
 
@@ -44,9 +45,21 @@ const instanceSettingsSchema = z.object({
     mail: z.literal(logKeepDays).nullable(),
     /** Events and their deliveries to the workspaces' channels (#161). */
     webhooks: z.literal(logKeepDays).nullable(),
+    /** Calls made with API tokens (#198). */
+    api: z.literal(logKeepDays).nullable(),
   }),
   /** Billing's rules (#180): the instance's currency, dunning's days and a trial's length. */
   billing: billingRules,
+  /** Who may make a workspace (#184): operators only, anyone they invite, or anyone. */
+  registration: z.object({ mode: z.enum(registrationModes) }),
+  /**
+   * The support desk's own settings (#182): its status page, over HEKATE_STATUS_URL, and the
+   * operator on call, who hears of each new ticket first and is paged for an Emergency.
+   */
+  support: z.object({
+    statusUrl: z.url().max(500).nullable(),
+    onCall: z.string().min(1).max(64).nullable(),
+  }),
 });
 export type InstanceSettings = z.infer<typeof instanceSettingsSchema>;
 
@@ -62,9 +75,15 @@ export const instanceSettingsInput = instanceSettingsSchema.extend({
     })
     .optional(),
   logs: instanceSettingsSchema.shape.logs
-    .extend({ webhooks: instanceSettingsSchema.shape.logs.shape.webhooks.optional() })
+    .extend({
+      webhooks: instanceSettingsSchema.shape.logs.shape.webhooks.optional(),
+      api: instanceSettingsSchema.shape.logs.shape.api.optional(),
+    })
     .optional(),
   billing: billingRules.optional(),
+  registration: instanceSettingsSchema.shape.registration.optional(),
+  // Saved from the Support page's desk, never from Settings.
+  support: instanceSettingsSchema.shape.support.optional(),
 });
 export type InstanceSettingsInput = z.infer<typeof instanceSettingsInput>;
 
@@ -91,9 +110,12 @@ export const withStored = (
     ? {
         ...input.logs,
         webhooks: input.logs.webhooks === undefined ? stored.logs.webhooks : input.logs.webhooks,
+        api: input.logs.api === undefined ? stored.logs.api : input.logs.api,
       }
     : stored.logs,
   billing: input.billing ?? stored.billing,
+  registration: input.registration ?? stored.registration,
+  support: input.support ?? stored.support,
 });
 
 export const defaultInstanceSettings: InstanceSettings = {
@@ -108,8 +130,11 @@ export const defaultInstanceSettings: InstanceSettings = {
   },
   // The audit log is kept for good unless an operator says otherwise: nothing already logged
   // goes because the instance was upgraded.
-  logs: { audit: null, auth: 365, mail: 90, webhooks: 30 },
+  logs: { audit: null, auth: 365, mail: 90, webhooks: 30, api: 30 },
   billing: defaultBillingRules,
+  // As before registration was a setting: operators make the workspaces.
+  registration: { mode: "closed" },
+  support: { statusUrl: null, onCall: null },
 };
 
 /** Stored settings over the defaults, so one written before a setting existed still reads. */
@@ -129,6 +154,8 @@ export function instanceSettingsOf(stored: unknown): InstanceSettings {
         ...(value.billing as Partial<BillingRules> | undefined)?.dunning,
       },
     },
+    registration: { ...defaultInstanceSettings.registration, ...value.registration },
+    support: { ...defaultInstanceSettings.support, ...value.support },
   };
   const parsed = instanceSettingsSchema.safeParse(merged);
   return parsed.success ? parsed.data : defaultInstanceSettings;
@@ -182,15 +209,23 @@ export function settingsChanges(
     changes.push({ action: "billing.dunning", details: { ...is } });
   if (before.billing.trialDays !== after.billing.trialDays)
     changes.push({ action: "billing.trial_days", details: { days: after.billing.trialDays } });
-  for (const kind of ["audit", "auth", "mail", "webhooks"] as const)
+  if (before.registration.mode !== after.registration.mode)
+    changes.push({ action: "registration.mode", details: { mode: after.registration.mode } });
+  for (const kind of ["audit", "auth", "mail", "webhooks", "api"] as const)
     if (before.logs[kind] !== after.logs[kind])
       changes.push({ action: "logs.retention", details: { kind, days: after.logs[kind] } });
+  if (before.support.statusUrl !== after.support.statusUrl)
+    changes.push({ action: "support.status_page", details: { url: after.support.statusUrl } });
+  if (before.support.onCall !== after.support.onCall)
+    changes.push({ action: "support.on_call", details: { userId: after.support.onCall } });
   return changes;
 }
 
 export interface InstanceModules {
   billing: "off" | "stripe" | "paddle" | "manual";
   support: "off" | "app" | "link" | "mail";
+  /** HEKATE_SUPPORT_ADDRESS: the desk with `link`, the mailbox with `mail` (#181). */
+  supportAddress?: string | null;
   docsUrl: string;
   statusUrl: string | null;
 }

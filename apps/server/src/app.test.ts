@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { buffer } from "node:stream/consumers";
-import { createDb, runMigrations, schema, uuidv7, withAuditPurge } from "@hekate/db";
+import { createDb, runMigrations, schema, tenantTables, uuidv7, withAuditPurge } from "@hekate/db";
 import {
   type AuditLogRow,
   type AuthLogRow,
@@ -17,6 +17,7 @@ import {
   defaultProjectRoles,
   type InstanceEnvironment,
   type InstanceSettings,
+  instanceSettingsOf,
   type LoudnessSummary,
   levelsOf,
   lookingPermissions,
@@ -27,9 +28,22 @@ import {
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
-import { and, asc, count, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  getTableName,
+  inArray,
+  isNotNull,
+  like,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { Hono } from "hono";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, MAX_BODY_BYTES } from "./app.ts";
 import { createAudit, csvCell, systemActor } from "./audit.ts";
 import { createAuth } from "./auth.ts";
@@ -40,6 +54,9 @@ import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { errorHandler, requestId } from "./errors.ts";
+import { ageDecrypt, generateIdentity, recipientOf } from "./export/age.ts";
+import { readTar } from "./export/tar.ts";
+import { buildExport, expireExports, startExport } from "./export/workspace-export.ts";
 import { createFlags } from "./flags.ts";
 import { issueGuestLink } from "./guests.ts";
 import { createHealthChecks } from "./health-checks.ts";
@@ -73,6 +90,7 @@ import { moveProject } from "./project-transfer.ts";
 import { admit } from "./rate-limit.ts";
 import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
+import { versionFromRequest } from "./request-versions.ts";
 import { health } from "./routes/health.ts";
 import { recordInstanceEvent } from "./routes/instance.ts";
 import { rehomePending } from "./score-swap.ts";
@@ -1271,6 +1289,94 @@ describe.runIf(url)("api", () => {
           expect(context.isTrustedOrigin("http://review.test.evil.example")).toBe(false);
         });
 
+        it("puts links in mail at the workspace's own host, and at the root with subdomains off (#437)", async () => {
+          const signedIn = cookieOf(await setup());
+          // From the root, as a link opened there would: the links name Studio's own host.
+          const post = (path: string, body: unknown) =>
+            at.request(path, {
+              method: "POST",
+              headers: {
+                host: "review.test:3000",
+                origin: "http://review.test:3000",
+                "content-type": "application/json",
+                cookie: signedIn,
+              },
+              body: JSON.stringify(body),
+            });
+          mailer.sent.length = 0;
+          const invited = await post("/api/organisation/invitations", {
+            email: "tomas@example.test",
+            role: "member",
+          });
+          expect(invited.status).toBe(201);
+          const { link } = (await invited.json()) as { link: string };
+          expect(link).toMatch(/^http:\/\/studio\.review\.test:3000\/invite\//);
+          expect(mailer.sent.find((m) => m.to === "tomas@example.test")?.text).toContain(link);
+
+          const project = (
+            (await (
+              await post("/api/projects", { name: "Joplin Rags", profile: "music" })
+            ).json()) as {
+              project: { id: string };
+            }
+          ).project;
+          const asked = await post(`/api/projects/${project.id}/upload-requests`, {
+            name: "Piano stems",
+            folderId: null,
+            fileLimit: 1,
+            expiresOn: new Date(Date.now() + 5 * 86_400_000).toISOString().slice(0, 10),
+            email: "ines@example.test",
+          });
+          expect(asked.status).toBe(201);
+          const uploadLink = ((await asked.json()) as { link: string }).link;
+          expect(uploadLink).toMatch(/^http:\/\/studio\.review\.test:3000\/u\//);
+          expect(mailer.sent.find((m) => m.to === "ines@example.test")?.text).toContain(uploadLink);
+
+          // A notification's mail, at once or gathered, opens in the workspace it is about.
+          const [studio] = await db
+            .select({ id: schema.organisations.id })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.slug, "studio"));
+          const [user] = await db
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.email, owner.email));
+          const notice = (mailMode: "instant" | "digest") => ({
+            organisationId: studio?.id ?? "",
+            userId: user?.id ?? "",
+            kind: "decision" as const,
+            actorName: "Mira Solberg",
+            text: "approved something",
+            link: "/reviews/x",
+            mailMode,
+          });
+          const roots = {
+            publicUrl: "http://review.test:3000",
+            subdomains: subdomainsOf("http://review.test:3000", true),
+          };
+          const later = new Date(Date.now() + 60_000);
+          await db.insert(schema.notifications).values(notice("instant"));
+          mailer.sent.length = 0;
+          expect(await deliverInstant(db, mailer, roots, later)).toBe(1);
+          expect(mailer.sent[0]?.text).toContain("http://studio.review.test:3000/reviews/x");
+          await db.insert(schema.notificationPreferences).values({
+            organisationId: studio?.id ?? "",
+            userId: user?.id ?? "",
+            digest: "hourly",
+          });
+          await db.insert(schema.notifications).values(notice("digest"));
+          mailer.sent.length = 0;
+          expect(await deliverDigests(db, mailer, roots, later)).toBe(1);
+          expect(mailer.sent[0]?.text).toContain("http://studio.review.test:3000/inbox");
+          // Off, PUBLIC_URL as before.
+          await db.insert(schema.notifications).values(notice("instant"));
+          mailer.sent.length = 0;
+          expect(
+            await deliverInstant(db, mailer, { publicUrl: "http://review.test:3000/" }, later),
+          ).toBe(1);
+          expect(mailer.sent[0]?.text).toContain("http://review.test:3000/reviews/x");
+        });
+
         it("tells the sign-in page which workspace its host is, and Caddy which names to certify", async () => {
           cookieOf(await setup());
           const methods = async (host: string) =>
@@ -1992,6 +2098,350 @@ describe.runIf(url)("api", () => {
         });
       });
 
+      describe("registration (#184)", () => {
+        const registering = createApp({
+          db,
+          auth,
+          mailer,
+          storage,
+          audit,
+          jobs,
+          keyring,
+          playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+          publicUrl: "http://localhost:3000",
+          log: false,
+          operatorSecurityKey: false,
+          modules: {
+            billing: "manual",
+            support: "off",
+            docsUrl: "https://docs.hekate.studio",
+            statusUrl: null,
+          },
+        });
+        const call = (method: string, path: string, body?: unknown, cookie?: string) =>
+          registering.request(
+            path,
+            body === undefined
+              ? { method, headers: cookie ? { cookie } : {} }
+              : { ...json(body, cookie), method },
+          );
+        type Answer = { settings: InstanceSettings; environment: InstanceEnvironment };
+        const registration = async (operator: string, mode: string) => {
+          const { settings } = (await (
+            await call("GET", "/api/instance/settings", undefined, operator)
+          ).json()) as Answer;
+          const saved = await call(
+            "PUT",
+            "/api/instance/settings",
+            { ...settings, registration: { mode } },
+            operator,
+          );
+          expect(saved.status).toBe(200);
+          return settings;
+        };
+        /** The token in the last link to make a workspace mailed to `to`. */
+        const linkTo = (to: string) =>
+          /\/sign-up\/([\w-]+)/.exec(
+            mailer.sent.filter((m) => m.to === to).at(-1)?.text ?? "",
+          )?.[1] ?? "";
+        const made = { workspace: "Lantern Pictures", slug: "lantern" };
+        const newcomer = { name: "Tomas Varga", password: "correct horse battery" };
+        // Plans and links belong to the instance, not a workspace: each test starts with none.
+        beforeEach(async () => {
+          await db.delete(schema.plans);
+          await db
+            .delete(schema.authVerifications)
+            .where(like(schema.authVerifications.identifier, "sign-up:%"));
+        });
+        // The instance's settings outlive each test: registration goes back to closed.
+        afterEach(async () => {
+          const [row] = await db.select().from(schema.instanceSettings);
+          if (row)
+            await db.update(schema.instanceSettings).set({
+              settings: { ...instanceSettingsOf(row.settings), registration: { mode: "closed" } },
+            });
+        });
+
+        it("is closed until an operator opens it: nobody signs up, and operators invite nobody", async () => {
+          const operator = cookieOf(await setup());
+          expect(await (await call("GET", "/api/sign-up")).json()).toEqual({
+            mode: "closed",
+            trialDays: null,
+            subdomains: null,
+          });
+          const start = await call("POST", "/api/sign-up/start", { email: "tomas@example.test" });
+          expect(start.status).toBe(403);
+          expect(await start.json()).toMatchObject({ error: { code: "sign_up_closed" } });
+          const invited = await call(
+            "POST",
+            "/api/instance/sign-up-invitations",
+            { email: "tomas@example.test" },
+            operator,
+          );
+          expect(invited.status).toBe(409);
+          expect(
+            ((await (await call("GET", "/api/sign-in-methods")).json()) as { signUp: boolean })
+              .signUp,
+          ).toBe(false);
+          // Better Auth's own sign-up stays shut whatever registration says.
+          const direct = await call("POST", "/api/auth/sign-up/email", {
+            email: "tomas@example.test",
+            password: newcomer.password,
+            name: newcomer.name,
+          });
+          expect(direct.status).toBe(403);
+        });
+
+        it("invite-only: an operator's invitation makes a workspace, and nothing else does", async () => {
+          const operator = cookieOf(await setup());
+          // An open link asked for before it became invite-only.
+          await registration(operator, "open");
+          mailer.sent.length = 0;
+          expect(
+            (await call("POST", "/api/sign-up/start", { email: "ines@example.test" })).status,
+          ).toBe(202);
+          const asked = linkTo("ines@example.test");
+          const before = await registration(operator, "invite");
+          // A save from a page older than registration keeps it as it is.
+          const { registration: _, ...older } = before;
+          await call("PUT", "/api/instance/settings", older, operator);
+          const read = (await (
+            await call("GET", "/api/instance/settings", undefined, operator)
+          ).json()) as Answer;
+          expect(read.settings.registration).toEqual({ mode: "invite" });
+
+          expect(
+            (await call("POST", "/api/sign-up/start", { email: "x@example.test" })).status,
+          ).toBe(403);
+          const refusedLink = (await (await call("GET", `/api/sign-up/${asked}`)).json()) as {
+            allowed: boolean;
+          };
+          expect(refusedLink.allowed).toBe(false);
+          expect(
+            (await call("POST", `/api/sign-up/${asked}`, { ...made, ...newcomer })).status,
+          ).toBe(403);
+
+          // Only an operator invites.
+          const owner = await join(operator, "label@example.test", "owner");
+          expect(
+            (
+              await call(
+                "POST",
+                "/api/instance/sign-up-invitations",
+                { email: "tomas@example.test" },
+                owner,
+              )
+            ).status,
+          ).toBe(403);
+          const invited = await call(
+            "POST",
+            "/api/instance/sign-up-invitations",
+            { email: "Tomas@Example.test" },
+            operator,
+          );
+          expect(invited.status).toBe(201);
+          const token = linkTo("tomas@example.test");
+          expect(token).not.toBe("");
+          const listed = (await (
+            await call("GET", "/api/instance/sign-up-invitations", undefined, operator)
+          ).json()) as { invitations: { id: string; email: string; invitedBy: string }[] };
+          expect(listed.invitations).toEqual([
+            expect.objectContaining({ email: "tomas@example.test", invitedBy: "Producer" }),
+          ]);
+          expect(await (await call("GET", `/api/sign-up/${token}`)).json()).toMatchObject({
+            email: "tomas@example.test",
+            invited: true,
+            expired: false,
+            hasAccount: false,
+            allowed: true,
+          });
+
+          const signedUp = await call("POST", `/api/sign-up/${token}`, { ...made, ...newcomer });
+          expect(signedUp.status).toBe(201);
+          const { organisationId } = (await signedUp.json()) as { organisationId: string };
+          const cookie = cookieOf(signedUp);
+          const me = (await (await call("GET", "/api/me", undefined, cookie)).json()) as {
+            user: { email: string };
+            organisations: { id: string; name: string; role: string }[];
+            activeOrganisationId: string;
+          };
+          expect(me.user.email).toBe("tomas@example.test");
+          expect(me.organisations).toEqual([
+            expect.objectContaining({
+              id: organisationId,
+              name: "Lantern Pictures",
+              role: "owner",
+            }),
+          ]);
+          expect(me.activeOrganisationId).toBe(organisationId);
+          const [event] = await db
+            .select()
+            .from(schema.instanceEvents)
+            .where(eq(schema.instanceEvents.action, "workspace.signed_up"));
+          expect(event).toMatchObject({
+            target: "Lantern Pictures",
+            details: expect.objectContaining({ invited: true, owner: "tomas@example.test" }),
+          });
+          // A link works once.
+          expect((await call("GET", `/api/sign-up/${token}`)).status).toBe(404);
+          expect(
+            (await call("POST", `/api/sign-up/${token}`, { ...made, slug: "lantern-again" }))
+              .status,
+          ).toBe(404);
+
+          // An invitation withdrawn is no use.
+          await call(
+            "POST",
+            "/api/instance/sign-up-invitations",
+            { email: "alex@example.test" },
+            operator,
+          );
+          const withdrawn = linkTo("alex@example.test");
+          const waiting = (await (
+            await call("GET", "/api/instance/sign-up-invitations", undefined, operator)
+          ).json()) as { invitations: { id: string }[] };
+          const id = waiting.invitations[0]?.id ?? "";
+          expect(
+            (await call("DELETE", `/api/instance/sign-up-invitations/${id}`, undefined, owner))
+              .status,
+          ).toBe(403);
+          const revoked = await call(
+            "DELETE",
+            `/api/instance/sign-up-invitations/${id}`,
+            undefined,
+            operator,
+          );
+          expect(await revoked.json()).toEqual({ invitations: [] });
+          expect((await call("GET", `/api/sign-up/${withdrawn}`)).status).toBe(404);
+
+          // Closed again: an invitation still waiting no longer works.
+          await call(
+            "POST",
+            "/api/instance/sign-up-invitations",
+            { email: "mira@example.test" },
+            operator,
+          );
+          const waitingStill = linkTo("mira@example.test");
+          await registration(operator, "closed");
+          const shut = await call("POST", `/api/sign-up/${waitingStill}`, {
+            ...made,
+            slug: "mira",
+            ...newcomer,
+          });
+          expect(shut.status).toBe(403);
+          expect(await shut.json()).toMatchObject({ error: { code: "sign_up_closed" } });
+        });
+
+        it("open: a confirmed email makes a workspace with a trial, within the abuse limits", async () => {
+          const operator = cookieOf(await setup());
+          await registration(operator, "open");
+          // No plan to try: no trial.
+          expect(await (await call("GET", "/api/sign-up")).json()).toMatchObject({
+            mode: "open",
+            trialDays: null,
+          });
+          const plan = await call(
+            "POST",
+            "/api/instance/plans",
+            {
+              key: "studio",
+              name: "Studio",
+              price: { amount: 4900, currency: "gbp", interval: "month" },
+              storageQuota: 1e12,
+              memberLimit: 25,
+              projectLimit: null,
+              features: [],
+              severities: ["low"],
+            },
+            operator,
+          );
+          expect(plan.status).toBe(201);
+          expect(await (await call("GET", "/api/sign-up")).json()).toMatchObject({
+            mode: "open",
+            trialDays: 14,
+          });
+          expect(
+            ((await (await call("GET", "/api/sign-in-methods")).json()) as { signUp: boolean })
+              .signUp,
+          ).toBe(true);
+
+          mailer.sent.length = 0;
+          const start = await call("POST", "/api/sign-up/start", { email: "Tomas@Example.test" });
+          expect(start.status).toBe(202);
+          const token = linkTo("tomas@example.test");
+          expect(await (await call("GET", `/api/sign-up/${token}`)).json()).toMatchObject({
+            invited: false,
+            allowed: true,
+            trialDays: 14,
+          });
+          // The subdomain taken: refused, and no account is left behind to block a second try.
+          const taken = await call("POST", `/api/sign-up/${token}`, {
+            workspace: "Studio",
+            slug: "studio",
+            ...newcomer,
+          });
+          expect(taken.status).toBe(409);
+          expect(
+            await db
+              .select({ id: schema.users.id })
+              .from(schema.users)
+              .where(eq(schema.users.email, "tomas@example.test")),
+          ).toEqual([]);
+          // A password, for a new account.
+          expect((await call("POST", `/api/sign-up/${token}`, made)).status).toBe(400);
+          const signedUp = await call("POST", `/api/sign-up/${token}`, { ...made, ...newcomer });
+          expect(signedUp.status).toBe(201);
+          const { organisationId, trialEndsAt } = (await signedUp.json()) as {
+            organisationId: string;
+            trialEndsAt: string;
+          };
+          const days = (new Date(trialEndsAt).getTime() - Date.now()) / 86_400_000;
+          expect(days).toBeGreaterThan(13.9);
+          expect(days).toBeLessThanOrEqual(14);
+          const [onPlan] = await db
+            .select({ status: schema.workspacePlans.status })
+            .from(schema.workspacePlans)
+            .where(eq(schema.workspacePlans.organisationId, organisationId));
+          expect(onPlan?.status).toBe("trial");
+          const [workspace] = await db
+            .select({ quota: schema.organisations.storageQuota })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.id, organisationId));
+          expect(workspace?.quota).toBe(1e12);
+
+          // Someone with an account makes another workspace signed in as themselves.
+          mailer.sent.length = 0;
+          await call("POST", "/api/sign-up/start", { email: owner.email });
+          const mine = linkTo(owner.email);
+          expect(await (await call("GET", `/api/sign-up/${mine}`)).json()).toMatchObject({
+            hasAccount: true,
+          });
+          const another = { workspace: "North Choir Collective", slug: "north-choir" };
+          expect((await call("POST", `/api/sign-up/${mine}`, another)).status).toBe(401);
+          // Signed in as someone else is no better.
+          expect(
+            (await call("POST", `/api/sign-up/${mine}`, another, cookieOf(signedUp))).status,
+          ).toBe(401);
+          const second = await call("POST", `/api/sign-up/${mine}`, another, operator);
+          expect(second.status).toBe(201);
+          const memberships = await db
+            .select({ role: schema.members.role })
+            .from(schema.members)
+            .innerJoin(schema.users, eq(schema.users.id, schema.members.userId))
+            .where(eq(schema.users.email, owner.email));
+          expect(memberships.map((m) => m.role).sort()).toEqual(["owner", "owner"]);
+
+          // Links asked for are limited by email (and by address).
+          for (const _ of [1, 2, 3])
+            expect(
+              (await call("POST", "/api/sign-up/start", { email: "ines@example.test" })).status,
+            ).toBe(202);
+          const fourth = await call("POST", "/api/sign-up/start", { email: "ines@example.test" });
+          expect(fourth.status).toBe(429);
+          expect(fourth.headers.get("retry-after")).not.toBeNull();
+        });
+      });
+
       it("adds and removes operators, but never the last", async () => {
         const first = cookieOf(await setup());
         await join(first, "ops@example.test");
@@ -2497,12 +2947,15 @@ describe.runIf(url)("api", () => {
           updates: { channel: "stable" },
           maintenance: { on: false, message: "" },
           defaults: { guestLinkDays: 3, storageQuota: null, memberLimit: null },
-          logs: { audit: null, auth: 365, mail: 90, webhooks: 30 },
+          logs: { audit: null, auth: 365, mail: 90, webhooks: 30, api: 30 },
           billing: {
             currency: "GBP",
             dunning: { warn: 7, warnAgain: 14, suspend: 21 },
             trialDays: 14,
           },
+          registration: { mode: "closed" },
+          // The support desk's own (#182), saved from the desk alone.
+          support: { statusUrl: null, onCall: null },
         });
         expect(first.environment.sessionDays).toBe(14);
         // Billing's rules (#180): each step after the one before, and each change an event.
@@ -2943,7 +3396,9 @@ describe.runIf(url)("api", () => {
           create trigger refuse_157 before delete on instance_events
             for each statement execute function refuse_157()`);
         await expect(
-          purgeLogs(db, { audit: 365, auth: 365, mail: null, webhooks: null }, now, { batch: 1 }),
+          purgeLogs(db, { audit: 365, auth: 365, mail: null, webhooks: null, api: null }, now, {
+            batch: 1,
+          }),
         ).rejects.toThrow();
         await db.execute(
           sql`drop trigger refuse_157 on instance_events; drop function refuse_157()`,
@@ -2965,13 +3420,13 @@ describe.runIf(url)("api", () => {
         });
         const first = await purgeLogs(
           db,
-          { audit: null, auth: 365, mail: 365, webhooks: null },
+          { audit: null, auth: 365, mail: 365, webhooks: null, api: null },
           now,
           {
             batch: 1,
           },
         );
-        expect(first).toEqual({ audit: 0, auth: 1, mail: 1, webhooks: 0 });
+        expect(first).toEqual({ audit: 0, auth: 1, mail: 1, webhooks: 0, api: 0 });
         expect(await accessCount()).toBe(3);
         expect(
           (await db.select({ account: schema.authEvents.account }).from(schema.authEvents)).map(
@@ -2982,7 +3437,7 @@ describe.runIf(url)("api", () => {
         // The access log goes only through its purge setting, and what went is itself logged.
         const second = await purgeLogs(
           db,
-          { audit: 365, auth: 365, mail: 365, webhooks: null },
+          { audit: 365, auth: 365, mail: 365, webhooks: null, api: null },
           now,
           {
             batch: 1,
@@ -3900,6 +4355,403 @@ describe.runIf(url)("api", () => {
           // The other workspace is untouched.
           expect((await getAs("/api/projects", operator)).status).toBe(200);
         });
+      });
+
+      describe("a workspace's export and deletion (#186)", () => {
+        const idOf = async (cookie: string) =>
+          ((await (await get("/api/me", cookie)).json()) as { user: { id: string } }).user.id;
+        const workspaceOf = async (cookie: string) =>
+          ((await (await get("/api/me", cookie)).json()) as { activeOrganisationId: string })
+            .activeOrganisationId;
+        /** A project with a file in a folder, a track using it, a comment with an attachment. */
+        const seed = async (organisationId: string, userId: string, project: string) => {
+          const [p] = await db
+            .insert(schema.projects)
+            .values({ organisationId, name: project, profile: "music" })
+            .returning();
+          const projectId = p?.id ?? "";
+          const [folder] = await db
+            .insert(schema.folders)
+            .values({ organisationId, projectId, name: "Mixes" })
+            .returning();
+          const blob = await storage.put(organisationId, Buffer.from(`${project}: the cut`));
+          const [file] = await db
+            .insert(schema.files)
+            .values({
+              organisationId,
+              projectId,
+              folderId: folder?.id ?? null,
+              name: "Cut 3.wav",
+              kind: "audio",
+              blobId: blob.id,
+              contentType: "audio/wav",
+              byteSize: blob.byteSize,
+            })
+            .returning();
+          const [track] = await db
+            .insert(schema.tracks)
+            .values({ organisationId, projectId, name: "Maple Leaf Rag" })
+            .returning();
+          const [version] = await db
+            .insert(schema.versions)
+            .values({ organisationId, trackId: track?.id ?? "", number: 1 })
+            .returning();
+          await db.insert(schema.variations).values({
+            organisationId,
+            versionId: version?.id ?? "",
+            fileId: file?.id ?? "",
+            name: "Mix",
+            isPrimary: true,
+          });
+          const [comment] = await db
+            .insert(schema.comments)
+            .values({ organisationId, fileId: file?.id ?? "", authorId: userId, body: "Lovely" })
+            .returning();
+          const note = await storage.put(organisationId, Buffer.from("notes"));
+          await db.insert(schema.commentAttachments).values({
+            organisationId,
+            commentId: comment?.id ?? "",
+            blobId: note.id,
+            name: "Notes.txt",
+            contentType: "text/plain",
+            byteSize: note.byteSize,
+          });
+          await audit.record(organisationId, systemActor, { action: "file.upload" });
+          return { projectId, fileId: file?.id ?? "" };
+        };
+        /** Rows each tenant table holds for a workspace, by table. */
+        const rowsOf = async (organisationId: string) => {
+          const counts: Record<string, number> = {};
+          for (const table of tenantTables) {
+            const [row] = await db.execute<{ n: number }>(
+              sql`select count(*)::int as n from ${table} where organisation_id = ${organisationId}`,
+            );
+            counts[getTableName(table)] = row?.n ?? 0;
+          }
+          return counts;
+        };
+        const objectsOf = async (organisationId: string) => {
+          const keys: string[] = [];
+          for (const name of backends.names())
+            for await (const o of backends.get(name).list(`org/${organisationId}/`))
+              keys.push(o.key);
+          return keys;
+        };
+        const exportJob = (exportId: string) =>
+          sent.find(
+            (j) =>
+              j.name === "workspace-export" &&
+              (j.data as { exportId: string }).exportId === exportId,
+          );
+
+        it("exports everything a workspace holds, to its owners only, through a one-time link", async () => {
+          const owner = cookieOf(await setup());
+          const ownerId = await idOf(owner);
+          const id = await workspaceOf(owner);
+          const admin = await join(owner, "ines@example.test", "admin");
+          const member = await join(owner, "tomas@example.test", "member");
+          await seed(id, ownerId, "Joplin Rags");
+          // Another workspace, whose content must not reach this one's archive.
+          const [other] = await db
+            .insert(schema.organisations)
+            .values({ name: "Lantern Pictures", slug: "lantern-export" })
+            .returning({ id: schema.organisations.id });
+          const otherId = other?.id ?? "";
+          await seed(otherId, ownerId, "Opening titles");
+
+          for (const someone of [admin, member]) {
+            expect((await get("/api/organisation/exports", someone)).status).toBe(403);
+            expect((await send("POST", "/api/organisation/exports", {}, someone)).status).toBe(403);
+          }
+          expect(
+            (await send("POST", "/api/organisation/exports", { recipient: "age1nope" }, owner))
+              .status,
+          ).toBe(400);
+          const started = await send("POST", "/api/organisation/exports", {}, owner);
+          expect(started.status).toBe(201);
+          const { export: made, key } = (await started.json()) as {
+            export: { id: string; status: string; recipient: string };
+            key: string;
+          };
+          expect(made).toMatchObject({ status: "queued" });
+          expect(key).toMatch(/^AGE-SECRET-KEY-1/);
+          expect(recipientOf(key)).toBe(made.recipient);
+          expect(exportJob(made.id)?.data).toEqual({ organisationId: id, exportId: made.id });
+          // The key is kept nowhere.
+          const [row] = await db
+            .select()
+            .from(schema.workspaceExports)
+            .where(eq(schema.workspaceExports.id, made.id));
+          expect(JSON.stringify(row)).not.toContain(key);
+          // One at a time.
+          expect((await send("POST", "/api/organisation/exports", {}, owner)).status).toBe(409);
+          // Not ready yet: no link.
+          expect(
+            (await send("POST", `/api/organisation/exports/${made.id}/download`, {}, owner)).status,
+          ).toBe(404);
+
+          // Made in parts small enough that the archive takes several.
+          await buildExport({ db, storage, partBytes: 1500 }, id, made.id);
+          const listed = (await (await get("/api/organisation/exports", owner)).json()) as {
+            exports: { id: string; status: string; fileCount: number; byteSize: number }[];
+          };
+          expect(listed.exports[0]).toMatchObject({ id: made.id, status: "ready", fileCount: 2 });
+          const [ready] = await db
+            .select()
+            .from(schema.workspaceExports)
+            .where(eq(schema.workspaceExports.id, made.id));
+          expect(ready?.blobIds.length).toBeGreaterThan(1);
+          // Its parts are the export's: reconciliation leaves them alone.
+          await reconcileStorage({ db, storage, audit }, { remove: true });
+
+          // Another workspace's export cannot be reached from here.
+          const otherExport = await startExport(
+            { db, jobs },
+            { organisationId: otherId, requestedBy: ownerId, byOperator: true },
+            async () => undefined,
+          );
+          expect(
+            (
+              await send(
+                "POST",
+                `/api/organisation/exports/${otherExport.row.id}/download`,
+                {},
+                owner,
+              )
+            ).status,
+          ).toBe(404);
+
+          const link = await send(
+            "POST",
+            `/api/organisation/exports/${made.id}/download`,
+            {},
+            owner,
+          );
+          expect(link.status).toBe(201);
+          const { url } = (await link.json()) as { url: string };
+          // Only in the session that asked: another owner's is refused, and the link survives.
+          const second = await join(owner, "mira@example.test", "owner");
+          expect((await get(url, second)).status).toBe(410);
+          const res = await get(url, owner);
+          expect(res.status).toBe(200);
+          expect(res.headers.get("cache-control")).toContain("no-store");
+          expect(res.headers.get("content-disposition")).toMatch(
+            /attachment; filename=".*\.tar\.age"/,
+          );
+          const file = Buffer.from(await res.arrayBuffer());
+          expect(file.length).toBe(ready?.byteSize);
+          // Once only.
+          expect((await get(url, owner)).status).toBe(410);
+
+          const entries = readTar(ageDecrypt(key, file));
+          const slug = (
+            await db
+              .select({ slug: schema.organisations.slug })
+              .from(schema.organisations)
+              .where(eq(schema.organisations.id, id))
+          )[0]?.slug;
+          const at = (path: string) => entries.get(`${slug}-export/${path}`);
+          expect(at("files/Joplin Rags/Mixes/Cut 3.wav")?.toString()).toBe("Joplin Rags: the cut");
+          const manifest = JSON.parse(at("manifest.json")?.toString() ?? "{}") as {
+            files: { path: string; of: string }[];
+            workspace: { id: string };
+          };
+          expect(manifest.workspace.id).toBe(id);
+          expect(manifest.files.map((f) => f.of).sort()).toEqual(["attachment", "file"]);
+          const attachment = manifest.files.find((f) => f.of === "attachment");
+          expect(at(attachment?.path ?? "")?.toString()).toBe("notes");
+          const projects = JSON.parse(at("records/projects.json")?.toString() ?? "[]") as {
+            name: string;
+          }[];
+          expect(projects.map((p) => p.name)).toEqual(["Joplin Rags"]);
+          const blobs = JSON.parse(at("records/blobs.json")?.toString() ?? "[]") as object[];
+          expect(blobs.length).toBeGreaterThan(0);
+          for (const b of blobs) expect(b).not.toHaveProperty("wrapped_key");
+          expect(at("records/organisation_keys.json")).toBeUndefined();
+          const people = JSON.parse(at("records/people.json")?.toString() ?? "[]") as {
+            email: string;
+          }[];
+          expect(people.map((p) => p.email)).toContain("ines@example.test");
+          // Nothing of the other workspace anywhere in it.
+          for (const [path, body] of entries) {
+            expect(path).not.toContain("Opening titles");
+            expect(body.toString("latin1")).not.toContain(otherId);
+          }
+
+          // The request and the download are in the access log, before anything left.
+          const logged = await db
+            .select({ action: schema.accessEvents.action })
+            .from(schema.accessEvents)
+            .where(eq(schema.accessEvents.organisationId, id));
+          expect(logged.map((l) => l.action)).toEqual(
+            expect.arrayContaining(["organisation.export_request", "organisation.export_download"]),
+          );
+
+          // To a key of the owner's own, nothing is shown.
+          const own = generateIdentity();
+          const theirs = await send(
+            "POST",
+            "/api/organisation/exports",
+            { recipient: own.recipient },
+            owner,
+          );
+          expect(theirs.status).toBe(201);
+          expect(await theirs.json()).toMatchObject({
+            key: null,
+            export: { recipient: own.recipient },
+          });
+
+          // A week on, the archive goes and its link with it.
+          const before = await objectsOf(id);
+          expect(await expireExports(db, storage, new Date(Date.now() + 8 * 86_400_000))).toBe(1);
+          const after = await objectsOf(id);
+          expect(after.length).toBe(before.length - (ready?.blobIds.length ?? 0));
+          expect(
+            (await send("POST", `/api/organisation/exports/${made.id}/download`, {}, owner)).status,
+          ).toBe(404);
+        }, 30_000);
+
+        it("lets operators export a workspace from the instance, and no one else", async () => {
+          const operator = cookieOf(await setup());
+          const id = await workspaceOf(operator);
+          const owner = await join(operator, "mira@example.test", "owner");
+          const path = `/api/instance/workspaces/${id}/exports`;
+          // An owner who is not an operator uses the workspace's own settings instead.
+          expect((await send("POST", path, {}, owner)).status).toBe(403);
+          const started = await send("POST", path, {}, operator);
+          expect(started.status).toBe(201);
+          const { export: made, key } = (await started.json()) as {
+            export: { id: string; byOperator: boolean };
+            key: string;
+          };
+          expect(made.byOperator).toBe(true);
+          await buildExport({ db, storage }, id, made.id);
+          const link = await send("POST", `${path}/${made.id}/download`, {}, operator);
+          const { url } = (await link.json()) as { url: string };
+          expect((await get(url, owner)).status).toBe(403);
+          const res = await get(url, operator);
+          expect(res.status).toBe(200);
+          expect(readTar(ageDecrypt(key, Buffer.from(await res.arrayBuffer())))).toBeDefined();
+          const [logged] = await db
+            .select()
+            .from(schema.accessEvents)
+            .where(
+              and(
+                eq(schema.accessEvents.organisationId, id),
+                eq(schema.accessEvents.action, "organisation.export_download"),
+              ),
+            );
+          expect(logged).toMatchObject({ actorType: "system" });
+          expect(logged?.actorLabel).toContain("(operator)");
+          const events = await db
+            .select({ action: schema.instanceEvents.action })
+            .from(schema.instanceEvents);
+          expect(events.map((e) => e.action)).toEqual(
+            expect.arrayContaining(["workspace.export_requested", "workspace.export_downloaded"]),
+          );
+        }, 30_000);
+
+        it("deletes a workspace when two owners agree, keeps it on request, then purges it all", async () => {
+          const owner = cookieOf(await setup());
+          const ownerId = await idOf(owner);
+          const id = await workspaceOf(owner);
+          const second = await join(owner, "mira@example.test", "owner");
+          const admin = await join(owner, "ines@example.test", "admin");
+          const member = await join(owner, "tomas@example.test", "member");
+          await seed(id, ownerId, "Joplin Rags");
+          const [other] = await db
+            .insert(schema.organisations)
+            .values({ name: "Lantern Pictures", slug: "lantern-purge" })
+            .returning({ id: schema.organisations.id });
+          const otherId = other?.id ?? "";
+          await seed(otherId, ownerId, "Opening titles");
+          const theirs = { rows: await rowsOf(otherId), objects: await objectsOf(otherId) };
+          const name = "Studio";
+
+          expect((await send("POST", "/api/organisation/deletion", {}, admin)).status).toBe(403);
+          expect((await send("POST", "/api/organisation/deletion", {}, member)).status).toBe(403);
+          const asked = await send("POST", "/api/organisation/deletion", {}, owner);
+          expect(asked.status).toBe(200);
+          expect(await asked.json()).toMatchObject({
+            deletion: { requestedBy: "Producer", mayConfirm: false, deleteAfter: null },
+          });
+          expect((await send("POST", "/api/organisation/deletion", {}, second)).status).toBe(409);
+          // The one who asked does not confirm while there is another owner to.
+          const confirm = (cookie: string, typed = name) =>
+            send("POST", "/api/organisation/deletion/confirm", { name: typed }, cookie);
+          expect((await confirm(owner)).status).toBe(403);
+          expect((await confirm(admin)).status).toBe(403);
+          expect((await confirm(second, "Something else")).status).toBe(400);
+          const confirmed = await confirm(second);
+          expect(confirmed.status).toBe(200);
+          const { deleteAfter } = (await confirmed.json()) as { deleteAfter: string };
+          expect(Math.round((new Date(deleteAfter).getTime() - Date.now()) / 86_400_000)).toBe(30);
+
+          // Closed to everyone, but its owners may still keep it or export it.
+          for (const someone of [member, admin, owner]) {
+            const refused = await get("/api/projects", someone);
+            expect(refused.status).toBe(403);
+            expect(await refused.json()).toMatchObject({ error: { code: "workspace_suspended" } });
+          }
+          expect((await get("/api/organisation/deletion", admin)).status).toBe(403);
+          expect((await get("/api/organisation/deletion", owner)).status).toBe(200);
+          expect((await send("POST", "/api/organisation/exports", {}, second)).status).toBe(201);
+          const me = (await (await get("/api/me", member)).json()) as {
+            organisations: { suspended: { deleteAfter: string | null } | null }[];
+          };
+          expect(me.organisations[0]?.suspended?.deleteAfter).toBe(deleteAfter);
+          // Not before its time.
+          expect(await purgeDueWorkspaces(db, backends, new Date(), keyring)).toBe(0);
+
+          // Kept: open again at once.
+          expect((await send("DELETE", "/api/organisation/deletion", {}, second)).status).toBe(204);
+          expect((await get("/api/projects", member)).status).toBe(200);
+          expect(await (await get("/api/organisation/deletion", owner)).json()).toMatchObject({
+            deletion: null,
+          });
+
+          // Asked and confirmed again, it goes once its grace period is over, with everything.
+          expect((await send("POST", "/api/organisation/deletion", {}, second)).status).toBe(200);
+          expect((await confirm(owner)).status).toBe(200);
+          await keyring.current(id);
+          const later = new Date(Date.now() + 31 * 86_400_000);
+          expect(await purgeDueWorkspaces(db, backends, later, keyring)).toBe(1);
+          const left = await rowsOf(id);
+          expect(Object.entries(left).filter(([, n]) => n > 0)).toEqual([]);
+          expect(await objectsOf(id)).toEqual([]);
+          // Its keys are gone from memory as from the database.
+          await expect(keyring.version(id, 1)).rejects.toThrow();
+          // Nothing of the other workspace's went with it.
+          expect(await rowsOf(otherId)).toEqual(theirs.rows);
+          expect((await objectsOf(otherId)).sort()).toEqual(theirs.objects.sort());
+          const events = await db
+            .select({ action: schema.instanceEvents.action })
+            .from(schema.instanceEvents);
+          expect(events.map((e) => e.action)).toEqual(
+            expect.arrayContaining(["workspace.deletion_scheduled", "workspace.purged"]),
+          );
+        }, 30_000);
+
+        it("lets a sole owner confirm their own request, a day after asking", async () => {
+          const owner = cookieOf(await setup());
+          const id = await workspaceOf(owner);
+          const asked = await send("POST", "/api/organisation/deletion", {}, owner);
+          expect(asked.status).toBe(200);
+          expect(await asked.json()).toMatchObject({ deletion: { mayConfirm: false } });
+          const confirm = () =>
+            send("POST", "/api/organisation/deletion/confirm", { name: "studio" }, owner);
+          expect((await confirm()).status).toBe(403);
+          await db
+            .update(schema.organisations)
+            .set({ deletionRequestedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) })
+            .where(eq(schema.organisations.id, id));
+          expect((await confirm()).status).toBe(200);
+          // An operator who keeps it opens it again, as its owners' deletion is all that shut it.
+          expect(
+            (await send("POST", `/api/instance/workspaces/${id}/delete/cancel`, {}, owner)).status,
+          ).toBe(204);
+          expect((await get("/api/projects", owner)).status).toBe(200);
+        }, 30_000);
       });
     });
 
@@ -6084,6 +6936,148 @@ describe.runIf(url)("api", () => {
               .where(eq(schema.uploadRequestFiles.requestId, request.id));
             expect(arrived?.n, change).toBe(0);
           }
+        });
+
+        it("sends each file to a track as its next version once measured, in the track's own workspace only (#425)", async () => {
+          const owner = cookieOf(await setup());
+          const projectId = await newProject(owner);
+          const newTrack = async (project: string, name: string) =>
+            (
+              (await (
+                await app.request(`/api/projects/${project}/tracks`, json({ name }, owner))
+              ).json()) as { track: { id: string; folderId: string | null } }
+            ).track;
+          const track = await newTrack(projectId, "Maple Leaf Rag");
+          const [{ organisationId } = { organisationId: "" }] = await db
+            .select({ organisationId: schema.projects.organisationId })
+            .from(schema.projects)
+            .where(eq(schema.projects.id, projectId));
+
+          // A folder and a track at once, a track of another project, or another workspace's
+          // track: each refused.
+          const folder = (
+            (await (
+              await app.request(
+                `/api/projects/${projectId}/folders`,
+                json({ name: "Day 2" }, owner),
+              )
+            ).json()) as { folder: { id: string } }
+          ).folder;
+          expect(
+            (await ask(owner, projectId, { folderId: folder.id, trackId: track.id })).status,
+          ).toBe(400);
+          const elsewhere = await newTrack(await newProject(owner), "Pine Apple Rag");
+          expect((await ask(owner, projectId, { trackId: elsewhere.id })).status).toBe(404);
+          const [theirs] = await db
+            .insert(schema.organisations)
+            .values({ name: "Endless Hall Records", slug: "endless-hall" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: theirs?.id ?? "", name: "Opening titles", profile: "music" })
+            .returning();
+          const [theirTrack] = await db
+            .insert(schema.tracks)
+            .values({
+              organisationId: theirs?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theme",
+            })
+            .returning();
+          expect((await ask(owner, projectId, { trackId: theirTrack?.id })).status).toBe(404);
+
+          const made = await ask(owner, projectId, { trackId: track.id, fileLimit: 3 });
+          expect(made.status).toBe(201);
+          const { request, link } = (await made.json()) as Made & {
+            request: { trackId: string | null; folderId: string | null };
+          };
+          expect(request).toMatchObject({ trackId: track.id, folderId: track.folderId });
+          const token = tokenOf(link);
+
+          // A recording waits to be measured; it arrives beside the track meanwhile.
+          const wav = await send(token, { name: "Maple Leaf Rag - Dry.wav" }, new Uint8Array(10));
+          expect((await finish(token, wav)).status).toBe(201);
+          const [dry] = await db
+            .select()
+            .from(schema.files)
+            .where(eq(schema.files.name, "Maple Leaf Rag - Dry.wav"));
+          expect(dry).toMatchObject({ projectId, folderId: track.folderId });
+          const versionsOf = () =>
+            db
+              .select({ number: schema.versions.number, notes: schema.versions.notes })
+              .from(schema.versions)
+              .where(eq(schema.versions.trackId, track.id))
+              .orderBy(schema.versions.number);
+          expect(await versionsOf()).toEqual([]);
+
+          // A file that is never measured becomes the next version as it arrives.
+          const pdf = await send(
+            token,
+            { name: "Maple Leaf Rag - Score.pdf", contentType: "application/pdf" },
+            new Uint8Array(10),
+          );
+          expect((await finish(token, pdf)).status).toBe(201);
+          expect(await versionsOf()).toEqual([
+            { number: 1, notes: "Sent by Ines Arlow through the upload request String stems." },
+          ]);
+
+          // Measured, the recording becomes the one after, once, and only in its own workspace.
+          const deps = { db, jobs, storage, mailer, publicUrl: "http://localhost:3000" };
+          const fileId = dry?.id ?? "";
+          expect(await versionFromRequest(deps, { organisationId: theirs?.id ?? "", fileId })).toBe(
+            "none",
+          );
+          expect(await versionFromRequest(deps, { organisationId, fileId })).toBe("made");
+          expect(await versionFromRequest(deps, { organisationId, fileId })).toBe("none");
+          expect((await versionsOf()).map((v) => v.number)).toEqual([1, 2]);
+          const [variation] = await db
+            .select({ name: schema.variations.name, isPrimary: schema.variations.isPrimary })
+            .from(schema.variations)
+            .where(eq(schema.variations.fileId, fileId));
+          expect(variation).toEqual({ name: "Dry", isPrimary: true });
+          // The requester hears of it, as of any version.
+          const told = await db
+            .select({ text: schema.notifications.text })
+            .from(schema.notifications)
+            .where(eq(schema.notifications.kind, "version"));
+          expect(told.map((t) => t.text)).toContain(
+            "Ines Arlow sent version 2 of Maple Leaf Rag, through String stems",
+          );
+          // The track shows both, with who sent them.
+          const shown = (await (
+            await app.request(`/api/tracks/${track.id}`, { headers: { cookie: owner } })
+          ).json()) as { track: { versions: { number: number; sentBy: string | null }[] } };
+          expect(shown.track.versions).toEqual([
+            expect.objectContaining({ number: 1, sentBy: "Ines Arlow" }),
+            expect.objectContaining({ number: 2, sentBy: "Ines Arlow" }),
+          ]);
+
+          // The project's checks hold: a file they refuse stays as it arrived, and the requester
+          // is told why.
+          await db
+            .update(schema.projects)
+            .set({ requireEdl: true })
+            .where(eq(schema.projects.id, projectId));
+          const wet = await send(token, { name: "Maple Leaf Rag - Wet.wav" }, new Uint8Array(10));
+          expect((await finish(token, wet)).status).toBe(201);
+          const [wetFile] = await db
+            .select({ id: schema.files.id })
+            .from(schema.files)
+            .where(eq(schema.files.name, "Maple Leaf Rag - Wet.wav"));
+          expect(
+            await versionFromRequest(deps, { organisationId, fileId: wetFile?.id ?? "" }),
+          ).toBe("refused");
+          expect((await versionsOf()).map((v) => v.number)).toEqual([1, 2]);
+          const [refused] = await db
+            .select({ text: schema.notifications.text, detail: schema.notifications.detail })
+            .from(schema.notifications)
+            .where(
+              eq(
+                schema.notifications.text,
+                "Maple Leaf Rag - Wet.wav from Ines Arlow did not become a version of Maple Leaf Rag",
+              ),
+            );
+          expect(refused?.detail).toContain("edit decision list");
         });
       });
 
@@ -15230,7 +16224,9 @@ describe.runIf(url)("api", () => {
           }
           expect(mailer.sent).toEqual([]);
           const later = new Date(Date.now() + 60_000);
-          expect(await deliverDigests(db, mailer, "http://localhost:3000", later)).toBe(1);
+          expect(
+            await deliverDigests(db, mailer, { publicUrl: "http://localhost:3000" }, later),
+          ).toBe(1);
           expect(mailer.sent).toHaveLength(1);
           expect(mailer.sent[0]).toMatchObject({
             to: "composer@example.test",
@@ -15239,7 +16235,9 @@ describe.runIf(url)("api", () => {
           expect(mailer.sent[0]?.text).toContain(
             'Producer asks you to give feedback on "Digest two"',
           );
-          expect(await deliverDigests(db, mailer, "http://localhost:3000", later)).toBe(0);
+          expect(
+            await deliverDigests(db, mailer, { publicUrl: "http://localhost:3000" }, later),
+          ).toBe(0);
 
           // An instant mail that could not go at once goes on the next run, and only once.
           await db.insert(schema.notifications).values({
@@ -15254,11 +16252,13 @@ describe.runIf(url)("api", () => {
           mailer.sent.length = 0;
           // Two runs at once send it once between them.
           const [a, b] = await Promise.all([
-            deliverInstant(db, mailer, "http://localhost:3000", later),
-            deliverInstant(db, mailer, "http://localhost:3000", later),
+            deliverInstant(db, mailer, { publicUrl: "http://localhost:3000" }, later),
+            deliverInstant(db, mailer, { publicUrl: "http://localhost:3000" }, later),
           ]);
           expect(a + b).toBe(1);
-          expect(await deliverInstant(db, mailer, "http://localhost:3000", later)).toBe(0);
+          expect(
+            await deliverInstant(db, mailer, { publicUrl: "http://localhost:3000" }, later),
+          ).toBe(0);
           expect(mailer.sent.map((m) => m.to)).toEqual(["accompanist@example.test"]);
         });
       });

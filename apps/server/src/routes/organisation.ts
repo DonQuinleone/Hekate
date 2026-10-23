@@ -19,12 +19,14 @@ import { and, asc, count, desc, eq, gt, inArray, isNull, max, sql } from "drizzl
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
+import { revokeMemberTokens } from "../api-tokens.ts";
 import { type Audit, csvHeader, csvRow, requestInfo } from "../audit.ts";
 import { assertProfileRef, customProfilesOf, deleteCustomProfile } from "../delivery-profiles.ts";
 import { render } from "../email/render.ts";
 import { sampleData, workspaceEmail } from "../email/templates.ts";
 import { NotFound } from "../errors.ts";
 import { revokeGuest } from "../guests.ts";
+import { type LinkRoots, linkBase } from "../hosts.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import type { Storage } from "../storage.ts";
@@ -65,7 +67,8 @@ async function ownerCount(db: Database, organisationId: string) {
 export const organisationRoutes = (
   db: Database,
   mailer: Mailer,
-  publicUrl: string,
+  /** Links in mail: the workspace's own address with subdomains on (#437). */
+  links: LinkRoots,
   storage: Storage,
   audit: Audit,
   trustProxy: boolean,
@@ -240,11 +243,15 @@ export const organisationRoutes = (
       async (c) => {
         const { template } = c.req.valid("param");
         const [workspace] = await db
-          .select({ name: organisations.name, settings: organisations.settings })
+          .select({
+            name: organisations.name,
+            slug: organisations.slug,
+            settings: organisations.settings,
+          })
           .from(organisations)
           .where(eq(organisations.id, c.var.organisationId));
         if (!workspace) throw new NotFound("Workspace");
-        const sample = sampleData(workspace.name, publicUrl.replace(/\/$/, ""))[template];
+        const sample = sampleData(workspace.name, linkBase(links, workspace.slug))[template];
         const email = workspaceEmail(
           template,
           sample,
@@ -258,7 +265,11 @@ export const organisationRoutes = (
     .post("/email/test", requireRole("admin"), zValidator("json", emailTestInput), async (c) => {
       const { template } = c.req.valid("json");
       const [workspace] = await db
-        .select({ name: organisations.name, settings: organisations.settings })
+        .select({
+          name: organisations.name,
+          slug: organisations.slug,
+          settings: organisations.settings,
+        })
         .from(organisations)
         .where(eq(organisations.id, c.var.organisationId));
       const [me] = await db
@@ -266,7 +277,7 @@ export const organisationRoutes = (
         .from(users)
         .where(eq(users.id, c.var.userId));
       if (!workspace || !me) throw new NotFound("Workspace");
-      const sample = sampleData(workspace.name, publicUrl.replace(/\/$/, ""))[template];
+      const sample = sampleData(workspace.name, linkBase(links, workspace.slug))[template];
       const email = workspaceEmail(
         template,
         sample,
@@ -369,6 +380,8 @@ export const organisationRoutes = (
             ),
           );
         await tx.delete(members).where(inOrg(members, c.var.organisationId, eq(members.id, id)));
+        // Their API tokens here stop working with them (#198).
+        await revokeMemberTokens(tx, c.var.organisationId, member.userId, c.var.userId);
       });
       return c.body(null, 204);
     })
@@ -443,14 +456,19 @@ export const organisationRoutes = (
         return made;
       });
       const [organisation] = await db
-        .select({ name: organisations.name, settings: organisations.settings })
+        .select({
+          name: organisations.name,
+          slug: organisations.slug,
+          settings: organisations.settings,
+        })
         .from(organisations)
         .where(eq(organisations.id, c.var.organisationId));
       const [inviter] = await db
         .select({ name: users.name })
         .from(users)
         .where(eq(users.id, c.var.userId));
-      const link = `${publicUrl.replace(/\/$/, "")}/invite/${token}`;
+      // At the workspace's own address with subdomains on (#437): its sign-in names it.
+      const link = `${linkBase(links, organisation?.slug)}/invite/${token}`;
       await sendEmail(
         mailer,
         email,
