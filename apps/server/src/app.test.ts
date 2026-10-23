@@ -810,7 +810,7 @@ describe.runIf(url)("api", () => {
           expect(res.status).toBe(422);
           return ((await res.json()) as { error: { message: string } }).error.message;
         };
-        expect(await refused({ ...hook, kind: "slack" })).toMatch(/hooks\.slack\.com/);
+        expect(await refused({ ...hook, kind: "slack" })).toContain("https://hooks.slack.com/");
         expect(await refused({ ...hook, url: "http://hooks.example/hekate" })).toMatch(/https/);
         expect(await refused({ ...hook, url: "https://10.0.0.8/hekate" })).toMatch(/private/);
         // An event with no schema is no event.
