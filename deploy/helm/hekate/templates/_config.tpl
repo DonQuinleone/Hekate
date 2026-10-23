@@ -15,6 +15,8 @@ TRUST_PROXY: {{ .Values.trustProxy | quote }}
 {{- else }}
 TRUST_PROXY: {{ .Values.ingress.enabled | quote }}
 {{- end }}
+# Workspace subdomains (#176) with the Ingress's wildcard host.
+WORKSPACE_SUBDOMAINS: {{ and .Values.ingress.enabled .Values.ingress.wildcard | quote }}
 MAIL_FROM: {{ .Values.mail.from | quote }}
 {{- with .Values.mail.microsoft.tenant }}
 MAIL_GRAPH_TENANT: {{ . | quote }}

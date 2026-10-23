@@ -161,6 +161,13 @@ const schema = z.object({
           "The service name traces and logs carry: worth setting where several instances send to one collector.",
       }),
     ),
+  WORKSPACE_SUBDOMAINS: flag("false").meta(
+    info({
+      group: "Server",
+      description:
+        "Each workspace also answers at its own name under PUBLIC_URL's host, such as `endless-hall.review.example` (#176). Needs a wildcard DNS record, and a certificate for every name: the subdomains Caddyfile asks the server which names to get one for. One sign-in reaches every workspace someone belongs to.",
+    }),
+  ),
   TRUSTED_ORIGINS: list.meta(
     info({
       group: "Server",

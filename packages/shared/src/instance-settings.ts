@@ -185,6 +185,8 @@ export type InstanceMail = (typeof instanceMails)[number];
 /** What the environment sets, shown on the Settings page beside what the operator does. */
 export interface InstanceEnvironment {
   publicUrl: string;
+  /** WORKSPACE_SUBDOMAINS (#176): where workspaces answer, as `*.review.example`; null when off. */
+  subdomains?: string | null;
   /** REQUIRE_SECOND_FACTOR: on here, the setting cannot be turned off. */
   requireSecondFactor: boolean;
   /** OPERATOR_SECURITY_KEY. */

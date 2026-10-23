@@ -41,6 +41,9 @@ describe("the instance side", () => {
     for (const bad of ["-lantern", "lantern-", "lantern pictures", "lantern.example", ""])
       expect(workspaceSlug.safeParse(bad).success).toBe(false);
     expect(workspaceSlug.safeParse("a".repeat(41)).success).toBe(false);
+    // Names that would stand for the instance itself (#176).
+    for (const kept of ["www", "API", "instance", "mail"])
+      expect(workspaceSlug.safeParse(kept).success).toBe(false);
   });
 
   it("makes a workspace with a name, a subdomain and its first owner's address", () => {

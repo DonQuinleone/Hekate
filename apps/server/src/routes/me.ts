@@ -16,6 +16,7 @@ import { deleteAccount, deletionConfirmation } from "../account-deletion.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
 import { CodedException } from "../errors.ts";
+import { rootAddress, type Subdomains, workspaceAddress } from "../hosts.ts";
 import type { Keyring } from "../keyring.ts";
 import { recoveryCodesLeft } from "../second-factor.ts";
 import {
@@ -37,7 +38,11 @@ export interface MeDeps {
   maxPasskeys: number;
 }
 
-export const meRoutes = (db: Database, rule: SecondFactorRule, deps: { maxPasskeys: number }) =>
+export const meRoutes = (
+  db: Database,
+  rule: SecondFactorRule,
+  deps: { maxPasskeys: number; subdomains?: Subdomains | null },
+) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/", async (c) => {
       const [user] = await db
@@ -103,8 +108,12 @@ export const meRoutes = (db: Database, rule: SecondFactorRule, deps: { maxPasske
           ...o,
           locale: workspaceSettingsOf(settings).locale,
           suspended: suspendedAt ? { reason: suspendedReason } : null,
+          // Where it answers, with subdomains on (#176): switching to it is going there.
+          url: deps.subdomains ? workspaceAddress(deps.subdomains, o.address) : null,
         })),
         activeOrganisationId: c.var.organisationId,
+        // The root's address, which keeps the instance's pages, with subdomains on (#176).
+        root: deps.subdomains ? rootAddress(deps.subdomains) : null,
       });
     })
     // Name, language and time zone. The email address changes through sign-in's own flow,

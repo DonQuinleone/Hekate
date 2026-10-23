@@ -70,7 +70,8 @@ services:
     environment:
       HEKATE_DOMAIN: ${HEKATE_DOMAIN:-localhost}
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Caddyfile.subdomains for workspace subdomains (#176): HEKATE_CADDYFILE in .env.
+      - ./${HEKATE_CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on: [app]

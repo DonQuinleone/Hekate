@@ -264,8 +264,12 @@ export interface Me {
     locale?: string | null;
     /** Suspended by the instance's operators, and why: nobody gets in until it is reinstated. */
     suspended?: { reason: string | null } | null;
+    /** Where it answers, with workspace subdomains on (#176). */
+    url?: string | null;
   }[];
   activeOrganisationId: string;
+  /** The root's address, which keeps the instance's pages, with workspace subdomains on. */
+  root?: string | null;
   /**
    * Whether they have a code app and how many passkeys, what this workspace asks of a sign-in
    * (a second factor; a hardware security key), whether this sign-in met it, and recovery codes left.
@@ -286,6 +290,18 @@ export const meQuery = queryOptions({
   queryFn: async (): Promise<Me | null> => {
     const res = await api.me.$get();
     if (res.status === 401) return null;
+    if (res.status === 403) {
+      const body = (await res
+        .clone()
+        .json()
+        .catch(() => null)) as { error?: { code?: string } } | null;
+      // Signed in, but on another workspace's host (#176): go to the root, which sends them on
+      // to their own.
+      if (body?.error?.code === "not_member_here") {
+        const { root } = await json<SignInMethods>(await api["sign-in-methods"].$get());
+        if (root) return leaveFor(`${root}/`);
+      }
+    }
     return json<Me>(res);
   },
   staleTime: 60_000,
@@ -304,13 +320,27 @@ export const setupQuery = queryOptions({
   staleTime: Number.POSITIVE_INFINITY,
 });
 
-/** What the sign-in page offers beyond a password and a passkey. */
+/** What the sign-in page offers, and on a workspace's own host (#176), which workspace it is. */
+export interface SignInMethods {
+  directory: boolean;
+  sso: boolean;
+  /** The workspace this host answers for: the page need not ask which. */
+  workspace: { name: string; slug: string; providerId: string | null } | null;
+  /** The root's address, with workspace subdomains on. */
+  root: string | null;
+}
+
 export const signInMethodsQuery = queryOptions({
   queryKey: ["sign-in-methods"],
-  queryFn: async () =>
-    json<{ directory: boolean; sso: boolean }>(await api["sign-in-methods"].$get()),
+  queryFn: async () => json<SignInMethods>(await api["sign-in-methods"].$get()),
   staleTime: 5 * 60_000,
 });
+
+/** Go to another of the instance's addresses: nothing here settles meanwhile. */
+export function leaveFor(address: string): Promise<never> {
+  window.location.replace(address);
+  return new Promise<never>(() => {});
+}
 
 export const projectsQuery = queryOptions({
   queryKey: ["projects"],
@@ -1189,7 +1219,17 @@ export function useSwitchOrganisation() {
   return useMutation({
     mutationFn: async (organisationId: string) =>
       json(await api.me.organisation.$put({ json: { organisationId } })),
-    onSuccess: () => client.invalidateQueries(),
+    onSuccess: (_, organisationId) => {
+      // With workspace subdomains (#176), each workspace is at its own host: go there.
+      const url = client
+        .getQueryData(meQuery.queryKey)
+        ?.organisations.find((o) => o.id === organisationId)?.url;
+      if (url && new URL(url).host !== window.location.host) {
+        window.location.assign(`${url}/`);
+        return;
+      }
+      return client.invalidateQueries();
+    },
   });
 }
 

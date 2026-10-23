@@ -18,6 +18,7 @@ import { createSend, type Send } from "./channels.ts";
 import { errorHandler, requestId } from "./errors.ts";
 import { requirePlaySession, requireViewer } from "./guests.ts";
 import { createHealthChecks } from "./health-checks.ts";
+import { type Subdomains, workspaceFromHost } from "./hosts.ts";
 import { createInstanceSettings, type InstanceSettingsStore } from "./instance-settings.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
@@ -85,6 +86,7 @@ import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
 import { sharedTakeRoutes, takeRoutes, trackTakeRoutes } from "./routes/takes.ts";
 import { projectTaskRoutes, taskRoutes } from "./routes/tasks.ts";
 import { projectTemplateRoutes, templateRoutes } from "./routes/templates.ts";
+import { tlsRoutes } from "./routes/tls.ts";
 import { trackCompareRoutes } from "./routes/track-compare.ts";
 import {
   projectTrackRoutes,
@@ -118,6 +120,8 @@ export interface AppDeps {
   /** Read the client address from X-Forwarded-For (behind Caddy). */
   trustProxy?: boolean;
   publicUrl: string;
+  /** Workspace subdomains (#176), where WORKSPACE_SUBDOMAINS turns them on. */
+  subdomains?: Subdomains | null;
   log?: boolean;
   /** How many passkeys one account may hold (MAX_PASSKEYS). */
   maxPasskeys?: number;
@@ -276,6 +280,7 @@ export function createApi(deps: AppDeps) {
           },
           environment: {
             publicUrl: deps.publicUrl,
+            subdomains: deps.subdomains ? `*.${deps.subdomains.url.host}` : null,
             requireSecondFactor: deps.requireSecondFactor ?? false,
             operatorSecurityKey: deps.operatorSecurityKey ?? true,
             mail: deps.mail ?? "log",
@@ -297,7 +302,9 @@ export function createApi(deps: AppDeps) {
           },
         }),
       )
-      .route("/sign-in-methods", signInMethodRoutes(deps.db))
+      .route("/sign-in-methods", signInMethodRoutes(deps.db, deps.subdomains ?? null))
+      // Which names Caddy may get a certificate for (#176): asked before each one.
+      .route("/tls", tlsRoutes(deps.db, deps.subdomains ?? null))
       // Providers' bounce reports (#161): no session, a signature instead.
       .route(
         "/hooks/mail",
@@ -320,7 +327,13 @@ export function createApi(deps: AppDeps) {
       )
       // "/me/*" also covers "/me" itself.
       .use("/me/*", requireSession(deps.auth), requireOrganisation(deps.db, rule, owingAllowed))
-      .route("/me", meRoutes(deps.db, rule, { maxPasskeys: deps.maxPasskeys ?? 5 }))
+      .route(
+        "/me",
+        meRoutes(deps.db, rule, {
+          maxPasskeys: deps.maxPasskeys ?? 5,
+          subdomains: deps.subdomains ?? null,
+        }),
+      )
       .route("/invitations", invitationRoutes(deps.db, deps.auth))
       .use("/organisation/*", ...member)
       .route(
@@ -624,6 +637,8 @@ export function createApp(given: AppDeps) {
   app.use("/api/*", traced);
   app.use("/api/*", countRequests);
   app.use("/api/*", requestId);
+  // The workspace a host names (#176), for the tenancy checks to hold each request to.
+  app.use("/api/*", workspaceFromHost(deps.db, deps.subdomains ?? null, deps.trustProxy ?? false));
   if (deps.log !== false) app.use("/api/*", logger());
   // Every other body is small: settings, comments, sign-in. A chunk's limit is its own.
   app.use("/api/*", async (c, next) =>

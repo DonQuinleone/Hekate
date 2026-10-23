@@ -55,7 +55,7 @@ Every value is described in the chart's `values.yaml`, and any other setting ([C
 | Deployment `api` | Answers requests (`ROLE=api`), 2 replicas; the first to start migrates the database, the others wait on the same lock. |
 | Deployment `worker` | Runs the background jobs (`ROLE=worker`): media work, mail and the instance's own sweeps. `worker.lanes` picks its lanes ([Roles and lanes](../../operate/replicas/#roles-and-lanes)). |
 | Job `migrate` | Before each upgrade rolls out, migrates the database (`cli.ts migrate`), so no new replica waits on it. |
-| Service and Ingress | Requests to the `api` pods, with TLS; `ingress.wildcard` adds `*.host`, for workspace subdomains once they come. |
+| Service and Ingress | Requests to the `api` pods, with TLS; `ingress.wildcard` adds `*.host` and turns on [workspace subdomains](../subdomains/). |
 | HorizontalPodAutoscalers | When turned on (`api.autoscaling`, `worker.autoscaling`): on CPU, and for workers on the jobs waiting (`hekate_lane_jobs_waiting`) through an external metrics adapter such as prometheus-adapter. |
 | PodDisruptionBudget | Keeps one `api` replica up while nodes are drained. |
 | CloudNativePG `Cluster` | When turned on: PostgreSQL with a primary and a standby it fails over to. |

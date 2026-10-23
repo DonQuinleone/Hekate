@@ -40,6 +40,7 @@ import { errorHandler, requestId } from "./errors.ts";
 import { createFlags } from "./flags.ts";
 import { issueGuestLink } from "./guests.ts";
 import { createHealthChecks } from "./health-checks.ts";
+import { subdomainsOf } from "./hosts.ts";
 import { createInstanceSettings } from "./instance-settings.ts";
 import { type JobFailure, runJob } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
@@ -1165,6 +1166,130 @@ describe.runIf(url)("api", () => {
           workspaces: { name: string; members: number }[];
         };
         expect(all.workspaces.map((w) => w.name)).toEqual(["Saltmarsh Films", "Studio"]);
+      });
+
+      describe("workspace subdomains (#176)", () => {
+        const at = createApp({
+          db,
+          auth,
+          mailer,
+          storage,
+          audit,
+          jobs,
+          keyring,
+          playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+          publicUrl: "http://review.test:3000",
+          subdomains: subdomainsOf("http://review.test:3000", true),
+          log: false,
+          operatorSecurityKey: false,
+        });
+        const on = (host: string, path: string, cookie?: string) =>
+          at.request(path, { headers: { host, ...(cookie ? { cookie } : {}) } });
+
+        it("holds each workspace's host to its members, and sends the rest to their own", async () => {
+          const signedIn = cookieOf(await setup());
+          const [theirs] = await db
+            .insert(schema.organisations)
+            .values({ name: "Saltmarsh Films", slug: "saltmarsh" })
+            .returning();
+          const me = await on("studio.review.test:3000", "/api/me", signedIn);
+          expect(me.status).toBe(200);
+          const body = (await me.json()) as {
+            root: string;
+            organisations: { name: string; url: string }[];
+          };
+          expect(body.root).toBe("http://review.test:3000");
+          expect(body.organisations).toEqual([
+            expect.objectContaining({ name: "Studio", url: "http://studio.review.test:3000" }),
+          ]);
+          // Another workspace's host: refused, by a code the web app follows to the root.
+          const elsewhere = await on("saltmarsh.review.test:3000", "/api/projects", signedIn);
+          expect(elsewhere.status).toBe(403);
+          expect(await elsewhere.json()).toMatchObject({
+            error: { code: "not_member_here", message: "You are not a member of Saltmarsh Films" },
+          });
+          // A member of both acts in whichever host they are at.
+          const [user] = await db
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.email, owner.email));
+          await db
+            .insert(schema.members)
+            .values({ organisationId: theirs?.id ?? "", userId: user?.id ?? "", role: "member" });
+          const there = (await (
+            await on("saltmarsh.review.test:3000", "/api/me", signedIn)
+          ).json()) as { activeOrganisationId: string };
+          expect(there.activeOrganisationId).toBe(theirs?.id);
+          const back = (await (
+            await on("studio.review.test:3000", "/api/me", signedIn)
+          ).json()) as {
+            activeOrganisationId: string;
+          };
+          expect(back.activeOrganisationId).not.toBe(theirs?.id);
+          // A name that is no workspace's answers nothing.
+          const nobody = await on("nobody.review.test:3000", "/api/me", signedIn);
+          expect(nobody.status).toBe(404);
+          expect(await nobody.json()).toMatchObject({ error: { code: "no_workspace" } });
+        });
+
+        it("signs in once for the root and every workspace's host", async () => {
+          await setup();
+          const shared = createAuth({
+            db,
+            secret: "test-secret-test-secret-test-secret-0",
+            baseURL: "http://review.test:3000",
+            testing: true,
+            mailer,
+            audit,
+            keyring,
+            subdomains: subdomainsOf("http://review.test:3000", true),
+          });
+          const signedIn = await shared.handler(
+            new Request("http://review.test:3000/api/auth/sign-in/email", {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                origin: "http://studio.review.test:3000",
+              },
+              body: JSON.stringify({ email: owner.email, password: owner.password }),
+            }),
+          );
+          expect(signedIn.status).toBe(200);
+          const session = signedIn.headers
+            .getSetCookie()
+            .find((cookie) => cookie.startsWith("hekate.session_token="));
+          expect(session).toMatch(/Domain=review\.test/i);
+          // Every workspace's host is a trusted origin, and nothing else is (tests skip
+          // Better Auth's own check of each request, so its answer is asked directly).
+          const context = await shared.$context;
+          expect(context.isTrustedOrigin("http://studio.review.test:3000")).toBe(true);
+          expect(context.isTrustedOrigin("http://review.test:3000")).toBe(true);
+          expect(context.isTrustedOrigin("http://evil.example")).toBe(false);
+          expect(context.isTrustedOrigin("http://review.test.evil.example")).toBe(false);
+        });
+
+        it("tells the sign-in page which workspace its host is, and Caddy which names to certify", async () => {
+          cookieOf(await setup());
+          const methods = async (host: string) =>
+            (await (await on(host, "/api/sign-in-methods")).json()) as {
+              workspace: { name: string; slug: string; providerId: string | null } | null;
+              root: string | null;
+            };
+          expect(await methods("studio.review.test:3000")).toMatchObject({
+            workspace: { name: "Studio", slug: "studio", providerId: null },
+            root: "http://review.test:3000",
+          });
+          expect((await methods("review.test:3000")).workspace).toBeNull();
+          const ask = async (domain: string, via = at) =>
+            (await via.request(`/api/tls/ask?domain=${encodeURIComponent(domain)}`)).status;
+          expect(await ask("review.test")).toBe(200);
+          expect(await ask("studio.review.test")).toBe(200);
+          expect(await ask("nobody.review.test")).toBe(404);
+          expect(await ask("www.review.test")).toBe(404);
+          expect(await ask("evil.example")).toBe(404);
+          // Off, nothing is asked for.
+          expect(await ask("localhost", app)).toBe(404);
+        });
       });
 
       describe("usage and quotas (#175)", () => {

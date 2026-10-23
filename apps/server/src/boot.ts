@@ -9,6 +9,7 @@ import { createSend } from "./channels.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { deliver, dispatchEvents, onEventWritten } from "./events.ts";
 import { createFlags } from "./flags.ts";
+import { subdomainsOf } from "./hosts.ts";
 import { createInstanceSettings } from "./instance-settings.ts";
 import { createJobs, inLanes, jobDefinitions } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
@@ -105,8 +106,11 @@ export async function boot(
     db,
     Object.fromEntries(Object.entries(jobDefinitions).map(([name, d]) => [name, d.lane])),
   );
+  // Workspace subdomains (#176), where they are on.
+  const subdomains = subdomainsOf(config.PUBLIC_URL, config.WORKSPACE_SUBDOMAINS);
   const auth = createAuth({
     db,
+    subdomains,
     trustProxy: config.TRUST_PROXY,
     secret: config.AUTH_SECRET,
     baseURL: config.PUBLIC_URL,
@@ -330,6 +334,7 @@ export async function boot(
     keyring,
     playbackSecret: playbackSecret(config.AUTH_SECRET),
     publicUrl: config.PUBLIC_URL,
+    subdomains,
     trustProxy: config.TRUST_PROXY,
     passwordLeakCheck: config.PASSWORD_LEAK_CHECK,
     requireSecondFactor: config.REQUIRE_SECOND_FACTOR,
