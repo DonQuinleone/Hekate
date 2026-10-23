@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type BillingRules, billingRules, defaultBillingRules } from "./billing.ts";
 import type { BounceProvider } from "./mail-bounces.ts";
 import { defaultWorkspaceSettings, guestLinkDays } from "./organisation.ts";
+import { registrationModes } from "./registration.ts";
 import { updateChannels } from "./releases.ts";
 import { workspaceLimits } from "./usage.ts";
 
@@ -47,6 +48,8 @@ const instanceSettingsSchema = z.object({
   }),
   /** Billing's rules (#180): the instance's currency, dunning's days and a trial's length. */
   billing: billingRules,
+  /** Who may make a workspace (#184): operators only, anyone they invite, or anyone. */
+  registration: z.object({ mode: z.enum(registrationModes) }),
 });
 export type InstanceSettings = z.infer<typeof instanceSettingsSchema>;
 
@@ -65,6 +68,7 @@ export const instanceSettingsInput = instanceSettingsSchema.extend({
     .extend({ webhooks: instanceSettingsSchema.shape.logs.shape.webhooks.optional() })
     .optional(),
   billing: billingRules.optional(),
+  registration: instanceSettingsSchema.shape.registration.optional(),
 });
 export type InstanceSettingsInput = z.infer<typeof instanceSettingsInput>;
 
@@ -94,6 +98,7 @@ export const withStored = (
       }
     : stored.logs,
   billing: input.billing ?? stored.billing,
+  registration: input.registration ?? stored.registration,
 });
 
 export const defaultInstanceSettings: InstanceSettings = {
@@ -110,6 +115,8 @@ export const defaultInstanceSettings: InstanceSettings = {
   // goes because the instance was upgraded.
   logs: { audit: null, auth: 365, mail: 90, webhooks: 30 },
   billing: defaultBillingRules,
+  // As before registration was a setting: operators make the workspaces.
+  registration: { mode: "closed" },
 };
 
 /** Stored settings over the defaults, so one written before a setting existed still reads. */
@@ -129,6 +136,7 @@ export function instanceSettingsOf(stored: unknown): InstanceSettings {
         ...(value.billing as Partial<BillingRules> | undefined)?.dunning,
       },
     },
+    registration: { ...defaultInstanceSettings.registration, ...value.registration },
   };
   const parsed = instanceSettingsSchema.safeParse(merged);
   return parsed.success ? parsed.data : defaultInstanceSettings;
@@ -182,6 +190,8 @@ export function settingsChanges(
     changes.push({ action: "billing.dunning", details: { ...is } });
   if (before.billing.trialDays !== after.billing.trialDays)
     changes.push({ action: "billing.trial_days", details: { days: after.billing.trialDays } });
+  if (before.registration.mode !== after.registration.mode)
+    changes.push({ action: "registration.mode", details: { mode: after.registration.mode } });
   for (const kind of ["audit", "auth", "mail", "webhooks"] as const)
     if (before.logs[kind] !== after.logs[kind])
       changes.push({ action: "logs.retention", details: { kind, days: after.logs[kind] } });

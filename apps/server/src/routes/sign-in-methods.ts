@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { ssoStartInput } from "@hekate/shared";
+import { type RegistrationMode, ssoStartInput } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
@@ -13,7 +13,12 @@ const { directories, organisations, ssoProviders } = schema;
  * before anyone is signed in. Deliberately across workspaces: an instance-wide yes or no for
  * each, never a workspace's data; which workspace is asked on the page.
  */
-export const signInMethodRoutes = (db: Database, subdomains: Subdomains | null = null) =>
+export const signInMethodRoutes = (
+  db: Database,
+  subdomains: Subdomains | null = null,
+  /** The instance's registration (#184): open sign-up is offered from the root's sign-in. */
+  registration: () => Promise<RegistrationMode> = async () => "closed",
+) =>
   new Hono<{ Variables: HostVariables }>()
     .get("/", async (c) => {
       // On a workspace's host (#176), what that workspace offers, and which it is: the page
@@ -44,6 +49,8 @@ export const signInMethodRoutes = (db: Database, subdomains: Subdomains | null =
           ? { name: host.name, slug: host.slug, providerId: sso?.providerId ?? null }
           : null,
         root: subdomains ? rootAddress(subdomains) : null,
+        // A workspace's own host signs in to that workspace; making another starts at the root.
+        signUp: !host && (await registration()) === "open",
       });
     })
     // The provider to start single sign-on with, for a workspace's short name.

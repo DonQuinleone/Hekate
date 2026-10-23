@@ -45,6 +45,7 @@ describe("instance settings", () => {
           dunning: { warn: 5, warnAgain: 14, suspend: 30 },
           trialDays: 30,
         },
+        registration: { mode: "closed" },
       }),
     ).toEqual([
       { action: "settings.second_factor_on", details: {} },
@@ -121,5 +122,23 @@ describe("instance settings", () => {
     };
     const { billing: _, ...older } = stored;
     expect(withStored(older, stored).billing).toEqual(stored.billing);
+  });
+
+  it("reads registration as closed until an operator opens it, and keeps it through an older client's save (#184)", () => {
+    expect(instanceSettingsOf({}).registration).toEqual({ mode: "closed" });
+    expect(instanceSettingsOf({ registration: { mode: "open" } }).registration.mode).toBe("open");
+    // Something not known is read as the defaults, never as open.
+    expect(instanceSettingsOf({ registration: { mode: "everyone" } })).toEqual(
+      defaultInstanceSettings,
+    );
+    const stored = { ...defaultInstanceSettings, registration: { mode: "invite" as const } };
+    const { registration: _, ...older } = stored;
+    expect(withStored(older, stored).registration).toEqual({ mode: "invite" });
+    expect(withStored({ ...older, registration: { mode: "open" } }, stored).registration).toEqual({
+      mode: "open",
+    });
+    expect(settingsChanges(stored, { ...stored, registration: { mode: "open" } })).toEqual([
+      { action: "registration.mode", details: { mode: "open" } },
+    ]);
   });
 });

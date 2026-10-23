@@ -44,6 +44,7 @@ import {
   planInput,
   promoCodeInput,
   settingsChanges,
+  signUpInvitationInput,
   suspendWorkspaceInput,
   WORKSPACE_DELETE_GRACE_DAYS,
   waiveInput,
@@ -102,6 +103,7 @@ import { escapeLike, logCsv, readLog } from "../logs.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { listPlans, savePlan, workspacePlanOf } from "../plans.ts";
 import { admit } from "../rate-limit.ts";
+import { listSignUpInvitations, newSignUpLink, revokeSignUpInvitation } from "../sign-up.ts";
 import { signal } from "../signals.ts";
 import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
 import { HEKATE_VERSION, systemInformation } from "../system-info.ts";
@@ -1976,7 +1978,9 @@ export function instanceRoutes(options: InstanceOptions) {
                         ? "New workspaces' member limit"
                         : change.action.startsWith("logs.")
                           ? `The ${String(change.details.kind) === "auth" ? "authentication" : String(change.details.kind)} log`
-                          : "A second factor",
+                          : change.action.startsWith("registration.")
+                            ? "Registration"
+                            : "A second factor",
               details: change.details,
               ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
             });
@@ -1984,6 +1988,71 @@ export function instanceRoutes(options: InstanceOptions) {
         // Committed: every read from now on is the new settings.
         options.settings.forget();
         return c.json({ settings: await options.settings.get(), environment: options.environment });
+      })
+      // Invitations to make a workspace (#184), for registration that is invite-only or open.
+      .use("/sign-up-invitations", operatorsOnly)
+      .use("/sign-up-invitations/*", operatorsOnly)
+      .get("/sign-up-invitations", async (c) =>
+        c.json({ invitations: await listSignUpInvitations(db) }),
+      )
+      .post("/sign-up-invitations", zValidator("json", signUpInvitationInput), async (c) => {
+        const { mode } = (await options.settings.get()).registration;
+        if (mode === "closed")
+          throw new CodedException(
+            409,
+            "sign_up_closed",
+            "Registration is closed: make the workspace on the Workspaces page instead.",
+          );
+        const email = c.req.valid("json").email.toLowerCase();
+        const token = await db.transaction(async (tx) => {
+          const made = await newSignUpLink(tx, {
+            email,
+            invitedBy: c.var.userId,
+            lifetimeMs: INVITATION_LIFETIME_MS,
+          });
+          await recordInstanceEvent(tx, {
+            actorId: c.var.userId,
+            action: "registration.invited",
+            target: email,
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return made;
+        });
+        const [inviter] = await db
+          .select({ name: schema.users.name })
+          .from(schema.users)
+          .where(eq(schema.users.id, c.var.userId));
+        const link = `${options.publicUrl.replace(/\/$/, "")}/sign-up/${token}`;
+        const days = Math.round(INVITATION_LIFETIME_MS / (24 * 60 * 60 * 1000));
+        // The invitation stands whether or not the mail goes: when it does not, the operator
+        // is told, and passes on the link by hand.
+        let mailed = true;
+        try {
+          await sendEmail(options.mailer, email, {
+            subject: "You are invited to make a workspace on Hekate",
+            heading: "Make a workspace",
+            body: [
+              `${inviter?.name ?? "The instance's operators"} invited you to make a workspace of your own. Open the link to name it and choose its address. It lasts ${days} days and works once.`,
+            ],
+            action: { label: "Make a workspace", url: link },
+            foot: "If you were not expecting this, ignore it: nothing is made without the link.",
+          });
+        } catch (error) {
+          console.error("The invitation to make a workspace was not sent:", error);
+          mailed = false;
+        }
+        return c.json({ link, mailed }, 201);
+      })
+      .delete("/sign-up-invitations/:id", idParam, async (c) => {
+        const email = await revokeSignUpInvitation(db, c.req.valid("param").id);
+        if (!email) throw new NotFound("invitation");
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "registration.invitation_revoked",
+          target: email,
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.json({ invitations: await listSignUpInvitations(db) });
       })
       // The instance's flags (#159): read as the server runs, so turning one needs no restart.
       .use("/flags", operatorsOnly)

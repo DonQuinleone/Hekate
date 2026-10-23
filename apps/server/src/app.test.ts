@@ -17,6 +17,7 @@ import {
   defaultProjectRoles,
   type InstanceEnvironment,
   type InstanceSettings,
+  instanceSettingsOf,
   type LoudnessSummary,
   levelsOf,
   lookingPermissions,
@@ -29,7 +30,7 @@ import {
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
 import { and, asc, count, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, MAX_BODY_BYTES } from "./app.ts";
 import { createAudit, csvCell, systemActor } from "./audit.ts";
 import { createAuth } from "./auth.ts";
@@ -1992,6 +1993,350 @@ describe.runIf(url)("api", () => {
         });
       });
 
+      describe("registration (#184)", () => {
+        const registering = createApp({
+          db,
+          auth,
+          mailer,
+          storage,
+          audit,
+          jobs,
+          keyring,
+          playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+          publicUrl: "http://localhost:3000",
+          log: false,
+          operatorSecurityKey: false,
+          modules: {
+            billing: "manual",
+            support: "off",
+            docsUrl: "https://docs.hekate.studio",
+            statusUrl: null,
+          },
+        });
+        const call = (method: string, path: string, body?: unknown, cookie?: string) =>
+          registering.request(
+            path,
+            body === undefined
+              ? { method, headers: cookie ? { cookie } : {} }
+              : { ...json(body, cookie), method },
+          );
+        type Answer = { settings: InstanceSettings; environment: InstanceEnvironment };
+        const registration = async (operator: string, mode: string) => {
+          const { settings } = (await (
+            await call("GET", "/api/instance/settings", undefined, operator)
+          ).json()) as Answer;
+          const saved = await call(
+            "PUT",
+            "/api/instance/settings",
+            { ...settings, registration: { mode } },
+            operator,
+          );
+          expect(saved.status).toBe(200);
+          return settings;
+        };
+        /** The token in the last link to make a workspace mailed to `to`. */
+        const linkTo = (to: string) =>
+          /\/sign-up\/([\w-]+)/.exec(
+            mailer.sent.filter((m) => m.to === to).at(-1)?.text ?? "",
+          )?.[1] ?? "";
+        const made = { workspace: "Lantern Pictures", slug: "lantern" };
+        const newcomer = { name: "Tomas Varga", password: "correct horse battery" };
+        // Plans and links belong to the instance, not a workspace: each test starts with none.
+        beforeEach(async () => {
+          await db.delete(schema.plans);
+          await db
+            .delete(schema.authVerifications)
+            .where(like(schema.authVerifications.identifier, "sign-up:%"));
+        });
+        // The instance's settings outlive each test: registration goes back to closed.
+        afterEach(async () => {
+          const [row] = await db.select().from(schema.instanceSettings);
+          if (row)
+            await db.update(schema.instanceSettings).set({
+              settings: { ...instanceSettingsOf(row.settings), registration: { mode: "closed" } },
+            });
+        });
+
+        it("is closed until an operator opens it: nobody signs up, and operators invite nobody", async () => {
+          const operator = cookieOf(await setup());
+          expect(await (await call("GET", "/api/sign-up")).json()).toEqual({
+            mode: "closed",
+            trialDays: null,
+            subdomains: null,
+          });
+          const start = await call("POST", "/api/sign-up/start", { email: "tomas@example.test" });
+          expect(start.status).toBe(403);
+          expect(await start.json()).toMatchObject({ error: { code: "sign_up_closed" } });
+          const invited = await call(
+            "POST",
+            "/api/instance/sign-up-invitations",
+            { email: "tomas@example.test" },
+            operator,
+          );
+          expect(invited.status).toBe(409);
+          expect(
+            ((await (await call("GET", "/api/sign-in-methods")).json()) as { signUp: boolean })
+              .signUp,
+          ).toBe(false);
+          // Better Auth's own sign-up stays shut whatever registration says.
+          const direct = await call("POST", "/api/auth/sign-up/email", {
+            email: "tomas@example.test",
+            password: newcomer.password,
+            name: newcomer.name,
+          });
+          expect(direct.status).toBe(403);
+        });
+
+        it("invite-only: an operator's invitation makes a workspace, and nothing else does", async () => {
+          const operator = cookieOf(await setup());
+          // An open link asked for before it became invite-only.
+          await registration(operator, "open");
+          mailer.sent.length = 0;
+          expect(
+            (await call("POST", "/api/sign-up/start", { email: "ines@example.test" })).status,
+          ).toBe(202);
+          const asked = linkTo("ines@example.test");
+          const before = await registration(operator, "invite");
+          // A save from a page older than registration keeps it as it is.
+          const { registration: _, ...older } = before;
+          await call("PUT", "/api/instance/settings", older, operator);
+          const read = (await (
+            await call("GET", "/api/instance/settings", undefined, operator)
+          ).json()) as Answer;
+          expect(read.settings.registration).toEqual({ mode: "invite" });
+
+          expect(
+            (await call("POST", "/api/sign-up/start", { email: "x@example.test" })).status,
+          ).toBe(403);
+          const refusedLink = (await (await call("GET", `/api/sign-up/${asked}`)).json()) as {
+            allowed: boolean;
+          };
+          expect(refusedLink.allowed).toBe(false);
+          expect(
+            (await call("POST", `/api/sign-up/${asked}`, { ...made, ...newcomer })).status,
+          ).toBe(403);
+
+          // Only an operator invites.
+          const owner = await join(operator, "label@example.test", "owner");
+          expect(
+            (
+              await call(
+                "POST",
+                "/api/instance/sign-up-invitations",
+                { email: "tomas@example.test" },
+                owner,
+              )
+            ).status,
+          ).toBe(403);
+          const invited = await call(
+            "POST",
+            "/api/instance/sign-up-invitations",
+            { email: "Tomas@Example.test" },
+            operator,
+          );
+          expect(invited.status).toBe(201);
+          const token = linkTo("tomas@example.test");
+          expect(token).not.toBe("");
+          const listed = (await (
+            await call("GET", "/api/instance/sign-up-invitations", undefined, operator)
+          ).json()) as { invitations: { id: string; email: string; invitedBy: string }[] };
+          expect(listed.invitations).toEqual([
+            expect.objectContaining({ email: "tomas@example.test", invitedBy: "Producer" }),
+          ]);
+          expect(await (await call("GET", `/api/sign-up/${token}`)).json()).toMatchObject({
+            email: "tomas@example.test",
+            invited: true,
+            expired: false,
+            hasAccount: false,
+            allowed: true,
+          });
+
+          const signedUp = await call("POST", `/api/sign-up/${token}`, { ...made, ...newcomer });
+          expect(signedUp.status).toBe(201);
+          const { organisationId } = (await signedUp.json()) as { organisationId: string };
+          const cookie = cookieOf(signedUp);
+          const me = (await (await call("GET", "/api/me", undefined, cookie)).json()) as {
+            user: { email: string };
+            organisations: { id: string; name: string; role: string }[];
+            activeOrganisationId: string;
+          };
+          expect(me.user.email).toBe("tomas@example.test");
+          expect(me.organisations).toEqual([
+            expect.objectContaining({
+              id: organisationId,
+              name: "Lantern Pictures",
+              role: "owner",
+            }),
+          ]);
+          expect(me.activeOrganisationId).toBe(organisationId);
+          const [event] = await db
+            .select()
+            .from(schema.instanceEvents)
+            .where(eq(schema.instanceEvents.action, "workspace.signed_up"));
+          expect(event).toMatchObject({
+            target: "Lantern Pictures",
+            details: expect.objectContaining({ invited: true, owner: "tomas@example.test" }),
+          });
+          // A link works once.
+          expect((await call("GET", `/api/sign-up/${token}`)).status).toBe(404);
+          expect(
+            (await call("POST", `/api/sign-up/${token}`, { ...made, slug: "lantern-again" }))
+              .status,
+          ).toBe(404);
+
+          // An invitation withdrawn is no use.
+          await call(
+            "POST",
+            "/api/instance/sign-up-invitations",
+            { email: "alex@example.test" },
+            operator,
+          );
+          const withdrawn = linkTo("alex@example.test");
+          const waiting = (await (
+            await call("GET", "/api/instance/sign-up-invitations", undefined, operator)
+          ).json()) as { invitations: { id: string }[] };
+          const id = waiting.invitations[0]?.id ?? "";
+          expect(
+            (await call("DELETE", `/api/instance/sign-up-invitations/${id}`, undefined, owner))
+              .status,
+          ).toBe(403);
+          const revoked = await call(
+            "DELETE",
+            `/api/instance/sign-up-invitations/${id}`,
+            undefined,
+            operator,
+          );
+          expect(await revoked.json()).toEqual({ invitations: [] });
+          expect((await call("GET", `/api/sign-up/${withdrawn}`)).status).toBe(404);
+
+          // Closed again: an invitation still waiting no longer works.
+          await call(
+            "POST",
+            "/api/instance/sign-up-invitations",
+            { email: "mira@example.test" },
+            operator,
+          );
+          const waitingStill = linkTo("mira@example.test");
+          await registration(operator, "closed");
+          const shut = await call("POST", `/api/sign-up/${waitingStill}`, {
+            ...made,
+            slug: "mira",
+            ...newcomer,
+          });
+          expect(shut.status).toBe(403);
+          expect(await shut.json()).toMatchObject({ error: { code: "sign_up_closed" } });
+        });
+
+        it("open: a confirmed email makes a workspace with a trial, within the abuse limits", async () => {
+          const operator = cookieOf(await setup());
+          await registration(operator, "open");
+          // No plan to try: no trial.
+          expect(await (await call("GET", "/api/sign-up")).json()).toMatchObject({
+            mode: "open",
+            trialDays: null,
+          });
+          const plan = await call(
+            "POST",
+            "/api/instance/plans",
+            {
+              key: "studio",
+              name: "Studio",
+              price: { amount: 4900, currency: "gbp", interval: "month" },
+              storageQuota: 1e12,
+              memberLimit: 25,
+              projectLimit: null,
+              features: [],
+              severities: ["low"],
+            },
+            operator,
+          );
+          expect(plan.status).toBe(201);
+          expect(await (await call("GET", "/api/sign-up")).json()).toMatchObject({
+            mode: "open",
+            trialDays: 14,
+          });
+          expect(
+            ((await (await call("GET", "/api/sign-in-methods")).json()) as { signUp: boolean })
+              .signUp,
+          ).toBe(true);
+
+          mailer.sent.length = 0;
+          const start = await call("POST", "/api/sign-up/start", { email: "Tomas@Example.test" });
+          expect(start.status).toBe(202);
+          const token = linkTo("tomas@example.test");
+          expect(await (await call("GET", `/api/sign-up/${token}`)).json()).toMatchObject({
+            invited: false,
+            allowed: true,
+            trialDays: 14,
+          });
+          // The subdomain taken: refused, and no account is left behind to block a second try.
+          const taken = await call("POST", `/api/sign-up/${token}`, {
+            workspace: "Studio",
+            slug: "studio",
+            ...newcomer,
+          });
+          expect(taken.status).toBe(409);
+          expect(
+            await db
+              .select({ id: schema.users.id })
+              .from(schema.users)
+              .where(eq(schema.users.email, "tomas@example.test")),
+          ).toEqual([]);
+          // A password, for a new account.
+          expect((await call("POST", `/api/sign-up/${token}`, made)).status).toBe(400);
+          const signedUp = await call("POST", `/api/sign-up/${token}`, { ...made, ...newcomer });
+          expect(signedUp.status).toBe(201);
+          const { organisationId, trialEndsAt } = (await signedUp.json()) as {
+            organisationId: string;
+            trialEndsAt: string;
+          };
+          const days = (new Date(trialEndsAt).getTime() - Date.now()) / 86_400_000;
+          expect(days).toBeGreaterThan(13.9);
+          expect(days).toBeLessThanOrEqual(14);
+          const [onPlan] = await db
+            .select({ status: schema.workspacePlans.status })
+            .from(schema.workspacePlans)
+            .where(eq(schema.workspacePlans.organisationId, organisationId));
+          expect(onPlan?.status).toBe("trial");
+          const [workspace] = await db
+            .select({ quota: schema.organisations.storageQuota })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.id, organisationId));
+          expect(workspace?.quota).toBe(1e12);
+
+          // Someone with an account makes another workspace signed in as themselves.
+          mailer.sent.length = 0;
+          await call("POST", "/api/sign-up/start", { email: owner.email });
+          const mine = linkTo(owner.email);
+          expect(await (await call("GET", `/api/sign-up/${mine}`)).json()).toMatchObject({
+            hasAccount: true,
+          });
+          const another = { workspace: "North Choir Collective", slug: "north-choir" };
+          expect((await call("POST", `/api/sign-up/${mine}`, another)).status).toBe(401);
+          // Signed in as someone else is no better.
+          expect(
+            (await call("POST", `/api/sign-up/${mine}`, another, cookieOf(signedUp))).status,
+          ).toBe(401);
+          const second = await call("POST", `/api/sign-up/${mine}`, another, operator);
+          expect(second.status).toBe(201);
+          const memberships = await db
+            .select({ role: schema.members.role })
+            .from(schema.members)
+            .innerJoin(schema.users, eq(schema.users.id, schema.members.userId))
+            .where(eq(schema.users.email, owner.email));
+          expect(memberships.map((m) => m.role).sort()).toEqual(["owner", "owner"]);
+
+          // Links asked for are limited by email (and by address).
+          for (const _ of [1, 2, 3])
+            expect(
+              (await call("POST", "/api/sign-up/start", { email: "ines@example.test" })).status,
+            ).toBe(202);
+          const fourth = await call("POST", "/api/sign-up/start", { email: "ines@example.test" });
+          expect(fourth.status).toBe(429);
+          expect(fourth.headers.get("retry-after")).not.toBeNull();
+        });
+      });
+
       it("adds and removes operators, but never the last", async () => {
         const first = cookieOf(await setup());
         await join(first, "ops@example.test");
@@ -2503,6 +2848,7 @@ describe.runIf(url)("api", () => {
             dunning: { warn: 7, warnAgain: 14, suspend: 21 },
             trialDays: 14,
           },
+          registration: { mode: "closed" },
         });
         expect(first.environment.sessionDays).toBe(14);
         // Billing's rules (#180): each step after the one before, and each change an event.

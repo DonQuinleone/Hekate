@@ -83,6 +83,7 @@ import { searchRoutes } from "./routes/search.ts";
 import { projectSessionRoutes, sessionRoutes } from "./routes/sessions.ts";
 import { setupRoutes } from "./routes/setup.ts";
 import { signInMethodRoutes } from "./routes/sign-in-methods.ts";
+import { signUpRoutes } from "./routes/sign-up.ts";
 import { ssoRoutes } from "./routes/sso.ts";
 import { projectStagePlanRoutes, stagePlanRoutes } from "./routes/stage-plans.ts";
 import { storageSettingsRoutes } from "./routes/storage-settings.ts";
@@ -323,7 +324,14 @@ export function createApi(deps: AppDeps) {
           },
         }),
       )
-      .route("/sign-in-methods", signInMethodRoutes(deps.db, deps.subdomains ?? null))
+      .route(
+        "/sign-in-methods",
+        signInMethodRoutes(
+          deps.db,
+          deps.subdomains ?? null,
+          async () => (await settings.get()).registration.mode,
+        ),
+      )
       // Which names Caddy may get a certificate for (#176): asked before each one.
       .route("/tls", tlsRoutes(deps.db, deps.subdomains ?? null))
       // The billing gateway's events (#178): no session, a signature instead.
@@ -359,6 +367,21 @@ export function createApi(deps: AppDeps) {
         }),
       )
       .route("/invitations", invitationRoutes(deps.db, deps.auth))
+      // Making a workspace without an operator (#184), as the instance's registration allows.
+      .route(
+        "/sign-up",
+        signUpRoutes({
+          db: deps.db,
+          auth: deps.auth,
+          settings,
+          mailer: deps.mailer,
+          publicUrl: deps.publicUrl,
+          billing: (deps.modules?.billing ?? "off") !== "off",
+          leakCheck: deps.passwordLeakCheck ?? false,
+          trustProxy: deps.trustProxy ?? false,
+          subdomains: deps.subdomains ?? null,
+        }),
+      )
       .use("/organisation/*", ...member)
       .route(
         "/organisation/directory",
@@ -706,7 +729,8 @@ export function createApp(given: AppDeps) {
       );
     await next();
   });
-  // Public sign-up is closed: accounts come from setup and, later, invitations.
+  // Better Auth's own sign-up stays closed: accounts come from setup, invitations, and the
+  // instance's sign-up (#184, `/api/sign-up`), which confirms the email first.
   app.all("/api/auth/sign-up/*", () => {
     throw new HTTPException(403, { message: "Sign-up is by invitation" });
   });

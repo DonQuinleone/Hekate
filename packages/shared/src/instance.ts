@@ -325,6 +325,10 @@ export const instanceActions: Record<string, string> = {
   "logs.export": "exported",
   "logs.retention": "given a new retention",
   "logs.purged": "trimmed to what the settings keep",
+  "registration.mode": "changed",
+  "registration.invited": "invited to make a workspace",
+  "registration.invitation_revoked": "no longer invited to make a workspace",
+  "workspace.signed_up": "made by sign-up",
 };
 
 /** Where a workspace stands, from its record. */
