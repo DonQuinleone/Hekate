@@ -1806,6 +1806,12 @@ export const uploadRequests = pgTable(
     projectId: projectId(),
     /** Where files arrive; null for the project's top level. */
     folderId: uuid("folder_id").references(() => folders.id, { onDelete: "set null" }),
+    /**
+     * A track whose next version each file becomes once measured (#425); null for a request
+     * into a folder. Its foreign key follows in a later release, as adding one to a table the
+     * release before knows contracts the schema (decision 198).
+     */
+    trackId: uuid("track_id"),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     /** What is wanted, shown to the visitor. */

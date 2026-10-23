@@ -28,6 +28,7 @@ import { playbackSecret } from "./playback.ts";
 import { purgeDueProjects } from "./project-purge.ts";
 import { purgeRequestLimits } from "./rate-limit.ts";
 import { remindDue } from "./reminders.ts";
+import { versionFromRequest } from "./request-versions.ts";
 import { purgeDownloadTickets } from "./routes/downloads.ts";
 import type { SetupGate } from "./setup-code.ts";
 import { purgeAttempts } from "./sign-in.ts";
@@ -312,6 +313,9 @@ export async function boot(
       await clockElapsed(runner, data);
     });
     await taking.work("workflow-checks", async (data) => {
+      // A file an upload request sent to a track becomes its next version now (#425), before
+      // the workflows look at what was measured.
+      await versionFromRequest({ ...runner, storage, mailer, ...links }, data);
       await fileMeasured(runner, data);
     });
     await taking.work("workflow-waits-sweep", async () => {

@@ -991,8 +991,9 @@ function VersionRow({
             <Avatar id={version.createdByName} name={version.createdByName} size={18} />
           )}
           <span className="truncate">
-            {version.createdByName ?? "A former member"} ·{" "}
-            {whenFormat.format(new Date(version.createdAt))}
+            {version.createdByName ??
+              (version.sentBy ? `${version.sentBy}, by upload request` : "A former member")}{" "}
+            · {whenFormat.format(new Date(version.createdAt))}
           </span>
           {version.edlFileId && (
             <Link

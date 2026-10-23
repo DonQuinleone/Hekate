@@ -11,20 +11,30 @@ import { fileName } from "./files.ts";
 export const UPLOAD_REQUEST_MAX_FILES = 100;
 export const UPLOAD_REQUEST_MAX_DAYS = 90;
 
-export const createUploadRequestInput = z.object({
-  name: z.string().trim().min(1, "Give the request a name").max(120),
-  /** What is wanted, shown to the visitor. */
-  wanted: z.string().trim().max(2000).default(""),
-  /** The folder files arrive in; null for the project's top level. */
-  folderId: z.uuid().nullable(),
-  fileLimit: z.int().min(1).max(UPLOAD_REQUEST_MAX_FILES),
-  /** The day it closes, at the end of that day where Hekate runs (UTC). */
-  expiresOn: z.iso.date(),
-  /** Asked for before anything can be sent; stored only as a hash. */
-  password: z.string().min(8, "At least eight characters").max(128).optional(),
-  /** Someone to send the link to, with the workspace's upload request mail. */
-  email: z.email().max(254).optional(),
-});
+export const createUploadRequestInput = z
+  .object({
+    name: z.string().trim().min(1, "Give the request a name").max(120),
+    /** What is wanted, shown to the visitor. */
+    wanted: z.string().trim().max(2000).default(""),
+    /** The folder files arrive in; null for the project's top level, or for a track. */
+    folderId: z.uuid().nullable(),
+    /**
+     * A track of the project instead (#425): each file sent becomes its next version once it
+     * has been measured, and arrives beside the track.
+     */
+    trackId: z.uuid().nullish(),
+    fileLimit: z.int().min(1).max(UPLOAD_REQUEST_MAX_FILES),
+    /** The day it closes, at the end of that day where Hekate runs (UTC). */
+    expiresOn: z.iso.date(),
+    /** Asked for before anything can be sent; stored only as a hash. */
+    password: z.string().min(8, "At least eight characters").max(128).optional(),
+    /** Someone to send the link to, with the workspace's upload request mail. */
+    email: z.email().max(254).optional(),
+  })
+  .refine((r) => !(r.trackId && r.folderId), {
+    message: "A request goes into a folder or to a track, not both",
+    path: ["trackId"],
+  });
 export type CreateUploadRequestInput = z.input<typeof createUploadRequestInput>;
 
 /** The visitor's password, when the request has one. */

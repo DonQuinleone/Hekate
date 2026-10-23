@@ -82,7 +82,7 @@ Each screen lists its states. Every screen is designed at desktop (1440) and pho
 | Delivery profile | Streaming, CD, Apple Digital Masters, broadcast, 5.1, Atmos, custom (loudness target and tolerance, true peak ceiling, rates, bit depth, layout); the project default, and the override on a track or file. | Suggested from the layout when unset; custom editor; a track differing from its project. | #41 #43 |
 | Asset security | Visible watermark (position, opacity, scope, preview), audio and video forensic marking on streams and downloads, download rules, who may delete. | Off; marking on. | #31 #32 |
 | Tasks | A task list in the project: title, assignee, priority, status, due date, related files and deliverables, made by hand or from a comment; filters (mine, unassigned, overdue, done); export. | Empty; overdue. | legacy |
-| Upload request | A link for someone outside to upload into a folder: name, what is wanted, destination, file limit, expiry, password, an address to email the link to; the visitor's upload page; what arrived. | Expired; limit reached; files arrived. | legacy |
+| Upload request | A link for someone outside to upload into a folder: name, what is wanted, destination (a folder, or as the next version of a track), file limit, expiry, password, an address to email the link to; the visitor's upload page; what arrived. | Expired; limit reached; files arrived. | legacy |
 
 ### 3.4 Music: tracks, versions and variations
 

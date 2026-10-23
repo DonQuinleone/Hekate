@@ -2579,6 +2579,12 @@ test("project-upload-request", async ({ page }) => {
   await expect(dialog.getByText("String stems")).toBeVisible();
   await saveScreen(page, "project-upload-request");
   await checkScreen(page);
+  // To a track (#425): each file sent becomes its next version, as the form says.
+  await dialog.getByRole("combobox", { name: "Into" }).selectOption({ label: "Maple Leaf Rag" });
+  await expect(dialog.getByText("becomes the next version of Maple Leaf Rag")).toBeVisible();
+  await expect(dialog.getByText("Next mix")).toBeVisible();
+  await saveScreen(page, "project-upload-request-track");
+  await checkScreen(page);
 });
 
 // A project's tasks (#140): grouped by status, what waits on a decision first; one late.

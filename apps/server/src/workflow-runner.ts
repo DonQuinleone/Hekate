@@ -658,7 +658,8 @@ export async function versionArrived(
     projectId: string;
     trackId: string;
     versionId: string;
-    userId: string;
+    /** Null for a version an upload request made (#425). */
+    userId: string | null;
   },
 ) {
   await happened(deps, "upload", at);

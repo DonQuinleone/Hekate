@@ -74,6 +74,7 @@ import { moveProject } from "./project-transfer.ts";
 import { admit } from "./rate-limit.ts";
 import { reconcileStorage } from "./reconcile.ts";
 import { remindDue } from "./reminders.ts";
+import { versionFromRequest } from "./request-versions.ts";
 import { health } from "./routes/health.ts";
 import { recordInstanceEvent } from "./routes/instance.ts";
 import { rehomePending } from "./score-swap.ts";
@@ -6518,6 +6519,148 @@ describe.runIf(url)("api", () => {
               .where(eq(schema.uploadRequestFiles.requestId, request.id));
             expect(arrived?.n, change).toBe(0);
           }
+        });
+
+        it("sends each file to a track as its next version once measured, in the track's own workspace only (#425)", async () => {
+          const owner = cookieOf(await setup());
+          const projectId = await newProject(owner);
+          const newTrack = async (project: string, name: string) =>
+            (
+              (await (
+                await app.request(`/api/projects/${project}/tracks`, json({ name }, owner))
+              ).json()) as { track: { id: string; folderId: string | null } }
+            ).track;
+          const track = await newTrack(projectId, "Maple Leaf Rag");
+          const [{ organisationId } = { organisationId: "" }] = await db
+            .select({ organisationId: schema.projects.organisationId })
+            .from(schema.projects)
+            .where(eq(schema.projects.id, projectId));
+
+          // A folder and a track at once, a track of another project, or another workspace's
+          // track: each refused.
+          const folder = (
+            (await (
+              await app.request(
+                `/api/projects/${projectId}/folders`,
+                json({ name: "Day 2" }, owner),
+              )
+            ).json()) as { folder: { id: string } }
+          ).folder;
+          expect(
+            (await ask(owner, projectId, { folderId: folder.id, trackId: track.id })).status,
+          ).toBe(400);
+          const elsewhere = await newTrack(await newProject(owner), "Pine Apple Rag");
+          expect((await ask(owner, projectId, { trackId: elsewhere.id })).status).toBe(404);
+          const [theirs] = await db
+            .insert(schema.organisations)
+            .values({ name: "Endless Hall Records", slug: "endless-hall" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: theirs?.id ?? "", name: "Opening titles", profile: "music" })
+            .returning();
+          const [theirTrack] = await db
+            .insert(schema.tracks)
+            .values({
+              organisationId: theirs?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theme",
+            })
+            .returning();
+          expect((await ask(owner, projectId, { trackId: theirTrack?.id })).status).toBe(404);
+
+          const made = await ask(owner, projectId, { trackId: track.id, fileLimit: 3 });
+          expect(made.status).toBe(201);
+          const { request, link } = (await made.json()) as Made & {
+            request: { trackId: string | null; folderId: string | null };
+          };
+          expect(request).toMatchObject({ trackId: track.id, folderId: track.folderId });
+          const token = tokenOf(link);
+
+          // A recording waits to be measured; it arrives beside the track meanwhile.
+          const wav = await send(token, { name: "Maple Leaf Rag - Dry.wav" }, new Uint8Array(10));
+          expect((await finish(token, wav)).status).toBe(201);
+          const [dry] = await db
+            .select()
+            .from(schema.files)
+            .where(eq(schema.files.name, "Maple Leaf Rag - Dry.wav"));
+          expect(dry).toMatchObject({ projectId, folderId: track.folderId });
+          const versionsOf = () =>
+            db
+              .select({ number: schema.versions.number, notes: schema.versions.notes })
+              .from(schema.versions)
+              .where(eq(schema.versions.trackId, track.id))
+              .orderBy(schema.versions.number);
+          expect(await versionsOf()).toEqual([]);
+
+          // A file that is never measured becomes the next version as it arrives.
+          const pdf = await send(
+            token,
+            { name: "Maple Leaf Rag - Score.pdf", contentType: "application/pdf" },
+            new Uint8Array(10),
+          );
+          expect((await finish(token, pdf)).status).toBe(201);
+          expect(await versionsOf()).toEqual([
+            { number: 1, notes: "Sent by Ines Arlow through the upload request String stems." },
+          ]);
+
+          // Measured, the recording becomes the one after, once, and only in its own workspace.
+          const deps = { db, jobs, storage, mailer, publicUrl: "http://localhost:3000" };
+          const fileId = dry?.id ?? "";
+          expect(await versionFromRequest(deps, { organisationId: theirs?.id ?? "", fileId })).toBe(
+            "none",
+          );
+          expect(await versionFromRequest(deps, { organisationId, fileId })).toBe("made");
+          expect(await versionFromRequest(deps, { organisationId, fileId })).toBe("none");
+          expect((await versionsOf()).map((v) => v.number)).toEqual([1, 2]);
+          const [variation] = await db
+            .select({ name: schema.variations.name, isPrimary: schema.variations.isPrimary })
+            .from(schema.variations)
+            .where(eq(schema.variations.fileId, fileId));
+          expect(variation).toEqual({ name: "Dry", isPrimary: true });
+          // The requester hears of it, as of any version.
+          const told = await db
+            .select({ text: schema.notifications.text })
+            .from(schema.notifications)
+            .where(eq(schema.notifications.kind, "version"));
+          expect(told.map((t) => t.text)).toContain(
+            "Ines Arlow sent version 2 of Maple Leaf Rag, through String stems",
+          );
+          // The track shows both, with who sent them.
+          const shown = (await (
+            await app.request(`/api/tracks/${track.id}`, { headers: { cookie: owner } })
+          ).json()) as { track: { versions: { number: number; sentBy: string | null }[] } };
+          expect(shown.track.versions).toEqual([
+            expect.objectContaining({ number: 1, sentBy: "Ines Arlow" }),
+            expect.objectContaining({ number: 2, sentBy: "Ines Arlow" }),
+          ]);
+
+          // The project's checks hold: a file they refuse stays as it arrived, and the requester
+          // is told why.
+          await db
+            .update(schema.projects)
+            .set({ requireEdl: true })
+            .where(eq(schema.projects.id, projectId));
+          const wet = await send(token, { name: "Maple Leaf Rag - Wet.wav" }, new Uint8Array(10));
+          expect((await finish(token, wet)).status).toBe(201);
+          const [wetFile] = await db
+            .select({ id: schema.files.id })
+            .from(schema.files)
+            .where(eq(schema.files.name, "Maple Leaf Rag - Wet.wav"));
+          expect(
+            await versionFromRequest(deps, { organisationId, fileId: wetFile?.id ?? "" }),
+          ).toBe("refused");
+          expect((await versionsOf()).map((v) => v.number)).toEqual([1, 2]);
+          const [refused] = await db
+            .select({ text: schema.notifications.text, detail: schema.notifications.detail })
+            .from(schema.notifications)
+            .where(
+              eq(
+                schema.notifications.text,
+                "Maple Leaf Rag - Wet.wav from Ines Arlow did not become a version of Maple Leaf Rag",
+              ),
+            );
+          expect(refused?.detail).toContain("edit decision list");
         });
       });
 

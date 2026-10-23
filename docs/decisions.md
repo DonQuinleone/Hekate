@@ -1294,7 +1294,7 @@ CI runs the API suite through PgBouncer in transaction mode at its defaults (the
 - **The limit holds.** A file takes a place under a lock on the request as it starts; one still being sent counts, and one abandoned frees its place when its upload lapses. A closed or lapsed request refuses new files and the finishing of ones under way.
 - **Told and logged.** The requester is told as each file arrives (`upload_arrived`, in the app and by mail by default). The access log records the request made and closed, wrong passwords, and each upload under a `visitor` actor named as the sender gave.
 - **Not moved with a project.** Moving a project to another workspace (decision 135) drops its upload requests, like calendar links, as each was given out under the losing workspace; the files sent through them move with the project, and the access log keeps who sent them.
-- **Left out for now:** "as the next version of" a track, which the issue lists but the prototype does not show; a version is made only from a measured file, so it would follow the upload rather than be part of it.
+- **Left out for now:** "as the next version of" a track, which the issue lists but the prototype does not show; a version is made only from a measured file, so it would follow the upload rather than be part of it (it followed: decision 223).
 - **Expanding only:** the request, its uploads and its files are new tables (`upload_requests`, `upload_request_uploads`, `upload_request_files`), so the release before runs against the database (decision 198).
 
 ## 200. General projects: simple version chains on loose files
@@ -1465,7 +1465,6 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **An operator's plan change reaches the gateway.** Putting a workspace that pays through Stripe on another plan moves its subscription too, so Stripe bills what the workspace is on and the next webhook does not move it back. It cannot be put on a plan by agreement, or none, while that subscription runs.
 - **No new tables.** The plans and codes keep their routes from #177 and #178; the overview and waiving are reads and writes of what is there.
 
-<<<<<<< HEAD
 ## 215. Billing's rules are settings; the Gateways tab
 
 #180, the second part.
@@ -1499,7 +1498,6 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **The trial.** With billing on, a workspace that signs up starts a trial of the length billing's rules set (decision 215), on the first plan the operators offer (priced, not hidden, not retired, in their order); choosing a plan through Checkout carries it over (decision 210). Without such a plan it is on the internal plan. What happens when a trial ends unconverted is billing's to decide, not registration's.
 - **Abuse limits** are counted in PostgreSQL, like the other limits (#172): links asked for by address and by email, workspaces made by address and by email. No CAPTCHA: the email link already costs a script a mailbox per workspace.
 
-=======
 ## 222. Links sent out at the workspace's own host
 
 #437. With workspace subdomains on (decision 208), a link sent out about a workspace opens at that workspace's address (`https://<slug>.<root>`), so a notification about another workspace someone belongs to opens there, not in whichever one they were last in.
@@ -1509,4 +1507,14 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Guests and visitors too.** A guest's cookie is per host (decision 208) and each guest link is a fresh one, so a guest at the workspace's host simply has their session there; a guest of two workspaces keeps both. Upload links need no cookie. Links already sent at the root keep working there.
 - **An invitation is for someone not yet a member,** whom a workspace's host would refuse. Someone signed in who opens one there is taken to the same invitation at the root, which works as before; someone signed out stays, and signs in or makes their account on a page that names the workspace.
 - **The account's own mail stays at the root:** a new password and a changed address belong to no workspace.
->>>>>>> 3d71cf3 (feat(server): links sent out at each workspace's own host (#437))
+
+## 223. Upload requests to a track: each file its next version, once measured
+
+#425, following decision 199. An upload request can send its files to a track instead of a folder: *Into* offers the project's tracks under "As the next version of", as the prototype now shows.
+
+- **After the upload, not part of it.** A version is made only from a measured file, so the file arrives first, beside the track (in the track's folder as it is when the file starts), and the requester is told as now. The measuring job then makes it the track's next version, before the workflows look at what was measured; a file that is never measured (a document) becomes one as it arrives. A failure leaves the file where it arrived.
+- **One file, one version.** Each file becomes a version of its own, its one variation named from the file, numbered as each is ready. Files sent together cannot be told from files sent days apart, and guessing which belong together (or which is primary) would be wrong more often than a member's own choice; a member can still add a file to a version as a variation. The file limit is how many versions the request takes.
+- **As a member's version, without the member.** The version has no author (`created_by` null) and notes saying who sent it through which request; the previous version's threads are carried as the project says; alignment, the track's followers (and the requester) and the track's workflows hear of it as of any version.
+- **The project's checks hold.** True peak and the edit decision list are checked as for a member's version, and nobody can let a visitor's file through: one they refuse stays beside the track, and the requester is told why. A file already in a version is left alone, so the job running again makes nothing twice.
+- **Its own workspace and project only.** The track is checked against the request's project and workspace when the request is made, and again when the version is made.
+- **Expanding only:** a nullable `upload_requests.track_id`, with no foreign key yet, as adding one to a table the release before knows contracts the schema (decision 198). Tracks are deleted only with their project, which takes its requests with it; the key can follow with the next contracting release.

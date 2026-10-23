@@ -949,6 +949,15 @@ setup("seed", async ({ page, browser }) => {
       expiresOn: new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10),
     },
   );
+  // And one (#425) whose file becomes Maple Leaf Rag's next version once measured.
+  await api(page, "POST", `/api/projects/${music.id}/upload-requests`, {
+    name: "Next mix",
+    wanted: "The next mix of Maple Leaf Rag, with the piano brought forward.",
+    folderId: null,
+    trackId: track.id,
+    fileLimit: 1,
+    expiresOn: new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10),
+  });
 
   // The guest signs in from the link they were sent, which the log holds without a mail server.
   let guestLink: string | undefined;

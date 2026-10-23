@@ -2157,6 +2157,8 @@ export interface Version {
   number: number;
   /** Who added it, by name; null once their account is gone. */
   createdByName: string | null;
+  /** Who sent its file through an upload request, where no member added it (#425). */
+  sentBy?: string | null;
   /** How it was cut from the takes: an edit decision list in the project. */
   edlFileId: string | null;
   /** Who let it in past the project's version checks, when someone had to. */
@@ -4993,6 +4995,8 @@ export interface UploadRequest {
   id: string;
   projectId: string;
   folderId: string | null;
+  /** A track whose next version each file becomes once processed (#425); null for a folder. */
+  trackId: string | null;
   name: string;
   wanted: string;
   fileLimit: number;

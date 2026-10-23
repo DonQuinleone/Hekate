@@ -122,6 +122,7 @@ A link for someone outside a project to send files into one of its folders (#139
 - It reads nothing. The visitor's page shows only the request's own words, its workspace's name and how many files have arrived; the link sends files into the request's folder and asks after its own uploads, never a file, a folder or anything else of the project.
 - An optional password is kept as salted scrypt and asked for before each file starts; a wrong one is in the access log (`upload_request.password_failed`). Opening links and starting files are rate limited per address.
 - Files are uploaded exactly as members' are: chunked, encrypted on arrival, checked as they land. A place is taken under a lock on the request when a file starts, so its file limit holds however many start at once, and a file still being sent counts. The upload is logged with a `visitor` actor named as the sender said, and the requester is told.
+- A request to a track (#425, decision 223) is made only for a track of the request's own project and workspace. The file becomes the track's next version on the server, once measured, under the project's version checks, which a visitor cannot ask to be let through; the link still reads nothing of the track.
 
 ## Media processing
 

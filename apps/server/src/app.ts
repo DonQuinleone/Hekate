@@ -99,7 +99,11 @@ import {
   variationRoutes,
   versionRoutes,
 } from "./routes/tracks.ts";
-import { uploadLinkRoutes, uploadRequestRoutes } from "./routes/upload-requests.ts";
+import {
+  type UploadRequestDeps,
+  uploadLinkRoutes,
+  uploadRequestRoutes,
+} from "./routes/upload-requests.ts";
 import { uploadRoutes } from "./routes/uploads.ts";
 import { trackWorkflowRunRoutes, workflowRunRoutes } from "./routes/workflow-runs.ts";
 import { projectWorkflowRoutes, workflowRoutes } from "./routes/workflows.ts";
@@ -234,7 +238,7 @@ export function createApi(deps: AppDeps) {
     workDir: deps.workDir,
   };
   const taskMail = { db: deps.db, mailer: deps.mailer, ...links };
-  const uploadRequestDeps = {
+  const uploadRequestDeps: UploadRequestDeps = {
     db: deps.db,
     storage: deps.storage,
     jobs: deps.jobs,
@@ -259,6 +263,8 @@ export function createApi(deps: AppDeps) {
   // Workflows ask for reviews, and a review's outcome moves its workflow on (#25).
   const runner: RunnerDeps = { db: deps.db, jobs: deps.jobs, reviews: reviewDeps };
   reviewDeps.onSettled = (review, by) => reviewSettled(runner, review, by);
+  // A version an upload request makes moves the track's workflows on (#425).
+  uploadRequestDeps.runner = runner;
   return (
     new Hono()
       // Before anything that reads the database: liveness must answer while it stalls (#156).

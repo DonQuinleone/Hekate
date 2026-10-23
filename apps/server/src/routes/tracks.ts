@@ -155,6 +155,28 @@ async function tracksOf(db: Database, organisationId: string, projectId: string)
             ),
           )
           .orderBy(asc(variations.position), asc(variations.id));
+  // Who sent a version's file through an upload request (#425), for one no member added.
+  const unsigned = new Set(versionRows.filter((v) => !v.createdBy).map((v) => v.id));
+  const sentFiles = variationRows.filter((x) => unsigned.has(x.versionId)).map((x) => x.fileId);
+  const senders = new Map(
+    sentFiles.length === 0
+      ? []
+      : (
+          await db
+            .select({
+              fileId: schema.uploadRequestFiles.fileId,
+              sender: schema.uploadRequestFiles.sender,
+            })
+            .from(schema.uploadRequestFiles)
+            .where(
+              inOrg(
+                schema.uploadRequestFiles,
+                organisationId,
+                inArray(schema.uploadRequestFiles.fileId, sentFiles),
+              ),
+            )
+        ).map((r) => [r.fileId, r.sender]),
+  );
   // A score swap still waiting for its bars (#52) is the server's own business.
   return trackRows.map(({ rehomeFrom: _from, rehomeById: _by, ...track }) => ({
     ...track,
@@ -162,6 +184,11 @@ async function tracksOf(db: Database, organisationId: string, projectId: string)
       .filter((v) => v.trackId === track.id)
       .map((version) => ({
         ...version,
+        sentBy:
+          variationRows
+            .filter((x) => x.versionId === version.id && unsigned.has(x.versionId))
+            .map((x) => senders.get(x.fileId))
+            .find(Boolean) ?? null,
         variations: variationRows
           .filter((x) => x.versionId === version.id)
           // Of what was measured, the picture is all a rendition shows (#16).
@@ -195,6 +222,121 @@ async function trackOf(db: Database, organisationId: string, id: string) {
     .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
   if (!track) throw new NotFound("Track");
   return track;
+}
+
+/**
+ * The project's checks on a new version's files (#131), as they stand now: why it may not land,
+ * if it may not, with the project's settings the version needs. Members adding a version and an
+ * upload request making one (#425) are held to the same checks.
+ */
+export async function versionChecksOf(
+  db: Database,
+  storage: Storage,
+  organisationId: string,
+  track: typeof tracks.$inferSelect,
+  asked: { fileIds: string[]; edlFileId: string | null },
+) {
+  const [project] = await db
+    .select({
+      shown: projects.carriedCommentsShown,
+      deliveryProfile: projects.deliveryProfile,
+      checkTruePeak: projects.checkTruePeak,
+      requireEdl: projects.requireEdl,
+    })
+    .from(projects)
+    .where(inOrg(projects, organisationId, eq(projects.id, track.projectId)));
+  if (asked.edlFileId) await assertEdlFile(db, organisationId, track.projectId, asked.edlFileId);
+  const [customs, [org]] = await Promise.all([
+    customProfilesOf(db, organisationId),
+    db
+      .select({ settings: schema.organisations.settings })
+      .from(schema.organisations)
+      .where(eq(schema.organisations.id, organisationId)),
+  ]);
+  const workspace = workspaceSettingsOf(org?.settings);
+  // The project's checks run before the version lands (#131): a refusal says why, and
+  // only someone who may edit workflows can let it through, on the record.
+  const measured = await db
+    .select({
+      id: files.id,
+      name: files.name,
+      kind: files.kind,
+      deliveryProfile: files.deliveryProfile,
+      mediaInfo: files.mediaInfo,
+      streamStatus: files.streamStatus,
+      analysisStatus: files.analysisStatus,
+      summary: loudness.summary,
+    })
+    .from(files)
+    .leftJoin(
+      loudness,
+      and(eq(loudness.fileId, files.id), eq(loudness.organisationId, organisationId)),
+    )
+    .where(inOrg(files, organisationId, inArray(files.id, asked.fileIds)));
+  // Where the project asks for a list, it is read as well (#56): how many edits it holds,
+  // and where the last one ends, to set against the version's length.
+  let given: GivenEdl | null = null;
+  if (asked.edlFileId) {
+    const list = project?.requireEdl
+      ? await readEdlFile(db, storage, organisationId, asked.edlFileId)
+      : null;
+    const events = list ? parseCmx3600(list.text).events : [];
+    given = {
+      name: list?.name ?? "The edit decision list",
+      edits: events.length,
+      end: Math.max(0, ...events.map((e) => e.recordOut)),
+    };
+  }
+  const refusals = versionRefusals(
+    { truePeak: Boolean(project?.checkTruePeak), edl: Boolean(project?.requireEdl) },
+    // Each file against its own profile, else this track's, the project's or the workspace's.
+    (f) => {
+      const file = measured.find((m) => m.id === f.id);
+      return effectiveProfile(
+        {
+          file: file?.deliveryProfile ?? null,
+          track: track.deliveryProfile,
+          project: project?.deliveryProfile ?? null,
+          workspace: workspace.deliveryProfile,
+        },
+        f.channels,
+        customs,
+        // An ADM master is measured against Atmos, as on its QA view (#74).
+        Boolean(file?.mediaInfo?.metadata?.adm),
+      ).profile;
+    },
+    measured.map((f) => ({
+      id: f.id,
+      name: f.name,
+      // Audio and video are checked; until the worker has probed one, it is measuring.
+      channels:
+        f.kind !== "audio" && f.kind !== "video"
+          ? null
+          : f.mediaInfo
+            ? (f.mediaInfo.audio?.channels ?? null)
+            : f.streamStatus === "failed" || f.analysisStatus === "failed"
+              ? null
+              : undefined,
+      // Not measured yet while analysis runs; a file that could not be measured is
+      // left to the people reviewing it.
+      truePeak: f.summary
+        ? f.summary.truePeak
+        : f.analysisStatus === "failed" || f.analysisStatus === "none"
+          ? null
+          : undefined,
+      // Undefined until the worker has probed it, as for its channels.
+      duration:
+        f.kind !== "audio" && f.kind !== "video"
+          ? null
+          : f.mediaInfo
+            ? (f.mediaInfo.duration ?? null)
+            : f.streamStatus === "failed" || f.analysisStatus === "failed"
+              ? null
+              : undefined,
+    })),
+    given,
+  );
+  return { project, refusals };
 }
 
 async function oneTrack(db: Database, organisationId: string, id: string) {
@@ -366,116 +508,10 @@ export const trackRoutes = (
         track.projectId,
         input.variations.map((v) => v.fileId),
       );
-      const [project] = await db
-        .select({
-          shown: projects.carriedCommentsShown,
-          deliveryProfile: projects.deliveryProfile,
-          checkTruePeak: projects.checkTruePeak,
-          requireEdl: projects.requireEdl,
-        })
-        .from(projects)
-        .where(inOrg(projects, organisationId, eq(projects.id, track.projectId)));
-      if (input.edlFileId)
-        await assertEdlFile(db, organisationId, track.projectId, input.edlFileId);
-      const [customs, [org]] = await Promise.all([
-        customProfilesOf(db, organisationId),
-        db
-          .select({ settings: schema.organisations.settings })
-          .from(schema.organisations)
-          .where(eq(schema.organisations.id, organisationId)),
-      ]);
-      const workspace = workspaceSettingsOf(org?.settings);
-      // The project's checks run before the version lands (#131): a refusal says why, and
-      // only someone who may edit workflows can let it through, on the record.
-      const measured = await db
-        .select({
-          id: files.id,
-          name: files.name,
-          kind: files.kind,
-          deliveryProfile: files.deliveryProfile,
-          mediaInfo: files.mediaInfo,
-          streamStatus: files.streamStatus,
-          analysisStatus: files.analysisStatus,
-          summary: loudness.summary,
-        })
-        .from(files)
-        .leftJoin(
-          loudness,
-          and(eq(loudness.fileId, files.id), eq(loudness.organisationId, organisationId)),
-        )
-        .where(
-          inOrg(
-            files,
-            organisationId,
-            inArray(
-              files.id,
-              input.variations.map((v) => v.fileId),
-            ),
-          ),
-        );
-      // Where the project asks for a list, it is read as well (#56): how many edits it holds,
-      // and where the last one ends, to set against the version's length.
-      let given: GivenEdl | null = null;
-      if (input.edlFileId) {
-        const list = project?.requireEdl
-          ? await readEdlFile(db, storage, organisationId, input.edlFileId)
-          : null;
-        const events = list ? parseCmx3600(list.text).events : [];
-        given = {
-          name: list?.name ?? "The edit decision list",
-          edits: events.length,
-          end: Math.max(0, ...events.map((e) => e.recordOut)),
-        };
-      }
-      const refusals = versionRefusals(
-        { truePeak: Boolean(project?.checkTruePeak), edl: Boolean(project?.requireEdl) },
-        // Each file against its own profile, else this track's, the project's or the workspace's.
-        (f) => {
-          const file = measured.find((m) => m.id === f.id);
-          return effectiveProfile(
-            {
-              file: file?.deliveryProfile ?? null,
-              track: track.deliveryProfile,
-              project: project?.deliveryProfile ?? null,
-              workspace: workspace.deliveryProfile,
-            },
-            f.channels,
-            customs,
-            // An ADM master is measured against Atmos, as on its QA view (#74).
-            Boolean(file?.mediaInfo?.metadata?.adm),
-          ).profile;
-        },
-        measured.map((f) => ({
-          id: f.id,
-          name: f.name,
-          // Audio and video are checked; until the worker has probed one, it is measuring.
-          channels:
-            f.kind !== "audio" && f.kind !== "video"
-              ? null
-              : f.mediaInfo
-                ? (f.mediaInfo.audio?.channels ?? null)
-                : f.streamStatus === "failed" || f.analysisStatus === "failed"
-                  ? null
-                  : undefined,
-          // Not measured yet while analysis runs; a file that could not be measured is
-          // left to the people reviewing it.
-          truePeak: f.summary
-            ? f.summary.truePeak
-            : f.analysisStatus === "failed" || f.analysisStatus === "none"
-              ? null
-              : undefined,
-          // Undefined until the worker has probed it, as for its channels.
-          duration:
-            f.kind !== "audio" && f.kind !== "video"
-              ? null
-              : f.mediaInfo
-                ? (f.mediaInfo.duration ?? null)
-                : f.streamStatus === "failed" || f.analysisStatus === "failed"
-                  ? null
-                  : undefined,
-        })),
-        given,
-      );
+      const { project, refusals } = await versionChecksOf(db, storage, organisationId, track, {
+        fileIds: input.variations.map((v) => v.fileId),
+        edlFileId: input.edlFileId ?? null,
+      });
       const letThrough = refusals.length > 0 && input.letThrough === true;
       if (refusals.length > 0 && !letThrough) {
         const waiting = refusals.every((r) => r.check === "measuring");

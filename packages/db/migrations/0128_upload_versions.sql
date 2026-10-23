@@ -1,0 +1,1 @@
+ALTER TABLE "upload_requests" ADD COLUMN "track_id" uuid;
