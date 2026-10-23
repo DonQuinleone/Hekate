@@ -92,6 +92,17 @@ export const auditActions = [
   "api_token.create",
   "api_token.change",
   "api_token.revoke",
+  /**
+   * An OAuth client (#447) was registered, changed, given a new secret or deleted by the
+   * workspace's admins. Its secret is never written; its name and client id are.
+   */
+  "oauth_client.create",
+  "oauth_client.change",
+  "oauth_client.rotate",
+  "oauth_client.delete",
+  /** A member connected an application through OAuth (#447), or disconnected it. */
+  "oauth.connect",
+  "oauth.disconnect",
   /** A member deleted their account; what they did stays, as a former member's. */
   "account.deleted",
   /** A member signed in with the workspace's directory; the first time also makes them one. */

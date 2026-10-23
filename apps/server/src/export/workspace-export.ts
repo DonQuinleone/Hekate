@@ -57,6 +57,9 @@ export const tablesLeftOut = new Set([
   "renditions",
   "rendition_segments",
   "workspace_exports",
+  // An application's codes and refresh tokens (#447): ways in, minutes or days long.
+  "oauth_codes",
+  "oauth_refresh_tokens",
 ]);
 
 /** Columns left out wherever they are: wrapped keys, sealed secrets and the hashes of codes. */
@@ -80,6 +83,8 @@ export const tableColumnsLeftOut: Record<string, readonly string[]> = {
   blobs: ["key", "backend"],
   sso_providers: ["oidc_config", "saml_config"],
   billing_accounts: ["checkout_url"],
+  // A client's secret, hashed, and its first characters (#447).
+  oauth_clients: ["secret_hash", "secret_hint"],
 };
 
 /** A table without an `id` is read in pages by this column. */

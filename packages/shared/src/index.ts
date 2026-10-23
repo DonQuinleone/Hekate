@@ -38,6 +38,7 @@ export * from "./media.ts";
 export * from "./metadata.ts";
 export * from "./normalisation.ts";
 export * from "./notifications.ts";
+export * from "./oauth.ts";
 export * from "./organisation.ts";
 export * from "./overview.ts";
 export * from "./patch.ts";

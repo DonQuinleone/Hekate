@@ -14,7 +14,7 @@ import {
   scopeAllows,
   scopeFor,
 } from "@hekate/shared";
-import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { getPath } from "hono/utils/url";
@@ -245,9 +245,13 @@ async function logCall(
     );
 }
 
-/** Every live token a member holds in a workspace stops working: they have left it. */
+/**
+ * Every live token a member holds in a workspace stops working: they have left it. Their own
+ * tokens, and their connected apps' (#447), whose connections go with them (and with those,
+ * their codes and refresh tokens).
+ */
 export async function revokeMemberTokens(
-  db: Pick<Database, "update">,
+  db: Pick<Database, "update" | "delete">,
   organisationId: string,
   userId: string,
   by: string | null,
@@ -259,11 +263,14 @@ export async function revokeMemberTokens(
       inOrg(
         apiTokens,
         organisationId,
-        eq(apiTokens.kind, "personal"),
+        inArray(apiTokens.kind, ["personal", "oauth"]),
         eq(apiTokens.userId, userId),
         isNull(apiTokens.revokedAt),
       ),
     );
+  await db
+    .delete(schema.oauthGrants)
+    .where(inOrg(schema.oauthGrants, organisationId, eq(schema.oauthGrants.userId, userId)));
 }
 
 /**

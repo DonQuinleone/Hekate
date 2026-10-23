@@ -26,6 +26,7 @@ import { startWorkers } from "./media/workers.ts";
 import { collectFromDatabase, collectQueues, countedMailer } from "./metrics/index.ts";
 import { createSampler } from "./metrics/sampler.ts";
 import { deliverDigests, deliverInstant } from "./notifications.ts";
+import { purgeOAuth } from "./oauth.ts";
 import { playbackSecret } from "./playback.ts";
 import { purgeDueProjects } from "./project-purge.ts";
 import { purgeRequestLimits } from "./rate-limit.ts";
@@ -283,6 +284,7 @@ export async function boot(
       await purgeRequestLimits(db);
       await purgeDownloadTickets(db);
       await purgeErrorReports(db);
+      await purgeOAuth(db);
     });
     await taking.work("organisation-rewrap", async ({ organisationId }) => {
       const rewrapped = await rewrapOrganisation(db, keyring, organisationId);

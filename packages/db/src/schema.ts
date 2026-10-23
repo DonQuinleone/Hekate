@@ -38,6 +38,7 @@ import {
   type NotificationKind,
   type NotificationMail,
   notificationKinds,
+  type OAuthClientKind,
   type OverviewSection,
   type PlanFeature,
   type PlayerTool,
@@ -3692,11 +3693,18 @@ export const apiTokens = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     revokedBy: text("revoked_by").references(() => users.id, { onDelete: "set null" }),
+    /**
+     * An application's access token (#447): the connection it was issued under
+     * (`oauth_grants`), whose ending revokes it. No foreign key yet: adding one to a table the
+     * release before knows contracts the schema (decision 198).
+     */
+    grantId: uuid("grant_id"),
     ...timestamps,
   },
   (t) => [
     index("api_tokens_organisation_idx").on(t.organisationId, t.kind),
     index("api_tokens_user_idx").on(t.userId),
+    index("api_tokens_grant_idx").on(t.grantId),
   ],
 );
 
@@ -3724,4 +3732,106 @@ export const apiRequests = pgTable(
     index("api_requests_org_idx").on(t.organisationId, t.id),
     index("api_requests_token_idx").on(t.tokenId),
   ],
+);
+
+// OAuth clients and connected apps (#447)
+
+/**
+ * An application a workspace registered to ask its members for access with OAuth 2.1 (decision
+ * 225). A confidential client keeps a secret, of which only a SHA-256 hash is stored, shown once
+ * when it is made or rotated; a public one has none and proves each exchange with PKCE alone.
+ */
+export const oauthClients = pgTable(
+  "oauth_clients",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    name: text("name").notNull(),
+    kind: text("kind").$type<OAuthClientKind>().notNull(),
+    /** What the application sends to name itself (`hk_cli_…`): public, unique on the instance. */
+    clientId: text("client_id").notNull().unique(),
+    secretHash: text("secret_hash"),
+    /** The secret's first characters (`hk_cls_7f3a`), to tell it apart in settings. */
+    secretHint: text("secret_hint"),
+    secretRotatedAt: timestamp("secret_rotated_at", { withTimezone: true }),
+    /** Where it may be sent back to, matched character for character. */
+    redirectUris: text("redirect_uris").array().notNull(),
+    /** What it may ask for; each person grants some or all of it. */
+    scopes: text("scopes").array().$type<ApiScope[]>().notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("oauth_clients_organisation_idx").on(t.organisationId)],
+);
+
+/**
+ * A member's connection of a client: what they granted it, in the client's workspace. Their
+ * application's tokens are issued under it, and ending it (disconnecting, leaving the workspace,
+ * deleting the client) revokes them.
+ */
+export const oauthGrants = pgTable(
+  "oauth_grants",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => oauthClients.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scopes: text("scopes").array().$type<ApiScope[]>().notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("oauth_grants_client_user_idx").on(t.clientId, t.userId),
+    index("oauth_grants_organisation_idx").on(t.organisationId, t.userId),
+  ],
+);
+
+/**
+ * An authorisation code: a minute long, used once, bound to its client, its redirect address
+ * and its PKCE challenge. Only a hash of the code is stored.
+ */
+export const oauthCodes = pgTable(
+  "oauth_codes",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    grantId: uuid("grant_id")
+      .notNull()
+      .references(() => oauthGrants.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull().unique(),
+    redirectUri: text("redirect_uri").notNull(),
+    scopes: text("scopes").array().$type<ApiScope[]>().notNull(),
+    /** The SHA-256 of the application's code verifier, in base64url (S256 only). */
+    codeChallenge: text("code_challenge").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("oauth_codes_grant_idx").on(t.grantId)],
+);
+
+/**
+ * A refresh token, used once: each use answers a new one, and one used again revokes every
+ * token of its connection, as it may have been stolen (OAuth 2.1, section 4.3.1). Only a hash is
+ * stored.
+ */
+export const oauthRefreshTokens = pgTable(
+  "oauth_refresh_tokens",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    grantId: uuid("grant_id")
+      .notNull()
+      .references(() => oauthGrants.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    scopes: text("scopes").array().$type<ApiScope[]>().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("oauth_refresh_tokens_grant_idx").on(t.grantId)],
 );

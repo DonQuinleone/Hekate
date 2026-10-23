@@ -67,6 +67,13 @@ import { mailHookRoutes } from "./routes/mail-hooks.ts";
 import { projectMarkRoutes } from "./routes/marks.ts";
 import { accountRoutes, meRoutes } from "./routes/me.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
+import {
+  connectedAppRoutes,
+  oauthAuthorizeRoutes,
+  oauthClientRoutes,
+  oauthMetadata,
+  oauthTokenRoutes,
+} from "./routes/oauth.ts";
 import { operationsRoutes } from "./routes/operations.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
 import { projectOverviewRoutes } from "./routes/overview.ts";
@@ -284,6 +291,7 @@ export function createApi(given: AppDeps) {
   };
   const taskMail = { db: deps.db, mailer: deps.mailer, ...links };
   const tokenDeps = { db: deps.db, audit: deps.audit, trustProxy: deps.trustProxy ?? false };
+  const oauthDeps = { ...tokenDeps, publicUrl: deps.publicUrl, secondFactor: rule };
   // Exporting and deleting the workspace (#186).
   const lifecycle = {
     db: deps.db,
@@ -435,6 +443,13 @@ export function createApi(given: AppDeps) {
       )
       // A member's own API tokens (#198), in this workspace.
       .route("/me/tokens", personalTokenRoutes(tokenDeps))
+      // The applications a member connected through OAuth (#447), in this workspace.
+      .route("/me/connected-apps", connectedAppRoutes(oauthDeps))
+      // OAuth 2.1 (#447): the consent screen's request and answer, for a signed-in member of
+      // the client's workspace; the token and revocation endpoints, for applications.
+      .use("/oauth/authorize", requireSession(deps.auth))
+      .route("/oauth/authorize", oauthAuthorizeRoutes(oauthDeps))
+      .route("/oauth", oauthTokenRoutes(oauthDeps))
       .route("/invitations", invitationRoutes(deps.db, deps.auth))
       // Making a workspace without an operator (#184), as the instance's registration allows.
       .route(
@@ -484,6 +499,8 @@ export function createApi(given: AppDeps) {
       .route("/organisation/plan", planRoutes(deps.db, (deps.modules?.billing ?? "off") !== "off"))
       // The workspace's service tokens (#198), and the calls its tokens made.
       .route("/organisation/tokens", serviceTokenRoutes(tokenDeps))
+      // The workspace's OAuth clients (#447), for its owners and admins.
+      .route("/organisation/oauth-clients", oauthClientRoutes(oauthDeps))
       .route("/organisation/billing", billingRoutes(billing))
       .route("/organisation/support", supportRoutes(support))
       .route(
@@ -785,6 +802,11 @@ export function createApp(given: AppDeps) {
   app.use("*", securityHeaders({ https: deps.publicUrl.startsWith("https://") }));
   // For Prometheus (#70): only with a token, and never through the API's own middleware.
   app.get("/metrics", metricsHandler(deps.metricsToken));
+  // OAuth's metadata (#447, RFC 8414): where applications send people and exchange tokens.
+  app.get("/.well-known/oauth-authorization-server", (c) => {
+    c.header("Access-Control-Allow-Origin", "*");
+    return c.json(oauthMetadata(deps.publicUrl));
+  });
   // A span for each request (#162), around everything else so the rest happens inside it.
   app.use("/api/*", traced);
   app.use("/api/*", countRequests);
