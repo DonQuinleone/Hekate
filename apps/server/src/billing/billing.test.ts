@@ -13,7 +13,7 @@ import {
   settleByHand,
   takeGatewayEvent,
 } from "./billing.ts";
-import { type Stripe, signStripeEvent } from "./stripe.ts";
+import { type Stripe, StripeError, signStripeEvent } from "./stripe.ts";
 import { stripeGateway } from "./stripe-gateway.ts";
 
 const url = process.env.DATABASE_URL;
@@ -29,6 +29,9 @@ describe.runIf(url)("billing (#178)", () => {
   const subscriptions = new Map<string, Obj>();
   const invoices = new Map<string, Obj>();
   const sessions = new Map<string, { status: string }>();
+  const missing = () => {
+    throw new StripeError(404, "No such object", "resource_missing");
+  };
   const stripe: Stripe = {
     async request(method, path, params = {}) {
       calls.push([method, path, params]);
@@ -46,9 +49,10 @@ describe.runIf(url)("billing (#178)", () => {
         return held as never;
       }
       const held = /^\/v1\/invoices\/(\w+)$/.exec(path)?.[1];
-      if (held && method === "GET") return (invoices.get(held) ?? {}) as never;
+      if (held && method === "GET") return (invoices.get(held) ?? missing()) as never;
       const subscription = /^\/v1\/subscriptions\/(\w+)$/.exec(path)?.[1];
-      if (subscription && method === "GET") return (subscriptions.get(subscription) ?? {}) as never;
+      if (subscription && method === "GET")
+        return (subscriptions.get(subscription) ?? missing()) as never;
       return {} as never;
     },
   };
@@ -281,6 +285,20 @@ describe.runIf(url)("billing (#178)", () => {
     await send("customer.subscription.updated", late, new Date(Date.now() - 60_000));
     expect(await planState(w.id)).toBe("active");
     expect((await account(w.id))?.pastDueSince).toBeNull();
+  });
+
+  it("takes the event's own word for an invoice the gateway no longer has", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    // A draft, deleted in Stripe before its event arrives.
+    const draft = { ...invoice(w, "draft"), id: `in_draft_${w.customerId}` };
+    const taken = await send("invoice.deleted", draft);
+    expect(taken).toMatchObject({ taken: true, result: "taken" });
+    const [row] = await db
+      .select()
+      .from(schema.invoices)
+      .where(inOrg(schema.invoices, w.id, eq(schema.invoices.gatewayId, draft.id)));
+    expect(row?.status).toBe("draft");
   });
 
   it("never moves an invoice back when its events arrive out of order", async () => {

@@ -408,7 +408,7 @@ async function act(
       const organisationId = account.organisationId;
       // Stripe sends a subscription's events in any order: what counts is how it stands stands,
       // asked with the account held, so two at once cannot leave the older standing.
-      const stands = connected ? await connected.subscription(fact.subscriptionId) : fact;
+      const stands = (connected && (await connected.subscription(fact.subscriptionId))) || fact;
       const [plan] = stands.planId
         ? await tx.select().from(plans).where(eq(plans.id, stands.planId))
         : [];
@@ -464,7 +464,9 @@ async function act(
       const organisationId = account.organisationId;
       // As it stands now, as a subscription is: an event late or taken again cannot undo what
       // came after it, nor mark a workspace that has paid since as owing.
-      const invoice = connected ? await connected.invoice(fact.invoice.gatewayId) : fact.invoice;
+      // Once the gateway no longer has it (a draft deleted), the event's own word stands.
+      const invoice =
+        (connected && (await connected.invoice(fact.invoice.gatewayId))) || fact.invoice;
       await keepInvoice(tx, organisationId, invoice);
       const outcome = invoice.status === "paid" ? "paid" : fact.outcome;
       // Only the workspace's own subscription's invoices start or end dunning: not one made by

@@ -87,10 +87,10 @@ export function stripeGateway(options: {
       return "closed";
     },
     async subscription(subscriptionId) {
-      const subscription = await stripe.request<Record<string, unknown>>(
-        "GET",
-        `/v1/subscriptions/${subscriptionId}`,
+      const subscription = await gone(
+        stripe.request<Record<string, unknown>>("GET", `/v1/subscriptions/${subscriptionId}`),
       );
+      if (!subscription) return null;
       const fact = subscriptionFact(subscription, subscription.status === "canceled");
       if (!fact) throw new Error(`Stripe's subscription ${subscriptionId} cannot be read`);
       return fact;
@@ -109,10 +109,10 @@ export function stripeGateway(options: {
       });
     },
     async invoice(invoiceId) {
-      const invoice = await stripe.request<Record<string, unknown>>(
-        "GET",
-        `/v1/invoices/${invoiceId}`,
+      const invoice = await gone(
+        stripe.request<Record<string, unknown>>("GET", `/v1/invoices/${invoiceId}`),
       );
+      if (!invoice) return null;
       const facts = invoiceFacts(invoice);
       if (!facts) throw new Error(`Stripe's invoice ${invoiceId} cannot be read`);
       return facts.invoice;
@@ -137,6 +137,13 @@ export function stripeGateway(options: {
     },
   };
 }
+
+/** What Stripe holds, or null when it holds it no longer (404, `resource_missing`). */
+const gone = <T>(request: Promise<T>): Promise<T | null> =>
+  request.catch((error: unknown) => {
+    if (error instanceof StripeError && error.status === 404) return null;
+    throw error;
+  });
 
 type Obj = Record<string, unknown>;
 const str = (v: unknown) => (typeof v === "string" && v ? v : null);
