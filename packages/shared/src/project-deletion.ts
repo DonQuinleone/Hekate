@@ -31,8 +31,10 @@ export function deletionProblem(
   confirmer: { userId: string; role: OrganisationRole },
   owners: number,
   now: Date,
+  /** What is being deleted, for the words: a project, or the workspace itself (#186). */
+  thing: "project" | "workspace" = "project",
 ): string | null {
-  if (!request.requestedAt) return "No one has asked to delete this project";
+  if (!request.requestedAt) return `No one has asked to delete this ${thing}`;
   if (confirmer.role !== "owner") return "Only a workspace owner may confirm a deletion";
   if (confirmer.userId !== request.requestedBy) return null;
   if (owners > 1) return "Another owner of the workspace must confirm";

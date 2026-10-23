@@ -120,6 +120,7 @@ describe("tenancy", () => {
       "workflow_steps",
       "workflows",
       "works",
+      "workspace_exports",
       "workspace_mail",
       "workspace_mail_suppressions",
       "workspace_plans",

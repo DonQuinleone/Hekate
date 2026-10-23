@@ -38,6 +38,7 @@ import {
   newerReleases,
   newWorkspaceInput,
   type OperatorRow,
+  OWNER_DELETION_REASON,
   operatorInput,
   operatorMoveInput,
   operatorParam as operatorParamSchema,
@@ -49,6 +50,7 @@ import {
   suspendWorkspaceInput,
   WORKSPACE_DELETE_GRACE_DAYS,
   waiveInput,
+  workspaceExportInput,
   workspaceLimits,
   workspacePlanInput,
   workspaceSettingsOf,
@@ -78,7 +80,7 @@ import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { confirmIdentity } from "../account-deletion.ts";
-import { type Audit, requestInfo } from "../audit.ts";
+import { type Actor, type Audit, requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
 import {
   type BillingDeps,
@@ -93,6 +95,13 @@ import { billingReports, invoicesCsv, recognitionCsv } from "../billing/reports.
 import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { replayDelivery } from "../events.ts";
+import {
+  exportsOf,
+  exportTicket,
+  redeemExportTicket,
+  startExport,
+  viewOf as viewOfExport,
+} from "../export/workspace-export.ts";
 import { createFlags } from "../flags.ts";
 import { linkBase, type Subdomains } from "../hosts.ts";
 import { inspectFile, inspectReview, inspectSession } from "../inspect.ts";
@@ -107,6 +116,7 @@ import { listPlans, savePlan, workspacePlanOf } from "../plans.ts";
 import { admit } from "../rate-limit.ts";
 import { listSignUpInvitations, newSignUpLink, revokeSignUpInvitation } from "../sign-up.ts";
 import { signal } from "../signals.ts";
+import type { Storage } from "../storage.ts";
 import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
 import { HEKATE_VERSION, systemInformation } from "../system-info.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
@@ -114,6 +124,7 @@ import { nearQuota, workspaceUsageOf } from "../usage.ts";
 import { pendingRewrap } from "../workspace-keys.ts";
 import { operatorMove } from "./project-transfers.ts";
 import { retryFile } from "./retry.ts";
+import { refusal, sendExport } from "./workspace-lifecycle.ts";
 
 /**
  * The instance side (#155, decision 062). Operators manage every workspace; a workspace's
@@ -134,6 +145,8 @@ export interface InstanceOptions {
   keyring: Keyring;
   jobs: Pick<Jobs, "send">;
   backends: Backends;
+  /** Where a workspace's export is read from for its download (#186). */
+  storage: Storage;
   audit: Audit;
   /** The instance's settings (#160), shared with the rest of the server. */
   settings: InstanceSettingsStore;
@@ -227,6 +240,22 @@ const operatorsOnly = createMiddleware<{ Variables: InstanceVariables }>(async (
 
 /** Writes what an operator did, for the Overview and the audit (#157); kept here for its callers. */
 export { recordInstanceEvent };
+
+/**
+ * An operator, as a workspace's access log names them (#186): not one of its members, so the
+ * instance's own actor, with their name and address and the word operator.
+ */
+async function operatorActor(db: Database, userId: string): Promise<Actor> {
+  const [user] = await db
+    .select({ name: schema.users.name, email: schema.users.email })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId));
+  return {
+    type: "system",
+    userId,
+    label: user ? `${user.name} <${user.email}> (operator)` : `${userId} (operator)`,
+  };
+}
 
 const startOfToday = () => {
   const day = new Date();
@@ -902,6 +931,86 @@ export function instanceRoutes(options: InstanceOptions) {
           .catch((error) => console.error("The rewrap could not be queued:", error));
         return c.json({ version });
       })
+      // Its exports (#186): an operator's, as an owner's, encrypted to a key shown once (or to
+      // their own), made in the background, and downloaded through a one-time link for this
+      // session. Each request and download is in the workspace's access log and the instance's.
+      .get("/workspaces/:id/exports", idParam, async (c) => {
+        const { id } = c.req.valid("param");
+        await workspaceName(db, id);
+        return c.json({ exports: await exportsOf(db, id) });
+      })
+      .post(
+        "/workspaces/:id/exports",
+        idParam,
+        zValidator("json", workspaceExportInput),
+        async (c) => {
+          const { id } = c.req.valid("param");
+          const name = await workspaceName(db, id);
+          const actor = await operatorActor(db, c.var.userId);
+          const request = requestInfo(c, options.trustProxy);
+          const { row, key } = await startExport(
+            { db, jobs: options.jobs },
+            {
+              organisationId: id,
+              requestedBy: c.var.userId,
+              byOperator: true,
+              recipient: c.req.valid("json").recipient,
+            },
+            async (tx, exportId, ownKey) => {
+              await options.audit.record(
+                id,
+                actor,
+                { action: "organisation.export_request", details: { exportId, ownKey } },
+                request,
+                tx,
+              );
+              await recordInstanceEvent(tx, {
+                actorId: c.var.userId,
+                action: "workspace.export_requested",
+                target: name,
+                details: { organisationId: id, exportId },
+                ipAddress: request.ipAddress ?? null,
+              });
+            },
+          ).catch(refusal);
+          const [me] = await db
+            .select({ name: schema.users.name })
+            .from(schema.users)
+            .where(eq(schema.users.id, c.var.userId));
+          return c.json({ export: viewOfExport(row, me?.name ?? null), key }, 201);
+        },
+      )
+      .post(
+        "/workspaces/:id/exports/:exportId/download",
+        zValidator("param", z.object({ id: z.uuid(), exportId: z.uuid() })),
+        async (c) => {
+          const { id, exportId } = c.req.valid("param");
+          const token = await exportTicket(db, id, exportId, c.var.sessionId).catch(refusal);
+          return c.json({ url: `/api/instance/workspaces/${id}/exports/download/${token}` }, 201);
+        },
+      )
+      .get(
+        "/workspaces/:id/exports/download/:token",
+        zValidator("param", z.object({ id: z.uuid(), token: z.string().min(20).max(100) })),
+        async (c) => {
+          const { id, token } = c.req.valid("param");
+          const name = await workspaceName(db, id);
+          const row = await redeemExportTicket(db, id, token, c.var.sessionId).catch(refusal);
+          await recordInstanceEvent(db, {
+            actorId: c.var.userId,
+            action: "workspace.export_downloaded",
+            target: name,
+            details: { organisationId: id, exportId: row.id },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return sendExport(
+            { db, storage: options.storage, audit: options.audit, trustProxy: options.trustProxy },
+            c,
+            row,
+            await operatorActor(db, c.var.userId),
+          );
+        },
+      )
       // Deleting is for a suspended workspace, and waits out a grace period: until then,
       // reinstating it, or cancelling, keeps everything.
       .post("/workspaces/:id/delete", idParam, async (c) => {
@@ -942,7 +1051,16 @@ export function instanceRoutes(options: InstanceOptions) {
         await db.transaction(async (tx) => {
           const [row] = await tx
             .update(schema.organisations)
-            .set({ deleteAfter: null, updatedAt: new Date() })
+            // Its owners' request goes too (#186). Suspended by an operator, it stays so until it
+            // is reinstated; suspended only for its owners' deletion, it opens again.
+            .set({
+              deleteAfter: null,
+              deletionRequestedBy: null,
+              deletionRequestedAt: null,
+              suspendedAt: sql`case when ${schema.organisations.suspendedReason} = ${OWNER_DELETION_REASON} then null else ${schema.organisations.suspendedAt} end`,
+              suspendedReason: sql`case when ${schema.organisations.suspendedReason} = ${OWNER_DELETION_REASON} then null else ${schema.organisations.suspendedReason} end`,
+              updatedAt: new Date(),
+            })
             .where(
               and(eq(schema.organisations.id, id), isNotNull(schema.organisations.deleteAfter)),
             )
@@ -1100,6 +1218,9 @@ export function instanceRoutes(options: InstanceOptions) {
               suspendedAt: null,
               suspendedReason: null,
               deleteAfter: null,
+              // Its owners' deletion too (#186), had they asked for one.
+              deletionRequestedBy: null,
+              deletionRequestedAt: null,
               updatedAt: new Date(),
             })
             .where(

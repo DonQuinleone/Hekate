@@ -98,7 +98,7 @@ describe("contracting statements (#421)", () => {
     ).toEqual([]);
   });
 
-  it("leaves the release before able to run against file chains, spectrogram variants, events, workspace mail, suppressions, trace ids, usage, plans, billing, upload requests to a track and API tokens", () => {
+  it("leaves the release before able to run against file chains, spectrogram variants, events, workspace mail, suppressions, trace ids, usage, plans, billing, upload requests to a track, API tokens and workspace export", () => {
     for (const name of [
       "0116_file_chains",
       "0117_spectrogram_variants",
@@ -114,6 +114,7 @@ describe("contracting statements (#421)", () => {
       "0127_cancels_and_pdfs",
       "0128_upload_versions",
       "0129_api_tokens",
+      "0130_workspace_export",
     ]) {
       const text = readFileSync(join(migrationsFolder, `${name}.sql`), "utf8");
       expect(contractingStatements(text)).toEqual([]);

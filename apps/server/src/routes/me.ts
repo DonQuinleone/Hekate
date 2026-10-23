@@ -3,6 +3,7 @@ import {
   deleteAccountInput,
   fileColumnsInput,
   isDunningReason,
+  OWNER_DELETION_REASON,
   preferencesInput,
   preferencesOf,
   profileInput,
@@ -78,6 +79,7 @@ export const meRoutes = (
           settings: schema.organisations.settings,
           suspendedAt: schema.organisations.suspendedAt,
           suspendedReason: schema.organisations.suspendedReason,
+          deleteAfter: schema.organisations.deleteAfter,
         })
         .from(schema.members)
         .innerJoin(schema.organisations, eq(schema.members.organisationId, schema.organisations.id))
@@ -110,16 +112,26 @@ export const meRoutes = (
         },
         // Each workspace's language, for members who have not chosen their own, and whether an
         // operator has suspended it, and why (#174).
-        organisations: organisations.map(({ settings, suspendedAt, suspendedReason, ...o }) => ({
-          ...o,
-          locale: workspaceSettingsOf(settings).locale,
-          // Suspended for a payment overdue (#178), its owners can pay to open it again.
-          suspended: suspendedAt
-            ? { reason: suspendedReason, payable: isDunningReason(suspendedReason) }
-            : null,
-          // Where it answers, with subdomains on (#176): switching to it is going there.
-          url: deps.subdomains ? workspaceAddress(deps.subdomains, o.address) : null,
-        })),
+        organisations: organisations.map(
+          ({ settings, suspendedAt, suspendedReason, deleteAfter, ...o }) => ({
+            ...o,
+            locale: workspaceSettingsOf(settings).locale,
+            // Suspended for a payment overdue (#178), its owners can pay to open it again; being
+            // deleted by its owners (#186), they can keep it until the day it goes.
+            suspended: suspendedAt
+              ? {
+                  reason: suspendedReason,
+                  payable: isDunningReason(suspendedReason),
+                  deleteAfter:
+                    suspendedReason === OWNER_DELETION_REASON
+                      ? (deleteAfter?.toISOString() ?? null)
+                      : null,
+                }
+              : null,
+            // Where it answers, with subdomains on (#176): switching to it is going there.
+            url: deps.subdomains ? workspaceAddress(deps.subdomains, o.address) : null,
+          }),
+        ),
         activeOrganisationId: c.var.organisationId,
         // The root's address, which keeps the instance's pages, with subdomains on (#176).
         root: deps.subdomains ? rootAddress(deps.subdomains) : null,

@@ -112,6 +112,19 @@ export const auditActions = [
   "organisation.channel_remove",
   /** An admin set, changed or removed the workspace's own mail (#161). */
   "organisation.mail",
+  /**
+   * An owner, or an operator, asked for an export of everything the workspace holds (#186), and
+   * someone downloaded a finished one.
+   */
+  "organisation.export_request",
+  "organisation.export_download",
+  /**
+   * An owner asked to delete the workspace (#186); a second owner confirmed it, so it is
+   * suspended and purged after its grace period; the request was withdrawn, or it was kept.
+   */
+  "organisation.deletion_request",
+  "organisation.deletion_confirm",
+  "organisation.deletion_cancel",
   /** A project was archived (its open reviews closing), or brought back. */
   "project.archive",
   "project.unarchive",

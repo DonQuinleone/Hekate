@@ -109,6 +109,7 @@ import {
 import { uploadRoutes } from "./routes/uploads.ts";
 import { trackWorkflowRunRoutes, workflowRunRoutes } from "./routes/workflow-runs.ts";
 import { projectWorkflowRoutes, workflowRoutes } from "./routes/workflows.ts";
+import { workspaceDeletionRoutes, workspaceExportRoutes } from "./routes/workspace-lifecycle.ts";
 import { workspaceMailRoutes } from "./routes/workspace-mail.ts";
 import { securityHeaders } from "./security-headers.ts";
 import type { SetupGate } from "./setup-code.ts";
@@ -208,9 +209,11 @@ export function createApi(deps: AppDeps) {
   // A workspace billing suspended for a payment overdue (#179): its owners may still read
   // what is owed and change the card, and nothing else.
   const payable = new Set(["/api/organisation/billing", "/api/organisation/billing/portal"]);
+  // A workspace its owners are deleting (#186): its owners may still keep it, or export it.
+  const deletable = ["/api/organisation/deletion", "/api/organisation/exports"];
   const member = [
     requireSession(deps.auth),
-    requireOrganisation(deps.db, rule, new Set(), payable),
+    requireOrganisation(deps.db, rule, new Set(), payable, deletable),
   ] as const;
   const checks = createHealthChecks(deps.db, {
     backends: deps.storage.backends,
@@ -241,6 +244,17 @@ export function createApi(deps: AppDeps) {
   };
   const taskMail = { db: deps.db, mailer: deps.mailer, ...links };
   const tokenDeps = { db: deps.db, audit: deps.audit, trustProxy: deps.trustProxy ?? false };
+  // Exporting and deleting the workspace (#186).
+  const lifecycle = {
+    db: deps.db,
+    storage: deps.storage,
+    audit: deps.audit,
+    jobs: deps.jobs,
+    mailer: deps.mailer,
+    publicUrl: deps.publicUrl,
+    trustProxy: deps.trustProxy ?? false,
+    billing,
+  };
   const uploadRequestDeps: UploadRequestDeps = {
     db: deps.db,
     storage: deps.storage,
@@ -300,6 +314,7 @@ export function createApi(deps: AppDeps) {
           keyring: deps.keyring,
           jobs: deps.jobs,
           backends: deps.storage.backends,
+          storage: deps.storage,
           audit: deps.audit,
           settings,
           system: { build: deps.build ?? "dev", checkOn: deps.updateCheck ?? false },
@@ -464,6 +479,8 @@ export function createApi(deps: AppDeps) {
           removing: (deps.storageReconcile ?? "remove") === "remove",
         }),
       )
+      .route("/organisation/exports", workspaceExportRoutes(lifecycle))
+      .route("/organisation/deletion", workspaceDeletionRoutes(lifecycle))
       .route(
         "/organisation",
         organisationRoutes(

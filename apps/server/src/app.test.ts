@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { buffer } from "node:stream/consumers";
-import { createDb, runMigrations, schema, uuidv7, withAuditPurge } from "@hekate/db";
+import { createDb, runMigrations, schema, tenantTables, uuidv7, withAuditPurge } from "@hekate/db";
 import {
   type AuditLogRow,
   type AuthLogRow,
@@ -28,7 +28,20 @@ import {
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
-import { and, asc, count, desc, eq, inArray, isNotNull, like, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  getTableName,
+  inArray,
+  isNotNull,
+  like,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApp, MAX_BODY_BYTES } from "./app.ts";
@@ -41,6 +54,9 @@ import { createClient } from "./client.ts";
 import { loadConfig } from "./config.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { errorHandler, requestId } from "./errors.ts";
+import { ageDecrypt, generateIdentity, recipientOf } from "./export/age.ts";
+import { readTar } from "./export/tar.ts";
+import { buildExport, expireExports, startExport } from "./export/workspace-export.ts";
 import { createFlags } from "./flags.ts";
 import { issueGuestLink } from "./guests.ts";
 import { createHealthChecks } from "./health-checks.ts";
@@ -4337,6 +4353,403 @@ describe.runIf(url)("api", () => {
           // The other workspace is untouched.
           expect((await getAs("/api/projects", operator)).status).toBe(200);
         });
+      });
+
+      describe("a workspace's export and deletion (#186)", () => {
+        const idOf = async (cookie: string) =>
+          ((await (await get("/api/me", cookie)).json()) as { user: { id: string } }).user.id;
+        const workspaceOf = async (cookie: string) =>
+          ((await (await get("/api/me", cookie)).json()) as { activeOrganisationId: string })
+            .activeOrganisationId;
+        /** A project with a file in a folder, a track using it, a comment with an attachment. */
+        const seed = async (organisationId: string, userId: string, project: string) => {
+          const [p] = await db
+            .insert(schema.projects)
+            .values({ organisationId, name: project, profile: "music" })
+            .returning();
+          const projectId = p?.id ?? "";
+          const [folder] = await db
+            .insert(schema.folders)
+            .values({ organisationId, projectId, name: "Mixes" })
+            .returning();
+          const blob = await storage.put(organisationId, Buffer.from(`${project}: the cut`));
+          const [file] = await db
+            .insert(schema.files)
+            .values({
+              organisationId,
+              projectId,
+              folderId: folder?.id ?? null,
+              name: "Cut 3.wav",
+              kind: "audio",
+              blobId: blob.id,
+              contentType: "audio/wav",
+              byteSize: blob.byteSize,
+            })
+            .returning();
+          const [track] = await db
+            .insert(schema.tracks)
+            .values({ organisationId, projectId, name: "Maple Leaf Rag" })
+            .returning();
+          const [version] = await db
+            .insert(schema.versions)
+            .values({ organisationId, trackId: track?.id ?? "", number: 1 })
+            .returning();
+          await db.insert(schema.variations).values({
+            organisationId,
+            versionId: version?.id ?? "",
+            fileId: file?.id ?? "",
+            name: "Mix",
+            isPrimary: true,
+          });
+          const [comment] = await db
+            .insert(schema.comments)
+            .values({ organisationId, fileId: file?.id ?? "", authorId: userId, body: "Lovely" })
+            .returning();
+          const note = await storage.put(organisationId, Buffer.from("notes"));
+          await db.insert(schema.commentAttachments).values({
+            organisationId,
+            commentId: comment?.id ?? "",
+            blobId: note.id,
+            name: "Notes.txt",
+            contentType: "text/plain",
+            byteSize: note.byteSize,
+          });
+          await audit.record(organisationId, systemActor, { action: "file.upload" });
+          return { projectId, fileId: file?.id ?? "" };
+        };
+        /** Rows each tenant table holds for a workspace, by table. */
+        const rowsOf = async (organisationId: string) => {
+          const counts: Record<string, number> = {};
+          for (const table of tenantTables) {
+            const [row] = await db.execute<{ n: number }>(
+              sql`select count(*)::int as n from ${table} where organisation_id = ${organisationId}`,
+            );
+            counts[getTableName(table)] = row?.n ?? 0;
+          }
+          return counts;
+        };
+        const objectsOf = async (organisationId: string) => {
+          const keys: string[] = [];
+          for (const name of backends.names())
+            for await (const o of backends.get(name).list(`org/${organisationId}/`))
+              keys.push(o.key);
+          return keys;
+        };
+        const exportJob = (exportId: string) =>
+          sent.find(
+            (j) =>
+              j.name === "workspace-export" &&
+              (j.data as { exportId: string }).exportId === exportId,
+          );
+
+        it("exports everything a workspace holds, to its owners only, through a one-time link", async () => {
+          const owner = cookieOf(await setup());
+          const ownerId = await idOf(owner);
+          const id = await workspaceOf(owner);
+          const admin = await join(owner, "ines@example.test", "admin");
+          const member = await join(owner, "tomas@example.test", "member");
+          await seed(id, ownerId, "Joplin Rags");
+          // Another workspace, whose content must not reach this one's archive.
+          const [other] = await db
+            .insert(schema.organisations)
+            .values({ name: "Lantern Pictures", slug: "lantern-export" })
+            .returning({ id: schema.organisations.id });
+          const otherId = other?.id ?? "";
+          await seed(otherId, ownerId, "Opening titles");
+
+          for (const someone of [admin, member]) {
+            expect((await get("/api/organisation/exports", someone)).status).toBe(403);
+            expect((await send("POST", "/api/organisation/exports", {}, someone)).status).toBe(403);
+          }
+          expect(
+            (await send("POST", "/api/organisation/exports", { recipient: "age1nope" }, owner))
+              .status,
+          ).toBe(400);
+          const started = await send("POST", "/api/organisation/exports", {}, owner);
+          expect(started.status).toBe(201);
+          const { export: made, key } = (await started.json()) as {
+            export: { id: string; status: string; recipient: string };
+            key: string;
+          };
+          expect(made).toMatchObject({ status: "queued" });
+          expect(key).toMatch(/^AGE-SECRET-KEY-1/);
+          expect(recipientOf(key)).toBe(made.recipient);
+          expect(exportJob(made.id)?.data).toEqual({ organisationId: id, exportId: made.id });
+          // The key is kept nowhere.
+          const [row] = await db
+            .select()
+            .from(schema.workspaceExports)
+            .where(eq(schema.workspaceExports.id, made.id));
+          expect(JSON.stringify(row)).not.toContain(key);
+          // One at a time.
+          expect((await send("POST", "/api/organisation/exports", {}, owner)).status).toBe(409);
+          // Not ready yet: no link.
+          expect(
+            (await send("POST", `/api/organisation/exports/${made.id}/download`, {}, owner)).status,
+          ).toBe(404);
+
+          // Made in parts small enough that the archive takes several.
+          await buildExport({ db, storage, partBytes: 1500 }, id, made.id);
+          const listed = (await (await get("/api/organisation/exports", owner)).json()) as {
+            exports: { id: string; status: string; fileCount: number; byteSize: number }[];
+          };
+          expect(listed.exports[0]).toMatchObject({ id: made.id, status: "ready", fileCount: 2 });
+          const [ready] = await db
+            .select()
+            .from(schema.workspaceExports)
+            .where(eq(schema.workspaceExports.id, made.id));
+          expect(ready?.blobIds.length).toBeGreaterThan(1);
+          // Its parts are the export's: reconciliation leaves them alone.
+          await reconcileStorage({ db, storage, audit }, { remove: true });
+
+          // Another workspace's export cannot be reached from here.
+          const otherExport = await startExport(
+            { db, jobs },
+            { organisationId: otherId, requestedBy: ownerId, byOperator: true },
+            async () => undefined,
+          );
+          expect(
+            (
+              await send(
+                "POST",
+                `/api/organisation/exports/${otherExport.row.id}/download`,
+                {},
+                owner,
+              )
+            ).status,
+          ).toBe(404);
+
+          const link = await send(
+            "POST",
+            `/api/organisation/exports/${made.id}/download`,
+            {},
+            owner,
+          );
+          expect(link.status).toBe(201);
+          const { url } = (await link.json()) as { url: string };
+          // Only in the session that asked: another owner's is refused, and the link survives.
+          const second = await join(owner, "mira@example.test", "owner");
+          expect((await get(url, second)).status).toBe(410);
+          const res = await get(url, owner);
+          expect(res.status).toBe(200);
+          expect(res.headers.get("cache-control")).toContain("no-store");
+          expect(res.headers.get("content-disposition")).toMatch(
+            /attachment; filename=".*\.tar\.age"/,
+          );
+          const file = Buffer.from(await res.arrayBuffer());
+          expect(file.length).toBe(ready?.byteSize);
+          // Once only.
+          expect((await get(url, owner)).status).toBe(410);
+
+          const entries = readTar(ageDecrypt(key, file));
+          const slug = (
+            await db
+              .select({ slug: schema.organisations.slug })
+              .from(schema.organisations)
+              .where(eq(schema.organisations.id, id))
+          )[0]?.slug;
+          const at = (path: string) => entries.get(`${slug}-export/${path}`);
+          expect(at("files/Joplin Rags/Mixes/Cut 3.wav")?.toString()).toBe("Joplin Rags: the cut");
+          const manifest = JSON.parse(at("manifest.json")?.toString() ?? "{}") as {
+            files: { path: string; of: string }[];
+            workspace: { id: string };
+          };
+          expect(manifest.workspace.id).toBe(id);
+          expect(manifest.files.map((f) => f.of).sort()).toEqual(["attachment", "file"]);
+          const attachment = manifest.files.find((f) => f.of === "attachment");
+          expect(at(attachment?.path ?? "")?.toString()).toBe("notes");
+          const projects = JSON.parse(at("records/projects.json")?.toString() ?? "[]") as {
+            name: string;
+          }[];
+          expect(projects.map((p) => p.name)).toEqual(["Joplin Rags"]);
+          const blobs = JSON.parse(at("records/blobs.json")?.toString() ?? "[]") as object[];
+          expect(blobs.length).toBeGreaterThan(0);
+          for (const b of blobs) expect(b).not.toHaveProperty("wrapped_key");
+          expect(at("records/organisation_keys.json")).toBeUndefined();
+          const people = JSON.parse(at("records/people.json")?.toString() ?? "[]") as {
+            email: string;
+          }[];
+          expect(people.map((p) => p.email)).toContain("ines@example.test");
+          // Nothing of the other workspace anywhere in it.
+          for (const [path, body] of entries) {
+            expect(path).not.toContain("Opening titles");
+            expect(body.toString("latin1")).not.toContain(otherId);
+          }
+
+          // The request and the download are in the access log, before anything left.
+          const logged = await db
+            .select({ action: schema.accessEvents.action })
+            .from(schema.accessEvents)
+            .where(eq(schema.accessEvents.organisationId, id));
+          expect(logged.map((l) => l.action)).toEqual(
+            expect.arrayContaining(["organisation.export_request", "organisation.export_download"]),
+          );
+
+          // To a key of the owner's own, nothing is shown.
+          const own = generateIdentity();
+          const theirs = await send(
+            "POST",
+            "/api/organisation/exports",
+            { recipient: own.recipient },
+            owner,
+          );
+          expect(theirs.status).toBe(201);
+          expect(await theirs.json()).toMatchObject({
+            key: null,
+            export: { recipient: own.recipient },
+          });
+
+          // A week on, the archive goes and its link with it.
+          const before = await objectsOf(id);
+          expect(await expireExports(db, storage, new Date(Date.now() + 8 * 86_400_000))).toBe(1);
+          const after = await objectsOf(id);
+          expect(after.length).toBe(before.length - (ready?.blobIds.length ?? 0));
+          expect(
+            (await send("POST", `/api/organisation/exports/${made.id}/download`, {}, owner)).status,
+          ).toBe(404);
+        }, 30_000);
+
+        it("lets operators export a workspace from the instance, and no one else", async () => {
+          const operator = cookieOf(await setup());
+          const id = await workspaceOf(operator);
+          const owner = await join(operator, "mira@example.test", "owner");
+          const path = `/api/instance/workspaces/${id}/exports`;
+          // An owner who is not an operator uses the workspace's own settings instead.
+          expect((await send("POST", path, {}, owner)).status).toBe(403);
+          const started = await send("POST", path, {}, operator);
+          expect(started.status).toBe(201);
+          const { export: made, key } = (await started.json()) as {
+            export: { id: string; byOperator: boolean };
+            key: string;
+          };
+          expect(made.byOperator).toBe(true);
+          await buildExport({ db, storage }, id, made.id);
+          const link = await send("POST", `${path}/${made.id}/download`, {}, operator);
+          const { url } = (await link.json()) as { url: string };
+          expect((await get(url, owner)).status).toBe(403);
+          const res = await get(url, operator);
+          expect(res.status).toBe(200);
+          expect(readTar(ageDecrypt(key, Buffer.from(await res.arrayBuffer())))).toBeDefined();
+          const [logged] = await db
+            .select()
+            .from(schema.accessEvents)
+            .where(
+              and(
+                eq(schema.accessEvents.organisationId, id),
+                eq(schema.accessEvents.action, "organisation.export_download"),
+              ),
+            );
+          expect(logged).toMatchObject({ actorType: "system" });
+          expect(logged?.actorLabel).toContain("(operator)");
+          const events = await db
+            .select({ action: schema.instanceEvents.action })
+            .from(schema.instanceEvents);
+          expect(events.map((e) => e.action)).toEqual(
+            expect.arrayContaining(["workspace.export_requested", "workspace.export_downloaded"]),
+          );
+        }, 30_000);
+
+        it("deletes a workspace when two owners agree, keeps it on request, then purges it all", async () => {
+          const owner = cookieOf(await setup());
+          const ownerId = await idOf(owner);
+          const id = await workspaceOf(owner);
+          const second = await join(owner, "mira@example.test", "owner");
+          const admin = await join(owner, "ines@example.test", "admin");
+          const member = await join(owner, "tomas@example.test", "member");
+          await seed(id, ownerId, "Joplin Rags");
+          const [other] = await db
+            .insert(schema.organisations)
+            .values({ name: "Lantern Pictures", slug: "lantern-purge" })
+            .returning({ id: schema.organisations.id });
+          const otherId = other?.id ?? "";
+          await seed(otherId, ownerId, "Opening titles");
+          const theirs = { rows: await rowsOf(otherId), objects: await objectsOf(otherId) };
+          const name = "Studio";
+
+          expect((await send("POST", "/api/organisation/deletion", {}, admin)).status).toBe(403);
+          expect((await send("POST", "/api/organisation/deletion", {}, member)).status).toBe(403);
+          const asked = await send("POST", "/api/organisation/deletion", {}, owner);
+          expect(asked.status).toBe(200);
+          expect(await asked.json()).toMatchObject({
+            deletion: { requestedBy: "Producer", mayConfirm: false, deleteAfter: null },
+          });
+          expect((await send("POST", "/api/organisation/deletion", {}, second)).status).toBe(409);
+          // The one who asked does not confirm while there is another owner to.
+          const confirm = (cookie: string, typed = name) =>
+            send("POST", "/api/organisation/deletion/confirm", { name: typed }, cookie);
+          expect((await confirm(owner)).status).toBe(403);
+          expect((await confirm(admin)).status).toBe(403);
+          expect((await confirm(second, "Something else")).status).toBe(400);
+          const confirmed = await confirm(second);
+          expect(confirmed.status).toBe(200);
+          const { deleteAfter } = (await confirmed.json()) as { deleteAfter: string };
+          expect(Math.round((new Date(deleteAfter).getTime() - Date.now()) / 86_400_000)).toBe(30);
+
+          // Closed to everyone, but its owners may still keep it or export it.
+          for (const someone of [member, admin, owner]) {
+            const refused = await get("/api/projects", someone);
+            expect(refused.status).toBe(403);
+            expect(await refused.json()).toMatchObject({ error: { code: "workspace_suspended" } });
+          }
+          expect((await get("/api/organisation/deletion", admin)).status).toBe(403);
+          expect((await get("/api/organisation/deletion", owner)).status).toBe(200);
+          expect((await send("POST", "/api/organisation/exports", {}, second)).status).toBe(201);
+          const me = (await (await get("/api/me", member)).json()) as {
+            organisations: { suspended: { deleteAfter: string | null } | null }[];
+          };
+          expect(me.organisations[0]?.suspended?.deleteAfter).toBe(deleteAfter);
+          // Not before its time.
+          expect(await purgeDueWorkspaces(db, backends, new Date(), keyring)).toBe(0);
+
+          // Kept: open again at once.
+          expect((await send("DELETE", "/api/organisation/deletion", {}, second)).status).toBe(204);
+          expect((await get("/api/projects", member)).status).toBe(200);
+          expect(await (await get("/api/organisation/deletion", owner)).json()).toMatchObject({
+            deletion: null,
+          });
+
+          // Asked and confirmed again, it goes once its grace period is over, with everything.
+          expect((await send("POST", "/api/organisation/deletion", {}, second)).status).toBe(200);
+          expect((await confirm(owner)).status).toBe(200);
+          await keyring.current(id);
+          const later = new Date(Date.now() + 31 * 86_400_000);
+          expect(await purgeDueWorkspaces(db, backends, later, keyring)).toBe(1);
+          const left = await rowsOf(id);
+          expect(Object.entries(left).filter(([, n]) => n > 0)).toEqual([]);
+          expect(await objectsOf(id)).toEqual([]);
+          // Its keys are gone from memory as from the database.
+          await expect(keyring.version(id, 1)).rejects.toThrow();
+          // Nothing of the other workspace's went with it.
+          expect(await rowsOf(otherId)).toEqual(theirs.rows);
+          expect((await objectsOf(otherId)).sort()).toEqual(theirs.objects.sort());
+          const events = await db
+            .select({ action: schema.instanceEvents.action })
+            .from(schema.instanceEvents);
+          expect(events.map((e) => e.action)).toEqual(
+            expect.arrayContaining(["workspace.deletion_scheduled", "workspace.purged"]),
+          );
+        }, 30_000);
+
+        it("lets a sole owner confirm their own request, a day after asking", async () => {
+          const owner = cookieOf(await setup());
+          const id = await workspaceOf(owner);
+          const asked = await send("POST", "/api/organisation/deletion", {}, owner);
+          expect(asked.status).toBe(200);
+          expect(await asked.json()).toMatchObject({ deletion: { mayConfirm: false } });
+          const confirm = () =>
+            send("POST", "/api/organisation/deletion/confirm", { name: "studio" }, owner);
+          expect((await confirm()).status).toBe(403);
+          await db
+            .update(schema.organisations)
+            .set({ deletionRequestedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) })
+            .where(eq(schema.organisations.id, id));
+          expect((await confirm()).status).toBe(200);
+          // An operator who keeps it opens it again, as its owners' deletion is all that shut it.
+          expect(
+            (await send("POST", `/api/instance/workspaces/${id}/delete/cancel`, {}, owner)).status,
+          ).toBe(204);
+          expect((await get("/api/projects", owner)).status).toBe(200);
+        }, 30_000);
       });
     });
 

@@ -11,6 +11,7 @@ import { stripeGateway } from "./billing/stripe-gateway.ts";
 import { createSend } from "./channels.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { deliver, dispatchEvents, onEventWritten } from "./events.ts";
+import { buildExport, expireExports, exportFailed } from "./export/workspace-export.ts";
 import { createFlags } from "./flags.ts";
 import { subdomainsOf } from "./hosts.ts";
 import { createInstanceSettings } from "./instance-settings.ts";
@@ -289,9 +290,22 @@ export async function boot(
       const steps = await runDunning(billing);
       if (steps > 0) console.log(`Dunning took ${steps} step(s)`);
     });
+    await taking.work("workspace-export", async ({ organisationId, exportId }, job) => {
+      try {
+        await buildExport({ db, storage }, organisationId, exportId, job.signal);
+      } catch (error) {
+        // The last attempt: its list says it failed, and the error report says why (#159).
+        if (job.retryCount >= (jobDefinitions["workspace-export"].options.retryLimit ?? 0))
+          await exportFailed(db, organisationId, exportId);
+        throw error;
+      }
+    });
     await taking.work("workspaces-purge", async () => {
-      const purged = await purgeDueWorkspaces(db, backends);
+      const purged = await purgeDueWorkspaces(db, backends, new Date(), keyring);
       if (purged > 0) console.log(`Purged ${purged} deleted workspace(s)`);
+      // Exports a week old (#186), and any whose job was lost.
+      const expired = await expireExports(db, storage);
+      if (expired > 0) console.log(`Removed ${expired} workspace export(s) past their week`);
       // Projects whose deletion was confirmed seven days ago (#240).
       const projects = await purgeDueProjects(db, storage, audit);
       if (projects > 0) console.log(`Deleted ${projects} project(s) for good`);

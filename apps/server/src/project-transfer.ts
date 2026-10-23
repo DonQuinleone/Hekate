@@ -141,6 +141,8 @@ export const transferTables = {
     "api_requests",
     "invoices",
     "workspace_usage",
+    // An export (#186) is of the workspace as it was; the project's files in it stay there.
+    "workspace_exports",
   ],
 } as const;
 

@@ -3,6 +3,7 @@ import {
   atLeast,
   factorDemand,
   isDunningReason,
+  OWNER_DELETION_REASON,
   sessionMeets,
   workspaceSettingsOf,
 } from "@hekate/shared";
@@ -179,8 +180,11 @@ export async function assertSignedInThrough(
 export async function assertOpen(
   db: Database,
   organisationId: string,
-  /** Its owners may still pay when billing (#178) suspended it for a payment overdue. */
-  paying = false,
+  /**
+   * The suspension this request passes, if any: its owners may still pay when billing (#178)
+   * suspended it for a payment overdue, and keep or export it while they are deleting it (#186).
+   */
+  passes: { paying?: boolean; deleting?: boolean } = {},
 ) {
   const [row] = await db
     .select({
@@ -189,7 +193,10 @@ export async function assertOpen(
     })
     .from(schema.organisations)
     .where(eq(schema.organisations.id, organisationId));
-  if (row?.suspendedAt && !(paying && isDunningReason(row.reason)))
+  const passed =
+    (passes.paying === true && isDunningReason(row?.reason)) ||
+    (passes.deleting === true && row?.reason === OWNER_DELETION_REASON);
+  if (row?.suspendedAt && !passed)
     throw new CodedException(
       403,
       "workspace_suspended",
@@ -211,6 +218,11 @@ export const requireOrganisation = (
   owing: ReadonlySet<string> = new Set(),
   /** Where an owner pays for a workspace suspended for a payment overdue (#179). */
   payable: ReadonlySet<string> = new Set(),
+  /**
+   * Where an owner keeps, or exports, a workspace suspended because its owners are deleting it
+   * (#186): paths starting with one of these.
+   */
+  deletable: readonly string[] = [],
 ) =>
   createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
     // A token is its workspace's alone, checked as the request came in (api-tokens.ts).
@@ -223,11 +235,13 @@ export const requireOrganisation = (
     }
     const membership = await organisationFor(db, c.var.userId, c.var.sessionId, pinnedWorkspace(c));
     if (!owing.has(c.req.path)) {
-      await assertOpen(
-        db,
-        membership.organisationId,
-        membership.role === "owner" && payable.has(c.req.path),
-      );
+      const owner = membership.role === "owner";
+      await assertOpen(db, membership.organisationId, {
+        paying: owner && payable.has(c.req.path),
+        deleting:
+          owner &&
+          deletable.some((prefix) => c.req.path === prefix || c.req.path.startsWith(`${prefix}/`)),
+      });
       await assertSignedInThrough(db, c.var.sessionId, membership);
       await assertSecondFactor(db, c.var.sessionId, membership, rule);
     }

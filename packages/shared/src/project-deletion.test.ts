@@ -35,3 +35,15 @@ describe("deleting a project", () => {
     ).toMatch(/No one has asked/);
   });
 });
+
+describe("deleting a workspace (#186)", () => {
+  it("takes the same two owners, in its own words", () => {
+    const none = { requestedBy: null, requestedAt: null };
+    expect(deletionProblem(none, { userId: "tomas", role: "owner" }, 2, asked, "workspace")).toBe(
+      "No one has asked to delete this workspace",
+    );
+    expect(
+      deletionProblem(request, { userId: "tomas", role: "owner" }, 2, asked, "workspace"),
+    ).toBeNull();
+  });
+});

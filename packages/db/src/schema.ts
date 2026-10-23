@@ -71,6 +71,7 @@ import {
   type WorkflowEffect,
   type WorkflowRun,
   type WorkflowStatus,
+  type WorkspaceExportStatus,
   type WorkspacePlanStatus,
 } from "@hekate/shared";
 import { type SQL, sql } from "drizzle-orm";
@@ -165,10 +166,18 @@ export const organisations = pgTable("organisations", {
   suspendedAt: timestamp("suspended_at", { withTimezone: true }),
   suspendedReason: text("suspended_reason"),
   /**
-   * When a suspended workspace is to be purged, with everything in it: set by an operator,
-   * a grace period ahead, and cleared if it is reinstated first.
+   * When a suspended workspace is to be purged, with everything in it: set by an operator, or
+   * by its owners (#186), a grace period ahead, and cleared if it is kept first.
    */
   deleteAfter: timestamp("delete_after", { withTimezone: true }),
+  /**
+   * An owner asked to delete the workspace (#186), for a second owner to confirm. Confirmed, it
+   * is suspended for its deletion and `deleteAfter` is set, as an operator's deletion sets it.
+   * A plain account id, as the access log keeps them: a foreign key added to this long-standing
+   * table would be a constraint the release before could not run against (decision 198).
+   */
+  deletionRequestedBy: text("deletion_requested_by"),
+  deletionRequestedAt: timestamp("deletion_requested_at", { withTimezone: true }),
   /**
    * Limits an operator sets (#175), seeded from the instance's defaults: bytes stored, and
    * members. Null is no limit. Uploads and new members are refused at the limit.
@@ -2230,6 +2239,48 @@ export const downloadTickets = pgTable(
     uniqueIndex("download_tickets_token_idx").on(t.tokenHash),
     // A file, or every score of a project; never both, never neither.
     check("download_tickets_target", sql`(${t.fileId} is null) <> (${t.projectId} is null)`),
+  ],
+);
+
+/**
+ * An export of everything a workspace holds (#186): its records as JSON and its files'
+ * originals, decrypted into a tar archive that is encrypted with age to `recipient`, whose
+ * secret key was shown once to whoever asked and is never kept. The archive is stored as
+ * ordinary encrypted blobs, in parts no larger than a backend takes as one object, and goes
+ * after a week. It leaves only through a one-time link for the session that asked (`ticket*`).
+ */
+export const workspaceExports = pgTable(
+  "workspace_exports",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    /** Who asked; null once their account is gone. */
+    requestedBy: text("requested_by").references(() => users.id, { onDelete: "set null" }),
+    /** Asked by one of the instance's operators rather than an owner of the workspace. */
+    byOperator: boolean("by_operator").notNull().default(false),
+    /** The age public key (`age1…`) the archive is encrypted to. Public; never a secret. */
+    recipient: text("recipient").notNull(),
+    /** Queued, building, ready, failed or expired (packages/shared, workspace-export.ts). */
+    status: text("status").$type<WorkspaceExportStatus>().notNull().default("queued"),
+    /** The archive's parts, in order: none until it is ready, and none again once it expires. */
+    blobIds: uuid("blob_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    /** The archive's size as it downloads, and how many stored files it holds. */
+    byteSize: bigint("byte_size", { mode: "number" }),
+    fileCount: integer("file_count"),
+    /** Why it failed, in words for whoever asked. */
+    error: text("error"),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /** When a ready archive is removed. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** The one-time download link waiting, as a hash, for the session that asked for it. */
+    ticketHash: text("ticket_hash"),
+    ticketSessionId: text("ticket_session_id"),
+    ticketExpiresAt: timestamp("ticket_expires_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index("workspace_exports_org_idx").on(t.organisationId, t.id),
+    uniqueIndex("workspace_exports_ticket_idx").on(t.ticketHash),
   ],
 );
 
