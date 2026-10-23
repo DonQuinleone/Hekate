@@ -18226,7 +18226,13 @@ describe.runIf(url)("api", () => {
           mailer.sent.length = 0;
           const opened = await signIn(token);
           expect(opened.status).toBe(202);
-          expect(await opened.json()).toEqual({ verify: "code", sentTo: "c•••@example.test" });
+          // With the workspace's name and branding beside it (#185), none set here.
+          expect(await opened.json()).toEqual({
+            verify: "code",
+            sentTo: "c•••@example.test",
+            organisation: "Studio",
+            branding: null,
+          });
           expect(cookieOf(opened)).not.toContain("hekate_guest=");
           expect(mailer.sent.map((m) => m.to)).toEqual(["conductor@example.test"]);
           const first = codeFor();
