@@ -1,5 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  DUNNING_REASON,
   deleteAccountInput,
   fileColumnsInput,
   preferencesInput,
@@ -41,7 +42,12 @@ export interface MeDeps {
 export const meRoutes = (
   db: Database,
   rule: SecondFactorRule,
-  deps: { maxPasskeys: number; subdomains?: Subdomains | null },
+  deps: {
+    maxPasskeys: number;
+    subdomains?: Subdomains | null;
+    /** The billing module is on (#178): the workspace's Billing settings show. */
+    billing?: boolean;
+  },
 ) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/", async (c) => {
@@ -107,13 +113,17 @@ export const meRoutes = (
         organisations: organisations.map(({ settings, suspendedAt, suspendedReason, ...o }) => ({
           ...o,
           locale: workspaceSettingsOf(settings).locale,
-          suspended: suspendedAt ? { reason: suspendedReason } : null,
+          // Suspended for a payment overdue (#178), its owners can pay to open it again.
+          suspended: suspendedAt
+            ? { reason: suspendedReason, payable: suspendedReason === DUNNING_REASON }
+            : null,
           // Where it answers, with subdomains on (#176): switching to it is going there.
           url: deps.subdomains ? workspaceAddress(deps.subdomains, o.address) : null,
         })),
         activeOrganisationId: c.var.organisationId,
         // The root's address, which keeps the instance's pages, with subdomains on (#176).
         root: deps.subdomains ? rootAddress(deps.subdomains) : null,
+        billing: deps.billing ?? false,
       });
     })
     // Name, language and time zone. The email address changes through sign-in's own flow,

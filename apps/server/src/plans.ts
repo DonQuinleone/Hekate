@@ -193,6 +193,7 @@ export async function workspacePlanOf(
     status: null,
     trialEndsAt: null,
     renewsAt: null,
+    cancelsAt: null,
     entitlements: internalPlan,
   };
   if (!billing) return internal;
@@ -207,6 +208,7 @@ export async function workspacePlanOf(
     status: row.on.status,
     trialEndsAt: row.on.trialEndsAt?.toISOString() ?? null,
     renewsAt: row.on.renewsAt?.toISOString() ?? null,
+    cancelsAt: row.on.cancelsAt?.toISOString() ?? null,
     entitlements: entitlementsOf(row.plan),
   };
 }

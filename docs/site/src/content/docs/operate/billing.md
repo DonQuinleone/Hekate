@@ -24,6 +24,19 @@ Both keys may be read from files (`STRIPE_SECRET_KEY_FILE`, `STRIPE_WEBHOOK_SECR
 - **Plans and limits.** A subscription's plan, status (trial, active, past due or cancelled) and renewal date come from Stripe, read from the subscription as it stands when each event arrives, so events in any order leave it right. The plan's limits are copied to the workspace as when an operator assigns one.
 - **Invoices.** Each invoice Stripe reports is kept with its number, amounts, period and Stripe's page for it, and listed in the workspace's billing settings. An invoice's status never moves back, whatever order its events arrive in.
 
+## The workspace's Billing settings
+
+With billing on, each workspace's settings have a **Billing** section, for its admins:
+- where it stands: its plan and price, storage and members against the plan's limits, and the next invoice;
+- the plan, the card on file and the billing details (name, address, VAT number);
+- the month's usage against the limits, and every invoice, with its PDF.
+
+Its owners, who pay, change the plan (with a promo code if they have one) and open Stripe's portal to change the card or the billing details. They can also cancel at the end of the period paid for: nothing more is charged, nothing is deleted, and the plan can be kept until the day it ends.
+
+If a payment is overdue, the section says so, with the date the workspace would be suspended. Once it is suspended, its owners can still reach what is owed and the card, from the page that says it is suspended, and nothing else.
+
+With `HEKATE_BILLING=manual` the section shows the plan, the usage and the invoices made by hand; plans are arranged with the operators.
+
 ## Promo codes
 
 Operators keep promo codes on the instance side (`/api/instance/promos`). Each code gives:

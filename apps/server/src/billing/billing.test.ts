@@ -5,6 +5,7 @@ import { memoryMailer } from "../mail.ts";
 import {
   type BillingDeps,
   billingOf,
+  cancelAtPeriodEnd,
   changePlan,
   DUNNING_REASON,
   invoiceByHand,
@@ -29,6 +30,7 @@ describe.runIf(url)("billing (#178)", () => {
   /** Stripe's side: its subscriptions and checkouts as they stand, by id. */
   const subscriptions = new Map<string, Obj>();
   const invoices = new Map<string, Obj>();
+  const customers = new Map<string, Obj>();
   const sessions = new Map<string, { status: string }>();
   const missing = () => {
     throw new StripeError(404, "No such object", "resource_missing");
@@ -49,6 +51,8 @@ describe.runIf(url)("billing (#178)", () => {
         if (session[2]) held.status = "expired";
         return held as never;
       }
+      const customer = /^\/v1\/customers\/(\w+)$/.exec(path)?.[1];
+      if (customer && method === "GET") return (customers.get(customer) ?? missing()) as never;
       const held = /^\/v1\/invoices\/(\w+)$/.exec(path)?.[1];
       if (held && method === "GET") return (invoices.get(held) ?? missing()) as never;
       const subscription = /^\/v1\/subscriptions\/(\w+)$/.exec(path)?.[1];
@@ -600,6 +604,69 @@ describe.runIf(url)("billing (#178)", () => {
       status: 409,
       code: "promo_code_taken",
     });
+  });
+
+  it("shows the card, the details and the month, and when a cancelled subscription ends", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    customers.set(w.customerId, {
+      id: w.customerId,
+      name: "Endless Hall Records Ltd",
+      email: "accounts@endlesshall.example",
+      address: { line1: "Mill Lane", city: "Bristol", postal_code: "BS1 4DJ", country: "GB" },
+      tax_ids: { data: [{ value: "GB123456789" }] },
+      invoice_settings: {
+        default_payment_method: {
+          card: { brand: "visa", last4: "4242", exp_month: 8, exp_year: 2028 },
+        },
+      },
+    });
+    await send(
+      "invoice.paid",
+      invoice(w, "paid", { invoice_pdf: "https://pay.stripe.com/invoice/abc/pdf" }),
+    );
+    let billing = await billingOf(db, w.id, gateway);
+    expect(billing.customer).toEqual({
+      name: "Endless Hall Records Ltd",
+      email: "accounts@endlesshall.example",
+      address: "Mill Lane, Bristol, BS1 4DJ, GB",
+      taxIds: ["GB123456789"],
+      card: { brand: "visa", last4: "4242", expMonth: 8, expYear: 2028 },
+    });
+    expect(billing.usage).toMatchObject({ limits: { memberLimit: 25 }, members: 1 });
+    expect(billing.invoices[0]?.pdfUrl).toBe("https://pay.stripe.com/invoice/abc/pdf");
+    expect(billing.plans.find((p) => p.id === w.planId)).toMatchObject({
+      storageQuota: 1e12,
+      memberLimit: 25,
+      features: ["sso"],
+    });
+
+    // Cancelled at the end of its period: asked of Stripe, then confirmed by its webhook.
+    calls.length = 0;
+    await cancelAtPeriodEnd(deps, w.id, true);
+    expect(calls.at(-1)).toEqual([
+      "POST",
+      `/v1/subscriptions/${w.subscriptionId}`,
+      { cancel_at_period_end: true },
+    ]);
+    await send("customer.subscription.updated", {
+      ...subscribe(w, "active"),
+      cancel_at_period_end: true,
+    });
+    subscriptions.set(w.subscriptionId, {
+      ...(subscriptions.get(w.subscriptionId) ?? {}),
+      cancel_at_period_end: true,
+    });
+    await send("customer.subscription.updated", subscriptions.get(w.subscriptionId) ?? {});
+    billing = await billingOf(db, w.id, gateway);
+    expect(billing.plan.cancelsAt).toBe("2026-11-06T21:20:00.000Z");
+    // Kept after all.
+    subscribe(w, "active");
+    await send("customer.subscription.updated", subscriptions.get(w.subscriptionId) ?? {});
+    expect((await billingOf(db, w.id, gateway)).plan.cancelsAt).toBeNull();
+    expect(
+      await cancelAtPeriodEnd({ ...deps, gateway: null }, w.id, true).catch((e: unknown) => e),
+    ).toMatchObject({ code: "billing_unavailable" });
   });
 
   it("offers only plans that are priced, shown and current, and none without a gateway", async () => {

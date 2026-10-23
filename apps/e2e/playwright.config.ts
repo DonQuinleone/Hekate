@@ -92,6 +92,9 @@ export default defineConfig({
         HEKATE_SETUP_CODE: SETUP_CODE,
         // The suite cannot hold a security key, so its operator acts from a password session.
         OPERATOR_SECURITY_KEY: "false",
+        // Billing on, with plans arranged by hand (#178): its screens show, and no gateway is
+        // reached.
+        HEKATE_BILLING: "manual",
         // Never a settings file left by a development install.
         HEKATE_SETTINGS_FILE: join(state, "hekate.env"),
         NO_PROXY: "localhost,127.0.0.1",

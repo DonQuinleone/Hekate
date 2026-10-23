@@ -2507,6 +2507,8 @@ export const workspacePlans = pgTable(
     status: text("status").$type<WorkspacePlanStatus>().notNull().default("active"),
     trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
     renewsAt: timestamp("renews_at", { withTimezone: true }),
+    /** When a subscription cancelled at the end of its period ends (#179). */
+    cancelsAt: timestamp("cancels_at", { withTimezone: true }),
     ...timestamps,
   },
   (t) => [uniqueIndex("workspace_plans_organisation_idx").on(t.organisationId)],
@@ -2642,6 +2644,8 @@ export const invoices = pgTable(
     paidAt: timestamp("paid_at", { withTimezone: true }),
     /** The gateway's page for paying or reading it. */
     url: text("url"),
+    /** The gateway's PDF of it. */
+    pdfUrl: text("pdf_url"),
     ...timestamps,
   },
   (t) => [

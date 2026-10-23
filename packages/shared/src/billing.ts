@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { PlanFeature, WorkspacePlan } from "./plans.ts";
+import type { WorkspaceUsage } from "./usage.ts";
 
 /**
  * Billing through a gateway (#178): a workspace pays for its plan (#177) through Stripe, or is
@@ -32,6 +34,8 @@ export interface Invoice {
   paidAt: string | null;
   /** The gateway's page for paying or reading it; null for one by hand. */
   url: string | null;
+  /** The gateway's PDF of it; null for one by hand. */
+  pdfUrl: string | null;
 }
 
 /**
@@ -55,12 +59,53 @@ export type ManualInvoiceInput = z.input<typeof manualInvoiceInput>;
 /** An invoice by hand, settled by hand: paid, or void. */
 export const manualInvoiceOutcome = z.object({ outcome: z.enum(["paid", "void"]) });
 
+/** A plan a workspace may choose (#179): what it gives, and its price. */
+export interface PlanChoice {
+  id: string;
+  key: string;
+  name: string;
+  storageQuota: number | null;
+  memberLimit: number | null;
+  projectLimit: number | null;
+  features: PlanFeature[];
+  price: { amount: number; currency: string; interval: "month" | "year" };
+}
+
+/** The workspace's Billing settings (#179), as its admins read them. */
+export interface WorkspaceBilling {
+  /** Null where payments are arranged with the operators (HEKATE_BILLING=manual). */
+  gateway: "stripe" | null;
+  plan: WorkspacePlan;
+  plans: PlanChoice[];
+  subscribed: boolean;
+  pastDueSince: string | null;
+  invoices: Invoice[];
+  usage: WorkspaceUsage;
+  /** The card and billing details at the gateway; null before the first checkout. */
+  customer: BillingCustomer | null;
+}
+
 /** Changing the workspace's plan: through Checkout first, then on its subscription. */
 export const checkoutInput = z.object({
   planId: z.uuid(),
   /** A promo code, as typed. */
   promoCode: z.string().trim().toUpperCase().max(24).optional(),
 });
+
+/** Why a workspace dunning suspended is suspended, and how it is told apart from an operator's. */
+export const DUNNING_REASON =
+  "A payment is 21 days overdue. The workspace opens again as soon as it is paid.";
+
+/** What the gateway holds for a workspace's billing (#179): the card and the details it bills. */
+export interface BillingCustomer {
+  name: string | null;
+  email: string | null;
+  /** On one line, as an invoice shows it. */
+  address: string | null;
+  /** VAT and other tax ids, as given. */
+  taxIds: string[];
+  card: { brand: string; last4: string; expMonth: number; expYear: number } | null;
+}
 
 /** The days after a missed payment at which dunning acts, and what it does then. */
 export const dunningSteps = [

@@ -165,6 +165,49 @@ export function stripeGateway(options: {
       return facts.invoice;
     },
     factOf: (payload) => stripeFact(payload as StripeEvent),
+    async cancelAtPeriodEnd(subscriptionId, cancel) {
+      await stripe.request("POST", `/v1/subscriptions/${subscriptionId}`, {
+        cancel_at_period_end: cancel,
+      });
+    },
+    async customer(customerId) {
+      const customer = await gone(
+        stripe.request<Record<string, unknown>>("GET", `/v1/customers/${customerId}`, {
+          expand: ["invoice_settings.default_payment_method", "tax_ids"],
+        }),
+      );
+      if (!customer || customer.deleted) return null;
+      const address = obj(customer.address);
+      const card = obj(obj(obj(customer.invoice_settings).default_payment_method).card);
+      const line = [
+        address.line1,
+        address.line2,
+        address.city,
+        address.postal_code,
+        address.state,
+        address.country,
+      ]
+        .map(str)
+        .filter(Boolean)
+        .join(", ");
+      return {
+        name: str(customer.name),
+        email: str(customer.email),
+        address: line || null,
+        taxIds: ((obj(customer.tax_ids).data as unknown[] | undefined) ?? [])
+          .map((t) => str(obj(t).value))
+          .filter((v): v is string => v !== null),
+        card:
+          str(card.last4) && num(card.exp_month) !== null && num(card.exp_year) !== null
+            ? {
+                brand: str(card.brand) ?? "card",
+                last4: str(card.last4) ?? "",
+                expMonth: num(card.exp_month) ?? 0,
+                expYear: num(card.exp_year) ?? 0,
+              }
+            : null,
+      };
+    },
     async portal({ customerId, returnUrl }) {
       const session = await stripe.request<{ url: string }>("POST", "/v1/billing_portal/sessions", {
         customer: customerId,
@@ -242,6 +285,11 @@ function subscriptionFact(o: Obj, ended: boolean): SubscriptionFact | null {
     trialEndsAt: time(o.trial_end),
     // Kept on the item from 2025's API versions, on the subscription before.
     renewsAt: time(item.current_period_end) ?? time(o.current_period_end),
+    cancelsAt: ended
+      ? null
+      : o.cancel_at_period_end === true
+        ? (time(item.current_period_end) ?? time(o.current_period_end))
+        : time(o.cancel_at),
     ended,
     amount: num(price.unit_amount),
     currency: str(price.currency)?.toUpperCase() ?? null,
@@ -273,6 +321,7 @@ function invoiceFacts(o: Obj): { customerId: string; invoice: InvoiceFacts } | n
       dueAt: time(o.due_date),
       paidAt: time(obj(o.status_transitions).paid_at),
       url: str(o.hosted_invoice_url),
+      pdfUrl: str(o.invoice_pdf),
     },
   };
 }

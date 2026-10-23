@@ -117,6 +117,8 @@ export interface WorkspacePlan {
   status: WorkspacePlanStatus | null;
   trialEndsAt: string | null;
   renewsAt: string | null;
+  /** When a subscription cancelled at the end of its period ends (#179). */
+  cancelsAt: string | null;
   entitlements: Entitlements;
 }
 

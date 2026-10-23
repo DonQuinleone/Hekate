@@ -13,7 +13,13 @@ import { api } from "~/lib/api";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
 import { passwordStrength } from "~/lib/password";
-import { meQuery, signInMethodsQuery, useSwitchOrganisation } from "~/lib/queries";
+import {
+  billingQuery,
+  meQuery,
+  signInMethodsQuery,
+  useBillingPortal,
+  useSwitchOrganisation,
+} from "~/lib/queries";
 
 export function Frame({
   title,
@@ -855,6 +861,39 @@ export function SecondFactorPage() {
   );
 }
 
+/** An owner pays what is owed, or changes the card, from the suspended page (#179). */
+function PayToReopen() {
+  const { data } = useQuery(billingQuery);
+  const portal = useBillingPortal();
+  const open = data?.invoices.find((i) => i.status === "open" && i.url);
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-2">
+        {open?.url && (
+          <Button variant="primary" size="lg" asChild>
+            <a href={open.url}>Pay the invoice</a>
+          </Button>
+        )}
+        {data?.customer && (
+          <Button
+            variant="secondary"
+            size="lg"
+            disabled={portal.isPending}
+            onClick={() => portal.mutate()}
+          >
+            Change the card
+          </Button>
+        )}
+      </div>
+      {portal.isError && (
+        <p role="alert" className="m-0 text-[13px] text-signal">
+          {portal.error.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * A member whose workspace the instance's operators have suspended (#174): why, and the way
  * out, to another workspace of theirs or signed out. Nothing of the workspace is shown.
@@ -867,15 +906,22 @@ export function SuspendedPage() {
   const workspace = me?.organisations.find((o) => o.id === me.activeOrganisationId);
   const others = me?.organisations.filter((o) => !o.suspended) ?? [];
   const reason = workspace?.suspended?.reason;
+  // Suspended for a payment overdue (#178): it opens again as soon as it is paid.
+  const payable = workspace?.suspended?.payable ?? false;
   return (
     <Frame
       title={`${workspace?.name ?? "This workspace"} is suspended`}
       intro={
-        reason
-          ? `The instance’s operators suspended it: ${reason} Nothing in it is lost; it opens again once they reinstate it.`
-          : "The instance’s operators suspended it. Nothing in it is lost; it opens again once they reinstate it."
+        payable
+          ? workspace?.role === "owner"
+            ? "A payment for it is 21 days overdue. It opens again as soon as it is paid; nothing in it is lost."
+            : "A payment for it is 21 days overdue. It opens again as soon as its owners pay; nothing in it is lost."
+          : reason
+            ? `The instance’s operators suspended it: ${reason} Nothing in it is lost; it opens again once they reinstate it.`
+            : "The instance’s operators suspended it. Nothing in it is lost; it opens again once they reinstate it."
       }
     >
+      {payable && workspace?.role === "owner" && <PayToReopen />}
       {others.length > 0 && (
         <div className="flex flex-col gap-2">
           <span className="text-[13px] text-ink-2">Your other workspaces</span>
