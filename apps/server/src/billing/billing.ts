@@ -1,11 +1,13 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  DUNNING_REASON,
   dunningDue,
   dunningSteps,
   formatMoney,
   type Invoice,
   type InvoiceStatus,
-  type WorkspacePlan,
+  type PlanChoice,
+  type WorkspaceBilling,
 } from "@hekate/shared";
 import { and, asc, count, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { longDate } from "../email/templates.ts";
@@ -13,6 +15,7 @@ import { CodedException, NotFound } from "../errors.ts";
 import { recordInstanceEvent } from "../instance-events.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { assignPlan, workspacePlanOf } from "../plans.ts";
+import { workspaceUsageOf } from "../usage.ts";
 import type { Fact, Gateway, GatewayEvent, InvoiceFacts } from "./gateway.ts";
 import { assertApplies, discountOf, findPromo, releaseHeld, takeHeld, useOf } from "./promos.ts";
 
@@ -43,9 +46,7 @@ export interface BillingDeps {
   publicUrl: string;
 }
 
-/** Why a workspace dunning suspended is suspended, and how it is told apart from an operator's. */
-export const DUNNING_REASON =
-  "A payment is 21 days overdue. The workspace opens again as soon as it is paid.";
+export { DUNNING_REASON };
 
 const billingUrl = (publicUrl: string) => new URL("/settings/billing", publicUrl).toString();
 
@@ -64,6 +65,7 @@ const invoiceOf = (row: typeof invoices.$inferSelect): Invoice => ({
   dueAt: row.dueAt?.toISOString() ?? null,
   paidAt: row.paidAt?.toISOString() ?? null,
   url: row.url,
+  pdfUrl: row.pdfUrl,
 });
 
 /** A workspace's invoices, newest first. */
@@ -82,15 +84,8 @@ export async function billingOf(
   db: Reader,
   organisationId: string,
   gateway: Gateway | null,
-): Promise<{
-  gateway: Gateway["kind"] | null;
-  plan: WorkspacePlan;
-  plans: { id: string; key: string; name: string; price: PlanPrice }[];
-  subscribed: boolean;
-  pastDueSince: string | null;
-  invoices: Invoice[];
-}> {
-  const [plan, offered, [account], list] = await Promise.all([
+): Promise<WorkspaceBilling> {
+  const [plan, offered, [account], list, usage] = await Promise.all([
     workspacePlanOf(db, organisationId, true),
     db
       .select()
@@ -99,18 +94,62 @@ export async function billingOf(
       .orderBy(asc(plans.position), asc(plans.name)),
     db.select().from(billingAccounts).where(inOrg(billingAccounts, organisationId)),
     invoicesOf(db, organisationId),
+    workspaceUsageOf(db, organisationId),
   ]);
+  // The plan it is on, priced, whether or not it is still offered.
+  const [held] = plan.plan ? await db.select().from(plans).where(eq(plans.id, plan.plan.id)) : [];
+  // The gateway's copy, read as the page opens; the page still shows without it.
+  const customer =
+    gateway && account
+      ? await gateway.customer(account.customerId).catch((error: unknown) => {
+          console.error(`The gateway's details for workspace ${organisationId} failed`, error);
+          return null;
+        })
+      : null;
   return {
     gateway: gateway?.kind ?? null,
     plan,
+    current: held ? { ...lineOf(held), price: priceOf(held) } : null,
     plans: offered.flatMap((p) => {
       const price = priceOf(p);
-      return price ? [{ id: p.id, key: p.key, name: p.name, price }] : [];
+      return price ? [{ ...lineOf(p), price }] : [];
     }),
     subscribed: Boolean(account?.subscriptionId),
     pastDueSince: account?.pastDueSince?.toISOString() ?? null,
     invoices: list,
+    usage,
+    customer,
   };
+}
+
+/** A plan as the workspace chooses it: what it gives, beside its price. */
+const lineOf = (p: typeof plans.$inferSelect): Omit<PlanChoice, "price"> => ({
+  id: p.id,
+  key: p.key,
+  name: p.name,
+  storageQuota: p.storageQuota,
+  memberLimit: p.memberLimit,
+  projectLimit: p.projectLimit,
+  features: p.features,
+});
+
+/**
+ * Cancel the workspace's subscription at the end of the period it has paid for, or keep it
+ * after all (#179). The gateway's webhook confirms it, and the date it ends.
+ */
+export async function cancelAtPeriodEnd(
+  deps: BillingDeps,
+  organisationId: string,
+  cancel: boolean,
+): Promise<void> {
+  if (!deps.gateway) throw unavailable();
+  const [account] = await deps.db
+    .select()
+    .from(billingAccounts)
+    .where(inOrg(billingAccounts, organisationId));
+  if (!account?.subscriptionId)
+    throw new CodedException(409, "not_subscribed", "There is no subscription to cancel.");
+  await deps.gateway.cancelAtPeriodEnd(account.subscriptionId, cancel);
 }
 
 type PlanPrice = { amount: number; currency: string; interval: "month" | "year" };
@@ -484,6 +523,11 @@ async function act(
             updatedAt: new Date(),
           })
           .where(inOrg(workspacePlans, organisationId));
+      // Cancelled at the end of its period: when it ends, for the page to say (#179).
+      await tx
+        .update(workspacePlans)
+        .set({ cancelsAt: stands.cancelsAt })
+        .where(inOrg(workspacePlans, organisationId));
       if (stands.status === "past_due") await markPastDue(tx, organisationId, at);
       else if (stands.status === "active" || stands.status === "trial")
         await settle(tx, organisationId);

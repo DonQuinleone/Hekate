@@ -194,7 +194,13 @@ export function createApi(deps: AppDeps) {
       return (deps.requireSecondFactor ?? false) || settings.current().security.requireSecondFactor;
     },
   };
-  const member = [requireSession(deps.auth), requireOrganisation(deps.db, rule)] as const;
+  // A workspace billing suspended for a payment overdue (#179): its owners may still read
+  // what is owed and change the card, and nothing else.
+  const payable = new Set(["/api/organisation/billing", "/api/organisation/billing/portal"]);
+  const member = [
+    requireSession(deps.auth),
+    requireOrganisation(deps.db, rule, new Set(), payable),
+  ] as const;
   const checks = createHealthChecks(deps.db, {
     backends: deps.storage.backends,
     mailer: deps.mailer,
@@ -347,6 +353,7 @@ export function createApi(deps: AppDeps) {
         meRoutes(deps.db, rule, {
           maxPasskeys: deps.maxPasskeys ?? 5,
           subdomains: deps.subdomains ?? null,
+          billing: (deps.modules?.billing ?? "off") !== "off",
         }),
       )
       .route("/invitations", invitationRoutes(deps.db, deps.auth))

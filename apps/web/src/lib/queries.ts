@@ -165,6 +165,7 @@ import {
   type WorkflowStatus,
   type WorkflowSummary,
   type WorkInput,
+  type WorkspaceBilling,
   type WorkspaceLimits,
   type WorkspaceMail,
   type WorkspaceMailInput,
@@ -262,14 +263,19 @@ export interface Me {
     role: "owner" | "admin" | "member";
     /** The workspace's language, for members without their own. */
     locale?: string | null;
-    /** Suspended by the instance's operators, and why: nobody gets in until it is reinstated. */
-    suspended?: { reason: string | null } | null;
+    /**
+     * Suspended, and why: nobody gets in until it is reinstated. `payable` when billing
+     * suspended it for a payment overdue (#178): its owners may still pay.
+     */
+    suspended?: { reason: string | null; payable?: boolean } | null;
     /** Where it answers, with workspace subdomains on (#176). */
     url?: string | null;
   }[];
   activeOrganisationId: string;
   /** The root's address, which keeps the instance's pages, with workspace subdomains on. */
   root?: string | null;
+  /** The billing module is on (#178): the workspace's Billing settings show. */
+  billing?: boolean;
   /**
    * Whether they have a code app and how many passkeys, what this workspace asks of a sign-in
    * (a second factor; a hardware security key), whether this sign-in met it, and recovery codes left.
@@ -985,6 +991,54 @@ export function useSendAgain(scope: "workspace" | "instance") {
         queryKey:
           scope === "workspace" ? ["organisation", "mail"] : instanceSuppressionsQuery.queryKey,
       });
+    },
+  });
+}
+
+/** The workspace's billing (#179): its plan, the plans it may choose, the card, usage, invoices. */
+export const billingQuery = queryOptions({
+  queryKey: ["organisation", "billing"],
+  queryFn: async () => json<WorkspaceBilling>(await api.organisation.billing.$get()),
+});
+
+/**
+ * Change the plan: to the gateway's checkout the first time (the page is left for it), at once
+ * on the subscription after that. Owners only.
+ */
+export function useChangePlan() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { planId: string; promoCode?: string }) =>
+      json<{ url: string | null }>(await api.organisation.billing.checkout.$post({ json: input })),
+    onSuccess: ({ url }) => {
+      if (url) window.location.assign(url);
+      else void client.invalidateQueries({ queryKey: billingQuery.queryKey });
+    },
+  });
+}
+
+/** The gateway's page for the card and billing details; the page is left for it. Owners only. */
+export function useBillingPortal() {
+  return useMutation({
+    mutationFn: async () => json<{ url: string }>(await api.organisation.billing.portal.$post()),
+    onSuccess: ({ url }) => window.location.assign(url),
+  });
+}
+
+/** Cancel the plan at the end of its period, or keep it after all. Owners only. */
+export function useCancelPlan() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (cancel: boolean) => {
+      const res = cancel
+        ? await api.organisation.billing.cancel.$post()
+        : await api.organisation.billing.resume.$post();
+      if (!res.ok) await json(res);
+    },
+    // The gateway's webhook confirms it a moment later.
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: billingQuery.queryKey });
+      setTimeout(() => void client.invalidateQueries({ queryKey: billingQuery.queryKey }), 3000);
     },
   });
 }

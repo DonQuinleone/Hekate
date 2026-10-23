@@ -9,6 +9,7 @@ import {
   type AuditLogRow,
   type AuthLogRow,
   type ChannelRow,
+  DUNNING_REASON,
   decodeLoudness,
   decodePeaks,
   decodeSpectrogram,
@@ -1806,6 +1807,41 @@ describe.runIf(url)("api", () => {
               .where(eq(schema.instanceEvents.target, "LAUNCH50"))
           ).map((e) => e.action);
           expect(actions).toEqual(expect.arrayContaining(["promo.created", "promo.ended"]));
+        });
+
+        it("lets the owners of a workspace suspended for a payment overdue pay, and nothing else", async () => {
+          const owner = cookieOf(await setup());
+          const member = await join(owner, "member@example.test");
+          const call = (path: string, cookie: string, method = "GET") =>
+            paying.request(path, { method, headers: { cookie } });
+          await db
+            .update(schema.organisations)
+            .set({ suspendedAt: new Date(), suspendedReason: DUNNING_REASON })
+            .where(eq(schema.organisations.name, "Studio"));
+          expect((await call("/api/organisation/billing", owner)).status).toBe(200);
+          // Not a customer yet, so nothing to open; but asked, not refused for the suspension.
+          expect(
+            await (await call("/api/organisation/billing/portal", owner, "POST")).json(),
+          ).toMatchObject({
+            error: { code: "not_a_customer" },
+          });
+          const elsewhere = await call("/api/projects", owner);
+          expect(await elsewhere.json()).toMatchObject({ error: { code: "workspace_suspended" } });
+          expect(await (await call("/api/organisation/billing", member)).json()).toMatchObject({
+            error: { code: "workspace_suspended" },
+          });
+          const me = (await (await call("/api/me", owner)).json()) as {
+            billing: boolean;
+            organisations: { suspended: { payable: boolean } | null }[];
+          };
+          expect(me.billing).toBe(true);
+          expect(me.organisations[0]?.suspended).toMatchObject({ payable: true });
+          // An operator's suspension leaves nothing open, billing included.
+          await db
+            .update(schema.organisations)
+            .set({ suspendedReason: "Asked us to pause it" })
+            .where(eq(schema.organisations.name, "Studio"));
+          expect((await call("/api/organisation/billing", owner)).status).toBe(403);
         });
 
         it("takes the gateway's events only signed, and each once", async () => {

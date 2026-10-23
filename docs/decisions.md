@@ -1444,3 +1444,14 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Who used it** is kept per use (`promo_redemptions`) with its workspace and plan, read across workspaces by the operators: a global table, like the gateway's log.
 - **Ending** a code stops new uses; nothing given is taken back.
 - **Expanding only:** two new tables and a nullable column (decision 198).
+
+## 213. The workspace's Billing settings, and paying while suspended
+
+#179. With billing on, the workspace's settings gain a Billing section, as the prototype has it.
+
+- **Admins read, owners pay.** Admins see the plan, the card and billing details, the month's usage and the invoices. Owners alone change the plan, open the gateway's portal and cancel, as the server already enforced (#178).
+- **The gateway's details, read live.** The card and the billing details (name, address, VAT number) are Stripe's: they are read from it as the page opens, and changed in its customer portal, never copied into Hekate. If Stripe can't be reached, the page still shows, without them.
+- **Cancelling at the end of the period.** Cancelling sets the subscription to end when its period does. The webhook records the day it ends (`workspace_plans.cancels_at`), and until then it can be kept. There is no free plan to fall to, so the prototype's "drops to Solo" became what actually happens: nothing more is charged, and nothing is deleted.
+- **Paying while suspended.** A workspace dunning suspended (and only one dunning suspended) still lets its owners read what is owed and open the portal: two paths, still behind the session, second-factor and single sign-on checks. The suspended page tells them it was a payment, not the operators, and offers to pay. A workspace an operator suspended stays shut, billing included.
+- **Tabs scroll** sideways where they are wider than the page, which the Logs page's sixth tab made true on a phone.
+- **Expanding only:** two nullable columns (decision 198).

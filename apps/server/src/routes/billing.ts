@@ -1,7 +1,13 @@
 import { checkoutInput } from "@hekate/shared";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
-import { type BillingDeps, billingOf, changePlan, portalFor } from "../billing/billing.ts";
+import {
+  type BillingDeps,
+  billingOf,
+  cancelAtPeriodEnd,
+  changePlan,
+  portalFor,
+} from "../billing/billing.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 
 /**
@@ -25,4 +31,13 @@ export const billingRoutes = (deps: BillingDeps) =>
     )
     .post("/portal", requireRole("owner"), async (c) =>
       c.json({ url: await portalFor(deps, c.var.organisationId) }),
-    );
+    )
+    // At the end of the period it has paid for, or kept after all (#179).
+    .post("/cancel", requireRole("owner"), async (c) => {
+      await cancelAtPeriodEnd(deps, c.var.organisationId, true);
+      return c.body(null, 202);
+    })
+    .post("/resume", requireRole("owner"), async (c) => {
+      await cancelAtPeriodEnd(deps, c.var.organisationId, false);
+      return c.body(null, 202);
+    });

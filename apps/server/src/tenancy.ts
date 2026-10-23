@@ -1,5 +1,11 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { atLeast, factorDemand, sessionMeets, workspaceSettingsOf } from "@hekate/shared";
+import {
+  atLeast,
+  DUNNING_REASON,
+  factorDemand,
+  sessionMeets,
+  workspaceSettingsOf,
+} from "@hekate/shared";
 import { and, asc, eq } from "drizzle-orm";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
@@ -156,7 +162,12 @@ export async function assertSignedInThrough(
  * Refuses everyone in a workspace an operator has suspended (#174), saying why: nothing is
  * deleted, and nobody gets in until it is reinstated.
  */
-export async function assertOpen(db: Database, organisationId: string) {
+export async function assertOpen(
+  db: Database,
+  organisationId: string,
+  /** Its owners may still pay when billing (#178) suspended it for a payment overdue. */
+  paying = false,
+) {
   const [row] = await db
     .select({
       suspendedAt: schema.organisations.suspendedAt,
@@ -164,7 +175,7 @@ export async function assertOpen(db: Database, organisationId: string) {
     })
     .from(schema.organisations)
     .where(eq(schema.organisations.id, organisationId));
-  if (row?.suspendedAt)
+  if (row?.suspendedAt && !(paying && row.reason === DUNNING_REASON))
     throw new CodedException(
       403,
       "workspace_suspended",
@@ -184,11 +195,17 @@ export const requireOrganisation = (
   db: Database,
   rule: SecondFactorRule,
   owing: ReadonlySet<string> = new Set(),
+  /** Where an owner pays for a workspace suspended for a payment overdue (#179). */
+  payable: ReadonlySet<string> = new Set(),
 ) =>
   createMiddleware<{ Variables: TenantVariables }>(async (c, next) => {
     const membership = await organisationFor(db, c.var.userId, c.var.sessionId, pinnedWorkspace(c));
     if (!owing.has(c.req.path)) {
-      await assertOpen(db, membership.organisationId);
+      await assertOpen(
+        db,
+        membership.organisationId,
+        membership.role === "owner" && payable.has(c.req.path),
+      );
       await assertSignedInThrough(db, c.var.sessionId, membership);
       await assertSecondFactor(db, c.var.sessionId, membership, rule);
     }

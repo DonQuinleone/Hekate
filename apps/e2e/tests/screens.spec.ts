@@ -464,6 +464,7 @@ const screens: Screen[] = [
     ready: "main >> text=Release desk >> nth=0",
   },
   { name: "settings-log", path: () => "/settings/log", ready: "main [data-log-entry]" },
+  { name: "settings-billing", path: () => "/settings/billing", ready: "main >> text=HK-0002" },
   {
     name: "settings-operations",
     path: () => "/settings/operations",

@@ -23,6 +23,7 @@ import {
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Avatar } from "~/components/avatar";
+import { BillingSection } from "~/components/billing";
 import { deliveryHint, ProfileEditor, ProfileOptions } from "~/components/delivery-profiles";
 import { DirectorySection } from "~/components/directory";
 import { EmailTemplatesSection } from "~/components/email-templates";
@@ -147,6 +148,14 @@ const allSections: SectionSpec[] = [
     docs: "/use/integrations/",
   },
   {
+    id: "billing",
+    label: "Billing",
+    group: "Plan and help",
+    from: "admin",
+    intro: "The plan, what it includes, what it costs, and every invoice.",
+    docs: "/operate/billing/",
+  },
+  {
     id: "transfers",
     label: "Transfers",
     group: "Operations",
@@ -181,8 +190,12 @@ const allSections: SectionSpec[] = [
 
 const rank: Record<Role, number> = { owner: 3, admin: 2, member: 1 };
 
-/** The sections a role may open. Members see Members alone; the server checks every call again. */
-export const sectionsFor = (role: Role) => allSections.filter((s) => rank[role] >= rank[s.from]);
+/**
+ * The sections a role may open. Members see Members alone; the server checks every call again.
+ * Billing shows only with the billing module on (#179).
+ */
+export const sectionsFor = (role: Role, billing = false) =>
+  allSections.filter((s) => rank[role] >= rank[s.from] && (s.id !== "billing" || billing));
 
 function General({ role }: { role: Role }) {
   const { data: me } = useQuery(meQuery);
@@ -1235,7 +1248,7 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
   const { data: me } = useQuery(meQuery);
   if (!me) return null;
   const role = me.organisations.find((o) => o.id === me.activeOrganisationId)?.role ?? "member";
-  const sections = sectionsFor(role);
+  const sections = sectionsFor(role, me.billing);
   const current =
     sections.find((s) => s.id === section) ?? sections.find((s) => s.id === "members");
   if (!current) return null;
@@ -1266,6 +1279,7 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
         {current.id === "notifications" && <ChannelsSection />}
         {current.id === "storage" && <Storage role={role} />}
         {current.id === "transfers" && <TransfersSection />}
+        {current.id === "billing" && <BillingSection owner={role === "owner"} />}
         {current.id === "log" && <AccessLog />}
         {current.id === "operations" && <Operations />}
       </SettingsLayout>

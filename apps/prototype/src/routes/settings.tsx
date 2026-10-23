@@ -266,7 +266,7 @@ export function SettingsPage({
           <Danger>
             <Row
               name="Cancel the plan"
-              hint="The workspace drops to Solo at the end of the period; nothing is deleted, but uploads stop above the limits."
+              hint="It ends on 1 November, at the end of the period paid for. Nothing is deleted."
             >
               <Button variant="ghost" size="md">
                 Cancel…

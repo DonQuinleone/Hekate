@@ -1321,6 +1321,48 @@ setup("seed", async ({ page, browser }) => {
       memberLimit: 10,
     });
 
+    // Billing (#179): Endless Hall Records on Studio, with the limits it already had and every
+    // feature, its next invoice due, and two invoices made by hand, one of them paid.
+    const plans = await api<{ plans: { id: string; key: string }[] }>(
+      page,
+      "POST",
+      "/api/instance/plans",
+      {
+        key: "studio",
+        name: "Studio",
+        price: { amount: 4900, currency: "GBP", interval: "month" },
+        storageQuota: 1e12,
+        memberLimit: 25,
+        projectLimit: null,
+        features: ["sso", "directory", "forensicMarking", "namedOperator"],
+        severities: ["low", "normal", "high"],
+      },
+    );
+    const studio = plans.plans.find((p) => p.key === "studio");
+    await api(page, "PUT", `/api/instance/workspaces/${label?.id}/plan`, {
+      planId: studio?.id,
+      status: "active",
+      renewsAt: "2026-11-01T00:00:00Z",
+    });
+    for (const [description, settle] of [
+      ["Studio, October 2026", true],
+      ["Studio, November 2026", false],
+    ] as const) {
+      const made = await api<{ invoice: { id: string } }>(
+        page,
+        "POST",
+        `/api/instance/workspaces/${label?.id}/invoices`,
+        { amount: 4900, currency: "GBP", description },
+      );
+      if (settle)
+        await api(
+          page,
+          "POST",
+          `/api/instance/workspaces/${label?.id}/invoices/${made.invoice.id}/settle`,
+          { outcome: "paid" },
+        );
+    }
+
     // Where the workspace's events go (#161): a Slack channel, a Teams one and a webhook that
     // kept failing and paused, with a few deliveries for the webhook log. Their addresses are
     // never opened here: the events are dispatched already, and the webhook stays paused.

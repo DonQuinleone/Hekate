@@ -109,6 +109,7 @@ describe("Stripe's events, read here (#178)", () => {
       status: "trial",
       trialEndsAt: new Date(1_793_000_000_000),
       renewsAt: new Date(1_794_000_000_000),
+      cancelsAt: null,
       ended: false,
       amount: 4900,
       currency: "GBP",

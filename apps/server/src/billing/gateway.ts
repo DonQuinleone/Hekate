@@ -1,4 +1,4 @@
-import type { InvoiceStatus, WorkspacePlanStatus } from "@hekate/shared";
+import type { BillingCustomer, InvoiceStatus, WorkspacePlanStatus } from "@hekate/shared";
 
 /**
  * A billing gateway (#178): what takes a workspace's payments. Stripe is the first; Paddle can
@@ -41,6 +41,13 @@ export interface Gateway {
     plan: PricedPlan;
     discount: Discount | null;
   }): Promise<void>;
+  /**
+   * End a subscription at the end of the period it has paid for, or, `false`, keep it after
+   * all (#179). Nothing is refunded and nothing ends sooner.
+   */
+  cancelAtPeriodEnd(subscriptionId: string, cancel: boolean): Promise<void>;
+  /** The card and the details it bills, as the gateway holds them; null once it has none. */
+  customer(customerId: string): Promise<BillingCustomer | null>;
   /** Where an owner changes the card and billing details, and reads past invoices. */
   portal(input: { customerId: string; returnUrl: string }): Promise<string>;
   /** A webhook, verified; throws when its signature does not hold. */
@@ -90,6 +97,7 @@ export interface InvoiceFacts {
   dueAt: Date | null;
   paidAt: Date | null;
   url: string | null;
+  pdfUrl: string | null;
 }
 
 /** A subscription as it stands. A null status changes nothing about the plan. */
@@ -101,6 +109,8 @@ export interface SubscriptionFact {
   status: WorkspacePlanStatus | null;
   trialEndsAt: Date | null;
   renewsAt: Date | null;
+  /** When it ends, cancelled at the end of its period; null while it renews. */
+  cancelsAt: Date | null;
   ended: boolean;
   amount: number | null;
   currency: string | null;
