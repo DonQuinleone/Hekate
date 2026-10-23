@@ -763,11 +763,19 @@ const instanceHome = createRoute({
   path: "/instance",
   component: () => <InstancePage section="overview" />,
 });
+/** A ticket open on the desk (#182), or a workspace and its tab opened from one. */
+const instanceSearch = z.object({
+  ticket: z.uuid().optional().catch(undefined),
+  workspace: z.uuid().optional().catch(undefined),
+  tab: z.enum(["members"]).optional().catch(undefined),
+});
 const instanceSection = createRoute({
   getParentRoute: () => app,
   path: "/instance/$section",
+  validateSearch: (search: Record<string, unknown>) => instanceSearch.parse(search),
   component: function InstanceRoute() {
     const { section } = instanceSection.useParams();
+    const search = instanceSection.useSearch();
     return (
       <InstancePage
         section={
@@ -775,6 +783,7 @@ const instanceSection = createRoute({
             ? (section as InstanceSection)
             : "overview"
         }
+        search={search}
       />
     );
   },
@@ -851,12 +860,31 @@ const settingsHome = createRoute({
     throw redirect({ to: "/settings/$section", params: { section: "general" } });
   },
 });
+/**
+ * Support (#181): a ticket open, a new one being written, and the file or review the help menu
+ * was opened on, as `file:<id>`.
+ */
+const settingsSearch = z.object({
+  ticket: z.uuid().optional().catch(undefined),
+  // The router reads `?new=1` as a number; a link written by hand may say either.
+  new: z
+    .unknown()
+    .transform((v) => (v === 1 || v === "1" ? ("1" as const) : undefined))
+    .optional(),
+  from: z
+    .string()
+    .regex(/^(file|review):[0-9a-f-]{36}$/)
+    .optional()
+    .catch(undefined),
+});
 const settings = createRoute({
   getParentRoute: () => app,
   path: "/settings/$section",
+  validateSearch: (search: Record<string, unknown>) => settingsSearch.parse(search),
   component: function SettingsRoute() {
     const { section } = settings.useParams();
-    return <WorkspaceSettingsPage section={section} />;
+    const search = settings.useSearch();
+    return <WorkspaceSettingsPage section={section} search={search} />;
   },
 });
 

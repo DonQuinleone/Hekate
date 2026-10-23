@@ -141,6 +141,7 @@ import {
   type StagePlanInput,
   type StandingGrant,
   type StartTake,
+  type SupportModule,
   type SystemHealth,
   type SystemInformation,
   searchResponse,
@@ -288,6 +289,8 @@ export interface Me {
   root?: string | null;
   /** The billing module is on (#178): the workspace's Billing settings show. */
   billing?: boolean;
+  /** How the instance answers support (#181): the help menu and the Support page follow it. */
+  support?: SupportModule;
   /**
    * Whether they have a code app and how many passkeys, what this workspace asks of a sign-in
    * (a second factor; a hardware security key), whether this sign-in met it, and recovery codes left.

@@ -18,6 +18,7 @@ import {
   playerTools,
   profiles,
   type SecondFactorPolicy,
+  type SupportMode,
   secondFactorPolicies,
   type WorkspaceSettingsInput,
 } from "@hekate/shared";
@@ -37,6 +38,7 @@ import { PlayerToolsTable } from "~/components/player-tools";
 import { TransfersSection } from "~/components/project-transfer";
 import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { SsoSection } from "~/components/sso";
+import { type AskedFrom, SupportSection } from "~/components/support";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
@@ -168,6 +170,14 @@ const allSections: SectionSpec[] = [
     docs: "/operate/billing/",
   },
   {
+    id: "support",
+    label: "Support",
+    group: "Plan and help",
+    from: "member",
+    intro: "Ask the people who run this instance, with the error reference if there is one.",
+    docs: "/use/support/",
+  },
+  {
     id: "transfers",
     label: "Transfers",
     group: "Operations",
@@ -202,12 +212,24 @@ const allSections: SectionSpec[] = [
 
 const rank: Record<Role, number> = { owner: 3, admin: 2, member: 1 };
 
+/** The file or review the help menu was opened on, from `file:<id>` or `review:<id>`. */
+const askedFrom = (from?: string): AskedFrom | undefined => {
+  const [kind, id] = from?.split(":") ?? [];
+  return (kind === "file" || kind === "review") && id ? { kind, id } : undefined;
+};
+
 /**
- * The sections a role may open. Members see Members alone; the server checks every call again.
- * Billing shows only with the billing module on (#179).
+ * The sections a role may open. Members see Members, Transfers and Support; the server checks
+ * every call again. Billing shows only with the billing module on (#179), Support only with the
+ * support module (#181).
  */
-export const sectionsFor = (role: Role, billing = false) =>
-  allSections.filter((s) => rank[role] >= rank[s.from] && (s.id !== "billing" || billing));
+export const sectionsFor = (role: Role, billing = false, support: SupportMode = "off") =>
+  allSections.filter(
+    (s) =>
+      rank[role] >= rank[s.from] &&
+      (s.id !== "billing" || billing) &&
+      (s.id !== "support" || support !== "off"),
+  );
 
 function General({ role }: { role: Role }) {
   const { data: me } = useQuery(meQuery);
@@ -1269,11 +1291,18 @@ function AccessLog() {
 }
 
 /** `/settings/$section`: the workspace's settings, reached from the account menu (decision 038). */
-export function WorkspaceSettingsPage({ section }: { section: string }) {
+export function WorkspaceSettingsPage({
+  section,
+  search = {},
+}: {
+  section: string;
+  /** Support's ticket open, a new one being written, and where it was asked from (#181). */
+  search?: { ticket?: string; new?: "1"; from?: string };
+}) {
   const { data: me } = useQuery(meQuery);
   if (!me) return null;
   const role = me.organisations.find((o) => o.id === me.activeOrganisationId)?.role ?? "member";
-  const sections = sectionsFor(role, me.billing);
+  const sections = sectionsFor(role, me.billing, me.support?.mode);
   const current =
     sections.find((s) => s.id === section) ?? sections.find((s) => s.id === "members");
   if (!current) return null;
@@ -1312,6 +1341,13 @@ export function WorkspaceSettingsPage({ section }: { section: string }) {
         {current.id === "storage" && <Storage role={role} />}
         {current.id === "transfers" && <TransfersSection />}
         {current.id === "billing" && <BillingSection owner={role === "owner"} />}
+        {current.id === "support" && (
+          <SupportSection
+            ticketId={search.ticket}
+            writing={search.new === "1"}
+            from={askedFrom(search.from)}
+          />
+        )}
         {current.id === "log" && <AccessLog />}
         {current.id === "operations" && <Operations />}
       </SettingsLayout>

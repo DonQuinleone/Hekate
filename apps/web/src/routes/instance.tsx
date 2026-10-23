@@ -74,6 +74,7 @@ import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { ConfirmStep } from "~/components/project-transfer";
 import { Danger, Row, Section, SwitchRow } from "~/components/settings";
+import { InstanceSupport } from "~/components/support-desk";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
@@ -125,7 +126,15 @@ const since = formatDates({ day: "numeric", month: "short", year: "numeric" });
  * `/instance` and its sections (#155, decision 062): the instance side, in the same shell.
  * Operators see every section; a workspace's owner sees their own workspaces and no more.
  */
-export function InstancePage({ section }: { section: InstanceSection }) {
+export function InstancePage({
+  section,
+  search = {},
+}: {
+  section: InstanceSection;
+  /** A ticket open on the desk (#182), or a workspace (and its tab) opened from one. */
+  search?: { ticket?: string; workspace?: string; tab?: "members" };
+}) {
+  const navigate = useNavigate();
   const { data: access, isPending } = useQuery(instanceAccessQuery);
   if (isPending) return null;
   if (!access)
@@ -142,7 +151,15 @@ export function InstancePage({ section }: { section: InstanceSection }) {
   const current = sections.includes(section) ? section : (sections[0] ?? "workspaces");
   const meta = instanceSections[current];
   const operatorView = access.operator && !access.keyNeeded;
-  if (current === "workspaces") return <Workspaces access={access} />;
+  if (current === "workspaces")
+    return (
+      <Workspaces
+        key={search.workspace ?? "all"}
+        access={access}
+        open={search.workspace}
+        tab={search.tab}
+      />
+    );
   return (
     <Page className="gap-10">
       <PageHeader
@@ -162,6 +179,18 @@ export function InstancePage({ section }: { section: InstanceSection }) {
           {current === "overview" && operatorView && <Overview />}
           {current === "operators" && operatorView && <Operators />}
           {current === "billing" && operatorView && <InstanceBilling />}
+          {current === "support" && operatorView && (
+            <InstanceSupport
+              ticketId={search.ticket}
+              onTicket={(ticket) =>
+                void navigate({
+                  to: "/instance/$section",
+                  params: { section: "support" },
+                  search: ticket ? { ticket } : {},
+                })
+              }
+            />
+          )}
           {current === "settings" && operatorView && <Settings />}
           {current === "health" && operatorView && <SystemHealthPage />}
           {current === "logs" && operatorView && <Logs />}
@@ -2069,11 +2098,20 @@ const filters: { value: WorkspaceFilter; label: string }[] = [
  * The workspaces this viewer may see, as a full-height split (#174): the list at the left,
  * searched and filtered, paging as it scrolls; the chosen workspace's tabs at the right.
  */
-function Workspaces({ access }: { access: InstanceAccess }) {
+function Workspaces({
+  access,
+  open,
+  tab,
+}: {
+  access: InstanceAccess;
+  /** A workspace to open first, as a ticket on the desk does (#182), and its tab. */
+  open?: string;
+  tab?: "members";
+}) {
   const operator = access.operator && !access.keyNeeded;
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<WorkspaceFilter>("");
-  const [chosen, setChosen] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string | null>(open ?? null);
   const [creating, setCreating] = useState(false);
   const search = useDeferredValue(q.trim());
   const list = useInfiniteQuery(
@@ -2081,7 +2119,10 @@ function Workspaces({ access }: { access: InstanceAccess }) {
   );
   const workspaces = list.data?.pages.flatMap((p) => p.workspaces) ?? [];
   const total = list.data?.pages[0]?.total ?? 0;
-  const current = workspaces.find((w) => w.id === chosen) ?? workspaces[0];
+  // The one asked for opens even before the list has loaded as far as it.
+  const current =
+    workspaces.find((w) => w.id === chosen) ??
+    (chosen === open && open ? { id: open } : workspaces[0]);
   const more = useRef<HTMLDivElement>(null);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = list;
   useEffect(() => {
@@ -2175,7 +2216,14 @@ function Workspaces({ access }: { access: InstanceAccess }) {
           </div>
         </div>
         <div className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-y-auto">
-          {current && <WorkspaceDetail key={current.id} id={current.id} operator={operator} />}
+          {current && (
+            <WorkspaceDetail
+              key={current.id}
+              id={current.id}
+              operator={operator}
+              tab={current.id === open ? tab : undefined}
+            />
+          )}
         </div>
       </div>
     </>
@@ -2206,10 +2254,18 @@ type WorkspaceTab =
   | "keys";
 
 /** One workspace: what it is, where it stands, and its tabs. */
-function WorkspaceDetail({ id, operator }: { id: string; operator: boolean }) {
+function WorkspaceDetail({
+  id,
+  operator,
+  tab: first,
+}: {
+  id: string;
+  operator: boolean;
+  tab?: WorkspaceTab;
+}) {
   const client = useQueryClient();
   const { data: w } = useQuery(instanceWorkspaceQuery(id));
-  const [tab, setTab] = useState<WorkspaceTab>("overview");
+  const [tab, setTab] = useState<WorkspaceTab>(first ?? "overview");
   const [suspending, setSuspending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reinstate = useMutation({
