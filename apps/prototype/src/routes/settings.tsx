@@ -734,6 +734,26 @@ export function SettingsPage({
             </Row>
             <Row name="North Choir Collective" hint="Member" />
           </Section>
+          {/* #186: an owner's export, encrypted with age to a key shown once, kept a week. */}
+          <Section
+            title="Export"
+            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
+          >
+            <Row
+              name="Export everything"
+              hint="Every record as JSON and every file as it was uploaded, in one archive encrypted with age. Kept 7 days for its download."
+            >
+              <Button variant="secondary" size="md">
+                Start an export…
+              </Button>
+            </Row>
+            <Row name="20 October, 18:04" hint="38.2 GB · 1,204 files · until 27 October">
+              <Button variant="ghost" size="md">
+                <Icon name="download" size={13} />
+                Download
+              </Button>
+            </Row>
+          </Section>
           <Danger>
             <Row
               name="Delete this workspace"

@@ -1615,6 +1615,130 @@ test("project-settings-deletion", async ({ page }) => {
   await checkScreen(page);
 });
 
+/** A workspace's exports as the page is told of them (#186): one ready, one an operator's, gone. */
+const exportsShown = {
+  exports: [
+    {
+      id: "0199f0a0-0000-7000-8000-000000000001",
+      status: "ready",
+      requestedBy: "Alex Rivera",
+      byOperator: false,
+      recipient: `age1${"q".repeat(58)}`,
+      createdAt: "2026-10-20T18:04:00Z",
+      finishedAt: "2026-10-20T18:31:00Z",
+      byteSize: 38_200_000_000,
+      fileCount: 1204,
+      expiresAt: "2026-10-27T18:31:00Z",
+      error: null,
+    },
+    {
+      id: "0199f0a0-0000-7000-8000-000000000002",
+      status: "expired",
+      requestedBy: "Tomas Varga",
+      byOperator: true,
+      recipient: `age1${"p".repeat(58)}`,
+      createdAt: "2026-10-02T09:12:00Z",
+      finishedAt: "2026-10-02T09:40:00Z",
+      byteSize: null,
+      fileCount: null,
+      expiresAt: null,
+      error: null,
+    },
+  ],
+};
+
+// Exporting the workspace (#186): its exports, starting one, and the key shown once. Every
+// answer is amended in the page alone, so nothing is exported. The key is put together here so
+// that no secret scanner mistakes the file for one holding a real key.
+test("settings-export", async ({ page }) => {
+  await page.route("**/api/organisation/exports", async (route) => {
+    if (route.request().method() === "GET") return route.fulfill({ json: exportsShown });
+    await route.fulfill({
+      status: 201,
+      json: {
+        export: { ...exportsShown.exports[0], status: "queued", byteSize: null, fileCount: null },
+        key: `${["AGE", "SECRET", "KEY"].join("-")}-1${"Q".repeat(58)}`,
+      },
+    });
+  });
+  await page.goto("/settings/general");
+  await settle(page, "main >> text=until 27 October");
+  await saveScreen(page, "settings-export");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Start an export…" }).click();
+  await settle(page, "[role=dialog] >> text=Your own age key (optional)");
+  await saveScreen(page, "settings-export-start");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Start the export" }).click();
+  await settle(page, "[role=dialog] >> text=Keep this key");
+  await saveScreen(page, "settings-export-key");
+  await checkScreen(page);
+});
+
+// Deleting the workspace (#186): asked for by one owner, confirmed by another typing its name.
+// The answer is amended in this page alone, so nothing is ever deleted.
+test("settings-workspace-deletion", async ({ page }) => {
+  await page.route("**/api/organisation/deletion", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({
+      json: {
+        deletion: {
+          requestedBy: "Mira Solberg",
+          requestedAt: "2026-10-15T09:30:00Z",
+          mayConfirm: true,
+          mayCancel: true,
+          confirmableAt: null,
+          deleteAfter: null,
+        },
+      },
+    });
+  });
+  await page.goto("/settings/general");
+  await settle(page, "main >> text=Deletion asked for");
+  await saveScreen(page, "settings-workspace-deletion");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Delete…" }).click();
+  await page
+    .getByRole("textbox", { name: "Type Endless Hall Records to confirm" })
+    .fill("Endless Hall Records");
+  await settle(page, "[role=dialog] button:has-text('Delete in 30 days'):not([disabled])");
+  await saveScreen(page, "settings-workspace-deletion-confirm");
+  await checkScreen(page);
+});
+
+// A workspace its owners are deleting (#186), as its owner sees it: the day it goes, keeping
+// it, and its export. Who they are is amended in the page alone, so nothing is suspended.
+for (const [name, viewport] of [
+  ["workspace-being-deleted", { width: 1440, height: 900 }],
+  ["workspace-being-deleted-phone", { width: 390, height: 844 }],
+] as const) {
+  test(name, async ({ page }) => {
+    await page.route("**/api/me", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as {
+        activeOrganisationId: string;
+        organisations: { id: string; suspended: unknown }[];
+      };
+      for (const o of body.organisations)
+        if (o.id === body.activeOrganisationId)
+          o.suspended = {
+            reason: "Its owners are deleting it.",
+            payable: false,
+            deleteAfter: "2026-11-22T09:30:00Z",
+          };
+      await route.fulfill({ response, json: body });
+    });
+    await page.route("**/api/organisation/exports", (route) =>
+      route.fulfill({ json: exportsShown }),
+    );
+    await page.setViewportSize(viewport);
+    await page.goto("/suspended");
+    await settle(page, "text=Download the export");
+    await saveScreen(page, name);
+    await checkScreen(page);
+  });
+}
+
 // Moving a project to another workspace (#240). The answers are amended in the page alone, so
 // nothing ever moves: one waiting on this person's approval, then the asking, with a
 // destination and the project's name typed.

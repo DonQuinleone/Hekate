@@ -1178,6 +1178,39 @@ export function SuspendedPage() {
   );
 }
 
+/**
+ * An owner of a workspace its owners are deleting (#186): closed to everyone until the day it
+ * goes, and until then they may keep it, which opens it again, or export everything in it.
+ */
+export function DeletingPage() {
+  const navigate = useNavigate();
+  return (
+    <Frame
+      title="Lantern Pictures is being deleted"
+      intro="Its owners asked for it to be deleted, and it is closed to everyone. On 22 November 2026 everything in it goes for good; until then you can keep it, or export it."
+    >
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" size="lg" onClick={() => navigate({ to: "/" })}>
+            Keep it
+          </Button>
+          <Button variant="secondary" size="lg">
+            <Icon name="download" size={14} />
+            Download the export
+          </Button>
+        </div>
+        <p className="m-0 text-[13px] text-ink-3">38.2 GB · 1,204 files · until 30 October</p>
+      </div>
+      <Link
+        to="/sign-in"
+        className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+      >
+        Sign out
+      </Link>
+    </Frame>
+  );
+}
+
 export function UploadRequestPage({ code }: { code: string }) {
   const { settings } = useViewer();
   const [files, setFiles] = useState<string[]>([]);

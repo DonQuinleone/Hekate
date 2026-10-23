@@ -83,6 +83,7 @@ import { Segmented } from "~/components/ui/segmented";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { MemberLimitSelect, QuotaSelect, UsageRows } from "~/components/usage";
+import { WorkspaceExports } from "~/components/workspace-lifecycle";
 import { actionCopy } from "~/lib/access-log";
 import { shortAgent } from "~/lib/agent";
 import { api } from "~/lib/api";
@@ -2292,7 +2293,7 @@ function WorkspaceDetail({ id, operator }: { id: string; operator: boolean }) {
           />
         </TabsContent>
         <TabsContent value="keys" className="flex flex-col gap-6 pt-6">
-          <WorkspaceKeys id={id} operator={operator} />
+          <WorkspaceKeys id={id} name={w.name} operator={operator} />
         </TabsContent>
       </Tabs>
     </div>
@@ -2844,7 +2845,7 @@ function DeleteWorkspace({
   );
 }
 
-function WorkspaceKeys({ id, operator }: { id: string; operator: boolean }) {
+function WorkspaceKeys({ id, name, operator }: { id: string; name: string; operator: boolean }) {
   const client = useQueryClient();
   const { data: k } = useQuery(instanceKeysQuery(id));
   const [error, setError] = useState<string | null>(null);
@@ -2894,6 +2895,8 @@ function WorkspaceKeys({ id, operator }: { id: string; operator: boolean }) {
           {error}
         </p>
       )}
+      {/* Its export (#186): for leaving or for an audit; its owners have theirs in Settings. */}
+      {operator && <WorkspaceExports scope={{ kind: "instance", id }} name={name} />}
     </Section>
   );
 }

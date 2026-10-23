@@ -12,6 +12,7 @@ import {
   type GuestVerification,
   guestLinkDays,
   locales,
+  mayExportWorkspace,
   type ProfileRef,
   type ProjectProfile,
   playerTools,
@@ -34,7 +35,7 @@ import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
 import { PlayerToolsTable } from "~/components/player-tools";
 import { TransfersSection } from "~/components/project-transfer";
-import { Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
+import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { SsoSection } from "~/components/sso";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
@@ -42,6 +43,7 @@ import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { StatusDot } from "~/components/ui/status";
 import { UsageRows } from "~/components/usage";
+import { DeleteWorkspace, WorkspaceExports } from "~/components/workspace-lifecycle";
 import { actionCopy } from "~/lib/access-log";
 import { shortAgent } from "~/lib/agent";
 import { cn } from "~/lib/cn";
@@ -101,7 +103,8 @@ const allSections: SectionSpec[] = [
     label: "General",
     group: "Workspace",
     from: "admin",
-    intro: "The workspace's name, how new projects start, guest links and its language.",
+    intro:
+      "The workspace's name, how new projects start, guest links and its language; for owners, exporting or deleting it.",
   },
   {
     id: "defaults",
@@ -266,6 +269,19 @@ function General({ role }: { role: Role }) {
           />
         ))}
       </Section>
+      {mayExportWorkspace(role) && (
+        <>
+          <Section
+            title="Export"
+            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
+          >
+            <WorkspaceExports scope={{ kind: "workspace" }} name={workspace.name} />
+          </Section>
+          <Danger>
+            <DeleteWorkspace name={workspace.name} />
+          </Danger>
+        </>
+      )}
     </>
   );
 }

@@ -13,6 +13,7 @@ import { GuestShell, Shell } from "~/components/shell";
 import { appRoot } from "~/lib/dom";
 import { AccountPage } from "~/routes/account";
 import {
+  DeletingPage,
   GuestLinkPage,
   GuestSignedOutPage,
   InstallerPage,
@@ -181,6 +182,11 @@ const suspended = createRoute({
   getParentRoute: () => root,
   path: "/suspended",
   component: SuspendedPage,
+});
+const deleting = createRoute({
+  getParentRoute: () => root,
+  path: "/deleting",
+  component: DeletingPage,
 });
 const uploadRequest = createRoute({
   getParentRoute: () => root,
@@ -434,6 +440,7 @@ export const router = createRouter({
     signUp,
     invite,
     suspended,
+    deleting,
     uploadRequest,
     app.addChildren([
       home,

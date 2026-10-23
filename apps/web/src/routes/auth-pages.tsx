@@ -9,9 +9,11 @@ import { Button } from "~/components/ui/button";
 import { Choice } from "~/components/ui/choice";
 import { CodeField } from "~/components/ui/code-field";
 import { Input } from "~/components/ui/input";
+import { BeingDeleted } from "~/components/workspace-lifecycle";
 import { api } from "~/lib/api";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
+import { formatDates } from "~/lib/locale";
 import { passwordStrength } from "~/lib/password";
 import {
   billingQuery,
@@ -912,9 +914,13 @@ function PayToReopen() {
   );
 }
 
+/** The day a workspace its owners are deleting goes (#186). */
+const deletionDay = formatDates({ day: "numeric", month: "long", year: "numeric" });
+
 /**
- * A member whose workspace the instance's operators have suspended (#174): why, and the way
- * out, to another workspace of theirs or signed out. Nothing of the workspace is shown.
+ * A member whose workspace the instance's operators have suspended (#174), or its owners are
+ * deleting (#186): why, and the way out, to another workspace of theirs or signed out. Nothing
+ * of the workspace is shown; its owners may keep or export one they are deleting.
  */
 export function SuspendedPage() {
   const navigate = useNavigate();
@@ -926,20 +932,28 @@ export function SuspendedPage() {
   const reason = workspace?.suspended?.reason;
   // Suspended for a payment overdue (#178): it opens again as soon as it is paid.
   const payable = workspace?.suspended?.payable ?? false;
+  // Being deleted by its owners (#186): it goes on that day, unless an owner keeps it.
+  const deleteAfter = workspace?.suspended?.deleteAfter ?? null;
+  const goes = deleteAfter ? deletionDay.format(new Date(deleteAfter)) : null;
   return (
     <Frame
-      title={`${workspace?.name ?? "This workspace"} is suspended`}
+      title={`${workspace?.name ?? "This workspace"} ${goes ? "is being deleted" : "is suspended"}`}
       intro={
-        payable
+        goes
           ? workspace?.role === "owner"
-            ? "A payment for it is overdue. It opens again as soon as it is paid; nothing in it is lost."
-            : "A payment for it is overdue. It opens again as soon as its owners pay; nothing in it is lost."
-          : reason
-            ? `The instance’s operators suspended it: ${reason} Nothing in it is lost; it opens again once they reinstate it.`
-            : "The instance’s operators suspended it. Nothing in it is lost; it opens again once they reinstate it."
+            ? `Its owners asked for it to be deleted, and it is closed to everyone. On ${goes} everything in it goes for good; until then you can keep it, or export it.`
+            : `Its owners asked for it to be deleted, and it is closed to everyone. On ${goes} everything in it goes for good; until then its owners can keep it.`
+          : payable
+            ? workspace?.role === "owner"
+              ? "A payment for it is overdue. It opens again as soon as it is paid; nothing in it is lost."
+              : "A payment for it is overdue. It opens again as soon as its owners pay; nothing in it is lost."
+            : reason
+              ? `The instance’s operators suspended it: ${reason} Nothing in it is lost; it opens again once they reinstate it.`
+              : "The instance’s operators suspended it. Nothing in it is lost; it opens again once they reinstate it."
       }
     >
       {payable && workspace?.role === "owner" && <PayToReopen />}
+      {deleteAfter && workspace?.role === "owner" && <BeingDeleted name={workspace.name} />}
       {others.length > 0 && (
         <div className="flex flex-col gap-2">
           <span className="text-[13px] text-ink-2">Your other workspaces</span>

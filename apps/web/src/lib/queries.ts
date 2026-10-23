@@ -276,9 +276,10 @@ export interface Me {
     locale?: string | null;
     /**
      * Suspended, and why: nobody gets in until it is reinstated. `payable` when billing
-     * suspended it for a payment overdue (#178): its owners may still pay.
+     * suspended it for a payment overdue (#178): its owners may still pay. `deleteAfter` when
+     * its owners are deleting it (#186): they may keep it, or export it, until that day.
      */
-    suspended?: { reason: string | null; payable?: boolean } | null;
+    suspended?: { reason: string | null; payable?: boolean; deleteAfter?: string | null } | null;
     /** Where it answers, with workspace subdomains on (#176). */
     url?: string | null;
   }[];
