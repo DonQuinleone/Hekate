@@ -116,22 +116,26 @@ class PasskeyOriginList extends Array<string> {
   subdomains: Subdomains | null = null;
 
   override includes(origin: string): boolean {
-    if (super.includes(origin)) return true;
-    if (!this.subdomains) return false;
-    let url: URL;
-    try {
-      url = new URL(origin);
-    } catch {
-      return false;
-    }
-    const root = this.subdomains.url;
-    return (
-      url.protocol === root.protocol &&
-      url.port === root.port &&
-      url.origin === origin &&
-      hostKind(url.host, this.subdomains).kind === "workspace"
-    );
+    return super.includes(origin) || workspaceOrigin(this.subdomains, origin);
   }
+}
+
+/** Whether an origin is exactly a workspace's host under the root, by the root's scheme and port. */
+export function workspaceOrigin(subdomains: Subdomains | null, origin: string): boolean {
+  if (!subdomains) return false;
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false;
+  }
+  const root = subdomains.url;
+  return (
+    url.protocol === root.protocol &&
+    url.port === root.port &&
+    url.origin === origin &&
+    hostKind(url.host, subdomains).kind === "workspace"
+  );
 }
 
 /** The origin list for the passkey plugin: these, and every workspace's with subdomains on. */

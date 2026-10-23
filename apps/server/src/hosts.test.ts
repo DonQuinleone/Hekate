@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { hostKind, passkeyOrigins, subdomainsOf, workspaceAddress } from "./hosts.ts";
+import {
+  hostKind,
+  passkeyOrigins,
+  rootAddress,
+  subdomainsOf,
+  workspaceAddress,
+  workspaceOrigin,
+} from "./hosts.ts";
 
 describe("workspace subdomains (#176)", () => {
   const subdomains = subdomainsOf("https://review.example", true);
@@ -38,11 +45,9 @@ describe("workspace subdomains (#176)", () => {
   });
 
   it("let passkeys be used at any workspace's host, and nowhere else", () => {
-    const origins = passkeyOrigins(["https://review.example"], subdomains);
-    expect(Array.isArray(origins)).toBe(true);
-    expect(origins.includes("https://review.example")).toBe(true);
-    expect(origins.includes("https://north-choir.review.example")).toBe(true);
+    expect(workspaceOrigin(subdomains, "https://north-choir.review.example")).toBe(true);
     for (const other of [
+      "https://review.example",
       "http://north-choir.review.example",
       "https://north-choir.review.example:8443",
       "https://north-choir.review.example/path",
@@ -50,9 +55,15 @@ describe("workspace subdomains (#176)", () => {
       "https://evil.example",
       "not a url",
     ])
-      expect(origins.includes(other)).toBe(false);
-    // Off, the list is only what it was given.
-    const off = passkeyOrigins(["https://review.example"], null);
-    expect(off.includes("https://north-choir.review.example")).toBe(false);
+      expect(workspaceOrigin(subdomains, other)).toBe(false);
+    expect(workspaceOrigin(null, "https://north-choir.review.example")).toBe(false);
+    // The plugin's list holds what it was given, and answers for every workspace's host too.
+    const given = rootAddress(subdomains);
+    const workspace = workspaceAddress(subdomains, "north-choir");
+    const origins = passkeyOrigins([given], subdomains);
+    expect(Array.isArray(origins)).toBe(true);
+    expect([given, workspace].map((o) => origins.includes(o))).toEqual([true, true]);
+    const off = passkeyOrigins([given], null);
+    expect([given, workspace].map((o) => off.includes(o))).toEqual([true, false]);
   });
 });
