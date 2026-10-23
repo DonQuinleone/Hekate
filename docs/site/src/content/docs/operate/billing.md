@@ -9,8 +9,8 @@ With `HEKATE_BILLING=stripe`, each workspace pays for its [plan](../quotas/#plan
 
 ## Set it up
 
-1. In Stripe (test mode), make a secret key, or a restricted key allowed to write customers, products, Checkout sessions, customer portal sessions and subscriptions. Set it as `STRIPE_SECRET_KEY`.
-2. Add a webhook endpoint for `https://<your instance>/api/hooks/billing/stripe`, sending at least `checkout.session.completed`, `customer.subscription.*`, `invoice.*` and `payout.*`. Set its signing secret as `STRIPE_WEBHOOK_SECRET`.
+1. In Stripe (test mode), make a secret key, or a restricted key allowed to write customers, products, coupons, Checkout sessions, customer portal sessions and subscriptions, and to read invoices. Set it as `STRIPE_SECRET_KEY`.
+2. Add a webhook endpoint for `https://<your instance>/api/hooks/billing/stripe`, sending at least `checkout.session.completed`, `checkout.session.expired`, `customer.subscription.*`, `invoice.*` and `payout.*`. Set its signing secret as `STRIPE_WEBHOOK_SECRET`.
 3. Turn on the customer portal in Stripe's settings, so owners can change their card.
 4. For tax, set up Stripe Tax and set `STRIPE_TAX=true`: Checkout then asks for the address and tax id it needs.
 
@@ -23,6 +23,17 @@ Both keys may be read from files (`STRIPE_SECRET_KEY_FILE`, `STRIPE_WEBHOOK_SECR
 - **Webhooks.** Every event is checked against the signing secret; one that does not hold is refused (401). Each event is taken once, however often Stripe sends it, and kept for the instance's Gateway log. One that fails answers 500, so Stripe sends it again.
 - **Plans and limits.** A subscription's plan, status (trial, active, past due or cancelled) and renewal date come from Stripe, read from the subscription as it stands when each event arrives, so events in any order leave it right. The plan's limits are copied to the workspace as when an operator assigns one.
 - **Invoices.** Each invoice Stripe reports is kept with its number, amounts, period and Stripe's page for it, and listed in the workspace's billing settings. An invoice's status never moves back, whatever order its events arrive in.
+
+## Promo codes
+
+Operators keep promo codes on the instance side (`/api/instance/promos`). Each code gives:
+- a percentage or an amount off (an amount in a currency, and only for plans in it);
+- for some months (one month is the first invoice alone), or for as long as the subscription lasts;
+- to the first so many who use it, until a date, and on some plans or any.
+
+An owner gives the code when choosing a plan. At checkout it becomes a Stripe coupon, whose id carries its terms, so changing a code's terms affects only its uses from then on; subscriptions that already have it keep what they were given.
+
+A use is held while its checkout is open, so a code with one use left cannot be used twice. It is given back when that checkout is closed for another or lapses unpaid, and counted once it is paid. With a subscription already, a code applies to it at once. Ending a code stops new uses only. Who used a code, and whether their checkout was paid, is at `/api/instance/promos/:id/uses`. Each change to a code is an instance event.
 
 ## Invoices by hand
 

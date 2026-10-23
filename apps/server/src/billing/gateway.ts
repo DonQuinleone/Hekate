@@ -16,6 +16,8 @@ export interface Gateway {
     plan: PricedPlan;
     /** Kept from a trial the workspace is already on, so it converts at its end. */
     trialEnd: Date | null;
+    /** A promo code's discount, when one was given. */
+    discount: Discount | null;
     successUrl: string;
     cancelUrl: string;
   }): Promise<{ id: string; url: string; expiresAt: Date }>;
@@ -34,11 +36,28 @@ export interface Gateway {
   /** What an event kept in the gateway log means, to take it again (#159's replay). */
   factOf(payload: unknown): Fact;
   /** Move a subscription to another plan, the difference pro-rated. */
-  changePlan(input: { subscriptionId: string; plan: PricedPlan }): Promise<void>;
+  changePlan(input: {
+    subscriptionId: string;
+    plan: PricedPlan;
+    discount: Discount | null;
+  }): Promise<void>;
   /** Where an owner changes the card and billing details, and reads past invoices. */
   portal(input: { customerId: string; returnUrl: string }): Promise<string>;
   /** A webhook, verified; throws when its signature does not hold. */
   read(body: string, header: (name: string) => string | undefined): GatewayEvent;
+}
+
+/** A promo code's discount (#178), as the gateway is to give it. */
+export interface Discount {
+  /** The code's id: what the gateway's own discount is named after. */
+  promoId: string;
+  /** As people type it. */
+  code: string;
+  percentOff: number | null;
+  amountOff: number | null;
+  currency: string | null;
+  /** Null for as long as the subscription lasts. */
+  months: number | null;
 }
 
 export interface PricedPlan {
@@ -89,7 +108,15 @@ export interface SubscriptionFact {
 
 export type Fact =
   /** An owner finished checking out: the workspace's subscription is known. */
-  | { kind: "checkout"; organisationId: string; customerId: string; subscriptionId: string }
+  | {
+      kind: "checkout";
+      checkoutId: string;
+      organisationId: string;
+      customerId: string;
+      subscriptionId: string;
+    }
+  /** A checkout lapsed unpaid: the promo code it held is given back. */
+  | { kind: "checkout_expired"; checkoutId: string }
   /** A subscription began, changed or ended. */
   | SubscriptionFact
   /** An invoice was made, finalised, paid, failed or voided. */

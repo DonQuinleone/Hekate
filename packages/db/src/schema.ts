@@ -2535,6 +2535,8 @@ export const billingAccounts = pgTable(
     checkoutPlanId: uuid("checkout_plan_id"),
     checkoutUrl: text("checkout_url"),
     checkoutExpiresAt: timestamp("checkout_expires_at", { withTimezone: true }),
+    /** The promo code that checkout was made with, whose use it holds until paid or closed. */
+    checkoutPromoId: uuid("checkout_promo_id"),
     pastDueSince: timestamp("past_due_since", { withTimezone: true }),
     dunningStage: integer("dunning_stage").notNull().default(0),
     /** The dunning step its owners have been told of; behind `dunningStage` until mail goes. */
@@ -2544,6 +2546,54 @@ export const billingAccounts = pgTable(
   (t) => [
     uniqueIndex("billing_accounts_organisation_idx").on(t.organisationId),
     uniqueIndex("billing_accounts_customer_idx").on(t.gateway, t.customerId),
+  ],
+);
+
+/**
+ * Promo codes (#178): the instance's, a percentage or an amount off for some months (null for
+ * as long as the subscription lasts), for the first `maxUses`, until a date, on some plans or
+ * any. `uses` counts the checkouts holding it and the subscriptions that have it, kept under a
+ * lock on the row so the limit is never passed.
+ */
+export const promoCodes = pgTable("promo_codes", {
+  id: id(),
+  code: text("code").notNull().unique(),
+  percentOff: integer("percent_off"),
+  amountOff: integer("amount_off"),
+  currency: text("currency"),
+  months: integer("months"),
+  maxUses: integer("max_uses"),
+  uses: integer("uses").notNull().default(0),
+  until: timestamp("until", { withTimezone: true }),
+  planIds: jsonb("plan_ids").$type<string[]>().notNull().default([]),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  ...timestamps,
+});
+
+/**
+ * Each use of a promo code (#178): held while its checkout is open, taken once paid, given back
+ * when the checkout is closed or lapses. Who used a code is read across workspaces, by the
+ * operators who made it.
+ */
+export const promoRedemptions = pgTable(
+  "promo_redemptions",
+  {
+    id: id(),
+    promoCodeId: uuid("promo_code_id")
+      .notNull()
+      .references(() => promoCodes.id, { onDelete: "cascade" }),
+    organisationId: uuid("organisation_id")
+      .notNull()
+      .references(() => organisations.id, { onDelete: "cascade" }),
+    planId: uuid("plan_id").references(() => plans.id, { onDelete: "set null" }),
+    /** The checkout holding it; none for one applied to a subscription at once. */
+    checkoutId: text("checkout_id"),
+    status: text("status").$type<"held" | "taken" | "released">().notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    index("promo_redemptions_code_idx").on(t.promoCodeId),
+    uniqueIndex("promo_redemptions_checkout_idx").on(t.checkoutId),
   ],
 );
 

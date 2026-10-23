@@ -56,7 +56,11 @@ export type ManualInvoiceInput = z.input<typeof manualInvoiceInput>;
 export const manualInvoiceOutcome = z.object({ outcome: z.enum(["paid", "void"]) });
 
 /** Changing the workspace's plan: through Checkout first, then on its subscription. */
-export const checkoutInput = z.object({ planId: z.uuid() });
+export const checkoutInput = z.object({
+  planId: z.uuid(),
+  /** A promo code, as typed. */
+  promoCode: z.string().trim().toUpperCase().max(24).optional(),
+});
 
 /** The days after a missed payment at which dunning acts, and what it does then. */
 export const dunningSteps = [
@@ -88,4 +92,102 @@ export function formatMoney(amount: number, currency: string): string {
   });
   const places = format.resolvedOptions().maximumFractionDigits ?? 2;
   return format.format(amount / 10 ** places);
+}
+
+/**
+ * A promo code (#178): a percentage or an amount off, for some months or for as long as the
+ * subscription lasts, for the first so many who use it, until a date, on some plans or any.
+ */
+export interface PromoCode {
+  id: string;
+  /** As people type it: `LAUNCH50`. */
+  code: string;
+  percentOff: number | null;
+  /** In the currency's minor unit. */
+  amountOff: number | null;
+  currency: string | null;
+  /** How many months the discount lasts; null for as long as the subscription does. */
+  months: number | null;
+  maxUses: number | null;
+  /** Checkouts open with it and subscriptions that have it. */
+  uses: number;
+  until: string | null;
+  /** The plans it is for; none for any. */
+  planIds: string[];
+  endedAt: string | null;
+}
+
+export const promoCodeInput = z
+  .object({
+    code: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z0-9][A-Z0-9-]{2,23}$/, {
+        error: "Letters, digits and hyphens, 3 to 24 of them",
+      }),
+    percentOff: z.number().int().min(1).max(100).nullable().default(null),
+    amountOff: z.number().int().positive().max(100_000_000).nullable().default(null),
+    currency: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z]{3}$/, { error: "A three-letter currency code, such as GBP" })
+      .nullable()
+      .default(null),
+    months: z.number().int().min(1).max(36).nullable().default(null),
+    maxUses: z.number().int().positive().max(1_000_000).nullable().default(null),
+    until: z.iso.datetime({ offset: true }).nullable().default(null),
+    planIds: z.array(z.uuid()).max(50).default([]),
+  })
+  .refine((p) => (p.percentOff === null) !== (p.amountOff === null), {
+    error: "A percentage off or an amount off, one of them",
+    path: ["percentOff"],
+  })
+  .refine((p) => p.amountOff === null || p.currency !== null, {
+    error: "An amount off needs its currency",
+    path: ["currency"],
+  });
+export type PromoCodeInput = z.input<typeof promoCodeInput>;
+
+/** What may be asked of a code: what stops it applying to a plan now, or null when it applies. */
+export function promoRefusal(
+  promo: Pick<
+    PromoCode,
+    "amountOff" | "currency" | "maxUses" | "uses" | "until" | "planIds" | "endedAt"
+  >,
+  against: { planId: string; currency: string; now: Date },
+): string | null {
+  if (promo.endedAt || (promo.until && new Date(promo.until) <= against.now))
+    return "That code has ended.";
+  if (promo.maxUses !== null && promo.uses >= promo.maxUses) return "That code has been used up.";
+  if (promo.planIds.length > 0 && !promo.planIds.includes(against.planId))
+    return "That code is not for this plan.";
+  if (promo.amountOff !== null && promo.currency?.toUpperCase() !== against.currency.toUpperCase())
+    return "That code is for another currency.";
+  return null;
+}
+
+/** A code in words, as a list shows it: "50% off for 3 months · used 4 of 50 · until 31 Dec 2026". */
+export function promoSummary(
+  promo: Pick<
+    PromoCode,
+    "percentOff" | "amountOff" | "currency" | "months" | "maxUses" | "uses" | "until" | "endedAt"
+  >,
+  date: (iso: string) => string,
+): string {
+  const off =
+    promo.percentOff !== null
+      ? `${promo.percentOff}% off`
+      : `${formatMoney(promo.amountOff ?? 0, promo.currency ?? "GBP")} off`;
+  const lasts =
+    promo.months === null
+      ? "for good"
+      : promo.months === 1
+        ? "the first invoice"
+        : `for ${promo.months} months`;
+  const used =
+    promo.maxUses === null ? `used ${promo.uses}` : `used ${promo.uses} of ${promo.maxUses}`;
+  const ends = promo.endedAt ? "ended" : promo.until ? `until ${date(promo.until)}` : null;
+  return [`${off} ${lasts}`, used, ends].filter(Boolean).join(" · ");
 }

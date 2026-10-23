@@ -1668,6 +1668,7 @@ describe.runIf(url)("api", () => {
         });
         beforeEach(async () => {
           await db.delete(schema.gatewayEvents);
+          await db.delete(schema.promoCodes);
           await db.delete(schema.plans);
         });
 
@@ -1752,6 +1753,59 @@ describe.runIf(url)("api", () => {
               { number: open.number, status: "paid", description: "Joplin Rags mastering" },
             ],
           });
+        });
+
+        it("keeps promo codes for operators, and checks out with one", async () => {
+          const operator = cookieOf(await setup());
+          const admin = await join(operator, "admin@example.test", "admin");
+          const code = { code: "launch50", percentOff: 50, months: 3, maxUses: 50 };
+          const make = (cookie: string) =>
+            paying.request("/api/instance/promos", json(code, cookie));
+          expect((await make(admin)).status).toBe(403);
+          const made = await make(operator);
+          expect(made.status).toBe(201);
+          const { promo } = (await made.json()) as { promo: { id: string; code: string } };
+          expect(promo.code).toBe("LAUNCH50");
+          const again = await make(operator);
+          expect(await again.json()).toMatchObject({ error: { code: "promo_code_taken" } });
+          const [plan] = await db
+            .insert(schema.plans)
+            .values({
+              key: "studio",
+              name: "Studio",
+              priceAmount: 4900,
+              interval: "month",
+              features: [],
+              severities: [],
+            })
+            .returning();
+          const checkout = await paying.request(
+            "/api/organisation/billing/checkout",
+            json({ planId: plan?.id, promoCode: "launch50" }, operator),
+          );
+          expect(checkout.status).toBe(200);
+          const uses = await paying.request(`/api/instance/promos/${promo.id}/uses`, {
+            headers: { cookie: operator },
+          });
+          expect(await uses.json()).toMatchObject({
+            uses: [{ workspace: { name: "Studio" }, plan: "Studio", status: "held" }],
+          });
+          const ended = await paying.request(`/api/instance/promos/${promo.id}/end`, {
+            method: "POST",
+            headers: { cookie: operator },
+          });
+          expect(await ended.json()).toMatchObject({ promo: { endedAt: expect.any(String) } });
+          const listed = await paying.request("/api/instance/promos", {
+            headers: { cookie: operator },
+          });
+          expect(await listed.json()).toMatchObject({ promos: [{ code: "LAUNCH50", uses: 1 }] });
+          const actions = (
+            await db
+              .select({ action: schema.instanceEvents.action })
+              .from(schema.instanceEvents)
+              .where(eq(schema.instanceEvents.target, "LAUNCH50"))
+          ).map((e) => e.action);
+          expect(actions).toEqual(expect.arrayContaining(["promo.created", "promo.ended"]));
         });
 
         it("takes the gateway's events only signed, and each once", async () => {

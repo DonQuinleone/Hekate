@@ -1433,3 +1433,14 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Invoices by hand** are for plans by agreement: an operator makes one (amount, currency, what it is for, its period and due date), numbered in the instance's own series under a lock (`HK-0001`), and marks it paid or void by hand. They are not sent from Hekate and dunning does not chase them: the operator who agreed the plan does. Only an open invoice made by hand can be settled by hand; a gateway's are the gateway's.
 - **`recordInstanceEvent`** moves to its own module, so billing and the instance's routes can both use it without importing each other.
 - **Expanding only:** a nullable column (decision 198).
+
+## 212. Promo codes: a use held while its checkout is open
+
+#178, the last part.
+
+- **The instance's codes, in Hekate.** A code is a percentage or an amount off (an amount in one currency), for some months or for as long as the subscription lasts, for the first so many, until a date, on some plans or any. They are kept in Hekate rather than as Stripe's promotion codes, so a second gateway can honour the same codes and the checks are one pure function (`promoRefusal`).
+- **A coupon per set of terms.** At checkout, or on a subscription changed in place, the code becomes a Stripe coupon whose id carries the code's terms. Stripe's coupons cannot change, so changing a code's terms makes a new coupon for its uses from then on, and subscriptions that have the old one keep it.
+- **Held, taken, given back.** A use is counted when the checkout is made, under a lock on the code's row, so the last use cannot go to two workspaces at once. It is given back when that checkout is closed for another (the same plan and code get the same checkout back) or lapses unpaid (`checkout.session.expired`), and taken once the checkout is paid. Applied to a subscription at once, it is taken there and then.
+- **Who used it** is kept per use (`promo_redemptions`) with its workspace and plan, read across workspaces by the operators: a global table, like the gateway's log.
+- **Ending** a code stops new uses; nothing given is taken back.
+- **Expanding only:** two new tables and a nullable column (decision 198).

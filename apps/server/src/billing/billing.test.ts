@@ -13,6 +13,7 @@ import {
   settleByHand,
   takeGatewayEvent,
 } from "./billing.ts";
+import { endPromo, savePromo, usesOf } from "./promos.ts";
 import { type Stripe, StripeError, signStripeEvent } from "./stripe.ts";
 import { stripeGateway } from "./stripe-gateway.ts";
 
@@ -157,8 +158,11 @@ describe.runIf(url)("billing (#178)", () => {
     invoices.set(object.id, object);
     return object;
   };
+  /** The checkout a workspace was last sent to, by its id. */
+  const sessionOf = async (id: string) => (await account(id))?.checkoutId ?? "";
   const checkedOut = async (w: Awaited<ReturnType<typeof workspace>>) => {
     await send("checkout.session.completed", {
+      id: await sessionOf(w.id),
       mode: "subscription",
       client_reference_id: w.id,
       customer: w.customerId,
@@ -267,6 +271,7 @@ describe.runIf(url)("billing (#178)", () => {
 
     // A checkout naming another workspace than its customer's changes nothing.
     const stray = await send("checkout.session.completed", {
+      id: "cs_stray",
       mode: "subscription",
       client_reference_id: other.id,
       customer: w.customerId,
@@ -488,6 +493,112 @@ describe.runIf(url)("billing (#178)", () => {
       number: made.number,
       description: "Joplin Rags mastering, by agreement",
       status: "paid",
+    });
+  });
+
+  /** A code for the tests, its terms as given. */
+  const promo = (terms: Partial<Parameters<typeof savePromo>[1]> = {}) =>
+    savePromo(db, { code: `TEST-${uuidv7().slice(-8)}`, percentOff: 50, months: 3, ...terms });
+  const useCount = async (id: string) =>
+    (await db.select().from(schema.promoCodes).where(eq(schema.promoCodes.id, id)))[0]?.uses;
+
+  it("holds a code's use while its checkout is open, and gives it back when it lapses", async () => {
+    const w = await workspace();
+    const other = await workspace();
+    const code = await promo({ maxUses: 1 });
+    const ask = (x: typeof w, planId = x.planId) =>
+      changePlan(deps, {
+        organisationId: x.id,
+        userId: x.userId,
+        planId,
+        promoCode: code.code.toLowerCase(),
+      }).catch((e: unknown) => e);
+    calls.length = 0;
+    const first = (await ask(w)) as { url: string };
+    expect(await useCount(code.id)).toBe(1);
+    // The checkout carries the code's discount.
+    const session = calls.find(([, p]) => p === "/v1/checkout/sessions")?.[2];
+    expect(session).toMatchObject({ discounts: [{ coupon: expect.stringMatching(/_p50_m3$/) }] });
+    // Asked again, the same checkout, with the same use.
+    expect(await ask(w)).toEqual(first);
+    expect(await useCount(code.id)).toBe(1);
+    // Its one use is held: nobody else has it meanwhile.
+    expect(await ask(other)).toMatchObject({ status: 409, message: "That code has been used up." });
+    // The checkout lapses unpaid: the use is given back, and the next to ask has it.
+    await send("checkout.session.expired", { id: await sessionOf(w.id) });
+    expect(await useCount(code.id)).toBe(0);
+    expect(await ask(other)).toMatchObject({ url: expect.any(String) });
+    await checkedOut(other);
+    expect(await usesOf(db, code.id)).toEqual([
+      expect.objectContaining({
+        workspace: { id: other.id, name: "Endless Hall Records" },
+        status: "taken",
+      }),
+      expect.objectContaining({
+        workspace: { id: w.id, name: "Endless Hall Records" },
+        status: "released",
+      }),
+    ]);
+  });
+
+  it("gives a use back when its checkout is closed for another, and applies a code at once to a subscription", async () => {
+    const w = await workspace();
+    const code = await promo({ maxUses: 5 });
+    await changePlan(deps, {
+      organisationId: w.id,
+      userId: w.userId,
+      planId: w.planId,
+      promoCode: code.code,
+    });
+    expect(await useCount(code.id)).toBe(1);
+    // The same plan without the code: the first checkout is closed, its use given back.
+    await changePlan(deps, { organisationId: w.id, userId: w.userId, planId: w.planId });
+    expect(await useCount(code.id)).toBe(0);
+    await checkedOut(w);
+    calls.length = 0;
+    await changePlan(deps, {
+      organisationId: w.id,
+      userId: w.userId,
+      planId: w.planId,
+      promoCode: code.code,
+    });
+    expect(
+      calls.find(([m, p]) => m === "POST" && p === `/v1/subscriptions/${w.subscriptionId}`)?.[2],
+    ).toMatchObject({
+      discounts: [{ coupon: expect.any(String) }],
+    });
+    expect(await useCount(code.id)).toBe(1);
+    expect((await usesOf(db, code.id))[0]).toMatchObject({ status: "taken", plan: "Studio" });
+  });
+
+  it("refuses a code that does not apply, and one there is no such of", async () => {
+    const w = await workspace();
+    const ask = (promoCode: string) =>
+      changePlan(deps, {
+        organisationId: w.id,
+        userId: w.userId,
+        planId: w.planId,
+        promoCode,
+      }).catch((e: unknown) => e);
+    const elsewhere = await promo({ planIds: [uuidv7()] });
+    const euros = await promo({ percentOff: null, amountOff: 2000, currency: "EUR" });
+    const over = await promo({ until: "2026-01-01T00:00:00Z" });
+    expect(await ask(elsewhere.code)).toMatchObject({
+      code: "promo_refused",
+      message: "That code is not for this plan.",
+    });
+    expect(await ask(euros.code)).toMatchObject({ message: "That code is for another currency." });
+    expect(await ask(over.code)).toMatchObject({ message: "That code has ended." });
+    await endPromo(db, elsewhere.id);
+    expect(await ask("NOPE-0000")).toMatchObject({
+      status: 409,
+      message: "There is no such code.",
+    });
+    expect(
+      await savePromo(db, { code: euros.code, percentOff: 10 }).catch((e: unknown) => e),
+    ).toMatchObject({
+      status: 409,
+      code: "promo_code_taken",
     });
   });
 
