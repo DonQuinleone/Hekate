@@ -1706,6 +1706,54 @@ describe.runIf(url)("api", () => {
           expect(await none.json()).toMatchObject({ error: { code: "billing_unavailable" } });
         });
 
+        it("lets operators invoice by hand and settle it, with billing on", async () => {
+          const operator = cookieOf(await setup());
+          const admin = await join(operator, "admin@example.test", "admin");
+          const [studio] = await db
+            .select({ id: schema.organisations.id })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.name, "Studio"));
+          const id = studio?.id ?? "";
+          const ask = { amount: 120_000, currency: "gbp", description: "Joplin Rags mastering" };
+          const invoice = (cookie: string, via = paying) =>
+            via.request(`/api/instance/workspaces/${id}/invoices`, json(ask, cookie));
+          expect((await invoice(admin)).status).toBe(403);
+          const off = await invoice(operator, asOperator);
+          expect(off.status).toBe(409);
+          expect(await off.json()).toMatchObject({ error: { code: "billing_off" } });
+          const made = await invoice(operator);
+          expect(made.status).toBe(201);
+          const { invoice: open } = (await made.json()) as {
+            invoice: { id: string; number: string; currency: string; status: string };
+          };
+          expect(open).toMatchObject({ currency: "GBP", status: "open" });
+          const settle = (outcome: string) =>
+            paying.request(
+              `/api/instance/workspaces/${id}/invoices/${open.id}/settle`,
+              json({ outcome }, operator),
+            );
+          expect((await settle("refunded")).status).toBe(400);
+          const paid = await settle("paid");
+          expect(await paid.json()).toMatchObject({ invoice: { status: "paid" } });
+          expect((await settle("void")).status).toBe(409);
+          const actions = (
+            await db
+              .select({ action: schema.instanceEvents.action })
+              .from(schema.instanceEvents)
+              .where(eq(schema.instanceEvents.target, "Studio"))
+          ).map((e) => e.action);
+          expect(actions).toEqual(expect.arrayContaining(["invoice.created", "invoice.paid"]));
+          // The workspace's admins see it with the rest.
+          const theirs = await paying.request("/api/organisation/billing", {
+            headers: { cookie: admin },
+          });
+          expect(await theirs.json()).toMatchObject({
+            invoices: [
+              { number: open.number, status: "paid", description: "Joplin Rags mastering" },
+            ],
+          });
+        });
+
         it("takes the gateway's events only signed, and each once", async () => {
           const body = JSON.stringify({
             id: "evt_routes",
@@ -1741,6 +1789,44 @@ describe.runIf(url)("api", () => {
               result: "taken",
             }),
           ]);
+
+          // In the Gateway log, for operators, and taken again from there.
+          const operator = cookieOf(await setup());
+          const log = await paying.request("/api/instance/logs/gateway?range=24h", {
+            headers: { cookie: operator },
+          });
+          expect(await log.json()).toMatchObject({
+            rows: [
+              {
+                event: "payout.paid",
+                workspace: null,
+                amount: 118_000,
+                currency: "GBP",
+                result: "taken",
+              },
+            ],
+          });
+          const replay = (via = paying) =>
+            via.request(`/api/instance/gateway-events/${kept[0]?.id}/replay`, {
+              method: "POST",
+              headers: { cookie: operator },
+            });
+          const again = await replay();
+          expect(await again.json()).toEqual({ result: "taken" });
+          expect((await replay(asOperator)).status).toBe(409);
+          const [event] = await db
+            .select()
+            .from(schema.instanceEvents)
+            .where(eq(schema.instanceEvents.action, "debug.gateway_replayed"));
+          expect(event).toMatchObject({ target: "payout.paid", details: { result: "taken" } });
+          const csv = await (
+            await paying.request("/api/instance/logs/gateway/export", {
+              headers: { cookie: operator },
+            })
+          ).text();
+          expect(csv.split("\r\n")[0]).toBe(
+            '"received_at","gateway","event","workspace","summary","amount","currency","result"',
+          );
         });
       });
 

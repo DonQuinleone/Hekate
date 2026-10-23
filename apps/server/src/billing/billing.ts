@@ -7,12 +7,12 @@ import {
   type InvoiceStatus,
   type WorkspacePlan,
 } from "@hekate/shared";
-import { and, asc, desc, eq, isNotNull, isNull, lt, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { longDate } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
+import { recordInstanceEvent } from "../instance-events.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { assignPlan, workspacePlanOf } from "../plans.ts";
-import { recordInstanceEvent } from "../routes/instance.ts";
 import type { Fact, Gateway, GatewayEvent, InvoiceFacts } from "./gateway.ts";
 
 const {
@@ -52,6 +52,7 @@ const invoiceOf = (row: typeof invoices.$inferSelect): Invoice => ({
   id: row.id,
   source: row.source,
   number: row.number,
+  description: row.description,
   status: row.status,
   currency: row.currency,
   amountDue: row.amountDue,
@@ -301,6 +302,40 @@ export async function takeGatewayEvent(
   }
 }
 
+/**
+ * Take an event from the Gateway log again (#159's replay), as it was kept: what it means is
+ * read afresh, against the subscription or invoice as the gateway holds it now, so taking an
+ * old event again never undoes what came after it.
+ */
+export async function retakeGatewayEvent(
+  deps: BillingDeps,
+  id: string,
+): Promise<{ type: string; organisationId: string | null; result: string }> {
+  const gateway = deps.gateway;
+  if (!gateway) throw unavailable();
+  const [row] = await deps.db.select().from(gatewayEvents).where(eq(gatewayEvents.id, id));
+  if (!row) throw new NotFound("Gateway event");
+  if (row.gateway !== gateway.kind)
+    throw new CodedException(409, "other_gateway", `That event came from ${row.gateway}.`);
+  const { result } = await takeGatewayEvent(
+    deps,
+    gateway.kind,
+    {
+      id: row.eventId,
+      type: row.type,
+      occurredAt: row.occurredAt,
+      payload: row.payload,
+      fact: gateway.factOf(row.payload),
+    },
+    { again: true },
+  );
+  const [after] = await deps.db
+    .select({ organisationId: gatewayEvents.organisationId })
+    .from(gatewayEvents)
+    .where(eq(gatewayEvents.id, id));
+  return { type: row.type, organisationId: after?.organisationId ?? null, result };
+}
+
 interface Outcome {
   organisationId: string | null;
   summary: string | null;
@@ -427,18 +462,22 @@ async function act(
       const account = await accountOf(tx, gateway, fact.customerId);
       if (!account) return { ...none, result: "ignored: no workspace is this customer" };
       const organisationId = account.organisationId;
-      await keepInvoice(tx, organisationId, fact.invoice);
+      // As it stands now, as a subscription is: an event late or taken again cannot undo what
+      // came after it, nor mark a workspace that has paid since as owing.
+      const invoice = connected ? await connected.invoice(fact.invoice.gatewayId) : fact.invoice;
+      await keepInvoice(tx, organisationId, invoice);
+      const outcome = invoice.status === "paid" ? "paid" : fact.outcome;
       // Only the workspace's own subscription's invoices start or end dunning: not one made by
       // hand in the gateway, nor an old subscription's.
       const ours =
-        account.subscriptionId !== null && fact.invoice.subscriptionId === account.subscriptionId;
-      if (ours && fact.outcome === "failed") await markPastDue(tx, organisationId, at);
-      else if (ours && fact.outcome === "paid") await settle(tx, organisationId);
+        account.subscriptionId !== null && invoice.subscriptionId === account.subscriptionId;
+      if (ours && outcome === "failed") await markPastDue(tx, organisationId, at);
+      else if (ours && outcome === "paid") await settle(tx, organisationId);
       return {
         organisationId,
-        summary: fact.invoice.number,
-        amount: fact.outcome === "paid" ? fact.invoice.amountPaid : fact.invoice.amountDue,
-        currency: fact.invoice.currency,
+        summary: invoice.number,
+        amount: outcome === "paid" ? invoice.amountPaid : invoice.amountDue,
+        currency: invoice.currency,
         result: "taken",
       };
     }
@@ -676,4 +715,83 @@ async function tellOwners(deps: BillingDeps, organisationId: string, since: Date
       organisationId,
     );
   }
+}
+
+/**
+ * An invoice by hand (#178), for a plan by agreement: numbered in the instance's own series
+ * (`HK-0001`), open until an operator marks it paid or void. It is sent outside Hekate, and
+ * dunning leaves it to the operators.
+ */
+export async function invoiceByHand(
+  db: Database,
+  organisationId: string,
+  input: {
+    amount: number;
+    currency: string;
+    description: string;
+    periodStart: string | null;
+    periodEnd: string | null;
+    dueAt: string | null;
+  },
+): Promise<Invoice> {
+  return db.transaction(async (tx) => {
+    // One number at a time, so two at once cannot take the same.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('hekate:manual-invoices'))`);
+    const [counted] = await tx
+      .select({ n: count() })
+      .from(invoices)
+      // Across workspaces deliberately: the series is the instance's.
+      .where(eq(invoices.source, "manual"));
+    const [made] = await tx
+      .insert(invoices)
+      .values({
+        organisationId,
+        source: "manual",
+        number: `HK-${String((counted?.n ?? 0) + 1).padStart(4, "0")}`,
+        description: input.description,
+        status: "open",
+        currency: input.currency,
+        amountDue: input.amount,
+        periodStart: input.periodStart ? new Date(input.periodStart) : null,
+        periodEnd: input.periodEnd ? new Date(input.periodEnd) : null,
+        dueAt: input.dueAt ? new Date(input.dueAt) : null,
+        issuedAt: new Date(),
+      })
+      .returning();
+    if (!made) throw new Error("The invoice was not written");
+    return invoiceOf(made);
+  });
+}
+
+/** Settle an open invoice by hand: paid in full, or void. Only one made by hand. */
+export async function settleByHand(
+  db: Pick<Database, "update">,
+  organisationId: string,
+  invoiceId: string,
+  outcome: "paid" | "void",
+): Promise<Invoice> {
+  const [done] = await db
+    .update(invoices)
+    .set({
+      status: outcome,
+      ...(outcome === "paid" ? { amountPaid: sql`${invoices.amountDue}`, paidAt: new Date() } : {}),
+      updatedAt: new Date(),
+    })
+    .where(
+      inOrg(
+        invoices,
+        organisationId,
+        eq(invoices.id, invoiceId),
+        eq(invoices.source, "manual"),
+        eq(invoices.status, "open"),
+      ),
+    )
+    .returning();
+  if (!done)
+    throw new CodedException(
+      409,
+      "not_open",
+      "Only an open invoice made by hand can be settled here.",
+    );
+  return invoiceOf(done);
 }

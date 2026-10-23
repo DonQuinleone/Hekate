@@ -31,6 +31,8 @@ import {
   logKindParam,
   logQuery,
   type MailSuppression,
+  manualInvoiceInput,
+  manualInvoiceOutcome,
   nameMatches,
   newerReleases,
   newWorkspaceInput,
@@ -73,11 +75,19 @@ import { z } from "zod";
 import { confirmIdentity } from "../account-deletion.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
+import {
+  type BillingDeps,
+  invoiceByHand,
+  invoicesOf,
+  retakeGatewayEvent,
+  settleByHand,
+} from "../billing/billing.ts";
 import { workspaceEmail } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { replayDelivery } from "../events.ts";
 import { createFlags } from "../flags.ts";
 import { inspectFile, inspectReview, inspectSession } from "../inspect.ts";
+import { recordInstanceEvent } from "../instance-events.ts";
 import type { InstanceSettingsStore } from "../instance-settings.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
 import { type JobName, type Jobs, jobDefinitions } from "../jobs.ts";
@@ -121,6 +131,8 @@ export interface InstanceOptions {
   health: SystemHealthDeps;
   /** What the environment sets, shown beside the settings. */
   environment: InstanceEnvironment;
+  /** Billing (#178): the gateway, for taking its events again; none with billing off. */
+  billing?: BillingDeps;
 }
 
 interface InstanceVariables {
@@ -200,25 +212,8 @@ const operatorsOnly = createMiddleware<{ Variables: InstanceVariables }>(async (
   await next();
 });
 
-/** Writes what an operator did, for the Overview and the audit (#157). */
-export async function recordInstanceEvent(
-  db: Pick<Database, "insert">,
-  event: {
-    actorId: string | null;
-    action: string;
-    target?: string | null;
-    details?: Record<string, unknown>;
-    ipAddress?: string | null;
-  },
-) {
-  await db.insert(schema.instanceEvents).values({
-    actorId: event.actorId,
-    action: event.action,
-    target: event.target ?? null,
-    details: event.details ?? null,
-    ipAddress: event.ipAddress ?? null,
-  });
-}
+/** Writes what an operator did, for the Overview and the audit (#157); kept here for its callers. */
+export { recordInstanceEvent };
 
 const startOfToday = () => {
   const day = new Date();
@@ -393,6 +388,13 @@ export function instanceRoutes(options: InstanceOptions) {
       ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
     });
   const { db } = options;
+  const billingOff = () => (options.environment.modules?.billing ?? "off") === "off";
+  const billingOffRefusal = () =>
+    new CodedException(
+      409,
+      "billing_off",
+      "Plans and invoices apply once the billing module is on (HEKATE_BILLING).",
+    );
   return (
     new Hono<{ Variables: InstanceVariables }>()
       .use("*", requireInstance(options))
@@ -970,12 +972,7 @@ export function instanceRoutes(options: InstanceOptions) {
       // Its plan (#177), which sets its limits: only with the billing module on.
       .put("/workspaces/:id/plan", idParam, zValidator("json", workspacePlanInput), async (c) => {
         const { id } = c.req.valid("param");
-        if (!((options.environment.modules?.billing ?? "off") !== "off"))
-          throw new CodedException(
-            409,
-            "billing_off",
-            "Plans apply once the billing module is on (HEKATE_BILLING).",
-          );
+        if (billingOff()) throw billingOffRefusal();
         const input = c.req.valid("json");
         await db.transaction(async (tx) => {
           const name = await workspaceName(tx, id);
@@ -990,6 +987,60 @@ export function instanceRoutes(options: InstanceOptions) {
         });
         return c.json(await workspacePlanOf(db, id, true));
       })
+      // Its invoices (#178), and those made by hand for a plan by agreement: with billing on.
+      .get("/workspaces/:id/invoices", idParam, async (c) => {
+        const { id } = c.req.valid("param");
+        await workspaceName(db, id);
+        return c.json({ invoices: await invoicesOf(db, id) });
+      })
+      .post(
+        "/workspaces/:id/invoices",
+        idParam,
+        zValidator("json", manualInvoiceInput),
+        async (c) => {
+          const { id } = c.req.valid("param");
+          if (billingOff()) throw billingOffRefusal();
+          const name = await workspaceName(db, id);
+          const invoice = await invoiceByHand(db, id, c.req.valid("json"));
+          await recordInstanceEvent(db, {
+            actorId: c.var.userId,
+            action: "invoice.created",
+            target: name,
+            details: {
+              organisationId: id,
+              invoiceId: invoice.id,
+              number: invoice.number,
+              amount: invoice.amountDue,
+              currency: invoice.currency,
+            },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return c.json({ invoice }, 201);
+        },
+      )
+      .post(
+        "/workspaces/:id/invoices/:invoiceId/settle",
+        zValidator("param", z.object({ id: z.uuid(), invoiceId: z.uuid() })),
+        zValidator("json", manualInvoiceOutcome),
+        async (c) => {
+          const { id, invoiceId } = c.req.valid("param");
+          const { outcome } = c.req.valid("json");
+          if (billingOff()) throw billingOffRefusal();
+          const name = await workspaceName(db, id);
+          const invoice = await db.transaction(async (tx) => {
+            const settled = await settleByHand(tx, id, invoiceId, outcome);
+            await recordInstanceEvent(tx, {
+              actorId: c.var.userId,
+              action: outcome === "paid" ? "invoice.paid" : "invoice.voided",
+              target: name,
+              details: { organisationId: id, invoiceId, number: settled.number },
+              ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+            });
+            return settled;
+          });
+          return c.json({ invoice });
+        },
+      )
       // Suspending keeps everything and lets nobody in: members are told why, guests' links stop.
       .post(
         "/workspaces/:id/suspend",
@@ -1578,6 +1629,30 @@ export function instanceRoutes(options: InstanceOptions) {
             ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
           });
           return c.json({ delivery: made.id }, 202);
+        },
+      )
+      // An event from the billing gateway taken again (#178), from the Gateway log.
+      .use("/gateway-events/*", operatorsOnly)
+      .post(
+        "/gateway-events/:id/replay",
+        zValidator("param", z.object({ id: z.uuid() })),
+        async (c) => {
+          const { id } = c.req.valid("param");
+          if (!options.billing?.gateway)
+            throw new CodedException(409, "billing_off", "Billing is off: there is no gateway.");
+          const taken = await retakeGatewayEvent(options.billing, id);
+          await recordInstanceEvent(db, {
+            actorId: c.var.userId,
+            action: "debug.gateway_replayed",
+            target: taken.type,
+            details: {
+              gatewayEventId: id,
+              organisationId: taken.organisationId,
+              result: taken.result,
+            },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return c.json({ result: taken.result });
         },
       )
       // System information (#158): what runs, what is newer, and what it runs on.

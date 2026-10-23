@@ -108,6 +108,16 @@ export function stripeGateway(options: {
         proration_behavior: "create_prorations",
       });
     },
+    async invoice(invoiceId) {
+      const invoice = await stripe.request<Record<string, unknown>>(
+        "GET",
+        `/v1/invoices/${invoiceId}`,
+      );
+      const facts = invoiceFacts(invoice);
+      if (!facts) throw new Error(`Stripe's invoice ${invoiceId} cannot be read`);
+      return facts.invoice;
+    },
+    factOf: (payload) => stripeFact(payload as StripeEvent),
     async portal({ customerId, returnUrl }) {
       const session = await stripe.request<{ url: string }>("POST", "/v1/billing_portal/sessions", {
         customer: customerId,
@@ -184,6 +194,35 @@ function subscriptionFact(o: Obj, ended: boolean): SubscriptionFact | null {
   };
 }
 
+/** A Stripe invoice, read here, with the customer it is for. */
+function invoiceFacts(o: Obj): { customerId: string; invoice: InvoiceFacts } | null {
+  const customerId = idOf(o.customer);
+  const gatewayId = str(o.id);
+  const issuedAt = time(o.created);
+  if (!customerId || !gatewayId || !issuedAt) return null;
+  const line = obj(firstOf(o.lines).period);
+  return {
+    customerId,
+    invoice: {
+      gatewayId,
+      // Under its parent from 2025's API versions, on the invoice before.
+      subscriptionId:
+        idOf(obj(obj(o.parent).subscription_details).subscription) ?? idOf(o.subscription),
+      number: str(o.number),
+      status: invoiceStatuses.find((s) => s === o.status) ?? "open",
+      currency: (str(o.currency) ?? "gbp").toUpperCase(),
+      amountDue: num(o.amount_due) ?? 0,
+      amountPaid: num(o.amount_paid) ?? 0,
+      periodStart: time(line.start) ?? time(o.period_start),
+      periodEnd: time(line.end) ?? time(o.period_end),
+      issuedAt,
+      dueAt: time(o.due_date),
+      paidAt: time(obj(o.status_transitions).paid_at),
+      url: str(o.hosted_invoice_url),
+    },
+  };
+}
+
 /** What a Stripe event means here. Pure: what it reads is what the event carries. */
 export function stripeFact(event: StripeEvent): Fact {
   const o = event.data.object;
@@ -198,36 +237,15 @@ export function stripeFact(event: StripeEvent): Fact {
   if (event.type.startsWith("customer.subscription."))
     return subscriptionFact(o, event.type === "customer.subscription.deleted") ?? { kind: "other" };
   if (event.type.startsWith("invoice.")) {
-    const customerId = idOf(o.customer);
-    const gatewayId = str(o.id);
-    const issuedAt = time(o.created);
-    if (!customerId || !gatewayId || !issuedAt) return { kind: "other" };
-    const line = obj(firstOf(o.lines).period);
-    const status = invoiceStatuses.find((s) => s === o.status) ?? "open";
-    const invoice: InvoiceFacts = {
-      gatewayId,
-      // Under its parent from 2025's API versions, on the invoice before.
-      subscriptionId:
-        idOf(obj(obj(o.parent).subscription_details).subscription) ?? idOf(o.subscription),
-      number: str(o.number),
-      status,
-      currency: (str(o.currency) ?? "gbp").toUpperCase(),
-      amountDue: num(o.amount_due) ?? 0,
-      amountPaid: num(o.amount_paid) ?? 0,
-      periodStart: time(line.start) ?? time(o.period_start),
-      periodEnd: time(line.end) ?? time(o.period_end),
-      issuedAt,
-      dueAt: time(o.due_date),
-      paidAt: time(obj(o.status_transitions).paid_at),
-      url: str(o.hosted_invoice_url),
-    };
+    const read = invoiceFacts(o);
+    if (!read) return { kind: "other" };
     const outcome =
       event.type === "invoice.paid"
         ? "paid"
         : event.type === "invoice.payment_failed"
           ? "failed"
           : null;
-    return { kind: "invoice", customerId, invoice, outcome };
+    return { kind: "invoice", ...read, outcome };
   }
   if (event.type.startsWith("payout.")) {
     const amount = num(o.amount);

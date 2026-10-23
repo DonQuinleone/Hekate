@@ -26,6 +26,10 @@ export interface Gateway {
   closeCheckout(id: string): Promise<"closed" | "complete">;
   /** A subscription as it stands now: what its events are read against, whatever their order. */
   subscription(subscriptionId: string): Promise<SubscriptionFact>;
+  /** An invoice as it stands now, likewise. */
+  invoice(invoiceId: string): Promise<InvoiceFacts>;
+  /** What an event kept in the gateway log means, to take it again (#159's replay). */
+  factOf(payload: unknown): Fact;
   /** Move a subscription to another plan, the difference pro-rated. */
   changePlan(input: { subscriptionId: string; plan: PricedPlan }): Promise<void>;
   /** Where an owner changes the card and billing details, and reads past invoices. */

@@ -1423,3 +1423,13 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **Dunning.** Counted from the first failed payment of the workspace's own subscription (not an invoice made by hand in Stripe, nor an old subscription's): the owners are warned at 7 and 14 days, and the workspace is suspended at 21, by an hourly job that claims each step in the database first so it is taken once. Telling the owners is kept apart from the step, and tried again each hour until the mail goes. It runs only while the gateway that would settle it is on. A payment ends it and reopens a workspace dunning suspended; one an operator suspended or set to be deleted stays as it is. Nothing is deleted for want of payment.
 - **Test mode only, for now.** `STRIPE_SECRET_KEY` takes `sk_test_` and `rk_test_` keys; live keys come with the hosted offering. The test the issue asks for (a test clock driving a trial to conversion and a failed payment to suspension) runs against Stripe's test mode where `STRIPE_TEST_SECRET_KEY` is set, reading the events back from Stripe since a test cannot receive webhooks.
 - **Expanding only:** four new tables (decision 198).
+
+## 211. The Gateway log, events taken again, and invoices by hand
+
+#178, the second part.
+
+- **Every event read against now.** An invoice's event, like a subscription's (decision 210), is read against the invoice as the gateway holds it now. Events can then be taken again from Debug tools without risk: the stored event says which invoice or subscription, and the gateway says where it stands, so an old failure taken again after a payment owes nothing.
+- **The Gateway log** is `gateway_events` as a log kind, shown only with billing on. It is kept for good rather than trimmed with the other logs: it is the instance's record of what it was paid, and it grows by a handful of rows a workspace a month.
+- **Invoices by hand** are for plans by agreement: an operator makes one (amount, currency, what it is for, its period and due date), numbered in the instance's own series under a lock (`HK-0001`), and marks it paid or void by hand. They are not sent from Hekate and dunning does not chase them: the operator who agreed the plan does. Only an open invoice made by hand can be settled by hand; a gateway's are the gateway's.
+- **`recordInstanceEvent`** moves to its own module, so billing and the instance's routes can both use it without importing each other.
+- **Expanding only:** a nullable column (decision 198).
