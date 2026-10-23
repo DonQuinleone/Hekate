@@ -47,6 +47,8 @@ export interface Seeded {
   printFileId: string;
   /** The approval the booklet went through. */
   signOffId: string;
+  /** The label's logo (#185), as its public pages are told it. */
+  brandLogo: { url: string; width: number; height: number };
 }
 
 export const seeded = (): Seeded =>

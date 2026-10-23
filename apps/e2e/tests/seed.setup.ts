@@ -925,6 +925,39 @@ setup("seed", async ({ page, browser }) => {
     kinds: { guest_opened: { app: true, mail: false } },
   });
 
+  // The label's branding (#185): a logo and an accent, which every guest page then shows.
+  const logoPath = join(media, "endless-hall-logo.png");
+  execFileSync("ffmpeg", [
+    ...["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi"],
+    "-i",
+    [
+      "color=c=black@0.0:s=480x128",
+      "format=rgba",
+      "drawbox=x=0:y=24:w=80:h=80:color=0x4fb3a9@1:t=fill",
+      "drawbox=x=104:y=40:w=360:h=18:color=0xf4f4f5@1:t=fill",
+      "drawbox=x=104:y=72:w=220:h=14:color=0xa1a1aa@1:t=fill",
+    ].join(","),
+    ...["-frames:v", "1", "-c:v", "png", "-f", "image2", "-update", "1", logoPath],
+  ]);
+  const branded = await page.request.post("/api/organisation/branding/logo", {
+    headers: { "content-type": "image/png" },
+    data: readFileSync(logoPath),
+  });
+  expect(branded.ok(), await branded.text()).toBe(true);
+  const { branding } = await api<{
+    branding: { logo: { blobId: string; width: number; height: number } };
+  }>(page, "PUT", "/api/organisation/branding/accent", { accent: "#4fb3a9" });
+  const { activeOrganisationId: label } = await api<{ activeOrganisationId: string }>(
+    page,
+    "GET",
+    "/api/me",
+  );
+  const brandLogo = {
+    url: `/api/branding/${label}/logo/${branding.logo.blobId}`,
+    width: branding.logo.width,
+    height: branding.logo.height,
+  };
+
   // An invitation waiting to be accepted.
   const { link: invitation } = await api<{ link: string }>(
     page,
@@ -1735,6 +1768,7 @@ setup("seed", async ({ page, browser }) => {
     bookletFileId: proof,
     printFileId: booklet("Print files"),
     signOffId: signOff.id,
+    brandLogo,
   };
   writeFileSync(join(state, "seeded.json"), JSON.stringify(seeded, null, 2));
   await page.context().storageState({ path: join(state, "owner.json") });

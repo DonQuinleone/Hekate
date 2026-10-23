@@ -479,6 +479,12 @@ const screens: Screen[] = [
     path: () => "/settings/security",
     ready: "main >> text=Directory (LDAP)",
   },
+  // The label's logo and accent (#185), seeded, with the preview in each theme.
+  {
+    name: "settings-branding",
+    path: () => "/settings/branding",
+    ready: "main >> text=Light · #30736c",
+  },
   {
     name: "settings-email",
     path: () => "/settings/email",
@@ -575,11 +581,65 @@ function capture(screen: Screen) {
 test.describe("signed out", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
   for (const screen of screens.filter((s) => s.as === "signed-out")) capture(screen);
+
+  // The sign-in page at a workspace's own address (#176) carries its logo and accent (#185).
+  // The suite runs without workspace subdomains, so the answer a workspace's host gives is
+  // stood in for, with the label's real logo.
+  test("sign-in-workspace-branded", async ({ page }) => {
+    await page.route("**/api/sign-in-methods", (route) =>
+      route.fulfill({
+        json: {
+          directory: false,
+          sso: false,
+          root: "http://localhost:3990",
+          workspace: {
+            name: "Endless Hall Records",
+            slug: "endless-hall-records",
+            providerId: null,
+            branding: {
+              logo: seeded().brandLogo,
+              accent: { dark: "#4fb3a9", light: "#30736c" },
+            },
+          },
+        },
+      }),
+    );
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto("/sign-in");
+    await settle(page, "text=Sign in to Endless Hall Records");
+    await expect(page.getByRole("img", { name: "Endless Hall Records" })).toBeVisible();
+    await saveScreen(page, "sign-in-workspace-branded");
+    await checkScreen(page);
+  });
 });
 
 test.describe("guest", () => {
   test.use({ storageState: join(state, "guest.json") });
+  // Every guest page carries the label's logo and accent (#185), seeded.
   for (const screen of screens.filter((s) => s.as === "guest")) capture(screen);
+
+  // In the light theme, the accent's darker cut, which holds 4.5:1 there.
+  test("guest-review-branded-light", async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem("hekate.theme", "signal-light");
+      } catch {}
+    });
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto(`/g/reviews/${seeded().reviewId}`);
+    await settle(page, "h1:has-text('Album masters')");
+    await expect(page.getByRole("link", { name: "Your reviews" }).getByRole("img")).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          getComputedStyle(document.documentElement).getPropertyValue("--hk-signal").trim(),
+        ),
+      )
+      .toBe("#30736c");
+    await showWhole(page);
+    await saveScreen(page, "guest-review-branded-light");
+    await checkScreen(page);
+  });
 
   // A guest their review lets invite others (#55): the Reviewers section's Invite, open. The
   // review's answer is amended in this page alone, so no other capture sees the grant.
