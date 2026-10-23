@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { basename } from "node:path";
 import { type EmbeddedMetadata, type MediaInfo, mediaInfo, timecodePattern } from "@hekate/shared";
+import { inSpan } from "../telemetry.ts";
 import { readWaveChunks, tagsOf } from "./metadata.ts";
 
 /**
@@ -85,8 +87,21 @@ export interface RunResult {
   stderr: string;
 }
 
-/** Run a media tool without a shell. Arguments are passed as a list, never interpolated. */
+/**
+ * Run a media tool without a shell. Arguments are passed as a list, never interpolated. Each run
+ * is a span (#162) named by the tool, with how many arguments it had but never what they were:
+ * they hold paths and titles.
+ */
 export function run(command: string, args: string[], options: RunOptions = {}): Promise<RunResult> {
+  const tool = basename(command);
+  return inSpan(
+    tool,
+    { "process.executable.name": tool, "hekate.media.arguments": args.length },
+    () => spawned(command, args, options),
+  );
+}
+
+function spawned(command: string, args: string[], options: RunOptions): Promise<RunResult> {
   const { timeoutMs = 10 * 60_000, signal, maxOutput = 4 * 1024 * 1024, env } = options;
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {

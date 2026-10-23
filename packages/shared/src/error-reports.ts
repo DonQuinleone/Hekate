@@ -68,6 +68,8 @@ export interface ErrorReport extends ErrorReportRow {
   stack: string | null;
   requestId: string | null;
   jobId: string | null;
+  /** The OpenTelemetry trace it happened in (#162), where the instance sends traces. */
+  traceId: string | null;
   /** The job's data: identifiers only, never media or secrets. */
   context: Record<string, unknown> | null;
   workspaceId: string | null;
@@ -85,6 +87,7 @@ export function errorReportText(report: ErrorReport): string {
     report.status ? `Status: ${report.status}` : null,
     report.requestId ? `Request: ${report.requestId}` : null,
     report.jobId ? `Job: ${report.jobId}` : null,
+    report.traceId ? `Trace: ${report.traceId}` : null,
     report.context ? `Data: ${JSON.stringify(report.context)}` : null,
     report.stack,
   ];

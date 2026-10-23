@@ -506,6 +506,8 @@ interface Err {
   message: string;
   request: string;
   job?: string;
+  /** Where the instance sends traces (#162). */
+  trace?: string;
   stack: string;
 }
 const errors: Err[] = [
@@ -518,6 +520,7 @@ const errors: Err[] = [
     message: "Could not render page 7 of Solace - Score.pdf: damaged cross-reference table.",
     request: "req_01HX…9Q",
     job: "j-8f1c",
+    trace: "4bf92f3577b34da6a3ce929d0e0e4736",
     stack:
       "PdfError: xref entry 41 points outside the file\n    at parseXref (pages/pdf.ts:188:11)\n    at renderPage (pages/render.ts:62:9)\n    at Worker.run (worker/index.ts:140:17)",
   },
@@ -2123,6 +2126,12 @@ export function InstancePage({ section }: { section: string }) {
                       <span>
                         <span className="text-ink-3">Job </span>
                         <span className="tabular text-ink-2">{found.job}</span>
+                      </span>
+                    )}
+                    {found.trace && (
+                      <span className="[overflow-wrap:anywhere]">
+                        <span className="text-ink-3">Trace </span>
+                        <span className="tabular text-ink-2">{found.trace}</span>
                       </span>
                     )}
                   </div>

@@ -1,7 +1,9 @@
+import { SpanKind } from "@opentelemetry/api";
 import { type Job, PgBoss, type QueueOptions } from "pg-boss";
 import { z } from "zod";
 import { concurrencyIn, type Lane, type LanePlan } from "./lanes.ts";
 import { metrics } from "./metrics/index.ts";
+import { inSpan } from "./telemetry.ts";
 
 /**
  * Background work, queued in PostgreSQL with pg-boss. Every job has a name, a
@@ -264,12 +266,33 @@ let busy = 0;
  * Runs one attempt of a job. When it fails and no retry is left, `onFailure` hears of it before
  * the queue does (#159); the error still reaches the queue, which marks the job failed.
  */
-export async function runJob<N extends JobName>(
+export function runJob<N extends JobName>(
   name: N,
   job: { id: string; data: unknown; signal: AbortSignal; retryCount: number },
   handler: JobHandler<N>,
   onFailure?: (failure: JobFailure) => Promise<void>,
   /** Whether to log each job's start, end and time (the `worker.verbose` flag). */
+  verbose?: () => Promise<boolean>,
+): Promise<void> {
+  // A trace of its own (#162), named by the queue; its data stays out of it.
+  return inSpan(
+    `job ${name}`,
+    {
+      "messaging.system": "pg-boss",
+      "messaging.destination.name": name,
+      "messaging.message.id": job.id,
+      "hekate.job.attempt": job.retryCount + 1,
+    },
+    () => attempt(name, job, handler, onFailure, verbose),
+    SpanKind.CONSUMER,
+  );
+}
+
+async function attempt<N extends JobName>(
+  name: N,
+  job: { id: string; data: unknown; signal: AbortSignal; retryCount: number },
+  handler: JobHandler<N>,
+  onFailure?: (failure: JobFailure) => Promise<void>,
   verbose?: () => Promise<boolean>,
 ): Promise<void> {
   const loud = (await verbose?.().catch(() => false)) ?? false;

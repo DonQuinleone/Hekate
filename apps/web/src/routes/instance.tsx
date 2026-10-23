@@ -400,6 +400,11 @@ function Debug() {
                     {r.jobId}
                   </Fact>
                 )}
+                {r.traceId && (
+                  <Fact term="Trace" tabular>
+                    {r.traceId}
+                  </Fact>
+                )}
                 {r.status && (
                   <Fact term="Status" tabular>
                     {r.status}

@@ -100,6 +100,7 @@ import { workspaceMailRoutes } from "./routes/workspace-mail.ts";
 import { securityHeaders } from "./security-headers.ts";
 import type { SetupGate } from "./setup-code.ts";
 import type { Storage } from "./storage.ts";
+import { traced } from "./telemetry.ts";
 import { requireOrganisation, requireSession } from "./tenancy.ts";
 import { type RunnerDeps, reviewSettled } from "./workflow-runner.ts";
 
@@ -619,6 +620,8 @@ export function createApp(given: AppDeps) {
   app.use("*", securityHeaders({ https: deps.publicUrl.startsWith("https://") }));
   // For Prometheus (#70): only with a token, and never through the API's own middleware.
   app.get("/metrics", metricsHandler(deps.metricsToken));
+  // A span for each request (#162), around everything else so the rest happens inside it.
+  app.use("/api/*", traced);
   app.use("/api/*", countRequests);
   app.use("/api/*", requestId);
   if (deps.log !== false) app.use("/api/*", logger());

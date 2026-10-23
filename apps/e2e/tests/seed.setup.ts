@@ -1239,6 +1239,7 @@ setup("seed", async ({ page, browser }) => {
         status: 500,
         request_id: "req_0199e3a1-7c2f-7b40-9a51-4f2d8c1e09aa",
         job_id: null,
+        trace_id: "4bf92f3577b34da6a3ce929d0e0e4736",
         context: null,
         organisation_id: label?.id ?? null,
         user_id: alex?.id ?? null,
@@ -1253,6 +1254,7 @@ setup("seed", async ({ page, browser }) => {
         status: null,
         request_id: null,
         job_id: "0199e3a4-12c0-7d1e-b3f0-6a2e91c4d7f1",
+        trace_id: null,
         context: null,
         organisation_id: null,
         user_id: null,
@@ -1268,14 +1270,15 @@ setup("seed", async ({ page, browser }) => {
         status: null,
         request_id: null,
         job_id: "0199e3a6-8f1c-7a02-8e44-2b7d0c9f3a15",
+        trace_id: "7d1e0c4a9b2f48e1a3c5f60b2e8d9a17",
         context: { organisationId: label?.id, fileId: score },
         organisation_id: label?.id ?? null,
         user_id: null,
       },
     ];
     for (const r of reports)
-      await sql`insert into error_reports (id, reference, source, location, message, stack, status, request_id, job_id, context, organisation_id, user_id)
-        values (gen_random_uuid(), ${r.reference}, ${r.source}, ${r.location}, ${r.message}, ${r.stack}, ${r.status}, ${r.request_id}, ${r.job_id}, ${r.context ? sql.json(r.context) : null}, ${r.organisation_id}, ${r.user_id})`;
+      await sql`insert into error_reports (id, reference, source, location, message, stack, status, request_id, job_id, trace_id, context, organisation_id, user_id)
+        values (gen_random_uuid(), ${r.reference}, ${r.source}, ${r.location}, ${r.message}, ${r.stack}, ${r.status}, ${r.request_id}, ${r.job_id}, ${r.trace_id}, ${r.context ? sql.json(r.context) : null}, ${r.organisation_id}, ${r.user_id})`;
 
     // Where the workspace's events go (#161): a Slack channel, a Teams one and a webhook that
     // kept failing and paused, with a few deliveries for the webhook log. Their addresses are

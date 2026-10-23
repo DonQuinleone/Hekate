@@ -1,6 +1,6 @@
 ---
 title: Monitoring
-description: Liveness and readiness probes, Prometheus metrics at /metrics, what each one says, the System health page and a Grafana dashboard.
+description: Liveness and readiness probes, Prometheus metrics at /metrics, what each one says, traces and logs to an OpenTelemetry collector, the System health page and a Grafana dashboard.
 ---
 
 Hekate tells Prometheus how it is doing at `/metrics`, in the text exposition format. It is off until you give it a token.
@@ -70,6 +70,31 @@ Workspaces are named by their id, never their name, and routes by their pattern 
 | `hekate_signins_total`, `hekate_signins_refused_total` | counter | method | Sign-ins by password, passkey, directory or single sign-on, and those refused. |
 
 Key issues, page renders and downloads are counted as they are written to the access log, which stays the record of who saw what; the metrics only say how much.
+
+## Traces and logs
+
+Hekate sends traces and logs to an OpenTelemetry collector of your choosing, over OTLP/HTTP, once you name one. Nothing is sent until you do, and nothing goes anywhere else.
+
+```sh
+# .env
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+# Optional: a collector's credentials, as name=value pairs separated by commas (or OTEL_EXPORTER_OTLP_HEADERS_FILE).
+OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20…
+# Optional: worth setting where several instances send to one collector.
+OTEL_SERVICE_NAME=hekate-endless-hall
+```
+
+Hekate adds `/v1/traces` and `/v1/logs` to the address itself, so give the collector's base address. Any backend that takes OTLP works behind it: Grafana Tempo and Loki, Jaeger, Honeycomb, SigNoz and others.
+
+| Span | Named | Carries |
+| --- | --- | --- |
+| A request | Its method and route, such as `GET /api/files/:id` | The method, route and status. A 5xx marks it failed. A caller's `traceparent` is continued. |
+| A job | `job` and its queue, such as `job document-render` | The queue, the job's id and the attempt. A failure marks it, with the error. |
+| A media tool run | The tool, such as `ffmpeg` | How many arguments it had, never what they were: they hold file names and titles. |
+
+Routes are named by their pattern, never the path asked for, and a job's data stays out of its span, as with the metrics. Every line the server writes to its log is also sent as a log record, in the trace it was written in, so a collector can show a request's lines beside its spans; the log on stdout is unchanged.
+
+An error reference (in **Debug tools**) carries the trace it happened in, so you can go from the reference someone quotes to the trace, and from a failed span to the reference in its log line.
 
 ## System health
 

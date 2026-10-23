@@ -27,6 +27,7 @@ export const fileSettings = [
   "MASTER_KEY",
   "MASTER_KEYS_PREVIOUS",
   "METRICS_TOKEN",
+  "OTEL_EXPORTER_OTLP_HEADERS",
 ];
 
 export function withFileSettings(env: Record<string, string | undefined>) {
@@ -125,6 +126,39 @@ const schema = z.object({
           "Turns on `/metrics` for Prometheus (#70): a scraper sends it as a bearer token. Unset, there is no `/metrics`.",
         example: "(openssl rand -hex 32)",
         secret: true,
+      }),
+    ),
+  OTEL_EXPORTER_OTLP_ENDPOINT: z
+    .url({ error: "must be the collector's OTLP/HTTP address, such as http://otel:4318" })
+    .optional()
+    .meta(
+      info({
+        group: "Server",
+        description:
+          "Sends traces and logs to this OpenTelemetry collector over OTLP/HTTP (#162): a span for each request, job and media tool run, and every log line. Unset, nothing is sent.",
+        example: "http://otel-collector:4318",
+      }),
+    ),
+  OTEL_EXPORTER_OTLP_HEADERS: z
+    .string()
+    .optional()
+    .meta(
+      info({
+        group: "Server",
+        description:
+          "Headers sent with every export, as name=value pairs separated by commas: a collector's credentials, say.",
+        example: "authorization=Bearer%20(token)",
+        secret: true,
+      }),
+    ),
+  OTEL_SERVICE_NAME: z
+    .string()
+    .default("hekate")
+    .meta(
+      info({
+        group: "Server",
+        description:
+          "The service name traces and logs carry: worth setting where several instances send to one collector.",
       }),
     ),
   TRUSTED_ORIGINS: list.meta(
