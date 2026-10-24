@@ -1361,16 +1361,19 @@ export const files = pgTable(
     /**
      * The file this one replaces, in a simple version chain of loose files (#149): each has
      * at most one later version, and the chain is the files linked this way, oldest first.
-     * Kept by the routes under the project's lock for now; its foreign key and uniqueness
-     * follow in a later release (#427), as constraining an existing table contracts (decision 198).
+     * The routes keep it free of loops under the project's lock; the database holds the rest
+     * (#427): the file it names exists (a deleted one leaves null), and no two files name the
+     * same one.
      */
-    previousFileId: uuid("previous_file_id"),
+    previousFileId: uuid("previous_file_id").references((): AnyPgColumn => files.id, {
+      onDelete: "set null",
+    }),
     uploadedBy: text("uploaded_by").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (t) => [
     index("files_search_idx").using("gin", searchVector(sql`coalesce(${t.name}, '')`)),
-    index("files_previous_idx").on(t.previousFileId),
+    uniqueIndex("files_previous_unique").on(t.previousFileId),
     index("files_org_idx").on(t.organisationId),
     index("files_project_folder_idx").on(t.projectId, t.folderId),
     index("files_take_idx").on(t.takeId),

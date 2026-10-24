@@ -20048,6 +20048,10 @@ describe.runIf(url)("api", () => {
         const third = await s.file("Mix v5.wav");
         // One later version each, and no loops.
         expect((await next(s.mix, third)).status).toBe(409);
+        // The database holds it too (#427): a second later version is refused there.
+        await expect(
+          db.update(schema.files).set({ previousFileId: s.mix }).where(eq(schema.files.id, third)),
+        ).rejects.toThrow();
         expect((await next(s.stem, s.mix)).status).toBe(409);
         expect((await next(third, s.mix)).status).toBe(409);
         expect((await next(s.stem, s.stem)).status).toBe(422);

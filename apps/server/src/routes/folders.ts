@@ -343,8 +343,9 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
           });
         }
         // A file taken out of a version chain closes the gap: the one after it follows the
-        // one before, or starts the chain where this one did (#149).
-        const next = await nextOf(tx, actor.organisationId, id);
+        // one before. The first of a chain needs nothing more: the foreign key leaves the next
+        // one starting the chain (#149, #427).
+        const next = file.previousFileId ? await nextOf(tx, actor.organisationId, id) : undefined;
         await tx.delete(files).where(inOrg(files, actor.organisationId, eq(files.id, id)));
         if (next) {
           await tx
