@@ -1,3 +1,5 @@
+import { FONT_OBJECTS, fontEntries, fontObjects, fontsUsed } from "./pdf-text.ts";
+
 /**
  * A PDF made of pictures, one a page, written as the pages come so that a long document is
  * never held at once (#136): how a marked document leaves as a download. Each page is a JPEG
@@ -15,22 +17,26 @@ export interface PdfPage {
   points: { width: number; height: number };
   /**
    * Drawn over the picture: PDF drawing operators in the page's points, in ASCII, that may
-   * set text in /H (Helvetica) or /HO (Helvetica Oblique). See score-overlay.ts.
+   * set text in /H (Helvetica) or /HO (Helvetica Oblique), or in the embedded Unicode fonts
+   * (pdf-text.ts). See score-overlay.ts.
    */
   overlay?: string;
 }
 
-/** The standard fonts an overlay may use: every PDF reader has them, so none is embedded. */
+/**
+ * The standard fonts an overlay may use: every PDF reader has them, so none is embedded. The
+ * Unicode fonts text outside WinAnsi needs (decision 238) follow, embedded, where a page uses them.
+ */
 const font = (key: string, name: string) =>
   `/${key} << /Type /Font /Subtype /Type1 /BaseFont /${name} /Encoding /WinAnsiEncoding >>`;
-const FONTS = `/Font << ${font("H", "Helvetica")} ${font("HO", "Helvetica-Oblique")} >>`;
+const fonts = (embedded = "") =>
+  `/Font << ${font("H", "Helvetica")} ${font("HO", "Helvetica-Oblique")}${embedded} >>`;
 /** And for a page of text: Helvetica, oblique and bold. */
-const TEXT_FONTS = `<< ${font("H", "Helvetica")} ${font("HO", "Helvetica-Oblique")} ${font("HB", "Helvetica-Bold")} >>`;
+const textFonts = (embedded = "") =>
+  `<< ${font("H", "Helvetica")} ${font("HO", "Helvetica-Oblique")} ${font("HB", "Helvetica-Bold")}${embedded} >>`;
 
 const CATALOG = 1;
 const PAGES = 2;
-/** Each page takes three objects: the picture, what draws it, and the page itself. */
-const firstObjectOf = (index: number) => 3 + index * 3;
 
 /** A number as PDF writes it: at most two decimals, no exponent. */
 const num = (n: number) => String(Math.round(n * 100) / 100);
@@ -57,8 +63,30 @@ export async function* pdfOf(pages: AsyncIterable<PdfPage>): AsyncGenerator<Buff
   // with the first page, so nothing leaves until a page has been made.
   const header = emit("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n");
   let count = 0;
+  // Each page takes three objects (the picture, what draws it, the page itself); an embedded
+  // font takes its objects from the first page to use it, and is written at the end, with
+  // every glyph the pages used.
+  let next = 3;
+  const kidsOf: number[] = [];
+  const glyphs = new Map<string, Set<number>>();
+  const fontAt = new Map<string, number>();
   for await (const page of pages) {
-    const image = firstObjectOf(count);
+    const image = next;
+    next += 3;
+    kidsOf.push(image + 2);
+    const used = page.overlay ? fontsUsed([page.overlay]) : new Map<string, Set<number>>();
+    const onPage = new Map<string, number>();
+    for (const [key, set] of used) {
+      let at = fontAt.get(key);
+      if (at === undefined) {
+        at = next;
+        next += FONT_OBJECTS;
+        fontAt.set(key, at);
+        glyphs.set(key, new Set());
+      }
+      for (const g of set) glyphs.get(key)?.add(g);
+      onPage.set(key, at);
+    }
     const { width, height } = page.points;
     const draw =
       `q ${num(width)} 0 0 ${num(height)} 0 0 cm /P Do Q` +
@@ -75,16 +103,20 @@ export async function* pdfOf(pages: AsyncIterable<PdfPage>): AsyncGenerator<Buff
     yield object(
       image + 2,
       `<< /Type /Page /Parent ${PAGES} 0 R /MediaBox [0 0 ${num(width)} ${num(height)}]` +
-        ` /Resources << /XObject << /P ${image} 0 R >>${page.overlay ? ` ${FONTS}` : ""} >>` +
+        ` /Resources << /XObject << /P ${image} 0 R >>${page.overlay ? ` ${fonts(fontEntries(onPage))}` : ""} >>` +
         ` /Contents ${image + 1} 0 R >>`,
     );
     count++;
   }
   if (count === 0) throw new Error("A PDF needs at least one page");
-  const kids = Array.from({ length: count }, (_, i) => `${firstObjectOf(i) + 2} 0 R`).join(" ");
+  for (const [key, at] of fontAt) {
+    const bodies = fontObjects(key, glyphs.get(key) ?? new Set(), at);
+    for (const [i, body] of bodies.entries()) yield object(at + i, body);
+  }
+  const kids = kidsOf.map((n) => `${n} 0 R`).join(" ");
   yield object(PAGES, `<< /Type /Pages /Kids [${kids}] /Count ${count} >>`);
   yield object(CATALOG, `<< /Type /Catalog /Pages ${PAGES} 0 R >>`);
-  const size = firstObjectOf(count);
+  const size = next;
   const xref = written;
   // Each entry is exactly twenty bytes, as the format requires.
   const entries = ["0000000000 65535 f \n"];
@@ -123,7 +155,8 @@ export function jpegSize(jpeg: Buffer): { width: number; height: number } {
 
 /**
  * A PDF of text, a page for each drawing given (PDF operators in points, ASCII only, setting text
- * in /H, /HO or /HB): how a list such as the patch list leaves as a PDF (#54).
+ * in /H, /HO or /HB, or the embedded Unicode fonts): how a list such as the patch list leaves as
+ * a PDF (#54).
  */
 export function textPdfOf(
   pages: { points: { width: number; height: number }; content: string }[],
@@ -134,7 +167,15 @@ export function textPdfOf(
   add(`<< /Type /Catalog /Pages 2 0 R >>`);
   const kids = pages.map((_, i) => `${4 + i * 2} 0 R`).join(" ");
   add(`<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`);
-  add(TEXT_FONTS);
+  // The embedded fonts follow the pages.
+  const used = fontsUsed(pages.map((p) => p.content));
+  const fontAt = new Map<string, number>();
+  let next = 4 + pages.length * 2;
+  for (const key of used.keys()) {
+    fontAt.set(key, next);
+    next += FONT_OBJECTS;
+  }
+  add(textFonts(fontEntries(fontAt)));
   for (const page of pages) {
     const { width, height } = page.points;
     add(
@@ -142,6 +183,9 @@ export function textPdfOf(
         ` /Resources << /Font 3 0 R >> /Contents ${objects.length + 2} 0 R >>`,
     );
     add(`<< /Length ${page.content.length} >>\nstream\n${page.content}\nendstream`);
+  }
+  for (const [key, at] of fontAt) {
+    for (const body of fontObjects(key, used.get(key) ?? new Set(), at)) add(body);
   }
   let out = "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n";
   const offsets: number[] = [];

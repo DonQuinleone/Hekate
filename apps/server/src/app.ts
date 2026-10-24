@@ -59,6 +59,7 @@ import {
 import { editDecisionRoutes } from "./routes/edit-decisions.ts";
 import { fileDetailRoutes } from "./routes/file-details.ts";
 import { fileManageRoutes, folderRoutes, projectFolderRoutes } from "./routes/folders.ts";
+import { forensicRoutes } from "./routes/forensic.ts";
 import { projectGroupRoutes } from "./routes/groups.ts";
 import { guestRoutes } from "./routes/guest.ts";
 import { health } from "./routes/health.ts";
@@ -298,6 +299,7 @@ export function createApi(given: AppDeps) {
     audit: deps.audit,
     trustProxy: deps.trustProxy ?? false,
     workDir: deps.workDir,
+    billing: (deps.modules?.billing ?? "off") !== "off",
   };
   const taskMail = { db: deps.db, mailer: deps.mailer, ...links };
   const tokenDeps = { db: deps.db, audit: deps.audit, trustProxy: deps.trustProxy ?? false };
@@ -513,6 +515,18 @@ export function createApi(given: AppDeps) {
       // The workspace's OAuth clients (#447), for its owners and admins.
       .route("/organisation/oauth-clients", oauthClientRoutes(oauthDeps))
       .route("/organisation/billing", billingRoutes(billing))
+      // Forensic marking and tracing a leak (#32), for the workspace's owners.
+      .route(
+        "/organisation/forensic",
+        forensicRoutes({
+          db: deps.db,
+          keyring: deps.keyring,
+          audit: deps.audit,
+          trustProxy: deps.trustProxy ?? false,
+          billing: (deps.modules?.billing ?? "off") !== "off",
+          ...(deps.workDir ? { workDir: deps.workDir } : {}),
+        }),
+      )
       .route("/organisation/support", supportRoutes(support))
       .route(
         "/organisation/channels",
@@ -786,6 +800,9 @@ const ATTACHMENT_PATH = /^\/api\/files\/[^/]+\/comments\/[^/]+\/attachments$/;
 const TICKET_ATTACHMENT_PATH =
   /^\/api\/(organisation|instance)\/support\/tickets\/[^/]+\/messages\/[^/]+\/attachments$/;
 
+/** Where an owner sends a suspected leak to be traced (#32): its own limit, checked as it streams. */
+const TRACE_PATH = /^\/api\/organisation\/forensic\/trace$/;
+
 /** The largest request body outside the upload chunks, which carry their own limit. */
 export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -845,7 +862,7 @@ export function createApp(given: AppDeps) {
   if (deps.log !== false) app.use("/api/*", logger());
   // Every other body is small: settings, comments, sign-in. A chunk's limit is its own.
   app.use("/api/*", async (c, next) =>
-    CHUNK_PATH.test(c.req.path)
+    CHUNK_PATH.test(c.req.path) || TRACE_PATH.test(c.req.path)
       ? next()
       : ATTACHMENT_PATH.test(c.req.path)
         ? bodyLimit({

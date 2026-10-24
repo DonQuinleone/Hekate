@@ -160,13 +160,6 @@ const screens: Screen[] = [
     ready: "section[aria-label=Comments]",
     as: "guest",
   },
-  // A guest whose review gives them compare (#44, #55) flips between what it gives them.
-  {
-    name: "guest-file-compare",
-    path: (s) => `/g/files/${s.dryFileId}`,
-    ready: "main >> text=V2 · Wet",
-    as: "guest",
-  },
   { name: "home", path: () => "/", ready: "main section[aria-label=Activity] li a" },
   { name: "projects", path: () => "/projects", ready: "main a:has-text('Joplin Rags')" },
   {
@@ -530,6 +523,12 @@ const screens: Screen[] = [
     path: () => "/settings/api",
     ready: "main [data-log-entry] >> nth=0",
   },
+  // Leak tracing (#32): forensic marking's switches, and a suspected leak to drop.
+  {
+    name: "settings-leaks",
+    path: () => "/settings/leaks",
+    ready: "main >> text=Drop the file here, or choose it",
+  },
   { name: "settings-log", path: () => "/settings/log", ready: "main [data-log-entry]" },
   { name: "settings-billing", path: () => "/settings/billing", ready: "main >> text=HK-0002" },
   // Support (#181): the workspace's tickets, and a new one with the deflection first.
@@ -642,6 +641,19 @@ test.describe("guest", () => {
   test.use({ storageState: join(state, "guest.json") });
   // Every guest page carries the label's logo and accent (#185), seeded.
   for (const screen of screens.filter((s) => s.as === "guest")) capture(screen);
+
+  // A guest whose review gives them compare (#44, #55) flips between what it gives them,
+  // opened from the transport as the prototype's (#15).
+  test("guest-file-compare", async ({ page }) => {
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto(`/g/files/${seeded().dryFileId}`);
+    await settle(page, "section[aria-label=Comments] li");
+    await page.getByRole("button", { name: "Compare", exact: true }).click();
+    await settle(page, "main >> text=V2 · Wet");
+    await showWhole(page);
+    await saveScreen(page, "guest-file-compare");
+    await checkScreen(page);
+  });
 
   // In the light theme, the accent's darker cut, which holds 4.5:1 there.
   test("guest-review-branded-light", async ({ page }) => {
@@ -780,6 +792,53 @@ test("file-panel-position", async ({ page }, info) => {
   await settle(page, "[role=menuitemradio][aria-checked=true]");
   await saveScreen(page, "file-panel-position");
   await checkScreen(page);
+});
+
+// The strip above the player (#15): the version menu opened, the newest first, with the way
+// to every version and its notes and to the track's takes.
+test("file-recording-versions", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: /^Version V2/ }).click();
+  await settle(page, "[role=menuitem]:has-text('All versions and notes')");
+  await saveScreen(page, "file-recording-versions");
+  await checkScreen(page);
+});
+
+// Switching to QA and back keeps the same player, so the music never stops (#15).
+test("file-recording-review-to-qa", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page
+    .locator("audio, video")
+    .first()
+    .evaluate((el) => {
+      el.dataset.kept = "yes";
+    });
+  await page.getByRole("button", { name: /^QA/ }).click();
+  await settle(page, "section[aria-label=Checks] h2");
+  await expect(page.locator("audio[data-kept=yes], video[data-kept=yes]")).toHaveCount(1);
+  await page.getByRole("button", { name: /^Review$/ }).click();
+  await settle(page, "section[aria-label=Comments] li");
+  await expect(page.locator("audio[data-kept=yes], video[data-kept=yes]")).toHaveCount(1);
+});
+
+// The track's score under the player (#15), shown from the strip's Score switch (the browser
+// keeps the choice) and put away from its own header. A phone shows it before the comments,
+// as the prototype does.
+test("file-recording-score", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Score", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Score", pressed: true })).toBeVisible();
+  await settle(page, "section[aria-label=Score] >> role=img[name=/^Page 1 of /]");
+  await showWhole(page);
+  await saveScreen(page, "file-recording-score");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Hide the score" }).click();
+  await expect(page.locator("section[aria-label=Score]")).toBeHidden();
 });
 
 // Commenting on a finding (#43): from the QA view back to the review, the composer at the
@@ -2135,7 +2194,8 @@ test("file-channels-levels", async ({ page }, info) => {
   // A thread about the left channel (deferred in triage) says so, and a new one can be about
   // one channel.
   const comments = page.getByRole("region", { name: "Comments" });
-  await comments.getByRole("button", { name: /^Show \d+ deferred$/ }).click();
+  await comments.getByRole("button", { name: /^Show / }).click();
+  await comments.getByRole("menuitemradio", { name: /^Deferred/ }).click();
   await expect(
     comments
       .getByRole("listitem")
@@ -2360,7 +2420,7 @@ test("file-normalised", async ({ page }) => {
   });
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "button:has-text('View')");
-  await page.getByRole("button", { name: "View" }).click();
+  await page.getByRole("button", { name: "View", exact: true }).click();
   await page.getByRole("switch", { name: "Normalised playback" }).click();
   await settle(page, "text=Normalised to −14 LUFS");
   await saveScreen(page, "file-normalised");
@@ -2381,7 +2441,7 @@ for (const [place, wave] of [
     );
     await page.goto(`/files/${seeded().dryFileId}`);
     await settle(page, "[role=img][aria-label^=Spectrogram]:not(.animate-pulse) canvas");
-    await page.getByRole("button", { name: "View" }).click();
+    await page.getByRole("button", { name: "View", exact: true }).click();
     await settle(page, "section#player-view");
     // On a phone the menu runs on below the fold: shown, rather than left against the tab bar.
     if (info.project.name === "phone") {
@@ -2419,7 +2479,7 @@ test("player-spectrogram-analysis", async ({ page }, info) => {
   );
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "[role=img][aria-label^=Spectrogram]:not(.animate-pulse) canvas");
-  await page.getByRole("button", { name: "View" }).click();
+  await page.getByRole("button", { name: "View", exact: true }).click();
   await page.getByRole("button", { name: "Channel, levels, range and analysis…" }).click();
   // Each choice asks for its spectrograms once it has taken; the next follows it.
   const asked = page.waitForRequest(/spectrograms\?.*window=kaiser/);

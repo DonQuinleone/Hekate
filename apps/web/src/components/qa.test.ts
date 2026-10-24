@@ -1,6 +1,22 @@
 import type { QaFinding } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { filterFindings, findingLoop, findingMarks } from "./qa";
+import { filterFindings, findingLoop, findingMarks, qaIssues } from "./qa";
+
+describe("qaIssues (#15)", () => {
+  const of = (check: string, severity: string) => ({ check, severity }) as unknown as QaFinding;
+  it("counts each check that found something once, failures and warnings alike", () => {
+    expect(
+      qaIssues([
+        of("clipping", "fail"),
+        of("clipping", "fail"),
+        of("truePeak", "warn"),
+        of("loudness", "pass"),
+        of("silence", "note"),
+      ]),
+    ).toBe(2);
+    expect(qaIssues([])).toBe(0);
+  });
+});
 
 const finding = (start: number | null, end: number | null) =>
   ({ start, end }) as unknown as QaFinding;

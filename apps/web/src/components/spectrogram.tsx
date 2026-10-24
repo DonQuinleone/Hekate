@@ -102,7 +102,7 @@ function Plane({
 
   return (
     <div className="relative min-h-0 flex-1">
-      <canvas ref={canvas} className="block h-full w-full" />
+      <canvas ref={canvas} className="absolute inset-0 block h-full w-full" />
       {label && (
         <span className="label pointer-events-none absolute top-1 left-1 rounded-chip bg-surface/85 px-1 text-[10px] normal-case leading-4 text-ink-2">
           {label}
@@ -137,6 +137,7 @@ export function Spectrogram({
   height,
   playhead = true,
   labels = true,
+  fill = false,
 }: {
   fileId: string;
   media: HTMLMediaElement;
@@ -149,6 +150,8 @@ export function Spectrogram({
   playhead?: boolean;
   /** Off when a waveform drawn on top already names the channels. */
   labels?: boolean;
+  /** Grows with the player around it (#15), from `height` up. */
+  fill?: boolean;
 }) {
   const { data: index } = useQuery(spectrogramsQuery(fileId, view.analysis));
   const available = index?.status === "ready" ? index.spectrograms : [];
@@ -218,9 +221,10 @@ export function Spectrogram({
       className={cn(
         "relative flex w-full flex-col overflow-hidden rounded-control",
         playhead && "cursor-pointer",
+        fill && "min-h-0 flex-1",
         !loaded && "animate-pulse bg-raised",
       )}
-      style={{ height }}
+      style={fill ? { minHeight: height } : { height }}
       onClick={playhead ? seek : undefined}
       role="img"
       aria-label={`Spectrogram${channel === "each" || channel === "all" ? "" : `, ${shown[0]?.label ?? channel}`}`}

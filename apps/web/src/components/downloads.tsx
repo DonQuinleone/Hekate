@@ -94,10 +94,12 @@ export function DownloadDialog({
       )}
       <p className="m-0 mt-3 text-[12px] text-ink-3">
         {data && !data.marked
-          ? "Audio carries no mark yet. The download is written to the access log."
-          : marks
-            ? "The score marks drawn over every page, made for you with your name across it, and written to the access log."
-            : "Made for you, with your name drawn across it, and written to the access log."}
+          ? "The workspace does not mark recordings. The download is written to the access log."
+          : data?.inaudible
+            ? "Marked for you, inaudibly, and written to the access log."
+            : marks
+              ? "The score marks drawn over every page, made for you with your name across it, and written to the access log."
+              : "Made for you, with your name drawn across it, and written to the access log."}
       </p>
     </Dialog>
   );

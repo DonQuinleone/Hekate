@@ -6,7 +6,7 @@ import {
   type StagePlan,
   shownLabel,
 } from "@hekate/shared";
-import { pdfString, widthOf } from "./media/helvetica.ts";
+import { showText, widthOf } from "./media/pdf-text.ts";
 import { fitted } from "./patch-pdf.ts";
 
 /**
@@ -33,7 +33,7 @@ const pointsAt = (n: number) => ((1000 / n) * 72) / 25.4;
 
 const num = (n: number) => String(Math.round(n * 100) / 100);
 const text = (font: "H" | "HB", size: number, x: number, y: number, words: string, grey = 0) =>
-  `BT /${font} ${num(size)} Tf ${grey} g ${num(x)} ${num(y)} Td ${pdfString(words)} Tj ET`;
+  showText(font === "HB" ? "bold" : "regular", size, x, y, words, `${grey} g`);
 const centred = (size: number, x: number, y: number, words: string, grey = 0) =>
   text("H", size, x - widthOf(words, size) / 2, y, words, grey);
 

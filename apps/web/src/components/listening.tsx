@@ -406,7 +406,7 @@ export function ListeningNotice({ sync }: { sync: ListeningSync }) {
   const elsewhere = useFileLabel(sync.elsewhere);
   if (!sync.leaderName) return null;
   const strip = (text: string, action: React.ReactNode) => (
-    <output className="flex flex-wrap items-center gap-3 rounded-panel border border-hairline bg-surface px-4 py-2 text-[13px]">
+    <output className="flex shrink-0 flex-wrap items-center gap-3 border-b border-line px-3 py-2 text-[13px] lg:px-4">
       <span aria-hidden="true" className="size-1.5 rounded-full bg-signal" />
       <span className="min-w-0 flex-1 text-ink-2">{text}</span>
       {action}

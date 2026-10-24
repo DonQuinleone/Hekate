@@ -6210,6 +6210,7 @@ describe.runIf(url)("api", () => {
           emailSubjects: {},
           secondFactor: "off",
           securityKeyForAdmins: false,
+          forensicAudio: false,
           roleTools: {
             Producer: ["qa", "meters", "spectrogram", "score", "compare", "loops", "normalise"],
             Engineer: ["qa", "meters", "spectrogram", "score", "compare", "loops", "normalise"],

@@ -687,11 +687,14 @@ export const apiOperations: Record<string, ApiOperation> = {
   "GET /files/{id}/downloads": {
     summary: "List what you may download of a file",
     description:
-      "The token's member's download level here, and the originals and proxies on offer.",
+      "The token's member's download level here, and the originals and proxies on offer. `marked` says whether a download carries the member's mark; `inaudible`, that a recording's mark is in its sound (#32).",
     response: {
       level: "original",
-      proxy: { available: true },
-      original: { available: true },
+      proxy: { available: true, detail: "AAC 256 kb/s, with an inaudible mark" },
+      original: {
+        available: true,
+        detail: "WAV, 24-bit, 48 kHz, as uploaded but for an inaudible mark",
+      },
       marked: true,
     },
   },
@@ -707,7 +710,8 @@ export const apiOperations: Record<string, ApiOperation> = {
     description:
       "Opens a link `POST /files/{id}/downloads` gave, once, within five minutes, with the same token.",
     produces: "application/octet-stream",
-    responds: "The file, watermarked for the token's member.",
+    responds:
+      "The file, marked for the token's member: drawn on pictures, pages and video, and inaudibly in a recording where the workspace marks them.",
   },
   "POST /files/{id}/attachments/{attachmentId}/download": {
     summary: "Ask for a comment's attachment",

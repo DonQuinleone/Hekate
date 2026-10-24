@@ -11,7 +11,7 @@ import { expect, type Page } from "@playwright/test";
  * `data-e2e-overlap`; it is then left out of the overlap checks, along with its contents.
  * A panel that floats over the page without shutting it off (a side sheet) says so with
  * `data-e2e-layer`: what it covers is out of sight, and its own text is checked against
- * itself.
+ * itself. An open menu is treated as a modal is: a target it half covers is not read as crowded.
  */
 
 /** The smallest target WCAG 2.2 accepts (2.5.8), in CSS pixels. */
@@ -264,9 +264,33 @@ export async function accessibilityProblems(page: Page): Promise<string[]> {
   // checked on its own screens.
   if ((await page.locator("[aria-modal=true]").count()) > 0) builder.include("[aria-modal=true]");
   const result = await builder.analyze();
-  return result.violations.flatMap((v) =>
-    v.nodes.map((n) => `${v.id}: ${n.target.join(" ")} (${v.help})`),
+  const lines = result.violations.flatMap((v) =>
+    v.nodes.map((n) => ({
+      rule: v.id,
+      target: n.target,
+      line: `${v.id}: ${n.target.join(" ")} (${v.help})`,
+    })),
   );
+  // An open menu lies over the page on purpose, as a modal does: a target it half covers would
+  // read as crowded by it. Those are checked on the screens where the menu is shut.
+  const covered = await page.evaluate(
+    (targets) => {
+      const menus = [...document.querySelectorAll("[role=menu]")].map((m) =>
+        m.getBoundingClientRect(),
+      );
+      return targets.map((selector) => {
+        if (!selector) return false;
+        const el = document.querySelector(selector);
+        if (!el || el.closest("[role=menu]")) return false;
+        const r = el.getBoundingClientRect();
+        return menus.some(
+          (m) => r.left < m.right && r.right > m.left && r.top < m.bottom && r.bottom > m.top,
+        );
+      });
+    },
+    lines.map((l) => (l.rule === "target-size" ? String(l.target[0]) : "")),
+  );
+  return lines.filter((_, i) => !covered[i]).map((l) => l.line);
 }
 
 /** Both kinds of check, failing softly so one capture shows every problem at once. */

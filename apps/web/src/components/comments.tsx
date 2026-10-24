@@ -38,7 +38,19 @@ import {
   useState,
 } from "react";
 import { cn } from "~/lib/cn";
-import { ago, historyLabel, passageLoop, type Thread, threadsOf } from "~/lib/comments";
+import {
+  ago,
+  arrangeThreads,
+  filterHolding,
+  historyLabel,
+  passageLoop,
+  type Thread,
+  type ThreadFilter,
+  threadFilterNames,
+  threadFilters,
+  threadsOf,
+  threadsShown,
+} from "~/lib/comments";
 import { formatDates } from "~/lib/locale";
 import { type Loop, MIN_LOOP } from "~/lib/loop";
 import { isWholePage, type PageFocus } from "~/lib/pages";
@@ -68,7 +80,7 @@ import { Chip, ToggleChip } from "./ui/chip";
 import { Dialog } from "./ui/dialog";
 import { Field } from "./ui/field";
 import { FileInput, Input, Select, Textarea } from "./ui/input";
-import { ActionMenu, type MenuAction } from "./ui/menu";
+import { ActionMenu, Dropdown, type MenuAction } from "./ui/menu";
 
 const fullTime = formatDates({ dateStyle: "medium", timeStyle: "short" });
 
@@ -311,12 +323,12 @@ function Composer({
           onKeyDown={onKeyDown}
           onBlur={() => setTyping(null)}
           placeholder={placeholder}
-          rows={3}
+          rows={2}
           aria-label={placeholder}
           aria-autocomplete={people.length > 0 ? "list" : undefined}
           aria-controls={open ? listId : undefined}
           aria-activedescendant={open ? `${listId}-${index}` : undefined}
-          className="min-h-20 text-[13px]"
+          className="min-h-14 text-[13px]"
         />
         {open && (
           <div
@@ -1189,7 +1201,11 @@ export function Comments({
     enabled: canComment && !guest,
   });
   const [onlyCategory, setOnlyCategory] = useState<string | null>(null);
-  const [showDeferred, setShowDeferred] = useState(false);
+  /** Which threads are listed: the open ones, unless another list is chosen (#15). */
+  const [filter, setFilter] = useState<ThreadFilter>("open");
+  /** The newest first, rather than in the order they occur in the file; and words to find. */
+  const [newest, setNewest] = useState(false);
+  const [query, setQuery] = useState<string | null>(null);
   /** The playhead when writing began; null for a whole-file comment. */
   const [at, setAt] = useState<number | null>(null);
   const [wholeFile, setWholeFile] = useState(false);
@@ -1214,8 +1230,6 @@ export function Comments({
   useEffect(() => {
     if (frameDraft) setOnDrawing(true);
   }, [frameDraft]);
-  const [showResolved, setShowResolved] = useState(false);
-  const [showHidden, setShowHidden] = useState(false);
   /** On a page: whether a new comment points at the region drawn, the page, or the file. */
   const [pageTarget, setPageTarget] = useState<"region" | "page" | "whole">("page");
   const draft = pages?.focus.draft ?? null;
@@ -1626,6 +1640,17 @@ export function Comments({
     [...threads.open, ...threads.deferred].some((t) => t.comment.categoryId === c.id),
   );
   const inCategory = (t: Thread) => !onlyCategory || t.comment.categoryId === onlyCategory;
+  // A list chosen that has emptied (its last thread reopened, say) goes back to the open ones.
+  const shownFilter = threadFilters(threads).includes(filter) ? filter : "open";
+  const listed = arrangeThreads(threadsShown(threads, shownFilter).filter(inCategory), {
+    newest,
+    query: query ?? "",
+  });
+  // A link to a thread (#140) lists it, whichever list was chosen.
+  const holding = focus ? filterHolding(threads, focus) : null;
+  useEffect(() => {
+    if (holding && holding !== "open") setFilter(holding);
+  }, [holding]);
   const markers = data ? regionMarkers(data) : [];
   const view = (t: Thread) => (
     <ThreadView
@@ -1656,56 +1681,75 @@ export function Comments({
     <TimeFormatting.Provider value={timeFormat}>
       <VersionNaming.Provider value={(n) => versionLabel(n, file?.profile)}>
         <Mentionable value={mentionable}>
-          <section aria-label="Comments" className="flex flex-col gap-4">
-            <div className="flex items-center justify-between gap-2">
-              {heading ?? <h2 className="m-0 text-[15px] font-medium">Comments</h2>}
-              <div className="flex items-center gap-1">
-                <span className="tabular text-xs text-ink-3">
-                  {threads.open.length} open
-                  {threads.deferred.length > 0 && ` · ${threads.deferred.length} deferred`}
-                  {threads.resolved.length > 0 && ` · ${threads.resolved.length} resolved`}
-                </span>
-                {tools}
-              </div>
-            </div>
-            {canComment && (
-              <>
-                {/* On a phone the composer opens as a sheet, so the comments stay in view. */}
-                <div ref={composer} onFocusCapture={capture} className="hidden @3xl/app:block">
-                  {composerBody}
-                </div>
-                <Button
-                  variant="secondary"
-                  className="w-full @3xl/app:hidden"
-                  onClick={() => {
-                    media?.pause();
-                    capture();
-                    setSheet(true);
-                  }}
-                >
-                  <Icon name="comment" size={14} />
-                  {composerLabel}
-                </Button>
-                {sheet && (
-                  <Dialog title={composerLabel} onClose={() => setSheet(false)}>
-                    {/* Opened to write in: the text box takes focus. */}
-                    <div onFocusCapture={capture} ref={sheetBody}>
-                      {composerBody}
-                    </div>
-                  </Dialog>
-                )}
-              </>
-            )}
-            {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
-            {data &&
-              threads.open.length === 0 &&
-              threads.deferred.length === 0 &&
-              threads.resolved.length === 0 &&
-              threads.hidden.length === 0 && (
-                <p className="m-0 text-[13px] text-ink-3">No comments yet.</p>
+          {/*
+            The column beside the player (#15), as the prototype's: its name and count, the
+            list chosen (open, by default) and the categories in use, the threads scrolling
+            on their own on a wide screen, and the composer at its foot.
+          */}
+          <section aria-label="Comments" className="flex flex-col lg:min-h-0 lg:flex-1">
+            <div className="flex h-11 shrink-0 items-center gap-1 pr-2 pl-3 lg:pl-4">
+              {heading ?? (
+                <>
+                  <h2 className="m-0 text-[14px] font-medium text-ink">Comments</h2>
+                  <span className="tabular text-[13px] text-ink-3">{threads.open.length}</span>
+                </>
               )}
+              <span className="ml-auto flex shrink-0 items-center gap-0.5">
+                <Dropdown
+                  size="sm"
+                  align="right"
+                  label="Show"
+                  value={<span>{threadFilterNames[shownFilter]}</span>}
+                  actions={threadFilters(threads).map((f) => ({
+                    label: threadFilterNames[f],
+                    hint: String(threadsShown(threads, f).length),
+                    checked: shownFilter === f,
+                    onSelect: () => setFilter(f),
+                  }))}
+                />
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  aria-label="Newest first"
+                  title="Newest first"
+                  aria-pressed={newest}
+                  onClick={() => setNewest((on) => !on)}
+                  className={cn(newest && "bg-raised text-ink")}
+                >
+                  <Icon name="sort" size={14} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="iconSm"
+                  aria-label="Search comments"
+                  aria-pressed={query !== null}
+                  onClick={() => setQuery(query === null ? "" : null)}
+                  className={cn(query !== null && "bg-raised text-ink")}
+                >
+                  <Icon name="search" size={14} />
+                </Button>
+                {tools}
+              </span>
+            </div>
+            {query !== null && (
+              <div className="shrink-0 px-3 pb-2 lg:px-4">
+                <Input
+                  size="sm"
+                  autoFocus
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    // The player's keys stay out of the field; Escape puts it away.
+                    event.stopPropagation();
+                    if (event.key === "Escape") setQuery(null);
+                  }}
+                  placeholder="Search comments"
+                  aria-label="Search comments"
+                />
+              </div>
+            )}
             {used.length > 1 && (
-              <fieldset className="m-0 flex min-w-0 flex-wrap gap-1 border-0 p-0">
+              <fieldset className="m-0 flex min-w-0 shrink-0 flex-wrap gap-1 border-0 px-3 pt-0 pb-2 lg:px-4">
                 <legend className="sr-only">Show comments of</legend>
                 <ToggleChip pressed={!onlyCategory} onClick={() => setOnlyCategory(null)}>
                   All
@@ -1721,54 +1765,68 @@ export function Comments({
                 ))}
               </fieldset>
             )}
-            <ul className="m-0 flex list-none flex-col p-0">
-              {threads.open.filter(inCategory).map(view)}
-            </ul>
-            {threads.deferred.length > 0 && (
-              <div className="flex flex-col">
-                <button
-                  type="button"
-                  onClick={() => setShowDeferred((v) => !v)}
-                  aria-expanded={showDeferred}
-                  className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-                >
-                  {showDeferred ? "Hide" : "Show"} {threads.deferred.length} deferred
-                </button>
-                {showDeferred && (
-                  <ul className="m-0 flex list-none flex-col p-0">
-                    {threads.deferred.filter(inCategory).map(view)}
-                  </ul>
+            {canComment && (
+              <>
+                {/* On a phone the composer opens as a sheet, so the comments stay in view. */}
+                <div className="shrink-0 px-3 pb-3 @3xl/app:hidden">
+                  <Button
+                    variant="secondary"
+                    className="w-full"
+                    onClick={() => {
+                      media?.pause();
+                      capture();
+                      setSheet(true);
+                    }}
+                  >
+                    <Icon name="comment" size={14} />
+                    {composerLabel}
+                  </Button>
+                </div>
+                {sheet && (
+                  <Dialog title={composerLabel} onClose={() => setSheet(false)}>
+                    {/* Opened to write in: the text box takes focus. */}
+                    <div onFocusCapture={capture} ref={sheetBody}>
+                      {composerBody}
+                    </div>
+                  </Dialog>
                 )}
-              </div>
+              </>
             )}
-            {threads.resolved.length > 0 && (
-              <div className="flex flex-col">
-                <button
-                  type="button"
-                  onClick={() => setShowResolved((v) => !v)}
-                  aria-expanded={showResolved}
-                  className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-                >
-                  {showResolved ? "Hide" : "Show"} {threads.resolved.length} resolved
-                </button>
-                {showResolved && (
-                  <ul className="m-0 flex list-none flex-col p-0">{threads.resolved.map(view)}</ul>
-                )}
-              </div>
-            )}
-            {threads.hidden.length > 0 && (
-              <div className="flex flex-col">
-                <button
-                  type="button"
-                  onClick={() => setShowHidden((v) => !v)}
-                  aria-expanded={showHidden}
-                  className="w-fit inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-                >
-                  {showHidden ? "Hide" : "Show"} {threads.hidden.length} hidden on this version
-                </button>
-                {showHidden && (
-                  <ul className="m-0 flex list-none flex-col p-0">{threads.hidden.map(view)}</ul>
-                )}
+            <div className="scroll-quiet flex flex-col gap-3 px-3 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:px-4">
+              {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
+              {data && listed.length === 0 && (
+                <p className="m-0 py-8 text-center text-[13px] text-ink-3">
+                  {query?.trim()
+                    ? "Nothing matches."
+                    : onlyCategory
+                      ? "Nothing in this category."
+                      : shownFilter === "open"
+                        ? canComment
+                          ? "No comments yet. Play, then write one at the playhead, over a passage, or on the whole file."
+                          : "No comments yet."
+                        : shownFilter === "resolved"
+                          ? "Nothing resolved yet."
+                          : shownFilter === "deferred"
+                            ? "Nothing deferred."
+                            : "No comments yet."}
+                </p>
+              )}
+              <ul className="m-0 flex list-none flex-col p-0">{listed.map(view)}</ul>
+              {shownFilter === "open" && threads.hidden.length > 0 && (
+                <p className="m-0 flex items-center gap-1.5 text-[12px] text-ink-3">
+                  {threads.hidden.length} carried{" "}
+                  {threads.hidden.length === 1 ? "thread is" : "threads are"} hidden on this
+                  version.
+                </p>
+              )}
+            </div>
+            {canComment && (
+              <div
+                ref={composer}
+                onFocusCapture={capture}
+                className="hidden shrink-0 border-t border-line px-3 py-3 @3xl/app:block lg:px-4"
+              >
+                {composerBody}
               </div>
             )}
           </section>

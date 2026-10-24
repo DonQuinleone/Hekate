@@ -150,8 +150,8 @@ export function Dropdown({
   actions: (MenuAction | "divider")[];
   align?: "left" | "right";
   size?: "sm" | "md";
-  /** Opens upward, where the space below is cut off (inside the player's frame). */
-  above?: boolean;
+  /** Opens upward, where the space below is cut off: always, or ("wide") only in a wide frame. */
+  above?: boolean | "wide";
   variant?: "ghost" | "field";
   /** What the control chooses, for a screen reader, where no label is beside it. */
   label?: string;
@@ -198,7 +198,11 @@ export function Dropdown({
           actions={actions}
           onClose={() => setOpen(false)}
           align={align}
-          className={cn(field && "min-w-full", above && "bottom-full mt-0 mb-1")}
+          className={cn(
+            field && "min-w-full",
+            above === true && "bottom-full mt-0 mb-1",
+            above === "wide" && "lg:bottom-full lg:mt-0 lg:mb-1",
+          )}
         />
       )}
     </div>

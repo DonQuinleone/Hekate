@@ -380,7 +380,10 @@ const nextZoom = (zoom: number, direction: 1 | -1) =>
 const iconButton =
   "flex size-9 items-center justify-center rounded-full text-ink-2 transition-colors hover:bg-raised hover:text-ink";
 
-/** Play, seek, the readout, loop, rate, compare, volume. Keys: Space, J K L, arrows, I O, L. */
+/**
+ * Play, seek, the readout, loop, rate, compare, volume. Keys: Space, J K L, arrows, I O, L,
+ * Home and End, and Shift+up and down for the previous and next marker.
+ */
 export function Transport({
   playback,
   duration,
@@ -394,6 +397,7 @@ export function Transport({
   hearing,
   zoom,
   onZoom,
+  marks = [],
 }: {
   playback: Playback;
   duration: number;
@@ -408,6 +412,8 @@ export function Transport({
   /** How far the waveform is zoomed in (1 is the whole file), where it can be. */
   zoom?: number;
   onZoom?: (zoom: number) => void;
+  /** Where markers are (comments, QA findings), in seconds, for Shift+up and down. */
+  marks?: number[];
 }) {
   const [muted, setMuted] = useState(false);
   const zoomBy = (direction: 1 | -1) => onZoom?.(nextZoom(zoom ?? 1, direction));
@@ -421,6 +427,19 @@ export function Transport({
           e.preventDefault();
           playback.toggle();
           break;
+        case "ArrowUp":
+        case "ArrowDown": {
+          if (!e.shiftKey) break;
+          e.preventDefault();
+          const near = 0.05;
+          const sorted = [...marks].sort((a, b) => a - b);
+          const to =
+            e.key === "ArrowDown"
+              ? sorted.find((t) => t > playback.time + near)
+              : sorted.findLast((t) => t < playback.time - near);
+          if (to !== undefined) playback.seek(to);
+          break;
+        }
         case "ArrowLeft":
           playback.seek(playback.time - (e.shiftKey ? 1 : video ? 1 / fps : 5));
           break;
@@ -472,7 +491,7 @@ export function Transport({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [playback, duration, video, fps, loopsAllowed, zoom, onZoom]);
+  }, [playback, duration, video, fps, loopsAllowed, zoom, onZoom, marks]);
   const fmt = (t: number) => (video ? formatTimecode(t, fps) : formatClock(t));
   return (
     <div className="flex min-h-16 flex-wrap items-center gap-1 px-3 py-2 @3xl/app:px-4">

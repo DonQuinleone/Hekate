@@ -57,6 +57,59 @@ export function threadsOf(comments: Comment[]): {
   };
 }
 
+export type Threads = ReturnType<typeof threadsOf>;
+
+/** Which threads the comments column lists (#15), as the prototype's "Open" menu chooses. */
+export type ThreadFilter = "open" | "deferred" | "resolved" | "hidden" | "all";
+
+export const threadFilterNames: Record<ThreadFilter, string> = {
+  open: "Open",
+  deferred: "Deferred",
+  resolved: "Resolved",
+  hidden: "Hidden on this version",
+  all: "All",
+};
+
+/** The threads a filter lists: one kind, or all of them, open ones first. */
+export function threadsShown(threads: Threads, filter: ThreadFilter): Thread[] {
+  if (filter === "all")
+    return [...threads.open, ...threads.deferred, ...threads.resolved, ...threads.hidden];
+  return threads[filter];
+}
+
+/** The filters worth offering: open and all always, the others once they hold a thread. */
+export function threadFilters(threads: Threads): ThreadFilter[] {
+  return (["open", "deferred", "resolved", "hidden", "all"] as const).filter(
+    (f) => f === "open" || f === "all" || threads[f].length > 0,
+  );
+}
+
+/**
+ * The threads as the column orders and narrows them (#15): where they occur in the file, or
+ * the newest first; and only those whose words, or a reply's, hold what is searched for.
+ */
+export function arrangeThreads(
+  threads: readonly Thread[],
+  { newest = false, query = "" }: { newest?: boolean; query?: string } = {},
+): Thread[] {
+  const words = query.trim().toLocaleLowerCase();
+  const found = words
+    ? threads.filter((t) =>
+        [t.comment, ...t.replies].some((c) => c.body.toLocaleLowerCase().includes(words)),
+      )
+    : [...threads];
+  return newest
+    ? found.sort((a, b) => b.comment.createdAt.localeCompare(a.comment.createdAt))
+    : found;
+}
+
+/** Where a thread is listed, for a link to it (#140) to show it whatever was chosen. */
+export function filterHolding(threads: Threads, id: string): ThreadFilter | null {
+  for (const f of ["open", "deferred", "resolved", "hidden"] as const)
+    if (threads[f].some((t) => t.comment.id === id || t.replies.some((r) => r.id === id))) return f;
+  return null;
+}
+
 const hopStatus: Record<CarryStatus, string> = {
   open: "",
   fixed: "fixed",

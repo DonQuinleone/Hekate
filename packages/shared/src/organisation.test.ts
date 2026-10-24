@@ -44,6 +44,7 @@ describe("workspace settings", () => {
       emailSubjects: { invitation: "Join {workspace}" },
       secondFactor: "off",
       securityKeyForAdmins: false,
+      forensicAudio: false,
       roleTools: { ...defaultWorkspaceSettings.roleTools, Reviewer: ["score"] },
       reviewer: {
         comment: true,
@@ -66,6 +67,8 @@ describe("workspace settings", () => {
     expect(workspaceSettingsInput.safeParse({}).success).toBe(false);
     expect(workspaceSettingsInput.safeParse({ reviewer: {} }).success).toBe(false);
     expect(workspaceSettingsInput.safeParse({ storageBackend: "s3" }).success).toBe(false);
+    // Forensic marking is the owners' alone, through its own route.
+    expect(workspaceSettingsInput.safeParse({ forensicAudio: false }).success).toBe(false);
   });
 
   it("starts the default roles on their usual tools, and takes a change role by role (#55)", () => {

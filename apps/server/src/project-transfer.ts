@@ -134,6 +134,8 @@ export const transferTables = {
     "directories",
     "sso_providers",
     "access_events",
+    // Marks made for downloads (#32) are the workspace's record, as the log is.
+    "forensic_marks",
     "channels",
     "events",
     "event_deliveries",

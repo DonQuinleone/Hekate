@@ -1427,7 +1427,11 @@ export function SettingsPage({
             title="Forensic marking"
             intro="Every stream and permitted download carries an inaudible, invisible mark that names the person who received it."
           >
-            <SwitchRow name="Audio" checked />
+            <SwitchRow
+              name="Audio"
+              hint="Off until you turn it on. Listen to a marked download of quiet material first."
+              checked={false}
+            />
             <SwitchRow name="Video" checked />
             <SwitchRow
               name="Pages"
@@ -1437,7 +1441,7 @@ export function SettingsPage({
           </Section>
           <Section
             title="Trace a leak"
-            intro="Upload the file that got out. It is matched against every mark issued."
+            intro="Upload the file that got out. It is matched against every mark issued, and kept only while it is."
           >
             <Row name="Suspected leak" stacked>
               <div className="flex w-full flex-col gap-3">
@@ -1451,10 +1455,10 @@ export function SettingsPage({
                     className="flex w-full flex-col items-center gap-2 rounded-panel-lg border border-dashed border-line-strong px-6 py-8 text-center transition-colors hover:border-edge-strong hover:bg-raised/40"
                   >
                     <Icon name="upload" size={20} className="text-ink-3" />
-                    <span className="text-[14px] text-ink">Drop the file here</span>
+                    <span className="text-[14px] text-ink">Drop the file here, or choose it</span>
                     <span className="text-[13px] text-ink-3">
-                      A clip of 20 seconds is enough; a re-encode or a phone recording usually still
-                      carries the mark.
+                      Twenty seconds of the recording is usually enough, even encoded again as MP3,
+                      AAC or Opus. Only the first ten minutes are examined.
                     </span>
                   </button>
                 )}
@@ -1468,7 +1472,7 @@ export function SettingsPage({
                   <div className="rise-in flex flex-col gap-2 rounded-panel border border-signal/40 bg-signal/[0.06] p-4 text-[14px]">
                     <span className="flex items-center gap-2 text-ink">
                       <Icon name="warning" size={14} className="text-signal" />
-                      Match, 99.2% confidence
+                      Match: the chance of a mistake is less than one in a billion
                     </span>
                     <span className="flex items-center gap-2 text-ink-2">
                       <Avatar personId="p-mira" size={20} />

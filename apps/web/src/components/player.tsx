@@ -4,6 +4,7 @@ import {
   type DrawingColour,
   type DrawingTool,
   formatChannels,
+  formatClock,
   formatDuration,
   frameShowing,
   frameTime,
@@ -33,6 +34,7 @@ import { Link } from "@tanstack/react-router";
 import type Hls from "hls.js";
 import {
   type KeyboardEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -51,6 +53,7 @@ import {
 import { cn } from "~/lib/cn";
 import type { EditSegment } from "~/lib/edit-decisions";
 import { type Loop, loopEntry, loopFrom, type Rolls, roll, wrapTarget } from "~/lib/loop";
+import { adjacentMarker, markerTimes } from "~/lib/markers";
 import { usePlayerView } from "~/lib/player-view";
 import { type Playback, type Rendition, usePreferences, useSavePreferences } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
@@ -79,7 +82,7 @@ import { nativeSource, StreamPart, wholeRendition } from "./stream-part";
 import { CaptionLine, CaptionsMenu } from "./transcript";
 import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
-import { Dropdown } from "./ui/menu";
+import { Dropdown, usePopover } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
 import { Slider } from "./ui/slider";
 import { Toggle } from "./ui/toggle";
@@ -254,6 +257,8 @@ export function Player({
   caption: captionChosen,
   onCaption,
   compact = false,
+  strip,
+  compare = null,
 }: {
   fileId: string;
   kind: "audio" | "video";
@@ -297,6 +302,13 @@ export function Player({
    */
   caption?: string | null;
   onCaption?: (id: string | null) => void;
+  /**
+   * The page's part of the strip above the player (#15): what leads it (the version and
+   * variation), and what sits at its end before the player's own menus (the score's switch).
+   */
+  strip?: { lead?: ReactNode; end?: ReactNode };
+  /** The comparison under the transport (#44), where it is offered: whether it is open. */
+  compare?: { open: boolean; onToggle: () => void } | null;
   /** Normalised playback (#240): offered as a switch where it is each person's choice. */
   normalisation?: Normalisation | null;
   /** Whether it is heard normalised now, and the switch's choice. */
@@ -380,7 +392,8 @@ export function Player({
   const channels = info?.audio?.channels ?? 0;
   // Each channel to hear apart (#74), over the lossless stream that carries them all.
   const [mix, setMix] = useState<ChannelMix>(plainMix);
-  const [channelsOpen, setChannelsOpen] = useState(false);
+  // The Channels and View menus open from the strip above the player, as the prototype's do.
+  const [channelsOpen, setChannelsOpen, channelsBox] = usePopover();
   // biome-ignore lint/correctness/useExhaustiveDependencies: each file starts as recorded.
   useEffect(() => setMix(plainMix), [fileId]);
   // What is heard: a recording's own channels, or an ADM master's render of its bed and objects
@@ -455,7 +468,7 @@ export function Player({
     setNaming(null);
     setPresetError(null);
   };
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen, settingsBox] = usePopover();
   /** The spectrogram's own settings, a level below the view menu. */
   const [tuning, setTuning] = useState(false);
   /** A loop can be kept but switched off, to hear on past it. */
@@ -721,6 +734,26 @@ export function Player({
       say(`Loop ${which} point set`);
     }
   };
+  /** Where the playhead jumps between: the comment markers and the checks' findings. */
+  const marked = useMemo(
+    () =>
+      markerTimes(
+        markers.map((m) => m.at),
+        findings.map((f) => f.start),
+      ),
+    [markers, findings],
+  );
+  const toMarker = (direction: 1 | -1) => {
+    const element = media.current;
+    if (!element) return;
+    const at = adjacentMarker(marked, element.currentTime, direction);
+    if (at === null) {
+      say(direction === 1 ? "No marker after the playhead" : "No marker before the playhead");
+      return;
+    }
+    element.currentTime = Math.min(duration, at);
+    say(`Marker at ${formatClock(at)}`);
+  };
   // The player's keys work anywhere on the page it is on, as in Frame.io; never in a field.
   useShortcuts("player", "Player", [
     {
@@ -752,6 +785,14 @@ export function Player({
       label: info?.video?.fps ? "One frame forward" : "A hundredth of a second forward",
       run: () => stepBy(1),
     },
+    { keys: ["Home"], label: "Go to the start", run: () => seekBy(-duration) },
+    { keys: ["End"], label: "Go to the end", run: () => seekBy(duration) },
+    ...(marked.length > 0
+      ? [
+          { keys: ["Shift+ArrowUp"], label: "Previous marker", run: () => toMarker(-1) },
+          { keys: ["Shift+ArrowDown"], label: "Next marker", run: () => toMarker(1) },
+        ]
+      : []),
     ...(kind === "audio" && mostZoom > 1
       ? [
           {
@@ -823,172 +864,837 @@ export function Player({
 
   const share = (value: number) => (duration > 0 ? Math.min(100, (value / duration) * 100) : 0);
 
-  return (
-    <section
-      aria-label="Player"
-      className={cn(
-        "flex flex-col overflow-hidden rounded-panel border border-hairline bg-surface outline-none focus-visible:border-edge",
-        compact && kind === "video" && "md:flex-row md:items-end",
-      )}
-    >
-      {kind === "video" ? (
-        <>
-          <div
-            className={cn(
-              comparing === "side" && "grid grid-cols-2 gap-px bg-hairline",
-              compact && "md:w-[300px] md:shrink-0 md:self-start",
-              failure && "hidden",
-            )}
-          >
-            {comparing === "side" && cuts && element && (
-              <div className="relative">
-                <CutVideo
-                  fileId={cuts.previous.fileId}
-                  master={element}
-                  frameSeconds={frameSeconds}
-                  family={family}
-                  className="aspect-video w-full"
-                />
-                <CutLabel>{cuts.previous.label}</CutLabel>
-                {mark && <VideoMark mark={mark} />}
-              </div>
-            )}
-            <div className="relative">
-              <video
-                ref={media}
-                playsInline
-                onClick={toggle}
-                className="aspect-video w-full cursor-pointer bg-ground"
-                {...events}
-              />
-              {info?.video && (
-                <FrameGuides
-                  aspect={info.video.width / info.video.height}
-                  matte={matte}
-                  safe={safe}
-                />
-              )}
-              {info?.video && caption && (
-                <CaptionText
-                  aspect={info.video.width / info.video.height}
-                  cues={caption.cues}
-                  time={frameNow}
-                />
-              )}
-              {info?.video && (
-                <DrawingMarks
-                  aspect={info.video.width / info.video.height}
-                  drawings={drawings
-                    .filter((d) => regionShowsAt(d, frameNow, frameSeconds))
-                    .map((d) => d.drawing)}
-                  draft={draft?.drawing ?? null}
-                />
-              )}
-              {drawingOn && onDraft && info?.video && (
-                <>
-                  <DrawLayer
-                    tool={tool}
-                    colour={colour}
-                    aspect={info.video.width / info.video.height}
-                    onDrawn={(drawing) => {
-                      // Each drawing replaces the one before, which Undo brings back.
-                      undo.current.push(draft);
-                      onDraft({
-                        drawing,
-                        at: Math.round((media.current?.currentTime ?? time) * 1000) / 1000,
-                      });
-                    }}
-                  />
-                  <DrawToolbar
-                    tool={tool}
-                    onTool={setTool}
-                    colour={colour}
-                    onColour={setColour}
-                    onUndo={draft ? () => onDraft(undo.current.pop() ?? null) : undefined}
-                    onClose={() => setDrawingOn(false)}
-                  />
-                </>
-              )}
-              {comparing === "wipe" && cuts && element && (
-                <>
-                  <CutVideo
-                    fileId={cuts.previous.fileId}
-                    master={element}
-                    frameSeconds={frameSeconds}
-                    family={family}
-                    className="pointer-events-none absolute inset-0 aspect-video w-full"
-                    style={{ clipPath: `inset(0 0 0 ${wipe * 100}%)` }}
-                  />
-                  <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-y-0 w-px bg-signal"
-                    style={{ left: `${wipe * 100}%` }}
-                  />
-                  <CutLabel>{cuts.mine}</CutLabel>
-                  <CutLabel right>{cuts.previous.label}</CutLabel>
-                </>
-              )}
-              {comparing === "side" && cuts && <CutLabel>{cuts.mine}</CutLabel>}
-              {mark && <VideoMark mark={mark} />}
-            </div>
-          </div>
-          {comparing && cuts && (
-            <div
-              className={cn(
-                "flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-hairline px-3 py-2 text-[13px]",
-                failure && "hidden",
-              )}
-            >
-              {/* Which cut is which, the labels on the frame say. */}
-              {/* On a phone the bar's controls say it; the room goes to them. */}
-              <span className="sr-only font-medium text-ink @md/app:not-sr-only">Compare cuts</span>
-              {comparing === "wipe" && (
-                <span className="w-32 shrink-0">
-                  <Slider
-                    aria-label="Wipe"
-                    min={0}
-                    max={1}
-                    step={0.005}
-                    value={wipe}
-                    onChange={(event) => setWipe(Number(event.target.value))}
-                    className="w-full"
-                  />
+  // The View menu: how the recording is drawn, and normalised playback (#240).
+  const viewPanel = settingsOpen && (
+    <StripPanel>
+      <section id="player-view" aria-label="View" className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2.5">
+          {/* No waveform drawn, nothing to choose about it. */}
+          {kind === "audio" && display !== "spectrogram" && (
+            <fieldset className="m-0 flex flex-col gap-2.5 border-0 p-0">
+              <legend className="sr-only">Waveform</legend>
+              <div className="flex items-center justify-between gap-4">
+                <span aria-hidden="true" className="text-[14px] text-ink">
+                  Waveform
                 </span>
-              )}
-              <Segmented
-                label="Compare cuts"
-                value={comparing}
-                options={[
-                  { value: "wipe", label: "Wipe" },
-                  { value: "side", label: "Side by side" },
-                ]}
-                onChange={setCutView}
-                className="ml-auto"
+                <span className="flex gap-1.5">
+                  {waveColours.map((colour) => (
+                    <button
+                      key={colour}
+                      type="button"
+                      aria-pressed={look.colour === colour}
+                      aria-label={`${waveColourNames[colour]} waveform`}
+                      title={waveColourNames[colour]}
+                      onClick={() => setLook({ colour })}
+                      className={cn(
+                        "flex size-7 cursor-pointer items-center justify-center rounded-full border bg-transparent p-0",
+                        look.colour === colour ? "border-ink" : "border-transparent",
+                      )}
+                    >
+                      <span
+                        className="size-4 rounded-full"
+                        style={{ background: `var(${waveTokens[colour]})` }}
+                      />
+                    </button>
+                  ))}
+                </span>
+              </div>
+              <LookSlider
+                label="Brightness"
+                value={look.opacity}
+                onChange={(opacity) => setLook({ opacity })}
               />
-              {cuts.compare && (
-                <Button variant="ghost" size="sm" asChild>
-                  <Link
-                    to="/tracks/$trackId/compare"
-                    params={{ trackId: cuts.compare.trackId }}
-                    search={{ a: cuts.compare.a, b: cuts.compare.b }}
-                  >
-                    Comments and findings
-                  </Link>
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label="Stop comparing"
-                title="Stop comparing"
-                onClick={() => setCutView(null)}
-              >
-                <Icon name="close" size={14} />
-              </Button>
+              <LookSlider
+                label="Height"
+                value={look.height}
+                onChange={(height) => setLook({ height })}
+              />
+            </fieldset>
+          )}
+          {kind === "audio" && channels > 1 && (
+            <Toggle
+              label="Split channels"
+              checked={split}
+              onChange={(split) => {
+                setSplit(split);
+                // The spectrogram follows: a lane per channel, or all of them together.
+                setSpectrumChannel(split ? "each" : "all");
+              }}
+            />
+          )}
+          {kind === "audio" && canSpectrogram && (
+            <div className="flex items-center justify-between gap-4">
+              <span aria-hidden="true" className="text-[14px] text-ink">
+                Spectrogram
+              </span>
+              <Segmented
+                label="Spectrogram"
+                value={playerView.spectrogram}
+                options={spectrogramPlaces.map((p) => ({ value: p, label: placeNames[p] }))}
+                onChange={(spectrogram) => setPlayerView({ ...playerView, spectrogram })}
+              />
             </div>
           )}
-        </>
+          {kind === "audio" && canSpectrogram && playerView.spectrogram !== "off" && (
+            <SpectrogramLook view={spectrum} onView={setSpectrum} />
+          )}
+          {kind === "audio" && canSpectrogram && playerView.spectrogram !== "off" && (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-expanded={tuning}
+              onClick={() => setTuning((t) => !t)}
+              className="self-start px-0 text-ink-3 hover:text-ink"
+            >
+              {tuning ? "Hide spectrogram settings" : "Channel, levels, range and analysis…"}
+            </Button>
+          )}
+          {kind === "audio" && !canSpectrogram && tools && !tools.includes("spectrogram") && (
+            <span className="text-[12px] text-ink-3">
+              The spectrogram is not among your tools here.
+            </span>
+          )}
+          {kind === "audio" && (!tools || tools.includes("qa")) && (
+            <Toggle
+              label="Loudness and issues"
+              checked={playerView.loudness}
+              onChange={(loudness) => setPlayerView({ ...playerView, loudness })}
+            />
+          )}
+          {offersNormalise && (
+            <Toggle
+              label="Normalised playback"
+              checked={normalised}
+              onChange={(on) => onNormalised?.(on)}
+            />
+          )}
+          {/* Presets go with an account; a guest has none to keep them in. */}
+          {kind === "audio" && !guest && (
+            <div className="flex items-center justify-between gap-4 border-t border-hairline pt-2.5">
+              <span aria-hidden="true" className="text-[14px] text-ink">
+                Presets
+              </span>
+              <span className="flex items-center gap-1.5">
+                {presets.length > 0 && (
+                  <Select
+                    size="sm"
+                    aria-label="Apply a preset"
+                    className="w-36"
+                    value=""
+                    onChange={(e) => {
+                      const preset = presets.find((p) => p.name === e.target.value);
+                      if (preset) setPlayerView(preset.view);
+                    }}
+                  >
+                    <option value="" disabled>
+                      Apply…
+                    </option>
+                    {presets.map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-expanded={naming !== null}
+                  onClick={() => {
+                    setNaming(naming === null ? "" : null);
+                    setPresetError(null);
+                  }}
+                >
+                  Save as…
+                </Button>
+              </span>
+            </div>
+          )}
+          {kind === "audio" && !guest && naming !== null && (
+            <form
+              className="flex flex-col gap-1.5"
+              onSubmit={(e) => {
+                e.preventDefault();
+                keepPreset();
+              }}
+            >
+              <span className="flex items-center gap-1.5">
+                <Input
+                  size="sm"
+                  aria-label="Preset name"
+                  placeholder="Name this view"
+                  maxLength={40}
+                  value={naming}
+                  autoFocus
+                  onChange={(e) => setNaming(e.target.value)}
+                  className="min-w-0 flex-1"
+                />
+                <Button size="sm" type="submit">
+                  Save
+                </Button>
+              </span>
+              {presetError && <span className="text-[12px] text-signal">{presetError}</span>}
+            </form>
+          )}
+        </div>
+        {kind === "audio" && display !== "waveform" && tuning && (
+          <SpectrogramSettings
+            view={spectrum}
+            onView={setSpectrum}
+            channel={spectrumChannel}
+            onChannel={setSpectrumChannel}
+            channels={channels}
+            layout={info?.audio?.channelLayout}
+            sampleRate={info?.audio?.sampleRate ?? 48_000}
+          />
+        )}
+      </section>
+    </StripPanel>
+  );
+
+  // The player's own menus, at the strip's end after the page's (#15): drawing, the frame's
+  // guides and comparing cuts, captions, a timecode to go to, the channels and the view.
+  const menus = !failure && (
+    <>
+      {kind === "video" && onDraft && (
+        <Button
+          variant="ghost"
+          size="md"
+          aria-pressed={drawingOn}
+          onClick={() => {
+            // The frame holds still while it is drawn on.
+            media.current?.pause();
+            setDrawingOn((on) => !on);
+          }}
+          className={cn(drawingOn && "bg-raised text-ink")}
+        >
+          <Icon name="edit" size={14} />
+          Draw
+        </Button>
+      )}
+      {kind === "video" && info?.video && (
+        <Dropdown
+          align="right"
+          value={
+            <>
+              <Icon name="grid" size={14} />
+              Frame
+            </>
+          }
+          actions={[
+            { label: "Safe areas", checked: safe, onSelect: () => setSafe((on) => !on) },
+            ...(Object.keys(mattes) as Matte[]).map((m) => ({
+              label: `Matte ${mattes[m].label}`,
+              checked: matte === m,
+              onSelect: () => setMatte((on) => (on === m ? null : m)),
+            })),
+            ...(canCompareCuts && cuts
+              ? [
+                  "divider" as const,
+                  {
+                    label: "Compare cuts: wipe",
+                    hint: `With ${cuts.previous.label}`,
+                    checked: comparing === "wipe",
+                    onSelect: () => setCutView((on) => (on === "wipe" ? null : "wipe")),
+                  },
+                  {
+                    label: "Compare cuts: side by side",
+                    checked: comparing === "side",
+                    onSelect: () => setCutView((on) => (on === "side" ? null : "side")),
+                  },
+                ]
+              : []),
+          ]}
+        />
+      )}
+      {captions.length > 0 && (
+        <CaptionsMenu tracks={captions} current={captionId} onChange={setCaptionId} />
+      )}
+      {kind === "video" && clock && (
+        <GoToTimecode clock={clock} time={time} duration={duration} onGo={goToFrame} />
+      )}
+      {kind === "audio" && heard >= 2 && (
+        <div ref={channelsBox} className="relative">
+          <ChannelsButton
+            names={names}
+            mix={heardMix}
+            open={channelsOpen}
+            onToggle={() => setChannelsOpen(!channelsOpen)}
+          />
+          {channelsOpen && (
+            <StripPanel>
+              <ChannelsPanel
+                names={names}
+                mix={heardMix}
+                canDownmix={labels !== null}
+                canBinaural={canBinaural(labels)}
+                onMix={setMix}
+                unavailable={channelsUnavailable}
+                levelsOf={
+                  !tools || tools.includes("meters") ? { fileId, media: element } : undefined
+                }
+              />
+            </StripPanel>
+          )}
+        </div>
+      )}
+      {(kind === "audio" || offersNormalise) && (
+        <div ref={settingsBox} className="relative">
+          <Button
+            variant="ghost"
+            size="md"
+            aria-expanded={settingsOpen}
+            aria-controls="player-view"
+            onClick={() => setSettingsOpen(!settingsOpen)}
+            className={cn(settingsOpen && "bg-raised text-ink")}
+          >
+            <Icon name="waveform" size={14} />
+            View
+          </Button>
+          {viewPanel}
+        </div>
+      )}
+    </>
+  );
+
+  const scrub = (
+    <div className="relative h-4 shrink-0">
+      <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-hairline" />
+      {loop && duration > 0 && (
+        <div
+          aria-hidden="true"
+          className={cn(
+            "absolute top-1/2 h-1.5 -translate-y-1/2 bg-signal/30",
+            !active && "opacity-40",
+          )}
+          style={{
+            left: `${share(loop.start)}%`,
+            width: `${share(loop.end) - share(loop.start)}%`,
+          }}
+        />
+      )}
+      {findings.map((f) => (
+        <div
+          key={`${f.start}-${f.end}-${f.severity}`}
+          aria-hidden="true"
+          className={cn(
+            "absolute bottom-0 h-1.5 min-w-[3px] rounded-[1px] border border-signal",
+            f.severity === "fail" ? "bg-signal" : "bg-transparent",
+          )}
+          style={{
+            left: `${share(f.start)}%`,
+            width:
+              f.end !== null && f.end - f.start > 0.2
+                ? `${share(f.end) - share(f.start)}%`
+                : undefined,
+          }}
+        />
+      ))}
+      {markers.map(({ at, state }) => (
+        <div
+          key={at}
+          aria-hidden="true"
+          className={cn("absolute top-0 h-1.5 w-px -translate-x-1/2", markerStyles[state])}
+          style={{ left: `${share(at)}%` }}
+        />
+      ))}
+      <div
+        className="absolute top-1/2 left-0 h-0.5 -translate-y-1/2 rounded-full bg-edge"
+        style={{ width: `${share(buffered)}%` }}
+      />
+      <div
+        className="absolute top-1/2 left-0 h-0.5 -translate-y-1/2 rounded-full bg-signal"
+        style={{ width: `${share(time)}%` }}
+      />
+      <div
+        className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink"
+        style={{ left: `${share(time)}%` }}
+      />
+      <Slider
+        aria-label="Position"
+        min={0}
+        max={duration || 0}
+        step={0.01}
+        value={Math.min(time, duration || 0)}
+        onChange={(event) => {
+          const element = media.current;
+          if (element) element.currentTime = Number(event.target.value);
+        }}
+        className="absolute inset-0 m-0 w-full cursor-pointer opacity-0"
+      />
+    </div>
+  );
+
+  // Video has no waveform to drag on: its filmstrip, or a plain loop lane, stands in.
+  const videoLanes = kind === "video" && (
+    <>
+      {edits.length > 0 && duration > 0 && (
+        <EditLane edits={edits} duration={duration} time={time} onSeek={seek} />
+      )}
+      {(canLoop || playback.filmstrip) && (
+        <LoopSurface
+          duration={duration}
+          loop={loop}
+          active={active}
+          onSeek={seek}
+          onLoop={canLoop ? setLoop : undefined}
+          label={
+            playback.filmstrip
+              ? canLoop
+                ? "Filmstrip: click to move the playhead, drag to loop a passage"
+                : "Filmstrip: click to move the playhead"
+              : "Loop lane: drag to loop a passage"
+          }
+          className={cn("shrink-0", playback.filmstrip ? "h-12" : "h-7")}
+        >
+          {playback.filmstrip ? (
+            <Filmstrip
+              url={playback.filmstrip.url}
+              frames={playback.filmstrip.frames}
+              at={duration > 0 ? time / duration : 0}
+            />
+          ) : (
+            <div
+              aria-hidden="true"
+              className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-hairline/60"
+            />
+          )}
+        </LoopSurface>
+      )}
+    </>
+  );
+
+  /** The picture, or two cuts side by side; mounted even when it fails, as the media is. */
+  const picture = kind === "video" && (
+    <div
+      className={cn(
+        comparing === "side" && "grid grid-cols-2 gap-px bg-hairline",
+        failure && "hidden",
+      )}
+    >
+      {comparing === "side" && cuts && element && (
+        <div className="relative">
+          <CutVideo
+            fileId={cuts.previous.fileId}
+            master={element}
+            frameSeconds={frameSeconds}
+            family={family}
+            className="aspect-video w-full"
+          />
+          <CutLabel>{cuts.previous.label}</CutLabel>
+          {mark && <VideoMark mark={mark} />}
+        </div>
+      )}
+      <div className="relative">
+        <video
+          ref={media}
+          playsInline
+          onClick={toggle}
+          className={cn(
+            "aspect-video w-full cursor-pointer bg-ground",
+            comparing !== "side" && "rounded-panel",
+          )}
+          {...events}
+        />
+        {info?.video && (
+          <FrameGuides aspect={info.video.width / info.video.height} matte={matte} safe={safe} />
+        )}
+        {info?.video && caption && (
+          <CaptionText
+            aspect={info.video.width / info.video.height}
+            cues={caption.cues}
+            time={frameNow}
+          />
+        )}
+        {info?.video && (
+          <DrawingMarks
+            aspect={info.video.width / info.video.height}
+            drawings={drawings
+              .filter((d) => regionShowsAt(d, frameNow, frameSeconds))
+              .map((d) => d.drawing)}
+            draft={draft?.drawing ?? null}
+          />
+        )}
+        {drawingOn && onDraft && info?.video && (
+          <>
+            <DrawLayer
+              tool={tool}
+              colour={colour}
+              aspect={info.video.width / info.video.height}
+              onDrawn={(drawing) => {
+                // Each drawing replaces the one before, which Undo brings back.
+                undo.current.push(draft);
+                onDraft({
+                  drawing,
+                  at: Math.round((media.current?.currentTime ?? time) * 1000) / 1000,
+                });
+              }}
+            />
+            <DrawToolbar
+              tool={tool}
+              onTool={setTool}
+              colour={colour}
+              onColour={setColour}
+              onUndo={draft ? () => onDraft(undo.current.pop() ?? null) : undefined}
+              onClose={() => setDrawingOn(false)}
+            />
+          </>
+        )}
+        {comparing === "wipe" && cuts && element && (
+          <>
+            <CutVideo
+              fileId={cuts.previous.fileId}
+              master={element}
+              frameSeconds={frameSeconds}
+              family={family}
+              className="pointer-events-none absolute inset-0 aspect-video w-full"
+              style={{ clipPath: `inset(0 0 0 ${wipe * 100}%)` }}
+            />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 w-px bg-signal"
+              style={{ left: `${wipe * 100}%` }}
+            />
+            <CutLabel>{cuts.mine}</CutLabel>
+            <CutLabel right>{cuts.previous.label}</CutLabel>
+          </>
+        )}
+        {comparing === "side" && cuts && <CutLabel>{cuts.mine}</CutLabel>}
+        {mark && <VideoMark mark={mark} />}
+      </div>
+    </div>
+  );
+
+  const failed = failure && (
+    <div className="flex flex-wrap items-center justify-between gap-3 py-4">
+      <p className="m-0 text-sm text-ink-2">{failureCopy[failure]}</p>
+      {(failure === "expired" || failure === "failed") && (
+        <Button size="sm" onClick={onExpired}>
+          Load again
+        </Button>
+      )}
+    </div>
+  );
+  /** How much the lanes under the picture take, for the picture to leave room for them. */
+  const lanesHeight =
+    (playback.filmstrip ? 48 : canLoop ? 28 : 0) +
+    (edits.length > 0 ? 36 : 0) +
+    (comparing ? 44 : 0) +
+    16 +
+    36;
+
+  const cutBar = comparing && cuts && !failure && (
+    <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 text-[13px]">
+      {/* Which cut is which, the labels on the frame say. */}
+      {/* On a phone the bar's controls say it; the room goes to them. */}
+      <span className="sr-only font-medium text-ink @md/app:not-sr-only">Compare cuts</span>
+      {comparing === "wipe" && (
+        <span className="w-32 shrink-0">
+          <Slider
+            aria-label="Wipe"
+            min={0}
+            max={1}
+            step={0.005}
+            value={wipe}
+            onChange={(event) => setWipe(Number(event.target.value))}
+            className="w-full"
+          />
+        </span>
+      )}
+      <Segmented
+        label="Compare cuts"
+        value={comparing}
+        options={[
+          { value: "wipe", label: "Wipe" },
+          { value: "side", label: "Side by side" },
+        ]}
+        onChange={setCutView}
+        className="ml-auto"
+      />
+      {cuts.compare && (
+        <Button variant="ghost" size="sm" asChild>
+          <Link
+            to="/tracks/$trackId/compare"
+            params={{ trackId: cuts.compare.trackId }}
+            search={{ a: cuts.compare.a, b: cuts.compare.b }}
+          >
+            Comments and findings
+          </Link>
+        </Button>
+      )}
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-label="Stop comparing"
+        title="Stop comparing"
+        onClick={() => setCutView(null)}
+      >
+        <Icon name="close" size={14} />
+      </Button>
+    </div>
+  );
+
+  const audioSurface = kind === "audio" && element && (
+    // Scrolls once zoomed in; everything on the surface widens with it. On a wide screen it
+    // grows with the frame (#15), up to a height that still reads as one waveform.
+    <div
+      ref={setSurface}
+      className={cn(
+        "flex min-h-0 flex-1 flex-col",
+        zoom > 1 && "overflow-x-auto overscroll-x-contain",
+      )}
+      style={{ maxHeight: surfaceCap(view, display, edits.length > 0) }}
+      // Zoomed in, it scrolls, so the keyboard can reach it and move along it.
+      {...(zoom > 1 && {
+        tabIndex: 0,
+        role: "group",
+        "aria-label": `Waveform, zoomed ${zoom} times: the arrow keys move along it`,
+        onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
+          const box = event.currentTarget;
+          const next = panScroll(event.key, box.scrollLeft, box.clientWidth, box.scrollWidth);
+          if (next === null || event.altKey || event.metaKey || event.ctrlKey) return;
+          // Handled here, so the player's own arrows do not seek as well.
+          event.preventDefault();
+          box.scrollLeft = next;
+        },
+      })}
+      data-zoom={zoom}
+    >
+      <div className="flex min-h-0 flex-1 flex-col" style={{ width: `${zoom * 100}%` }}>
+        <LoopSurface
+          duration={duration}
+          loop={loop}
+          active={active}
+          onSeek={seek}
+          onLoop={canLoop ? setLoop : undefined}
+          label={
+            canLoop
+              ? "Waveform: click to move the playhead, drag to loop a passage"
+              : "Waveform: click to move the playhead"
+          }
+          className="flex min-h-0 flex-1 flex-col gap-3"
+        >
+          {(display === "waveform" || display === "both") && (
+            <Waveform
+              fileId={fileId}
+              media={element}
+              duration={duration}
+              layout={info?.audio?.channelLayout}
+              view={view}
+              look={look}
+              fill
+            />
+          )}
+          {(display === "spectrogram" || display === "both") && (
+            <Spectrogram
+              fileId={fileId}
+              media={element}
+              duration={duration}
+              layout={info?.audio?.channelLayout}
+              channel={spectrumChannel}
+              view={spectrum}
+              height={WAVEFORM_HEIGHT}
+              fill
+            />
+          )}
+          {display === "overlay" && (
+            // The waveform, drawn see-through, sits on the spectrogram and keeps the playhead.
+            <div className="relative flex min-h-0 flex-1 flex-col">
+              <div className="absolute inset-0 flex flex-col">
+                <Spectrogram
+                  fileId={fileId}
+                  media={element}
+                  duration={duration}
+                  layout={info?.audio?.channelLayout}
+                  // Row for row under the waveform: each channel, or all of them combined.
+                  channel={view === "combined" ? "all" : "each"}
+                  view={spectrum}
+                  height={WAVEFORM_HEIGHT}
+                  playhead={false}
+                  labels={false}
+                  fill
+                />
+              </div>
+              <Waveform
+                fileId={fileId}
+                media={element}
+                duration={duration}
+                layout={info?.audio?.channelLayout}
+                view={view}
+                look={look}
+                overlay
+                fill
+              />
+            </div>
+          )}
+        </LoopSurface>
+        {edits.length > 0 && duration > 0 && (
+          <div className="mt-1.5 shrink-0">
+            <EditLane edits={edits} duration={duration} time={time} onSeek={seek} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const iconButton =
+    "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-ink-2 transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-40";
+
+  // The transport, under the picture or the waveform, as the prototype's: back, play and
+  // forward, where it is, then the zoom, the speed, the comparison and the sound.
+  const transport = (
+    <div className="flex min-h-14 flex-wrap items-center gap-x-1 gap-y-1 px-2 py-2 lg:px-3">
+      <button
+        type="button"
+        aria-label={`Back ${preferences.skipSeconds} seconds`}
+        title="Back (J, ←)"
+        disabled={!ready}
+        onClick={() => seekBy(-preferences.skipSeconds)}
+        className={iconButton}
+      >
+        <Icon name="back5" size={17} />
+      </button>
+      <button
+        type="button"
+        aria-label={playing ? "Pause" : "Play"}
+        title="Play or pause (Space)"
+        disabled={!ready}
+        onClick={toggle}
+        className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-ink p-0 text-ground shadow-2 transition-transform duration-150 hover:scale-105 active:scale-95 disabled:cursor-default disabled:opacity-40 disabled:hover:scale-100"
+      >
+        <Icon name={playing ? "pause" : "play"} size={16} />
+      </button>
+      <button
+        type="button"
+        aria-label={`Forward ${preferences.skipSeconds} seconds`}
+        title="Forward (L, →)"
+        disabled={!ready}
+        onClick={() => seekBy(preferences.skipSeconds)}
+        className={iconButton}
+      >
+        <Icon name="forward5" size={17} />
+      </button>
+      {kind === "video" && clock ? (
+        <span className="tabular ml-2 text-[15px] text-ink">
+          {videoTimecode(time, clock)}{" "}
+          <span className="text-[13px] text-ink-3">/ {timecodeFor(duration, clock)}</span>
+          <span className="ml-3 hidden text-[13px] text-ink-3 sm:inline">
+            frame {frameShowing(time, clock.rate)}
+          </span>
+        </span>
       ) : (
+        <span className="tabular ml-2 text-[15px] text-ink">
+          {formatDuration(time)}{" "}
+          <span className="text-[13px] text-ink-3">/ {formatDuration(duration)}</span>
+        </span>
+      )}
+      <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
+        {/* What is heard, before the format it is heard in. */}
+        {normalised && normalisation && (
+          <span className="tabular px-1 text-xs text-ink-3">
+            {normalisationLabel(normalisation)}
+          </span>
+        )}
+        {choices.length === 1 && choices[0] && (
+          <span className="tabular px-1 text-xs text-ink-3">
+            {renditionLabel(choices[0].rendition, info)}
+          </span>
+        )}
+        {choices.length > 1 && (
+          <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-1 border-0 p-0">
+            <legend className="sr-only">Rendition</legend>
+            {kind === "video" && (
+              <ChoiceButton selected={level === -1} onSelect={() => choose(-1)}>
+                Auto
+              </ChoiceButton>
+            )}
+            {choices.map((c) => (
+              <ChoiceButton
+                key={c.rendition.id}
+                selected={level === c.level}
+                onSelect={() => choose(c.level)}
+              >
+                {renditionLabel(c.rendition, info)}
+              </ChoiceButton>
+            ))}
+          </fieldset>
+        )}
+        {kind === "audio" && mostZoom > 1 && (
+          <span className="flex items-center">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Zoom out of the waveform"
+              title="Zoom out (−)"
+              disabled={zoom <= 1}
+              onClick={() => zoomTo(zoomStep(zoom, -1, mostZoom))}
+            >
+              <Icon name="zoomOut" size={14} />
+            </Button>
+            <button
+              type="button"
+              onClick={() => zoomTo(1)}
+              title="Fit the whole file (0)"
+              className="tabular h-8 min-w-10 cursor-pointer rounded-control border-0 bg-transparent px-1.5 text-xs text-ink-2 hover:bg-raised hover:text-ink"
+            >
+              {zoomLabel(zoom)}
+            </button>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Zoom into the waveform"
+              title="Zoom in (=)"
+              disabled={zoom >= mostZoom}
+              onClick={() => zoomTo(zoomStep(zoom, 1, mostZoom))}
+            >
+              <Icon name="zoomIn" size={14} />
+            </Button>
+          </span>
+        )}
+        <Dropdown
+          label="Speed"
+          above="wide"
+          align="right"
+          value={<span className="tabular">{rateLabel(rate)}</span>}
+          actions={playbackRates.map((r) => ({
+            label: rateLabel(r),
+            checked: rate === r,
+            onSelect: () => setRate(r),
+          }))}
+        />
+        {compare && (
+          <Button
+            variant="ghost"
+            size="md"
+            aria-pressed={compare.open}
+            onClick={compare.onToggle}
+            className={cn(compare.open && "bg-raised text-ink")}
+          >
+            <Icon name="compare" size={14} />
+            Compare
+          </Button>
+        )}
+        <button
+          type="button"
+          aria-label={muted ? "Unmute" : "Mute"}
+          onClick={() => {
+            if (media.current) media.current.muted = !media.current.muted;
+          }}
+          className={iconButton}
+        >
+          <Icon name={muted ? "mute" : "volume"} size={16} />
+        </button>
+      </span>
+    </div>
+  );
+
+  return (
+    <section aria-label="Player" className="flex flex-[1_0_auto] flex-col outline-none">
+      <PlayerStrip lead={strip?.lead}>
+        {strip?.end}
+        {menus}
+      </PlayerStrip>
+      {kind === "audio" && (
         <>
           <audio ref={media} {...events} />
           {playsParts &&
@@ -1010,406 +1716,58 @@ export function Player({
             ))}
         </>
       )}
-      {failure ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4">
-          <p className="m-0 text-sm text-ink-2">{failureCopy[failure]}</p>
-          {(failure === "expired" || failure === "failed") && (
-            <Button size="sm" onClick={onExpired}>
-              Load again
-            </Button>
-          )}
-        </div>
-      ) : (
-        <div className={cn("flex flex-col gap-3 px-4 py-4", compact && "min-w-0 flex-1")}>
-          {kind === "audio" && element && (
-            // Scrolls once zoomed in; everything on the surface widens with it.
-            <div
-              ref={setSurface}
-              className={cn(zoom > 1 && "overflow-x-auto overscroll-x-contain")}
-              // Zoomed in, it scrolls, so the keyboard can reach it and move along it.
-              {...(zoom > 1 && {
-                tabIndex: 0,
-                role: "group",
-                "aria-label": `Waveform, zoomed ${zoom} times: the arrow keys move along it`,
-                onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
-                  const box = event.currentTarget;
-                  const next = panScroll(
-                    event.key,
-                    box.scrollLeft,
-                    box.clientWidth,
-                    box.scrollWidth,
-                  );
-                  if (next === null || event.altKey || event.metaKey || event.ctrlKey) return;
-                  // Handled here, so the player's own arrows do not seek as well.
-                  event.preventDefault();
-                  box.scrollLeft = next;
-                },
-              })}
-              data-zoom={zoom}
-            >
-              <div style={{ width: `${zoom * 100}%` }}>
-                <LoopSurface
-                  duration={duration}
-                  loop={loop}
-                  active={active}
-                  onSeek={seek}
-                  onLoop={canLoop ? setLoop : undefined}
-                  label={
-                    canLoop
-                      ? "Waveform: click to move the playhead, drag to loop a passage"
-                      : "Waveform: click to move the playhead"
-                  }
-                  className="flex flex-col gap-3"
-                >
-                  {element && (display === "waveform" || display === "both") && (
-                    <Waveform
-                      fileId={fileId}
-                      media={element}
-                      duration={duration}
-                      layout={info?.audio?.channelLayout}
-                      view={view}
-                      look={look}
-                    />
-                  )}
-                  {element && (display === "spectrogram" || display === "both") && (
-                    <Spectrogram
-                      fileId={fileId}
-                      media={element}
-                      duration={duration}
-                      layout={info?.audio?.channelLayout}
-                      channel={spectrumChannel}
-                      view={spectrum}
-                      height={WAVEFORM_HEIGHT}
-                    />
-                  )}
-                  {element && display === "overlay" && (
-                    // The waveform, drawn see-through, sits on the spectrogram and keeps the playhead.
-                    <div className="relative">
-                      <div className="absolute inset-0">
-                        <Spectrogram
-                          fileId={fileId}
-                          media={element}
-                          duration={duration}
-                          layout={info?.audio?.channelLayout}
-                          // Row for row under the waveform: each channel, or all of them combined.
-                          channel={view === "combined" ? "all" : "each"}
-                          view={spectrum}
-                          height={WAVEFORM_HEIGHT}
-                          playhead={false}
-                          labels={false}
-                        />
-                      </div>
-                      <Waveform
-                        fileId={fileId}
-                        media={element}
-                        duration={duration}
-                        layout={info?.audio?.channelLayout}
-                        view={view}
-                        look={look}
-                        overlay
-                      />
-                    </div>
-                  )}
-                </LoopSurface>
-                {edits.length > 0 && duration > 0 && (
-                  <div className="mt-1.5">
-                    <EditLane edits={edits} duration={duration} time={time} onSeek={seek} />
-                  </div>
-                )}
-              </div>
+      <div className="flex min-h-0 flex-1 flex-col justify-center px-3 pt-2 pb-3 lg:px-4">
+        {kind === "audio" ? (
+          failure ? (
+            failed
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col justify-center gap-3">
+              {audioSurface}
+              {caption && <CaptionLine cues={caption.cues} time={time} />}
+              {scrub}
             </div>
-          )}
-          {kind === "audio" && caption && <CaptionLine cues={caption.cues} time={time} />}
-          {kind === "video" && edits.length > 0 && duration > 0 && (
-            <EditLane edits={edits} duration={duration} time={time} onSeek={seek} />
-          )}
-          {/* Video has no waveform to drag on: its filmstrip, or a plain loop lane, stands in. */}
-          {kind === "video" && (canLoop || playback.filmstrip) && (
-            <LoopSurface
-              duration={duration}
-              loop={loop}
-              active={active}
-              onSeek={seek}
-              onLoop={canLoop ? setLoop : undefined}
-              label={
-                playback.filmstrip
-                  ? canLoop
-                    ? "Filmstrip: click to move the playhead, drag to loop a passage"
-                    : "Filmstrip: click to move the playhead"
-                  : "Loop lane: drag to loop a passage"
-              }
-              className={playback.filmstrip ? "h-12" : "h-7"}
-            >
-              {playback.filmstrip ? (
-                <Filmstrip
-                  url={playback.filmstrip.url}
-                  frames={playback.filmstrip.frames}
-                  at={duration > 0 ? time / duration : 0}
-                />
-              ) : (
-                <div
-                  aria-hidden="true"
-                  className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-hairline/60"
-                />
-              )}
-            </LoopSurface>
-          )}
-          <div className="relative h-4">
-            <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-hairline" />
-            {loop && duration > 0 && (
-              <div
-                aria-hidden="true"
-                className={cn(
-                  "absolute top-1/2 h-1.5 -translate-y-1/2 bg-signal/30",
-                  !active && "opacity-40",
-                )}
-                style={{
-                  left: `${share(loop.start)}%`,
-                  width: `${share(loop.end) - share(loop.start)}%`,
-                }}
-              />
-            )}
-            {findings.map((f) => (
-              <div
-                key={`${f.start}-${f.end}-${f.severity}`}
-                aria-hidden="true"
-                className={cn(
-                  "absolute bottom-0 h-1.5 min-w-[3px] rounded-[1px] border border-signal",
-                  f.severity === "fail" ? "bg-signal" : "bg-transparent",
-                )}
-                style={{
-                  left: `${share(f.start)}%`,
-                  width:
-                    f.end !== null && f.end - f.start > 0.2
-                      ? `${share(f.end) - share(f.start)}%`
-                      : undefined,
-                }}
-              />
-            ))}
-            {markers.map(({ at, state }) => (
-              <div
-                key={at}
-                aria-hidden="true"
-                className={cn("absolute top-0 h-1.5 w-px -translate-x-1/2", markerStyles[state])}
-                style={{ left: `${share(at)}%` }}
-              />
-            ))}
-            <div
-              className="absolute top-1/2 left-0 h-0.5 -translate-y-1/2 rounded-full bg-edge"
-              style={{ width: `${share(buffered)}%` }}
-            />
-            <div
-              className="absolute top-1/2 left-0 h-0.5 -translate-y-1/2 rounded-full bg-signal"
-              style={{ width: `${share(time)}%` }}
-            />
-            <div
-              className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink"
-              style={{ left: `${share(time)}%` }}
-            />
-            <Slider
-              aria-label="Position"
-              min={0}
-              max={duration || 0}
-              step={0.01}
-              value={Math.min(time, duration || 0)}
-              onChange={(event) => {
-                const element = media.current;
-                if (element) element.currentTime = Number(event.target.value);
-              }}
-              className="absolute inset-0 m-0 w-full cursor-pointer opacity-0"
-            />
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              variant="primary"
-              size="icon"
-              className="h-8 w-8"
-              aria-label={playing ? "Pause" : "Play"}
-              disabled={!ready}
-              onClick={toggle}
-            >
-              <Icon name={playing ? "pause" : "play"} size={14} />
-            </Button>
-            {kind === "video" && clock ? (
-              <span className="tabular text-xs text-ink-2">
-                {videoTimecode(time, clock)}{" "}
-                <span className="text-ink-3">/ {timecodeFor(duration, clock)}</span>
-                <span className="ml-2 hidden text-ink-3 sm:inline">
-                  frame {frameShowing(time, clock.rate)}
-                </span>
-              </span>
+          )
+        ) : compact ? (
+          // QA (#42): the picture small, its lanes beside it.
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:gap-4">
+            <div className="md:w-[300px] md:shrink-0 md:self-start">{picture}</div>
+            {failure ? (
+              failed
             ) : (
-              <span className="tabular text-xs text-ink-2">
-                {formatDuration(time)}{" "}
-                <span className="text-ink-3">/ {formatDuration(duration)}</span>
-              </span>
-            )}
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={muted ? "Unmute" : "Mute"}
-              onClick={() => {
-                if (media.current) media.current.muted = !media.current.muted;
-              }}
-            >
-              <Icon name={muted ? "mute" : "volume"} size={14} />
-            </Button>
-            <Dropdown
-              size="sm"
-              label="Speed"
-              above
-              value={<span className="tabular">{rateLabel(rate)}</span>}
-              actions={playbackRates.map((r) => ({
-                label: rateLabel(r),
-                checked: rate === r,
-                onSelect: () => setRate(r),
-              }))}
-            />
-            {kind === "video" && info?.video && (
-              <Dropdown
-                size="sm"
-                above
-                value={
-                  <>
-                    <Icon name="grid" size={14} />
-                    Frame
-                  </>
-                }
-                actions={[
-                  { label: "Safe areas", checked: safe, onSelect: () => setSafe((on) => !on) },
-                  ...(Object.keys(mattes) as Matte[]).map((m) => ({
-                    label: `Matte ${mattes[m].label}`,
-                    checked: matte === m,
-                    onSelect: () => setMatte((on) => (on === m ? null : m)),
-                  })),
-                  ...(canCompareCuts && cuts
-                    ? [
-                        "divider" as const,
-                        {
-                          label: "Compare cuts: wipe",
-                          hint: `With ${cuts.previous.label}`,
-                          checked: comparing === "wipe",
-                          onSelect: () => setCutView((on) => (on === "wipe" ? null : "wipe")),
-                        },
-                        {
-                          label: "Compare cuts: side by side",
-                          checked: comparing === "side",
-                          onSelect: () => setCutView((on) => (on === "side" ? null : "side")),
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-            )}
-            {captions.length > 0 && (
-              <CaptionsMenu tracks={captions} current={captionId} onChange={setCaptionId} />
-            )}
-            {kind === "video" && clock && (
-              <GoToTimecode clock={clock} time={time} duration={duration} onGo={goToFrame} />
-            )}
-            {kind === "video" && onDraft && (
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-pressed={drawingOn}
-                onClick={() => {
-                  // The frame holds still while it is drawn on.
-                  media.current?.pause();
-                  setDrawingOn((on) => !on);
-                }}
-                className={cn(drawingOn && "bg-raised text-ink")}
-              >
-                <Icon name="edit" size={14} />
-                Draw
-              </Button>
-            )}
-            {(kind === "audio" || offersNormalise) && (
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-expanded={settingsOpen}
-                aria-controls="player-view"
-                onClick={() => setSettingsOpen((open) => !open)}
-                className={cn(settingsOpen && "bg-raised text-ink")}
-              >
-                <Icon name="settings" size={14} />
-                View
-              </Button>
-            )}
-            {kind === "audio" && heard >= 2 && (
-              <ChannelsButton
-                names={names}
-                mix={heardMix}
-                open={channelsOpen}
-                onToggle={() => setChannelsOpen((open) => !open)}
-              />
-            )}
-            {kind === "audio" && mostZoom > 1 && (
-              <span className="flex items-center gap-0.5">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Zoom out of the waveform"
-                  disabled={zoom <= 1}
-                  onClick={() => zoomTo(zoomStep(zoom, -1, mostZoom))}
-                >
-                  <Icon name="zoomOut" size={14} />
-                </Button>
-                <button
-                  type="button"
-                  onClick={() => zoomTo(1)}
-                  title="Fit the whole file (0)"
-                  className="tabular h-7 min-w-10 cursor-pointer rounded-chip border-0 bg-transparent px-1.5 text-xs text-ink-2 hover:text-ink"
-                >
-                  {zoomLabel(zoom)}
-                </button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Zoom into the waveform"
-                  disabled={zoom >= mostZoom}
-                  onClick={() => zoomTo(zoomStep(zoom, 1, mostZoom))}
-                >
-                  <Icon name="zoomIn" size={14} />
-                </Button>
-              </span>
-            )}
-            {/* What is heard, at the right, before the format it is heard in. */}
-            {normalised && normalisation && (
-              <span className="tabular ml-auto text-xs text-ink-3">
-                {normalisationLabel(normalisation)}
-              </span>
-            )}
-            {choices.length === 1 && choices[0] && (
-              <span className={cn("tabular text-xs text-ink-3", !normalised && "ml-auto")}>
-                {renditionLabel(choices[0].rendition, info)}
-              </span>
-            )}
-            {choices.length > 1 && (
-              <fieldset
-                className={cn(
-                  "m-0 flex min-w-0 flex-wrap items-center gap-1 border-0 p-0",
-                  !normalised && "ml-auto",
-                )}
-              >
-                <legend className="sr-only">Rendition</legend>
-                {kind === "video" && (
-                  <ChoiceButton selected={level === -1} onSelect={() => choose(-1)}>
-                    Auto
-                  </ChoiceButton>
-                )}
-                {choices.map((c) => (
-                  <ChoiceButton
-                    key={c.rendition.id}
-                    selected={level === c.level}
-                    onSelect={() => choose(c.level)}
-                  >
-                    {renditionLabel(c.rendition, info)}
-                  </ChoiceButton>
-                ))}
-              </fieldset>
+              <div className="flex flex-col gap-3 md:min-w-0 md:flex-1">
+                {videoLanes}
+                {scrub}
+              </div>
             )}
           </div>
+        ) : (
+          // The picture as wide as the column allows and, on a wide screen, no taller than the
+          // frame leaves it once its lanes are under it (#15), so the transport stays in view.
+          <div className="flex min-h-0 flex-col justify-center lg:min-h-[260px] lg:flex-1 lg:[container-type:size]">
+            <div
+              className="mx-auto flex w-full flex-col gap-3 lg:w-[min(100cqw,calc((100cqh-var(--lanes))*var(--picture)))]"
+              style={{
+                ["--picture" as string]: comparing === "side" ? 32 / 9 : 16 / 9,
+                ["--lanes" as string]: `${lanesHeight}px`,
+              }}
+            >
+              {picture}
+              {failure ? (
+                failed
+              ) : (
+                <>
+                  {cutBar}
+                  {videoLanes}
+                  {scrub}
+                </>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+      {!failure && (
+        <div className="shrink-0 border-t border-line">
+          {transport}
           {loop && (
             <LoopControls
               loop={loop}
@@ -1422,208 +1780,47 @@ export function Player({
               onRolls={setRolls}
             />
           )}
-          {channelsOpen && kind === "audio" && heard >= 2 && (
-            <ChannelsPanel
-              names={names}
-              mix={heardMix}
-              canDownmix={labels !== null}
-              canBinaural={canBinaural(labels)}
-              onMix={setMix}
-              unavailable={channelsUnavailable}
-              levelsOf={!tools || tools.includes("meters") ? { fileId, media: element } : undefined}
-            />
-          )}
-          {settingsOpen && (
-            <section
-              id="player-view"
-              aria-label="View"
-              className="flex flex-col gap-3 border-t border-hairline pt-3"
-            >
-              <div className="flex max-w-80 flex-col gap-2.5">
-                {/* No waveform drawn, nothing to choose about it. */}
-                {kind === "audio" && display !== "spectrogram" && (
-                  <fieldset className="m-0 flex flex-col gap-2.5 border-0 p-0">
-                    <legend className="sr-only">Waveform</legend>
-                    <div className="flex items-center justify-between gap-4">
-                      <span aria-hidden="true" className="text-[14px] text-ink">
-                        Waveform
-                      </span>
-                      <span className="flex gap-1.5">
-                        {waveColours.map((colour) => (
-                          <button
-                            key={colour}
-                            type="button"
-                            aria-pressed={look.colour === colour}
-                            aria-label={`${waveColourNames[colour]} waveform`}
-                            title={waveColourNames[colour]}
-                            onClick={() => setLook({ colour })}
-                            className={cn(
-                              "flex size-7 cursor-pointer items-center justify-center rounded-full border bg-transparent p-0",
-                              look.colour === colour ? "border-ink" : "border-transparent",
-                            )}
-                          >
-                            <span
-                              className="size-4 rounded-full"
-                              style={{ background: `var(${waveTokens[colour]})` }}
-                            />
-                          </button>
-                        ))}
-                      </span>
-                    </div>
-                    <LookSlider
-                      label="Brightness"
-                      value={look.opacity}
-                      onChange={(opacity) => setLook({ opacity })}
-                    />
-                    <LookSlider
-                      label="Height"
-                      value={look.height}
-                      onChange={(height) => setLook({ height })}
-                    />
-                  </fieldset>
-                )}
-                {kind === "audio" && channels > 1 && (
-                  <Toggle
-                    label="Split channels"
-                    checked={split}
-                    onChange={(split) => {
-                      setSplit(split);
-                      // The spectrogram follows: a lane per channel, or all of them together.
-                      setSpectrumChannel(split ? "each" : "all");
-                    }}
-                  />
-                )}
-                {kind === "audio" && canSpectrogram && (
-                  <div className="flex items-center justify-between gap-4">
-                    <span aria-hidden="true" className="text-[14px] text-ink">
-                      Spectrogram
-                    </span>
-                    <Segmented
-                      label="Spectrogram"
-                      value={playerView.spectrogram}
-                      options={spectrogramPlaces.map((p) => ({ value: p, label: placeNames[p] }))}
-                      onChange={(spectrogram) => setPlayerView({ ...playerView, spectrogram })}
-                    />
-                  </div>
-                )}
-                {kind === "audio" && canSpectrogram && playerView.spectrogram !== "off" && (
-                  <SpectrogramLook view={spectrum} onView={setSpectrum} />
-                )}
-                {kind === "audio" && canSpectrogram && playerView.spectrogram !== "off" && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-expanded={tuning}
-                    onClick={() => setTuning((t) => !t)}
-                    className="self-start px-0 text-ink-3 hover:text-ink"
-                  >
-                    {tuning ? "Hide spectrogram settings" : "Channel, levels, range and analysis…"}
-                  </Button>
-                )}
-                {kind === "audio" && !canSpectrogram && tools && !tools.includes("spectrogram") && (
-                  <span className="text-[12px] text-ink-3">
-                    The spectrogram is not among your tools here.
-                  </span>
-                )}
-                {kind === "audio" && (!tools || tools.includes("qa")) && (
-                  <Toggle
-                    label="Loudness and issues"
-                    checked={playerView.loudness}
-                    onChange={(loudness) => setPlayerView({ ...playerView, loudness })}
-                  />
-                )}
-                {offersNormalise && (
-                  <Toggle
-                    label="Normalised playback"
-                    checked={normalised}
-                    onChange={(on) => onNormalised?.(on)}
-                  />
-                )}
-                {/* Presets go with an account; a guest has none to keep them in. */}
-                {kind === "audio" && !guest && (
-                  <div className="flex items-center justify-between gap-4 border-t border-hairline pt-2.5">
-                    <span aria-hidden="true" className="text-[14px] text-ink">
-                      Presets
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      {presets.length > 0 && (
-                        <Select
-                          size="sm"
-                          aria-label="Apply a preset"
-                          className="w-36"
-                          value=""
-                          onChange={(e) => {
-                            const preset = presets.find((p) => p.name === e.target.value);
-                            if (preset) setPlayerView(preset.view);
-                          }}
-                        >
-                          <option value="" disabled>
-                            Apply…
-                          </option>
-                          {presets.map((p) => (
-                            <option key={p.name} value={p.name}>
-                              {p.name}
-                            </option>
-                          ))}
-                        </Select>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        aria-expanded={naming !== null}
-                        onClick={() => {
-                          setNaming(naming === null ? "" : null);
-                          setPresetError(null);
-                        }}
-                      >
-                        Save as…
-                      </Button>
-                    </span>
-                  </div>
-                )}
-                {kind === "audio" && !guest && naming !== null && (
-                  <form
-                    className="flex flex-col gap-1.5"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      keepPreset();
-                    }}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <Input
-                        size="sm"
-                        aria-label="Preset name"
-                        placeholder="Name this view"
-                        maxLength={40}
-                        value={naming}
-                        autoFocus
-                        onChange={(e) => setNaming(e.target.value)}
-                        className="min-w-0 flex-1"
-                      />
-                      <Button size="sm" type="submit">
-                        Save
-                      </Button>
-                    </span>
-                    {presetError && <span className="text-[12px] text-signal">{presetError}</span>}
-                  </form>
-                )}
-              </div>
-            </section>
-          )}
-          {kind === "audio" && display !== "waveform" && settingsOpen && tuning && (
-            <SpectrogramSettings
-              view={spectrum}
-              onView={setSpectrum}
-              channel={spectrumChannel}
-              onChannel={setSpectrumChannel}
-              channels={channels}
-              layout={info?.audio?.channelLayout}
-              sampleRate={info?.audio?.sampleRate ?? 48_000}
-            />
-          )}
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * How tall the waveform grows with the frame (#15): enough to read as one waveform, a little
+ * more with the spectrogram under it or the edits beneath, and no limit with a row per channel.
+ */
+export function surfaceCap(
+  view: WaveformView,
+  display: Display,
+  edits: boolean,
+): number | undefined {
+  if (view === "channels") return undefined;
+  return (display === "both" ? 520 : 320) + (edits ? 32 : 0);
+}
+
+/**
+ * The strip above the player (#15), as the prototype draws it: what leads (the version and
+ * variation) at the left, the menus at the right, wrapping under them on a phone.
+ */
+export function PlayerStrip({ lead, children }: { lead?: ReactNode; children?: ReactNode }) {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2 lg:px-4">
+      {lead}
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-1">{children}</div>
+    </div>
+  );
+}
+
+/** A menu's panel, opened from the strip: over the player, at the right, within the window. */
+function StripPanel({ children }: { children: ReactNode }) {
+  return (
+    <div
+      data-e2e-layer
+      className="rise-in scroll-quiet absolute top-full right-0 z-30 mt-1 max-h-[min(70vh,560px)] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-panel bg-overlay p-4 text-left shadow-3"
+    >
+      {children}
+    </div>
   );
 }
 

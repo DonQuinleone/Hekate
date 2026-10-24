@@ -23,6 +23,7 @@ import { createListeningHub, listenForRooms } from "./listening.ts";
 import { purgeLogs } from "./log-retention.ts";
 import { createMailer, loggedMailer, mailTransportOf } from "./mail.ts";
 import { bounceProviderOf, instanceBouncesOf } from "./mail-bounces.ts";
+import { usePdfFonts } from "./media/pdf-text.ts";
 import { startWorkers } from "./media/workers.ts";
 import { collectFromDatabase, collectQueues, countedMailer } from "./metrics/index.ts";
 import { createSampler } from "./metrics/sampler.ts";
@@ -74,6 +75,13 @@ export async function boot(
   // Before anything else runs, so its spans and log lines reach the collector (#162).
   const telemetry = await startTelemetry(config);
   await migrateOrExit(config);
+  // The fonts PDFs set text outside WinAnsi in (decision 238); Helvetica alone without them.
+  const pdfFonts = usePdfFonts({
+    regular: config.PDF_FONT,
+    bold: config.PDF_FONT_BOLD,
+    fallback: config.PDF_FONT_FALLBACK,
+  });
+  for (const problem of pdfFonts.problems) console.warn(`A PDF font was left out: ${problem}`);
 
   // Refuse to start with storage that is unreachable or read-only.
   const backends = await (async () => {

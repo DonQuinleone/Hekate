@@ -1,5 +1,5 @@
 import type { PatchRow, StageBox } from "@hekate/shared";
-import { pdfString, widthOf } from "./media/helvetica.ts";
+import { showText, widthOf } from "./media/pdf-text.ts";
 
 /**
  * The patch list as an engineer prints it (#54): A4, each stage box's inputs then outputs as a
@@ -21,7 +21,7 @@ const COLUMNS: { key: keyof PatchRow; title: string; width: number }[] = [
 
 const num = (n: number) => String(Math.round(n * 100) / 100);
 const text = (font: "H" | "HB", size: number, x: number, y: number, words: string, grey = 0) =>
-  `BT /${font} ${num(size)} Tf ${grey} g ${num(x)} ${num(y)} Td ${pdfString(words)} Tj ET`;
+  showText(font === "HB" ? "bold" : "regular", size, x, y, words, `${grey} g`);
 
 /** Words cut to a width, ending in an ellipsis where they were cut. */
 export function fitted(words: string, width: number, size = SIZE, bold = false): string {

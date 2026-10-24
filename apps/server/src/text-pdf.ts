@@ -1,8 +1,20 @@
+import {
+  FONT_OBJECTS,
+  fontEntries,
+  fontObjects,
+  fontsUsed,
+  hasUnicodeFont,
+  showText,
+  unicodeString,
+  wrapToWidth,
+} from "./media/pdf-text.ts";
+
 /**
  * A PDF of plain text, written by Hekate itself (#43): A4 pages in Helvetica, the font every
  * PDF reader has, so nothing is embedded. Lines wrap at the page's width and run on to new
- * pages. Only what Latin-1 can say is kept; the few typographic marks outside it are written
- * plainly (a minus sign as a hyphen), and anything else as a question mark.
+ * pages. What Latin-1 can say is kept; the few typographic marks outside it are written
+ * plainly (a minus sign as a hyphen). A line with anything else (Greek, Japanese) is set in the
+ * embedded Unicode fonts where there are any (decision 238), and otherwise with question marks.
  */
 
 export interface TextLine {
@@ -46,6 +58,10 @@ export function latin1(text: string): string {
     .join("");
 }
 
+/** Whether Latin-1 cannot say the text, so it needs a Unicode font. */
+export const beyondLatin1 = (text: string) =>
+  [...text].some((ch) => (ch.codePointAt(0) ?? 0) > 0xff && !(ch in plain));
+
 /** A string as PDF writes it, between parentheses. */
 const pdfString = (text: string) => `(${text.replace(/[\\()]/g, (c) => `\\${c}`)})`;
 
@@ -75,7 +91,16 @@ export function textPdf(lines: readonly TextLine[], title: string): Buffer {
     const size = line.size ?? 10;
     const step = size * LEADING;
     y -= line.space ?? 0;
-    for (const part of wrap(latin1(line.text), size)) {
+    const unicode = hasUnicodeFont() && beyondLatin1(line.text);
+    const parts = unicode
+      ? wrapToWidth(
+          line.text.replace(/[^\P{Cc}\n]/gu, ""),
+          PAGE.width - 2 * MARGIN,
+          size,
+          line.bold,
+        )
+      : wrap(latin1(line.text), size);
+    for (const part of parts) {
       if (y - step < MARGIN) {
         pages.push([]);
         y = PAGE.height - MARGIN;
@@ -83,10 +108,15 @@ export function textPdf(lines: readonly TextLine[], title: string): Buffer {
       y -= step;
       const colour = line.quiet ? "0.4 0.4 0.4 rg" : "0 0 0 rg";
       (pages.at(-1) as string[]).push(
-        `BT ${colour} /${line.bold ? "F2" : "F1"} ${size} Tf ${MARGIN} ${y.toFixed(2)} Td ${pdfString(part)} Tj ET`,
+        unicode
+          ? showText(line.bold ? "bold" : "regular", size, MARGIN, y, part, colour, null)
+          : `BT ${colour} /${line.bold ? "F2" : "F1"} ${size} Tf ${MARGIN} ${y.toFixed(2)} Td ${pdfString(part)} Tj ET`,
       );
     }
   }
+  // The embedded fonts, if any line needed them, follow the pages.
+  const used = fontsUsed(pages.map((commands) => commands.join("\n")));
+  const fontAt = new Map<string, number>();
   // Objects: 1 catalogue, 2 pages, 3 and 4 the fonts, 5 the information, then two a page.
   const objects: string[] = [];
   const first = 6;
@@ -96,15 +126,25 @@ export function textPdf(lines: readonly TextLine[], title: string): Buffer {
   objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
   objects[4] =
     "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>";
-  objects[5] = `<< /Title ${pdfString(latin1(title))} /Producer (Hekate) >>`;
+  objects[5] = `<< /Title ${beyondLatin1(title) ? unicodeString(title) : pdfString(latin1(title))} /Producer (Hekate) >>`;
+  let next = first + pages.length * 2;
+  for (const key of used.keys()) {
+    fontAt.set(key, next);
+    next += FONT_OBJECTS;
+  }
   pages.forEach((commands, i) => {
     const content = commands.join("\n");
     objects[first + i * 2] =
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE.width} ${PAGE.height}] ` +
-      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${first + i * 2 + 1} 0 R >>`;
+      `/Resources << /Font << /F1 3 0 R /F2 4 0 R${fontEntries(fontAt)} >> >> /Contents ${first + i * 2 + 1} 0 R >>`;
     objects[first + i * 2 + 1] =
       `<< /Length ${Buffer.byteLength(content, "latin1")} >>\nstream\n${content}\nendstream`;
   });
+  for (const [key, at] of fontAt) {
+    for (const [i, body] of fontObjects(key, used.get(key) ?? new Set(), at).entries()) {
+      objects[at + i] = body;
+    }
+  }
   let body = "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n";
   const offsets: number[] = [];
   for (let n = 1; n < objects.length; n++) {

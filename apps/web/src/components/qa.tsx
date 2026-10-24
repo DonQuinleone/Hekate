@@ -590,14 +590,18 @@ function QaReportDialog({
  * On the Review view: one line of what QA found, opening QA. Loudness against its target
  * and how many checks want a look; nothing more, so the review stays on the music.
  */
+/** How many checks found something to look at: each check counted once, however often. */
+export const qaIssues = (findings: readonly Pick<QaFinding, "check" | "severity">[]) =>
+  new Set(
+    findings.filter((f) => f.severity === "fail" || f.severity === "warn").map((f) => f.check),
+  ).size;
+
 export function QaSummary({ fileId, onOpen }: { fileId: string; onOpen: () => void }) {
   const { data } = useQuery(qaQuery(fileId));
   if (!data) return null;
   const loudness = data.findings.find((f) => f.check === "loudness");
   const integrated = loudness?.details.integrated;
-  const issues = new Set(
-    data.findings.filter((f) => f.severity === "fail" || f.severity === "warn").map((f) => f.check),
-  ).size;
+  const issues = qaIssues(data.findings);
   const worst = data.findings.some((f) => f.severity === "fail")
     ? "fail"
     : issues > 0

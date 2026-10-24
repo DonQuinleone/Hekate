@@ -2261,6 +2261,38 @@ export const downloadTickets = pgTable(
 );
 
 /**
+ * An invisible mark made for one download (#32, decision 239): its id decides the code hidden
+ * in the sound, with the workspace's key at `keyVersion`, so a leaked copy can be traced back
+ * to this row. Kept as long as the workspace, without references that a deleted file, person
+ * or review would take with them: who it was for and what it was are written down as they
+ * were, as the access log writes them.
+ */
+export const forensicMarks = pgTable(
+  "forensic_marks",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    /** The download's entry in the access log. */
+    accessEventId: uuid("access_event_id"),
+    fileId: uuid("file_id").notNull(),
+    fileName: text("file_name").notNull(),
+    projectId: uuid("project_id").notNull(),
+    /** "proxy" or "original". */
+    kind: text("kind").$type<DownloadKind>().notNull(),
+    userId: text("user_id"),
+    guestId: uuid("guest_id"),
+    /** Who it was made for, as shown at the time: a name and address. */
+    recipientLabel: text("recipient_label").notNull(),
+    /** For a guest, the review whose grant allowed the download. */
+    reviewId: uuid("review_id"),
+    /** The version of the workspace's key the mark's code was made with. */
+    keyVersion: integer("key_version").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("forensic_marks_org_idx").on(t.organisationId, t.keyVersion)],
+);
+
+/**
  * An export of everything a workspace holds (#186): its records as JSON and its files'
  * originals, decrypted into a tar archive that is encrypted with age to `recipient`, whose
  * secret key was shown once to whoever asked and is never kept. The archive is stored as

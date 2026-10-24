@@ -49,8 +49,8 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Install ffmpeg and Poppler
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core
+      - name: Install ffmpeg, Poppler and fonts
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core fonts-droid-fallback
       # The ADM renderer (decision 140), pinned by hash as in the image, for its tests.
       - name: Install the ADM renderer
         run: |
@@ -200,8 +200,8 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Install ffmpeg, Poppler and PgBouncer
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core pgbouncer
+      - name: Install ffmpeg, Poppler, fonts and PgBouncer
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core fonts-droid-fallback pgbouncer
       - name: Start PgBouncer in transaction mode
         run: |
           mkdir -p "$RUNNER_TEMP/pgbouncer"

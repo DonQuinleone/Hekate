@@ -20,6 +20,12 @@ describe("ownedByTarget", () => {
     expect(ownedByTarget("ArrowLeft", html("<button>Play</button>", "button"))).toBe(false);
     expect(ownedByTarget("k", tab)).toBe(false);
   });
+
+  it("leaves Home and End to composite controls, but not to the page", () => {
+    expect(ownedByTarget("Home", html('<ul role="listbox"><li>A</li></ul>', "li"))).toBe(true);
+    expect(ownedByTarget("End", html('<div role="menu"><p>A</p></div>', "p"))).toBe(true);
+    expect(ownedByTarget("Home", html("<button>Play</button>", "button"))).toBe(false);
+  });
 });
 
 describe("typingIn", () => {
