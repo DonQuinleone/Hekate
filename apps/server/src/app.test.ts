@@ -4,7 +4,15 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { buffer } from "node:stream/consumers";
-import { createDb, runMigrations, schema, tenantTables, uuidv7, withAuditPurge } from "@hekate/db";
+import {
+  createDb,
+  inOrg,
+  runMigrations,
+  schema,
+  tenantTables,
+  uuidv7,
+  withAuditPurge,
+} from "@hekate/db";
 import {
   type AuditLogRow,
   type AuthLogRow,
@@ -20050,7 +20058,10 @@ describe.runIf(url)("api", () => {
         expect((await next(s.mix, third)).status).toBe(409);
         // The database holds it too (#427): a second later version is refused there.
         await expect(
-          db.update(schema.files).set({ previousFileId: s.mix }).where(eq(schema.files.id, third)),
+          db
+            .update(schema.files)
+            .set({ previousFileId: s.mix })
+            .where(inOrg(schema.files, s.organisationId, eq(schema.files.id, third))),
         ).rejects.toThrow();
         expect((await next(s.stem, s.mix)).status).toBe(409);
         expect((await next(third, s.mix)).status).toBe(409);
