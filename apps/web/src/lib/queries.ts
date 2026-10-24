@@ -2588,10 +2588,13 @@ export function useTakeOutbox(sessionId: string) {
     problem,
     /** Whether waiting writes outlive the page; not once this browser's storage has failed. */
     durable: store.durable(),
-    /** The next take, numbered as the log shows it until the server numbers it. */
+    /**
+     * The next take, numbered as the log shows it until the server numbers it; named by the
+     * caller where it must act on the take before the log shows it (a recorder, decision 240).
+     */
     start: (input: StartTake, number: number) => {
       const at = new Date().toISOString();
-      const takeId = uuidv7();
+      const takeId = input.id ?? uuidv7();
       return write({
         kind: "start",
         sessionId,
