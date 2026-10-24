@@ -111,7 +111,7 @@ export function contractingStatements(text: string): string[] {
   );
   const onNewColumns = (statement: string) => {
     const m =
-      /^ALTER TABLE (?:ONLY )?("?[\w.]+"?(?:\."?\w+"?)?) ADD CONSTRAINT .*? (?:UNIQUE|FOREIGN KEY) ?\(([^)]*)\)/i.exec(
+      /^ALTER TABLE (?:ONLY )?("?[\w.]+"?(?:\."?\w+"?)?) ADD CONSTRAINT \S+ (?:UNIQUE|FOREIGN KEY) ?\(([^)]*)\)/i.exec(
         statement,
       );
     if (!m) return false;
