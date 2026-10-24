@@ -13,7 +13,7 @@ import {
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useCallback, useEffect, useId, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import {
   type BeforeAfter,
   type CommentSeed,
@@ -39,14 +39,15 @@ import { ImportMarkersDialog } from "~/components/marker-import";
 import { type Crumb, PageHeader } from "~/components/page-header";
 import { CommentsSplitter, PanelPlacement } from "~/components/panel-placement";
 import { Player } from "~/components/player";
-import { checkNames, findingMarks, QaSummary, QualityChecks } from "~/components/qa";
+import { checkNames, findingMarks, QaSummary, QualityChecks, qaIssues } from "~/components/qa";
 import { VideoQa } from "~/components/qa-video";
 import { ScorePane } from "~/components/score";
-import { FileContext } from "~/components/tracks";
+import { FileContext, VersionNote } from "~/components/tracks";
 import { PanelTabs, type SidePanel, Transcript } from "~/components/transcript";
 import { TriageView } from "~/components/triage";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
+import { Segmented } from "~/components/ui/segmented";
 import { cn } from "~/lib/cn";
 import { threadsOf } from "~/lib/comments";
 import { previousCut } from "~/lib/compare";
@@ -285,6 +286,38 @@ function technicalDetails(info: MediaInfo | null): [string, string][] {
 
 export type FileView = "review" | "qa" | "triage";
 
+/**
+ * Review or QA (#15, #41), in the page's header as the prototype puts it: QA says how many
+ * of its checks found something, where its checks are this viewer's to see.
+ */
+function ViewSwitch({
+  fileId,
+  view,
+  onView,
+  counts,
+}: {
+  fileId: string;
+  view: "review" | "qa";
+  onView: (view: FileView) => void;
+  counts: boolean;
+}) {
+  const { data: qa } = useQuery({ ...qaQuery(fileId), enabled: counts });
+  const issues = counts && qa?.status === "ready" ? qaIssues(qa.findings) : 0;
+  return (
+    <Segmented
+      label="View"
+      value={view}
+      onChange={onView}
+      options={[
+        { value: "review", label: "Review" },
+        { value: "qa", label: "QA", hint: issues > 0 ? String(issues) : undefined },
+      ]}
+      // On a phone the header's actions scroll in a row of their own; this keeps its size.
+      className="shrink-0"
+    />
+  );
+}
+
 /** Opening a file is seeing it: the file browser stops showing it as new to this member. */
 function MarkViewed({ projectId, fileId }: { projectId: string; fileId: string }) {
   const { mutate } = useMarks(projectId);
@@ -333,7 +366,6 @@ export function FilePage({
   // Whether this person may download it at all, and so whether to offer it (#136).
   const { data: downloads } = useQuery(downloadsQuery(fileId));
   const [downloading, setDownloading] = useState(false);
-  const tabsId = useId();
   const [cue, setCue] = useState(0);
   /** A comment begun from a finding (#43), for the composer to start from. */
   const [seed, setSeed] = useState<CommentSeed | undefined>(undefined);
@@ -632,6 +664,15 @@ export function FilePage({
       </Button>
     ) : undefined;
   const beside = shown === "review" && layout.comments === "right";
+  const viewSwitch = hasQa && (
+    <ViewSwitch fileId={file.id} view={shown} onView={onView} counts={allows("qa")} />
+  );
+  /** The track's score, where it is linked and this viewer has it: shown from the strip. */
+  const hasScore = Boolean(
+    file.variation?.scoreFileId &&
+      allows("score") &&
+      (file.kind === "audio" || file.kind === "video"),
+  );
   return (
     <>
       {!guest && <MarkViewed projectId={file.projectId} fileId={file.id} />}
@@ -646,11 +687,13 @@ export function FilePage({
         actions={
           guest ? (
             <>
+              {viewSwitch}
               {commentsButton}
               {downloadButton}
             </>
           ) : (
             <>
+              {viewSwitch}
               {commentsButton}
               {(file.kind === "audio" || file.kind === "video") && (
                 <ListenTogether fileId={file.id} projectId={file.projectId} />
@@ -701,30 +744,6 @@ export function FilePage({
         <FileDetailsSheet fileId={file.id} onClose={() => onDetails(false)} />
       )}
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-5 sm:px-6">
-        {!guest && <FileContext file={file} media={media} />}
-        <FileChain file={file} />
-        {hasQa && (
-          <div
-            role="tablist"
-            aria-label="View"
-            className="flex h-11 items-stretch gap-0.5 border-b border-hairline"
-          >
-            {(["review", "qa"] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                role="tab"
-                id={`${tabsId}-${v}`}
-                aria-selected={shown === v}
-                aria-controls={`${tabsId}-panel`}
-                onClick={() => onView(v)}
-                className="-mb-px inline-flex cursor-pointer items-center gap-1.5 border-0 border-b border-transparent bg-transparent px-2 text-[13px] font-medium text-ink-3 hover:text-ink-2 aria-selected:border-ink aria-selected:text-ink"
-              >
-                {v === "review" ? "Review" : "QA"}
-              </button>
-            ))}
-          </div>
-        )}
         {/*
           Review: on a phone the comments follow the player, before the score and the
           details; on a wide screen they sit beside all of them, as the rows and spans below
@@ -733,9 +752,6 @@ export function FilePage({
           empty adds none.
         */}
         <div
-          {...(hasQa
-            ? { role: "tabpanel", id: `${tabsId}-panel`, "aria-labelledby": `${tabsId}-${shown}` }
-            : {})}
           className={cn(
             "grid grid-cols-1 items-start gap-x-8",
             beside &&
@@ -743,14 +759,28 @@ export function FilePage({
           )}
           style={beside ? { ["--comments-width" as string]: `${layout.width}px` } : undefined}
         >
-          <div className="flex min-w-0 flex-col gap-6">
+          <div className="flex min-w-0 flex-col gap-4">
             {/* Comparison sets the volume while it is shown; otherwise, this does. */}
             {!comparing && <PageVolume media={media} gain={gain} />}
             <ListeningNotice sync={listening} />
+            {/* The strip above the player: version, variation and the score's switch (#15). */}
+            <FileContext
+              file={file}
+              media={media}
+              guest={guest}
+              takes={!guest && can("view_takes")}
+              score={
+                hasScore && shown === "review"
+                  ? { shown: layout.score, onToggle: () => setLayout({ score: !layout.score }) }
+                  : undefined
+              }
+            />
+            <FileChain file={file} />
             {playback}
             {shown === "review" && hasQa && allows("qa") && loudnessShown && (
               <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
             )}
+            {shown === "review" && !guest && <VersionNote file={file} />}
           </div>
           {shown === "review" ? (
             <>
@@ -812,13 +842,15 @@ export function FilePage({
                   )}
                 </div>
               )}
-              {file.variation?.scoreFileId &&
-                allows("score") &&
-                (file.kind === "audio" || file.kind === "video") && (
-                  <div className="min-w-0 pt-8 lg:pt-6">
-                    <ScorePane scoreFileId={file.variation.scoreFileId} />
-                  </div>
-                )}
+              {hasScore && layout.score && file.variation?.scoreFileId && (
+                <div className="min-w-0 pt-8 lg:pt-6">
+                  <ScorePane
+                    scoreFileId={file.variation.scoreFileId}
+                    guest={guest}
+                    onHide={() => setLayout({ score: false })}
+                  />
+                </div>
+              )}
               {comparing && (
                 <div className="min-w-0 pt-8 lg:pt-6">
                   <Compare file={file} media={media} focus={focus} gain={gain} />

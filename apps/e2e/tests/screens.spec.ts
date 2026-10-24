@@ -782,6 +782,34 @@ test("file-panel-position", async ({ page }, info) => {
   await checkScreen(page);
 });
 
+// The strip above the player (#15): the version menu opened, the newest first, with the way
+// to every version and its notes and to the track's takes.
+test("file-recording-versions", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: /^Version V2/ }).click();
+  await settle(page, "[role=menuitem]:has-text('All versions and notes')");
+  await saveScreen(page, "file-recording-versions");
+  await checkScreen(page);
+});
+
+// The track's score under the player (#15), shown from the strip's Score switch (the browser
+// keeps the choice) and put away from its own header. A phone shows it after the comments.
+test("file-recording-score", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Score", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Score", pressed: true })).toBeVisible();
+  await settle(page, "section[aria-label=Score] >> role=img[name=/^Page 1 of /]");
+  await showWhole(page);
+  await saveScreen(page, "file-recording-score");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Hide the score" }).click();
+  await expect(page.locator("section[aria-label=Score]")).toBeHidden();
+});
+
 // Commenting on a finding (#43): from the QA view back to the review, the composer at the
 // finding's moment and saying what it is; the findings are marked under the timeline.
 test("file-finding-comment", async ({ page }) => {

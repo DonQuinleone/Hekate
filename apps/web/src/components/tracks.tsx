@@ -1,25 +1,35 @@
-import { type AlignmentPoints, capital, mapTime } from "@hekate/shared";
+import { type AlignmentPoints, capital, mapTime, versionLabel } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, type MouseEvent, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import {
   alignmentsQuery,
   type FileDetail,
+  fileQuery,
   projectTracksQuery,
   type Track,
   trackQuery,
+  trackTakesQuery,
   useItemWords,
   useProjectCan,
   useTrackMutations,
-  type Version,
 } from "~/lib/queries";
+import { variationChoices, versionChoices } from "~/lib/versions";
+import { Avatar } from "./avatar";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { Dropdown } from "./ui/menu";
+import { Segmented } from "./ui/segmented";
 
-const _dateFormat = formatDates({ day: "numeric", month: "short" });
+const noteDate = formatDates({
+  day: "numeric",
+  month: "short",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
 /** "Version 3 · Dry, Wet" for a track's latest version. */
 function latestLabel(track: Track): string {
@@ -27,10 +37,6 @@ function latestLabel(track: Track): string {
   if (!latest) return "No versions yet";
   return `Version ${latest.number} · ${latest.variations.map((v) => v.name).join(", ")}`;
 }
-
-/** The file a version opens with: its primary variation. */
-const primaryOf = (version: Version) =>
-  version.variations.find((v) => v.isPrimary) ?? version.variations[0];
 
 function NewTrack({ projectId }: { projectId: string }) {
   const { createTrack } = useTrackMutations(projectId);
@@ -119,102 +125,184 @@ export function positionIn(
 }
 
 /**
- * On a file that is a variation: where it sits (track and version), its sibling variations
- * and the track's other versions, each one step away.
+ * On a file that is a variation (#15): the strip above the player, as the prototype draws it.
+ * The version menu (the track's versions, newest first, then the way to all of them and their
+ * notes, and to its takes), the variation switch, and the score's switch at the right. A
+ * version or variation chosen starts at the same music as here, where the audio has said
+ * where that is, else at the same time. A guest, who sees only what their review holds, is
+ * told which version that is.
  */
 export function FileContext({
   file,
   media = null,
+  guest = false,
+  takes = false,
+  score,
 }: {
   file: FileDetail;
   /** The player, whose position goes along to the version or variation chosen (#15). */
   media?: HTMLMediaElement | null;
+  guest?: boolean;
+  /** Whether the version menu offers the track's takes: for those who may see them. */
+  takes?: boolean;
+  /** The track's score, where this viewer may see it: whether it is shown, and the switch. */
+  score?: { shown: boolean; onToggle: () => void };
 }) {
   const variation = file.variation;
   const navigate = useNavigate();
   const { data: track } = useQuery({
     ...trackQuery(variation?.trackId ?? ""),
-    enabled: Boolean(variation),
+    enabled: Boolean(variation) && !guest,
   });
   // Where the same music sits in the other versions, where the audio has said; refused
   // without the compare tool, when the same time serves.
   const { data: alignments = [] } = useQuery({
     ...alignmentsQuery(file.id),
-    enabled: Boolean(variation),
+    enabled: Boolean(variation) && !guest,
     retry: false,
   });
-  const { words, versionLabel } = useItemWords(track?.projectId);
+  const { data: takeRows = [] } = useQuery({
+    ...trackTakesQuery(variation?.trackId ?? ""),
+    enabled: Boolean(variation) && takes && !guest,
+  });
+  // The switch is offered only where the score opens: a review may leave it out.
+  const { data: scoreFile } = useQuery({
+    ...fileQuery(variation?.scoreFileId ?? ""),
+    enabled: Boolean(variation?.scoreFileId && score),
+    retry: false,
+  });
+  const { words } = useItemWords(guest ? undefined : track?.projectId);
   if (!variation) return null;
-  /** Go to another version or variation, at the same music; a modified click opens it as is. */
-  const follow = (fileId: string) => (event: MouseEvent) => {
-    if (!media || event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;
-    event.preventDefault();
+  const label = (n: number) => versionLabel(n, file.profile);
+  /** Go to another version or variation, at the same music. */
+  const go = (fileId: string) =>
     void navigate({
       to: "/files/$fileId",
       params: { fileId },
+      // A loop and the review it came from hold while switching version or variation.
       search: (prev) => ({
         loop: prev.loop,
         review: prev.review,
-        t: positionIn(fileId, media.currentTime, alignments),
+        ...(media ? { t: positionIn(fileId, media.currentTime, alignments) } : {}),
       }),
     });
-  };
   const version = track?.versions.find((v) => v.id === variation.versionId);
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[13px]">
-        {/* The track itself is in the page's breadcrumb; here, only where to go within it. */}
-        {track && track.versions.length > 0 && (
-          <nav aria-label={capital(words.versions)} className="flex flex-wrap items-center gap-1">
-            {track.versions.map((v) => {
-              const target = primaryOf(v);
-              const current = v.id === variation.versionId;
-              return target ? (
-                <Link
-                  key={v.id}
-                  to="/files/$fileId"
-                  params={{ fileId: current ? file.id : target.fileId }}
-                  // A loop and the review it came from hold while switching version or variation.
-                  search={(prev) => ({ loop: prev.loop, review: prev.review })}
-                  onClick={current ? undefined : follow(target.fileId)}
-                  aria-current={current ? "page" : undefined}
-                  className={cn(
-                    "tabular h-6 rounded-chip border px-2 font-mono text-[11px] leading-6 no-underline",
-                    current
-                      ? "border-edge bg-raised text-ink"
-                      : "border-transparent text-ink-3 hover:text-ink",
-                  )}
-                >
-                  {versionLabel(v.number)}
-                </Link>
-              ) : null;
-            })}
-          </nav>
-        )}
+  const choices = track
+    ? versionChoices(track.versions, {
+        versionId: variation.versionId,
+        variationName: variation.name,
+      })
+    : [];
+  const shown = choices.find((c) => c.current);
+  const scoreSwitch = score && scoreFile && (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-pressed={score.shown}
+      onClick={score.onToggle}
+      className={cn("ml-auto", score.shown && "bg-raised text-ink")}
+    >
+      <Icon name="score" size={14} />
+      Score
+    </Button>
+  );
+  if (guest)
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[13px] text-ink-3">
+          {label(variation.versionNumber)} is under review
+        </span>
+        {scoreSwitch}
       </div>
-      {version && version.variations.length > 1 && (
-        <nav aria-label={capital(words.variations)} className="flex flex-wrap items-center gap-1">
-          {version.variations.map((v) => (
-            <Link
-              key={v.id}
-              to="/files/$fileId"
-              params={{ fileId: v.fileId }}
-              aria-current={v.fileId === file.id ? "page" : undefined}
-              // A loop and the review it came from hold while switching version or variation.
-              search={(prev) => ({ loop: prev.loop, review: prev.review })}
-              onClick={v.fileId === file.id ? undefined : follow(v.fileId)}
-              className={cn(
-                "h-7 rounded-chip border px-2.5 text-xs leading-7 no-underline",
-                v.fileId === file.id
-                  ? "border-edge bg-raised text-ink"
-                  : "border-transparent text-ink-3 hover:text-ink",
-              )}
-            >
-              {v.name}
-            </Link>
-          ))}
-        </nav>
+    );
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {/* The track itself is in the page's breadcrumb; here, only where to go within it. */}
+      {shown && (
+        <Dropdown
+          // "Cut 3" says what it is already; "V2" is read as "Version V2".
+          label={file.profile === "video" ? undefined : capital(words.version)}
+          value={
+            <span className="tabular flex items-center gap-1.5 font-medium text-ink">
+              {label(shown.number)}
+              {shown.latest && <span className="font-normal text-ink-3">latest</span>}
+            </span>
+          }
+          actions={[
+            ...choices.map((c) => ({
+              label: label(c.number),
+              hint: c.hint,
+              checked: c.current,
+              onSelect: () => {
+                if (!c.current) go(c.fileId);
+              },
+            })),
+            "divider" as const,
+            {
+              label: `All ${words.versions} and notes`,
+              onSelect: () =>
+                void navigate({
+                  to: "/tracks/$trackId",
+                  params: { trackId: variation.trackId },
+                  search: { view: "versions" },
+                }),
+            },
+            ...(takes && takeRows.length > 0
+              ? [
+                  {
+                    label: "Takes",
+                    onSelect: () =>
+                      void navigate({
+                        to: "/tracks/$trackId",
+                        params: { trackId: variation.trackId },
+                        search: { view: "takes" },
+                      }),
+                  },
+                ]
+              : []),
+          ]}
+        />
       )}
+      {version && version.variations.length > 1 && (
+        <Segmented
+          label={capital(words.variation)}
+          value={file.id}
+          options={variationChoices(version)}
+          onChange={(fileId) => {
+            if (fileId !== file.id) go(fileId);
+          }}
+        />
+      )}
+      {scoreSwitch}
+    </div>
+  );
+}
+
+/**
+ * The note its uploader left on the version heard, under the player (#15): who, which
+ * version and when, and what they said.
+ */
+export function VersionNote({ file }: { file: FileDetail }) {
+  const variation = file.variation;
+  const { data: track } = useQuery({
+    ...trackQuery(variation?.trackId ?? ""),
+    enabled: Boolean(variation),
+  });
+  const version = track?.versions.find((v) => v.id === variation?.versionId);
+  if (!version?.notes) return null;
+  const by = version.createdByName ?? version.sentBy ?? null;
+  return (
+    <div className="flex items-start gap-2.5 border-t border-hairline pt-3">
+      {by && <Avatar id={by} name={by} size={22} />}
+      <p className="m-0 min-w-0 text-[13px] text-ink-2">
+        {by && <span className="font-medium text-ink">{by}</span>}
+        <span className="text-ink-3">
+          {by ? " · " : ""}
+          {versionLabel(version.number, file.profile)},{" "}
+          {noteDate.format(new Date(version.createdAt))}
+        </span>
+        <span className="block">{version.notes}</span>
+      </p>
     </div>
   );
 }
