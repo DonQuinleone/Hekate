@@ -16,9 +16,12 @@ import { useShownTheme } from "~/lib/theme";
 
 export type WaveformView = "channels" | "combined";
 
-/** Total height of the waveform, shared between channels. */
+/** Total height of the waveform, shared between channels; the least it takes when it fills. */
 export const WAVEFORM_HEIGHT = 168;
 const HEIGHT = WAVEFORM_HEIGHT;
+
+/** Wavesurfer is drawn again only when the height moves this far, not at every pixel. */
+const heightStep = (height: number) => Math.max(HEIGHT, Math.round(height / 8) * 8);
 
 export const waveTokens: Record<WaveColour, string> = {
   ink: "--hk-ink",
@@ -82,6 +85,7 @@ export function Waveform({
   view,
   overlay = false,
   look = defaultWaveLook,
+  fill = false,
 }: {
   fileId: string;
   media: HTMLMediaElement;
@@ -91,9 +95,18 @@ export function Waveform({
   /** Drawn see-through, over a spectrogram. */
   overlay?: boolean;
   look?: WaveLook;
+  /**
+   * Grows with the player around it (#15), as the prototype's full-height frame draws it,
+   * from the usual height up; the player decides how far.
+   */
+  fill?: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
+  /** Where wavesurfer draws: laid over the box, so what it draws never sizes the box. */
+  const mount = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
+  const [measured, setMeasured] = useState(HEIGHT);
+  const height = fill ? heightStep(measured) : HEIGHT;
   const { data: index } = useQuery(peaksQuery(fileId));
   // The colours come from the tokens, so a new theme draws the waveform again.
   const theme = useShownTheme();
@@ -103,6 +116,7 @@ export function Waveform({
     if (!element) return;
     const observer = new ResizeObserver(([entry]) => {
       setWidth(Math.round(entry?.contentRect.width ?? 0));
+      setMeasured(Math.round(entry?.contentRect.height ?? HEIGHT));
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -125,13 +139,13 @@ export function Waveform({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tokens it reads change with the theme.
   useEffect(() => {
-    const element = container.current;
+    const element = mount.current;
     if (!element || !shown) return;
     let instance: WaveSurfer | undefined;
     let cancelled = false;
     void import("wavesurfer.js").then(({ default: WaveSurfer }) => {
       if (cancelled) return;
-      const rowHeight = Math.floor(HEIGHT / shown.channels);
+      const rowHeight = Math.floor(height / shown.channels);
       // Played audio reads brighter; the playhead is always the signal colour.
       const style = {
         ...waveStyle(look, token(waveTokens[look.colour]), overlay),
@@ -158,27 +172,33 @@ export function Waveform({
       cancelled = true;
       instance?.destroy();
     };
-  }, [shown, media, duration, overlay, theme, look.colour, look.opacity, look.height]);
+  }, [shown, media, duration, overlay, theme, look.colour, look.opacity, look.height, height]);
 
   // Nothing to wait for: no peaks are coming for this file.
   if (index && index.status !== "pending" && index.status !== "ready") return null;
   const rows = shown?.channels ?? 1;
   return (
-    <div className="relative">
+    <div className={cn("relative", fill && "flex min-h-0 flex-1 flex-col")}>
       <div
         ref={container}
-        className={cn("w-full", !shown && !overlay && "animate-pulse rounded-control bg-raised")}
-        style={{ height: HEIGHT }}
+        className={cn(
+          "relative w-full",
+          fill && "min-h-0 flex-1 overflow-hidden",
+          !shown && !overlay && "animate-pulse rounded-control bg-raised",
+        )}
+        style={fill ? { minHeight: HEIGHT } : { height: HEIGHT }}
         aria-label="Waveform"
         role="img"
-      />
+      >
+        <div ref={mount} className="absolute inset-x-0 top-0" />
+      </div>
       {shown && view === "channels" && names.length > 1 && (
         <div className="pointer-events-none absolute inset-0 z-10 flex flex-col" aria-hidden="true">
           {names.map((name, i) => (
             <span
               key={name}
               className={cn("flex items-center", i > 0 && "border-t border-hairline")}
-              style={{ height: HEIGHT / rows }}
+              style={{ height: height / rows }}
             >
               <span className="label rounded-chip bg-surface/85 px-1 text-[10px] normal-case leading-4 text-ink-2">
                 {name}

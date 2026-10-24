@@ -441,10 +441,10 @@ export function Compare({
   return (
     <section
       aria-label="Compare"
-      className="flex flex-col gap-3 rounded-panel border border-hairline p-4"
+      className="flex shrink-0 flex-col gap-3 border-t border-line px-3 py-3 lg:px-4"
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="m-0 text-[15px] font-medium">Compare</h2>
+        <h2 className="m-0 text-[13px] font-medium text-ink">Compare</h2>
         <span className="text-xs text-ink-3">
           {comparing
             ? `Keys 1 ${sources.length === 2 ? "and" : "to"} ${sources.length} switch at the same position${matched ? ", level-matched" : ""}.`

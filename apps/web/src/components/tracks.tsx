@@ -125,19 +125,52 @@ export function positionIn(
 }
 
 /**
- * On a file that is a variation (#15): the strip above the player, as the prototype draws it.
- * The version menu (the track's versions, newest first, then the way to all of them and their
- * notes, and to its takes), the variation switch, and the score's switch at the right. A
- * version or variation chosen starts at the same music as here, where the audio has said
- * where that is, else at the same time. A guest, who sees only what their review holds, is
- * told which version that is.
+ * The track's score switch, at the end of the strip above the player (#15): offered only
+ * where the score opens, since a review may leave it out.
+ */
+export function ScoreSwitch({
+  file,
+  shown,
+  onToggle,
+}: {
+  file: FileDetail;
+  shown: boolean;
+  onToggle: () => void;
+}) {
+  const scoreFileId = file.variation?.scoreFileId;
+  const { data: scoreFile } = useQuery({
+    ...fileQuery(scoreFileId ?? ""),
+    enabled: Boolean(scoreFileId),
+    retry: false,
+  });
+  if (!scoreFile) return null;
+  return (
+    <Button
+      variant="ghost"
+      size="md"
+      aria-pressed={shown}
+      onClick={onToggle}
+      className={cn(shown && "bg-raised text-ink")}
+    >
+      <Icon name="score" size={14} />
+      Score
+    </Button>
+  );
+}
+
+/**
+ * On a file that is a variation (#15): what leads the strip above the player, as the
+ * prototype draws it. The version menu (the track's versions, newest first, then the way to
+ * all of them and their notes, and to its takes) and the variation switch. A version or
+ * variation chosen starts at the same music as here, where the audio has said where that is,
+ * else at the same time. A guest, who sees only what their review holds, is told which
+ * version that is.
  */
 export function FileContext({
   file,
   media = null,
   guest = false,
   takes = false,
-  score,
 }: {
   file: FileDetail;
   /** The player, whose position goes along to the version or variation chosen (#15). */
@@ -145,8 +178,6 @@ export function FileContext({
   guest?: boolean;
   /** Whether the version menu offers the track's takes: for those who may see them. */
   takes?: boolean;
-  /** The track's score, where this viewer may see it: whether it is shown, and the switch. */
-  score?: { shown: boolean; onToggle: () => void };
 }) {
   const variation = file.variation;
   const navigate = useNavigate();
@@ -164,12 +195,6 @@ export function FileContext({
   const { data: takeRows = [] } = useQuery({
     ...trackTakesQuery(variation?.trackId ?? ""),
     enabled: Boolean(variation) && takes && !guest,
-  });
-  // The switch is offered only where the score opens: a review may leave it out.
-  const { data: scoreFile } = useQuery({
-    ...fileQuery(variation?.scoreFileId ?? ""),
-    enabled: Boolean(variation?.scoreFileId && score),
-    retry: false,
   });
   const { words } = useItemWords(guest ? undefined : track?.projectId);
   if (!variation) return null;
@@ -194,29 +219,14 @@ export function FileContext({
       })
     : [];
   const shown = choices.find((c) => c.current);
-  const scoreSwitch = score && scoreFile && (
-    <Button
-      variant="ghost"
-      size="sm"
-      aria-pressed={score.shown}
-      onClick={score.onToggle}
-      className={cn("ml-auto", score.shown && "bg-raised text-ink")}
-    >
-      <Icon name="score" size={14} />
-      Score
-    </Button>
-  );
   if (guest)
     return (
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[13px] text-ink-3">
-          {label(variation.versionNumber)} is under review
-        </span>
-        {scoreSwitch}
-      </div>
+      <span className="text-[13px] text-ink-3">
+        {label(variation.versionNumber)} is under review
+      </span>
     );
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <>
       {/* The track itself is in the page's breadcrumb; here, only where to go within it. */}
       {shown && (
         <Dropdown
@@ -273,8 +283,7 @@ export function FileContext({
           }}
         />
       )}
-      {scoreSwitch}
-    </div>
+    </>
   );
 }
 
@@ -292,7 +301,7 @@ export function VersionNote({ file }: { file: FileDetail }) {
   if (!version?.notes) return null;
   const by = version.createdByName ?? version.sentBy ?? null;
   return (
-    <div className="flex items-start gap-2.5 border-t border-hairline pt-3">
+    <div className="flex shrink-0 items-start gap-2.5 border-t border-line px-3 py-2.5 lg:px-4">
       {by && <Avatar id={by} name={by} size={22} />}
       <p className="m-0 min-w-0 text-[13px] text-ink-2">
         {by && <span className="font-medium text-ink">{by}</span>}

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type ChannelMix, isPlain, mixLabel, plainMix } from "~/lib/channel-mix";
 import { cn } from "~/lib/cn";
 import { loudnessQuery, loudnessSeriesQuery } from "~/lib/queries";
+import { Icon } from "./icons";
 import { formatLevel, METER_FLOOR, meterFraction, usePlayheadFrame } from "./loudness";
 import { Button } from "./ui/button";
 import { Switch } from "./ui/toggle";
@@ -29,13 +30,14 @@ export function ChannelsButton({
   return (
     <Button
       variant="ghost"
-      size="sm"
+      size="md"
       aria-expanded={open}
       aria-controls="player-channels"
       aria-label={heard ? `Channels: ${heard.toLowerCase()}` : "Channels"}
       onClick={onToggle}
       className={cn(open && "bg-raised text-ink")}
     >
+      <Icon name="volume" size={14} />
       Channels{heard ? " " : ""}
       {heard && <span className="tabular text-signal">{heard}</span>}
     </Button>
@@ -99,11 +101,7 @@ export function ChannelsPanel({
 }) {
   const { levels, loading } = useChannelLevels(levelsOf, names.length);
   return (
-    <section
-      id="player-channels"
-      aria-label="Channels"
-      className="flex flex-col gap-2 border-t border-hairline pt-3"
-    >
+    <section id="player-channels" aria-label="Channels" className="flex flex-col gap-2">
       {unavailable ? (
         <p className="m-0 text-[13px] text-ink-3">{unavailable}</p>
       ) : (

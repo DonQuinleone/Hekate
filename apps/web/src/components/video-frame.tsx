@@ -165,7 +165,7 @@ export function GoToTimecode({
     <div ref={box} className="relative">
       <Button
         variant="ghost"
-        size="sm"
+        size="md"
         aria-expanded={open}
         onClick={() => {
           setValue(videoTimecode(time, clock));
@@ -180,7 +180,7 @@ export function GoToTimecode({
       {open && (
         <form
           data-e2e-overlap
-          className="rise-in absolute bottom-full left-0 z-30 mb-1 flex w-64 flex-col gap-1.5 rounded-panel bg-overlay p-2 shadow-3"
+          className="rise-in absolute top-full right-0 z-30 mt-1 flex w-64 flex-col gap-1.5 rounded-panel bg-overlay p-2 shadow-3"
           onSubmit={(event) => {
             event.preventDefault();
             const frame = parseTimecode(value, clock);

@@ -34,7 +34,7 @@ export function PanelTabs({
   onPanel: (panel: SidePanel) => void;
 }) {
   return (
-    <div role="tablist" aria-label="Beside the player" className="flex items-center gap-4">
+    <div role="tablist" aria-label="Beside the player" className="flex min-w-0 items-center gap-3">
       {(["comments", "transcript"] as const).map((p) => (
         <button
           key={p}
@@ -43,11 +43,11 @@ export function PanelTabs({
           aria-selected={panel === p}
           onClick={() => onPanel(p)}
           className={cn(
-            "m-0 inline-flex min-h-6 cursor-pointer items-center border-0 bg-transparent p-0 text-[15px] transition-colors",
+            "m-0 inline-flex min-h-6 min-w-0 cursor-pointer items-center border-0 bg-transparent p-0 text-[14px] transition-colors",
             panel === p ? "font-medium text-ink" : "text-ink-3 hover:text-ink",
           )}
         >
-          {p === "comments" ? "Comments" : "Transcript"}
+          <span className="truncate">{p === "comments" ? "Comments" : "Transcript"}</span>
         </button>
       ))}
     </div>
@@ -70,8 +70,7 @@ export function CaptionsMenu({
   const on = tracks.find((t) => t.id === current);
   return (
     <Dropdown
-      size="sm"
-      above
+      align="right"
       label="Captions"
       value={
         <>
@@ -214,10 +213,11 @@ export function Transcript({
     if (playing) setFollowing(false);
   };
   return (
-    <section aria-label="Transcript" className="flex flex-col gap-3">
-      <div className="flex items-center justify-between gap-2">
+    // In the comments' place beside the player (#15), as tall as they are on a wide screen.
+    <section aria-label="Transcript" className="flex flex-col lg:min-h-0 lg:flex-1">
+      <div className="flex h-11 shrink-0 items-center justify-between gap-2 pr-2 pl-3 lg:pl-4">
         {heading}
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           {tracks.length > 1 && (
             <Dropdown
               size="sm"
@@ -277,39 +277,41 @@ export function Transcript({
         </div>
       </div>
       {searching && (
-        <div className="relative">
-          <Input
-            size="sm"
-            autoFocus
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                setSearching(false);
-                setQuery("");
-              }
-            }}
-            placeholder="Search the transcript"
-            aria-label="Search the transcript"
-            className="pr-24"
-          />
-          {found && (
-            <span
-              aria-live="polite"
-              className="tabular pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[12px] text-ink-3"
-            >
-              {found.length} {found.length === 1 ? "match" : "matches"}
-            </span>
-          )}
+        <div className="shrink-0 px-3 pb-2 lg:px-4">
+          <div className="relative">
+            <Input
+              size="sm"
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setSearching(false);
+                  setQuery("");
+                }
+              }}
+              placeholder="Search the transcript"
+              aria-label="Search the transcript"
+              className="pr-24"
+            />
+            {found && (
+              <span
+                aria-live="polite"
+                className="tabular pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[12px] text-ink-3"
+              >
+                {found.length} {found.length === 1 ? "match" : "matches"}
+              </span>
+            )}
+          </div>
         </div>
       )}
-      <div className="relative">
+      <div className="relative px-1.5 pb-2 lg:min-h-0 lg:flex-1 lg:px-2.5">
         <ol
           ref={list}
           aria-label={`${track.label} transcript`}
           onWheel={away}
           onTouchMove={away}
-          className="relative m-0 flex max-h-[min(70vh,640px)] list-none flex-col gap-px overflow-y-auto overscroll-contain p-0"
+          className="scroll-quiet relative m-0 flex max-h-[min(70vh,640px)] list-none flex-col gap-px overflow-y-auto overscroll-contain p-0 lg:h-full lg:max-h-none"
         >
           {shown.length === 0 && (
             <li className="py-8 text-center text-[13px] text-ink-3">Nothing matches.</li>

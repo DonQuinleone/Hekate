@@ -18,7 +18,7 @@ import {
   type Track,
   trackQuery,
 } from "~/lib/queries";
-import { FileContext, positionIn, VersionNote } from "./tracks";
+import { FileContext, positionIn, ScoreSwitch, VersionNote } from "./tracks";
 
 const variation = (fileId: string, name: string, isPrimary: boolean, versionId: string) => ({
   id: `${fileId}-variation`,
@@ -105,12 +105,8 @@ function Strip({ guest, media }: { guest: boolean; media: HTMLMediaElement | nul
   const [shown, setShown] = useState(false);
   return (
     <>
-      <FileContext
-        file={file}
-        media={media}
-        guest={guest}
-        score={{ shown, onToggle: () => setShown((on) => !on) }}
-      />
+      <FileContext file={file} media={media} guest={guest} />
+      <ScoreSwitch file={file} shown={shown} onToggle={() => setShown((on) => !on)} />
       {!guest && <VersionNote file={file} />}
     </>
   );

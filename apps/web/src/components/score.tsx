@@ -34,37 +34,45 @@ export function ScorePane({
   // Someone who cannot open the score (a guest whose review leaves it out) sees nothing of it.
   if (error || !score) return null;
   return (
-    <section aria-label="Score" className="flex flex-col gap-3 border-t border-hairline pt-5">
-      <div className="flex min-w-0 items-center gap-x-3">
-        <h2 className="m-0 shrink-0 text-[15px] font-medium">Score</h2>
-        <span className="min-w-0 flex-1 truncate text-xs text-ink-3">{score.name}</span>
+    // A pane of its own under the player, as the prototype's: on a wide screen a fixed height
+    // the pages scroll in, so the player keeps its place above it.
+    <section
+      aria-label="Score"
+      className="flex shrink-0 flex-col border-t border-line lg:h-[360px]"
+    >
+      <div className="flex h-10 min-w-0 shrink-0 items-center gap-x-3 px-3 lg:px-4">
+        <h2 className="m-0 shrink-0 text-[13px] font-medium text-ink">Score</h2>
+        <span className="min-w-0 flex-1 truncate text-[13px] text-ink-3">{score.name}</span>
         {!guest && (
           <Link
             to="/files/$fileId"
             params={{ fileId: score.id }}
-            className="shrink-0 text-xs text-ink-3 hover:text-ink"
+            className="shrink-0 text-[13px] text-ink-3 hover:text-ink"
           >
             {open === null
               ? "Comments on the score"
               : `${open} ${open === 1 ? "comment" : "comments"} on the score`}
           </Link>
         )}
-        <Button variant="ghost" size="icon" aria-label="Hide the score" onClick={onHide}>
+        <Button variant="ghost" size="iconSm" aria-label="Hide the score" onClick={onHide}>
           <Icon name="close" size={13} />
         </Button>
       </div>
-      {score.streamStatus === "ready" ? (
-        <DocumentViewer
-          fileId={score.id}
-          name={score.name}
-          focus={focus}
-          onFocus={(change) => setFocus((f) => ({ ...f, ...change }))}
-        />
-      ) : (
-        <p className="m-0 text-[13px] text-ink-3">
-          {score.streamStatus === "failed" ? "The pages could not be drawn" : "Drawing the pages"}
-        </p>
-      )}
+      <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 lg:px-4">
+        {score.streamStatus === "ready" ? (
+          <DocumentViewer
+            fileId={score.id}
+            name={score.name}
+            focus={focus}
+            onFocus={(change) => setFocus((f) => ({ ...f, ...change }))}
+            fill
+          />
+        ) : (
+          <p className="m-0 text-[13px] text-ink-3">
+            {score.streamStatus === "failed" ? "The pages could not be drawn" : "Drawing the pages"}
+          </p>
+        )}
+      </div>
     </section>
   );
 }

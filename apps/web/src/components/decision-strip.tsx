@@ -56,7 +56,7 @@ export function DecisionStrip({ reviewId }: { reviewId: string }) {
   return (
     <section
       aria-label="Your decision"
-      className="flex flex-col gap-2 rounded-panel border border-line bg-raised/30 px-3 py-2.5"
+      className="flex shrink-0 flex-col gap-2 border-b border-line bg-raised/30 px-3 py-2.5"
     >
       <div className="flex min-w-0 items-center gap-2 text-[12px] text-ink-3">
         <Link

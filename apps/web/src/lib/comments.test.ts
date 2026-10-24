@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { ago, historyLabel, passageLoop, threadsOf } from "./comments";
+import {
+  ago,
+  arrangeThreads,
+  filterHolding,
+  historyLabel,
+  passageLoop,
+  threadFilters,
+  threadsOf,
+  threadsShown,
+} from "./comments";
 import type { Comment } from "./queries";
 
 const comment = (id: string, extra: Partial<Comment> = {}): Comment => ({
@@ -72,6 +81,53 @@ describe("comment threads", () => {
     ]);
     expect(open.map((t) => t.comment.id)).toEqual(["shown", "here"]);
     expect(hidden.map((t) => t.comment.id)).toEqual(["hidden"]);
+  });
+
+  it("lists one kind of thread at a time, or all of them with the open ones first", () => {
+    const threads = threadsOf([
+      comment("done", { resolvedAt: "2026-10-14T12:00:00.000Z" }),
+      comment("later", { deferredTo: "mastering" }),
+      comment("now", { anchor: { kind: "time", start: 3, end: 3 } }),
+    ]);
+    expect(threadsShown(threads, "open").map((t) => t.comment.id)).toEqual(["now"]);
+    expect(threadsShown(threads, "resolved").map((t) => t.comment.id)).toEqual(["done"]);
+    expect(threadsShown(threads, "all").map((t) => t.comment.id)).toEqual(["now", "later", "done"]);
+  });
+
+  it("offers only the filters that hold a thread, besides open and all", () => {
+    const none = threadsOf([]);
+    expect(threadFilters(none)).toEqual(["open", "all"]);
+    const some = threadsOf([comment("done", { resolvedAt: "2026-10-14T12:00:00.000Z" })]);
+    expect(threadFilters(some)).toEqual(["open", "resolved", "all"]);
+  });
+
+  it("orders the newest first, and finds threads by their words or a reply's", () => {
+    const { open } = threadsOf([
+      comment("old", { anchor: { kind: "time", start: 1, end: 1 }, body: "Pedal noise" }),
+      comment("new", {
+        anchor: { kind: "time", start: 9, end: 9 },
+        createdAt: "2026-10-14T11:00:00.000Z",
+      }),
+      comment("answer", { parentId: "new", body: "The pedal again" }),
+    ]);
+    expect(arrangeThreads(open).map((t) => t.comment.id)).toEqual(["old", "new"]);
+    expect(arrangeThreads(open, { newest: true }).map((t) => t.comment.id)).toEqual(["new", "old"]);
+    expect(arrangeThreads(open, { query: " PEDAL " }).map((t) => t.comment.id)).toEqual([
+      "old",
+      "new",
+    ]);
+    expect(arrangeThreads(open, { query: "noise" }).map((t) => t.comment.id)).toEqual(["old"]);
+  });
+
+  it("finds where a linked thread or reply is listed", () => {
+    const threads = threadsOf([
+      comment("done", { resolvedAt: "2026-10-14T12:00:00.000Z" }),
+      comment("answer", { parentId: "done" }),
+      comment("now"),
+    ]);
+    expect(filterHolding(threads, "now")).toBe("open");
+    expect(filterHolding(threads, "answer")).toBe("resolved");
+    expect(filterHolding(threads, "gone")).toBeNull();
   });
 
   it("tells a thread's path through the versions", () => {

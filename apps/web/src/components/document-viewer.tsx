@@ -49,6 +49,7 @@ export function DocumentViewer({
   onFocus,
   markers = [],
   canDraw = false,
+  fill = false,
 }: {
   fileId: string;
   name: string;
@@ -56,6 +57,11 @@ export function DocumentViewer({
   onFocus: (change: Partial<PageFocus>) => void;
   markers?: RegionMarker[];
   canDraw?: boolean;
+  /**
+   * Fills the space it is given on a wide screen (#15), scrolling its pages inside it: the
+   * whole height of a document's frame, or the score's pane under a recording.
+   */
+  fill?: boolean;
 }) {
   const client = useQueryClient();
   const { data, error } = useQuery(viewQuery(fileId));
@@ -176,7 +182,10 @@ export function DocumentViewer({
   return (
     <section
       aria-label={`Pages of ${name}`}
-      className="flex flex-col overflow-hidden rounded-panel border border-hairline bg-surface"
+      className={cn(
+        "flex flex-col overflow-hidden rounded-panel border border-hairline bg-surface",
+        fill && "lg:min-h-0 lg:flex-1",
+      )}
     >
       <div className="flex flex-wrap items-center gap-2 border-b border-hairline px-3 py-2">
         {count > 1 && (
@@ -256,12 +265,15 @@ export function DocumentViewer({
           </Button>
         </span>
       </div>
-      <div className="flex min-h-0">
+      <div className={cn("flex min-h-0", fill && "lg:flex-1")}>
         {count > 1 && (
           <ol
             ref={rail}
             aria-label="Pages"
-            className="m-0 hidden max-h-[75vh] w-28 shrink-0 list-none flex-col gap-3 overflow-y-auto border-r border-hairline p-3 sm:flex"
+            className={cn(
+              "m-0 hidden max-h-[75vh] w-28 shrink-0 list-none flex-col gap-3 overflow-y-auto border-r border-hairline p-3 sm:flex",
+              fill && "lg:max-h-none",
+            )}
           >
             {data.pages.map((p) => {
               const threads = markers.filter((m) => m.page === p.page).length;
@@ -311,7 +323,10 @@ export function DocumentViewer({
           tabIndex={0}
           aria-label={`Page ${page}`}
           onKeyDown={onKeyDown}
-          className="max-h-[75vh] min-w-0 flex-1 overflow-auto bg-ground p-4 outline-none focus-visible:ring-1 focus-visible:ring-signal"
+          className={cn(
+            "max-h-[75vh] min-w-0 flex-1 overflow-auto bg-ground p-4 outline-none focus-visible:ring-1 focus-visible:ring-signal",
+            fill && "lg:max-h-none",
+          )}
         >
           {current && (
             <div

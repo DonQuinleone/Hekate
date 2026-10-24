@@ -182,7 +182,7 @@ export function LoopControls({
   return (
     <section
       aria-label="Loop"
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-hairline pt-3"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line px-3 py-2.5 lg:px-4"
     >
       <Choice
         checked={active}
