@@ -224,3 +224,49 @@ export function decodeLtc(
   s.index = state.index + samples.length;
   return { state: s, frames };
 }
+
+/**
+ * Whether a recorder's timecode runs, from the frames read: rolling once three frames in a row
+ * have each moved on by one (so a stray frame is not a start), stopped once none has for a
+ * fifth of a second (the timecode held still, as a recorder on Rec Run holds it between takes,
+ * or the signal went). Times are in samples, as the decoder counts them.
+ */
+export interface LtcRun {
+  rolling: boolean;
+  /** Frames in a row that moved on, and the sample the last of them ended at. */
+  streak: number;
+  lastAdvance: number | null;
+}
+
+export const initialLtcRun = (): LtcRun => ({ rolling: false, streak: 0, lastAdvance: null });
+
+/** Frames in a row that must move on before the timecode counts as running. */
+const ROLLING_AFTER = 3;
+/** How long without a frame moving on before it counts as stopped, in seconds. */
+const STOPPED_AFTER = 0.2;
+
+/**
+ * A frame read (or none, as time passes to `now`, in samples): the run as it stands, and what
+ * changed. A frame that does not move on breaks the streak towards rolling, but stops a run
+ * only as silence does, a fifth of a second on, so one frame misread never stops a take.
+ */
+export function ltcRunStep(
+  run: LtcRun,
+  frame: LtcFrame | null,
+  now: number,
+  sampleRate: number,
+): { run: LtcRun; change: "rolling" | "stopped" | null } {
+  if (frame?.advancing) {
+    const streak = run.streak + 1;
+    const rolling = run.rolling || streak >= ROLLING_AFTER;
+    return {
+      run: { rolling, streak, lastAdvance: frame.end },
+      change: rolling && !run.rolling ? "rolling" : null,
+    };
+  }
+  const streak = frame ? 0 : run.streak;
+  const quiet = run.lastAdvance === null || now - run.lastAdvance > STOPPED_AFTER * sampleRate;
+  if (run.rolling && quiet)
+    return { run: { rolling: false, streak: 0, lastAdvance: run.lastAdvance }, change: "stopped" };
+  return { run: { ...run, streak }, change: null };
+}

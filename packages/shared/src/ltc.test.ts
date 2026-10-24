@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { frameRates } from "./comment-export.ts";
-import { decodeLtc, initialLtcState, type LtcFrame } from "./ltc.ts";
+import { decodeLtc, initialLtcRun, initialLtcState, type LtcFrame, ltcRunStep } from "./ltc.ts";
 import {
   addFrames,
   parseTimecodeLabel,
@@ -176,5 +176,60 @@ describe("decodeLtc", () => {
       "11:00:00:04",
     ]);
     expect(frames[5]?.advancing).toBe(false);
+  });
+});
+
+describe("ltcRunStep", () => {
+  const rate = 48_000;
+  const frame = (end: number, advancing: boolean) =>
+    ({ timecode: tc("10:00:00:00", "25"), start: end - 1920, end, advancing }) as LtcFrame;
+  const feed = (steps: [LtcFrame | null, number][]) => {
+    let run = initialLtcRun();
+    const changes: string[] = [];
+    for (const [f, now] of steps) {
+      const step = ltcRunStep(run, f, now, rate);
+      run = step.run;
+      if (step.change) changes.push(step.change);
+    }
+    return { run, changes };
+  };
+
+  it("rolls after three frames in a row move on, not after one", () => {
+    expect(feed([[frame(1920, true), 1920]]).changes).toEqual([]);
+    expect(
+      feed([
+        [frame(1920, true), 1920],
+        [frame(3840, true), 3840],
+        [frame(5760, true), 5760],
+      ]).changes,
+    ).toEqual(["rolling"]);
+    expect(
+      feed([
+        [frame(1920, true), 1920],
+        [frame(3840, false), 3840],
+        [frame(5760, true), 5760],
+        [frame(7680, true), 7680],
+      ]).changes,
+    ).toEqual([]);
+  });
+
+  it("stops a fifth of a second after frames stop moving on, held or gone, not on one", () => {
+    const rolling: [LtcFrame | null, number][] = [1, 2, 3].map((n) => [
+      frame(n * 1920, true),
+      n * 1920,
+    ]);
+    // One frame misread in the middle of a take does not stop it.
+    expect(feed([...rolling, [frame(4 * 1920, false), 4 * 1920]]).changes).toEqual(["rolling"]);
+    // Held for several frames (a recorder on Rec Run between takes): stopped.
+    const held: [LtcFrame | null, number][] = [4, 5, 6, 7, 8, 9].map((n) => [
+      frame(n * 1920, false),
+      n * 1920,
+    ]);
+    expect(feed([...rolling, ...held]).changes).toEqual(["rolling", "stopped"]);
+    // The signal gone: stopped as time passes.
+    expect(feed([...rolling, [null, 3 * 1920 + 9600], [null, 3 * 1920 + 10_000]]).changes).toEqual([
+      "rolling",
+      "stopped",
+    ]);
   });
 });
