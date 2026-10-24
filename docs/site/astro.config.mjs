@@ -59,6 +59,7 @@ export default defineConfig({
             "use/takes",
             "use/captions",
             "use/guests",
+            "use/leak-tracing",
             "use/branding",
             "use/upload-requests",
             "use/listen-together",
