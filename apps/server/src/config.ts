@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { bounceProviders } from "@hekate/shared";
 import { z } from "zod";
 import { type LanePlan, lanes, parseLanes, roles } from "./lanes.ts";
 
@@ -430,8 +431,18 @@ const schema = z.object({
       info({
         group: "Mail",
         description:
-          "Bounce reports (#161): what proves a report came from the instance's mail provider, so Hekate stops sending to addresses that bounced for good or complained. Resend's webhook signing secret, Mailgun's HTTP webhook signing key, SendGrid's verification key, or SparkPost's webhook user:password. The provider's webhook goes to /api/hooks/mail/instance.",
+          "Bounce reports (#161, #432): what proves a report came from the instance's mail provider, so Hekate stops sending to addresses that bounced for good or complained. Resend's webhook signing secret, Mailgun's HTTP webhook signing key, SendGrid's verification key, SparkPost's webhook user:password, the ARN of the Amazon SNS topic Amazon SES notifies, Postal's signing public key (its DKIM record's p= value), the bearer token a Plunk workflow's Webhook step sends, or the secret on Mailcoach's webhook. The provider's webhook goes to /api/hooks/mail/instance.",
         secret: true,
+      }),
+    ),
+  MAIL_BOUNCE_PROVIDER: z
+    .enum(bounceProviders, { error: `must be one of ${bounceProviders.join(", ")}` })
+    .optional()
+    .meta(
+      info({
+        group: "Mail",
+        description: `Bounce reports: which provider the instance's mail is (${bounceProviders.join(", ")}), where its host cannot say. Needed for Postal, which runs on a host of your own, and for a self-hosted Plunk; Amazon SES's regional SMTP endpoints, Plunk's own host and Mailcoach are known without it.`,
+        example: "postal",
       }),
     ),
   WORKER: flag("true").meta(
@@ -716,7 +727,7 @@ const schema = z.object({
       info({
         group: "Modules",
         description:
-          "A status page for the help menu and the Support page to link to; none when unset. The support desk can set its own, which is used instead.",
+          "Another status page for the help menu and the Support page to link to, kept somewhere that stays up when the instance does not. Unset, they link the instance's own page at /status, which always shows the incidents posted from the support desk. The desk can set its own address, which is used instead.",
       }),
     ),
 });

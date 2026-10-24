@@ -305,6 +305,9 @@ export function PageViewer({
   const [zoom, setZoom] = useState<number>(1);
   const [drag, setDrag] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const [drawn, setDrawn] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  // Drawing on (#150): a finger draws rather than scrolls, and two taps make a region too.
+  const [drawing, setDrawing] = useState(false);
+  const [corner, setCorner] = useState<{ x: number; y: number } | null>(null);
   const pages = file.media.pages ?? 1;
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(600);
@@ -362,10 +365,30 @@ export function PageViewer({
           </label>
         )}
         {canDraw && (
-          <span className="hidden text-[13px] text-ink-3 @3xl/app:inline">
-            Drag on the page to comment on part of it
-          </span>
+          <button
+            type="button"
+            aria-pressed={drawing}
+            title={drawing ? "Stop drawing, so a finger scrolls" : "Draw a region with a finger"}
+            onClick={() => {
+              setDrawing(!drawing);
+              setCorner(null);
+            }}
+            className="flex h-7 items-center gap-1.5 rounded-control px-2 text-[13px] text-ink-2 hover:bg-raised aria-pressed:bg-raised aria-pressed:text-ink"
+          >
+            <Icon name="edit" size={14} />
+            Draw
+          </button>
         )}
+        {canDraw &&
+          (drawing ? (
+            <span role="status" className="text-[13px] text-ink-3">
+              {corner ? "Now tap the opposite corner" : "Drag, or tap two corners"}
+            </span>
+          ) : (
+            <span className="hidden text-[13px] text-ink-3 @3xl/app:inline">
+              Drag on the page to comment on part of it
+            </span>
+          ))}
         <div className="ml-auto flex items-center gap-1">
           <button
             type="button"
@@ -431,10 +454,12 @@ export function PageViewer({
             className={cn(
               "relative mx-auto select-none shadow-paper",
               canDraw && "cursor-crosshair",
+              canDraw && drawing && "touch-none",
             )}
             style={{ width: pageWidth }}
             onPointerDown={(e) => {
-              if (!canDraw) return;
+              // A finger scrolls the page unless drawing is on; a mouse or a pen draws.
+              if (!canDraw || (e.pointerType === "touch" && !drawing)) return;
               const p = rel(e);
               setDrag({ x: p.x, y: p.y, w: 0, h: 0 });
               e.currentTarget.setPointerCapture(e.pointerId);
@@ -445,13 +470,33 @@ export function PageViewer({
               setDrag({ x: drag.x, y: drag.y, w: p.x - drag.x, h: p.y - drag.y });
             }}
             onPointerUp={() => {
-              if (drag && Math.abs(drag.w) > 0.02 && Math.abs(drag.h) > 0.02)
+              if (drag && Math.abs(drag.w) > 0.02 && Math.abs(drag.h) > 0.02) {
                 setDrawn({
                   x: Math.min(drag.x, drag.x + drag.w),
                   y: Math.min(drag.y, drag.y + drag.h),
                   w: Math.abs(drag.w),
                   h: Math.abs(drag.h),
                 });
+                setCorner(null);
+              } else if (drag && drawing) {
+                // A tap while drawing: the first corner, then the opposite one.
+                if (
+                  corner &&
+                  Math.abs(drag.x - corner.x) > 0.02 &&
+                  Math.abs(drag.y - corner.y) > 0.02
+                ) {
+                  setDrawn({
+                    x: Math.min(corner.x, drag.x),
+                    y: Math.min(corner.y, drag.y),
+                    w: Math.abs(drag.x - corner.x),
+                    h: Math.abs(drag.y - corner.y),
+                  });
+                  setCorner(null);
+                } else {
+                  setDrawn(null);
+                  setCorner({ x: drag.x, y: drag.y });
+                }
+              }
               setDrag(null);
             }}
           >
@@ -507,6 +552,13 @@ export function PageViewer({
                   width: `${(drag ? Math.abs(drag.w) : (drawn?.w ?? 0)) * 100}%`,
                   height: `${(drag ? Math.abs(drag.h) : (drawn?.h ?? 0)) * 100}%`,
                 }}
+              />
+            )}
+            {corner && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-signal bg-ground"
+                style={{ left: `${corner.x * 100}%`, top: `${corner.y * 100}%` }}
               />
             )}
           </div>

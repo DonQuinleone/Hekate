@@ -183,6 +183,22 @@ export function stripeGateway(options: {
       );
       return invoiceFacts(voided)?.invoice ?? null;
     },
+    async credit({ customerId, amount, currency, description, key }) {
+      // A customer balance transaction: negative is owed to the customer, and Stripe takes it
+      // off the next invoice it finalises for them.
+      const made = await stripe.request<{ id: string }>(
+        "POST",
+        `/v1/customers/${customerId}/balance_transactions`,
+        {
+          amount: -amount,
+          currency: currency.toLowerCase(),
+          description,
+          metadata: { hekateCreditId: key },
+        },
+        { idempotencyKey: `hekate-credit-${key}` },
+      );
+      return made.id;
+    },
     async nextPayout() {
       const { data } = await stripe.request<{ data: Record<string, unknown>[] }>(
         "GET",

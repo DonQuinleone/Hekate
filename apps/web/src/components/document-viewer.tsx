@@ -3,10 +3,13 @@ import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } fr
 import { cn } from "~/lib/cn";
 import {
   clampPage,
+  drawsWith,
   type PageFocus,
+  type Point,
   pointIn,
   type Rect,
   regionFromDrag,
+  regionFromPress,
   zoomLabel,
   zoomStep,
 } from "~/lib/pages";
@@ -61,6 +64,13 @@ export function DocumentViewer({
   /** Where a drag began on the page, while one is under way. */
   const [dragFrom, setDragFrom] = useState<{ x: number; y: number } | null>(null);
   const [dragRect, setDragRect] = useState<Rect | null>(null);
+  /**
+   * Drawing turned on (#150): a finger draws instead of scrolling, and two taps make a region
+   * as well as a drag. Off, a finger scrolls and zooms the page.
+   */
+  const [drawing, setDrawing] = useState(false);
+  /** The first corner tapped while drawing, until the opposite one is. */
+  const [corner, setCorner] = useState<Point | null>(null);
   const surface = useRef<HTMLElement>(null);
   const sheet = useRef<HTMLDivElement>(null);
   const rail = useRef<HTMLOListElement>(null);
@@ -81,9 +91,10 @@ export function DocumentViewer({
       ?.querySelector(`[data-page="${page}"]`)
       ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [page]);
-  // A new page starts at its top.
+  // A new page starts at its top, and a corner tapped on the last one is let go.
   useEffect(() => {
     if (page) surface.current?.scrollTo({ top: 0 });
+    setCorner(null);
   }, [page]);
   // A thread picked in the comments brings its region into view.
   useEffect(() => {
@@ -121,17 +132,18 @@ export function DocumentViewer({
     else if (event.key === "+" || event.key === "=") setZoom((z) => zoomStep(z, 1));
     else if (event.key === "-") setZoom((z) => zoomStep(z, -1));
     else if (event.key === "0") setZoom(1);
-    else if (event.key === "Escape" && (focus.draft || focus.selected))
+    else if (event.key === "Escape" && (focus.draft || focus.selected || corner)) {
+      setCorner(null);
       onFocus({ draft: null, selected: null });
-    else return;
+    } else return;
     event.preventDefault();
   };
 
   const at = (event: PointerEvent<HTMLElement>) =>
     pointIn(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY);
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    // A finger scrolls and zooms the page; drawing is for a mouse or a pen.
-    if (!canDraw || event.button !== 0 || event.pointerType === "touch") return;
+    // A finger scrolls and zooms the page unless drawing is on; a mouse or a pen draws.
+    if (!canDraw || event.button !== 0 || !drawsWith(event.pointerType, drawing)) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     setDragFrom(at(event));
     setDragRect(null);
@@ -141,11 +153,23 @@ export function DocumentViewer({
   };
   const onPointerUp = (event: PointerEvent<HTMLDivElement>) => {
     if (!dragFrom) return;
-    const rect = regionFromDrag(dragFrom, at(event));
+    const to = at(event);
     setDragFrom(null);
     setDragRect(null);
+    if (drawing) {
+      // A drag draws its region; a tap sets a corner, and the next tap the opposite one.
+      const pressed = regionFromPress(corner, dragFrom, to);
+      setCorner(pressed.corner);
+      onFocus({ draft: pressed.draft, selected: null });
+      return;
+    }
     // A click on the page lets go of the region and the thread; a drag draws a new region.
+    const rect = regionFromDrag(dragFrom, to);
     onFocus(rect ? { draft: rect, selected: null } : { draft: null, selected: null });
+  };
+  const toggleDrawing = () => {
+    setDrawing(!drawing);
+    setCorner(null);
   };
   const drawn = dragRect ?? focus.draft;
 
@@ -181,10 +205,28 @@ export function DocumentViewer({
           </span>
         )}
         {canDraw && (
-          <span className="hidden text-xs text-ink-3 md:inline">
-            Drag on the page to comment on part of it
-          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            aria-pressed={drawing}
+            title={drawing ? "Stop drawing, so a finger scrolls" : "Draw a region with a finger"}
+            onClick={toggleDrawing}
+            className="aria-pressed:bg-raised aria-pressed:text-ink"
+          >
+            <Icon name="edit" size={14} />
+            Draw
+          </Button>
         )}
+        {canDraw &&
+          (drawing ? (
+            <span role="status" className="text-xs text-ink-3">
+              {corner ? "Now tap the opposite corner" : "Drag, or tap two corners"}
+            </span>
+          ) : (
+            <span className="hidden text-xs text-ink-3 md:inline">
+              Drag on the page to comment on part of it
+            </span>
+          ))}
         <span className="ml-auto flex items-center gap-1">
           <Button
             size="icon"
@@ -274,7 +316,12 @@ export function DocumentViewer({
           {current && (
             <div
               ref={sheet}
-              className={cn("relative mx-auto select-none", canDraw && "cursor-crosshair")}
+              className={cn(
+                "relative mx-auto select-none",
+                canDraw && "cursor-crosshair",
+                // Drawing on, a finger draws rather than scrolling the page.
+                canDraw && drawing && "touch-none",
+              )}
               style={{ width: `${zoom * 100}%` }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
@@ -329,8 +376,17 @@ export function DocumentViewer({
               {drawn && (
                 <div
                   aria-hidden
+                  data-draft
                   style={place(drawn)}
                   className="pointer-events-none absolute rounded-[2px] border border-dashed border-signal bg-signal/10"
+                />
+              )}
+              {corner && (
+                <div
+                  aria-hidden
+                  data-e2e-overlap
+                  style={{ left: `${corner.x * 100}%`, top: `${corner.y * 100}%` }}
+                  className="pointer-events-none absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-signal bg-ground"
                 />
               )}
             </div>

@@ -8,6 +8,7 @@ import { createAuth } from "./auth.ts";
 import { runDunning } from "./billing/billing.ts";
 import { stripeClient } from "./billing/stripe.ts";
 import { stripeGateway } from "./billing/stripe-gateway.ts";
+import { brandedMailer } from "./branding.ts";
 import { createSend } from "./channels.ts";
 import { failureOfJob, purgeErrorReports, recordFailure } from "./error-reports.ts";
 import { deliver, dispatchEvents, onEventWritten } from "./events.ts";
@@ -25,6 +26,7 @@ import { startWorkers } from "./media/workers.ts";
 import { collectFromDatabase, collectQueues, countedMailer } from "./metrics/index.ts";
 import { createSampler } from "./metrics/sampler.ts";
 import { deliverDigests, deliverInstant } from "./notifications.ts";
+import { purgeOAuth } from "./oauth.ts";
 import { playbackSecret } from "./playback.ts";
 import { purgeDueProjects } from "./project-purge.ts";
 import { purgeRequestLimits } from "./rate-limit.ts";
@@ -93,17 +95,22 @@ export async function boot(
     previous: config.MASTER_KEYS_PREVIOUS,
   });
   // A workspace's own mail sends what is sent for it (#161); the instance's sends the rest.
-  const mailer = countedMailer(
-    loggedMailer(
-      db,
-      routedMailer({
+  // Either way it carries the workspace's logo and accent (#185).
+  const mailer = brandedMailer(
+    countedMailer(
+      loggedMailer(
         db,
-        keyring,
-        instance: createMailer({ transport: mailTransport, from: config.MAIL_FROM }),
-        trusted: config.WEBHOOK_TRUSTED_ORIGINS,
-      }),
-      mailTransport.kind !== "log",
+        routedMailer({
+          db,
+          keyring,
+          instance: createMailer({ transport: mailTransport, from: config.MAIL_FROM }),
+          trusted: config.WEBHOOK_TRUSTED_ORIGINS,
+        }),
+        mailTransport.kind !== "log",
+      ),
     ),
+    db,
+    config.PUBLIC_URL,
   );
   // Read at each scrape of /metrics (#70).
   collectFromDatabase(db);
@@ -277,6 +284,7 @@ export async function boot(
       await purgeRequestLimits(db);
       await purgeDownloadTickets(db);
       await purgeErrorReports(db);
+      await purgeOAuth(db);
     });
     await taking.work("organisation-rewrap", async ({ organisationId }) => {
       const rewrapped = await rewrapOrganisation(db, keyring, organisationId);
@@ -390,7 +398,7 @@ export async function boot(
     ssoTrustedOrigins: config.SSO_TRUSTED_ORIGINS,
     webhookTrustedOrigins: config.WEBHOOK_TRUSTED_ORIGINS,
     instanceBounces: instanceBouncesOf(config),
-    bounceProvider: bounceProviderOf(config.SMTP_URL),
+    bounceProvider: bounceProviderOf(config),
     storageReconcile: config.STORAGE_RECONCILE,
     setupGate: options.gate,
     operatorSecurityKey: config.OPERATOR_SECURITY_KEY,

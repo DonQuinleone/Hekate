@@ -4,13 +4,13 @@ import {
   followInput,
   notificationPreferencesInput,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, count, desc, eq, isNull, lt, type SQL, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, can, visibleProjects } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import { follow } from "../notifications.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
 const { notifications, notificationPreferences, follows, tracks, reviews, projects } = schema;

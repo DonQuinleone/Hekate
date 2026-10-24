@@ -95,9 +95,9 @@ export default defineConfig({
         // Billing on, with plans arranged by hand (#178): its screens show, and no gateway is
         // reached.
         HEKATE_BILLING: "manual",
-        // Tickets answered in the app (#181, #182), with a status page to point at.
+        // Tickets answered in the app (#181, #182). No HEKATE_STATUS_URL: the help menu links
+        // the instance's own status page (#183), which the screens show.
         HEKATE_SUPPORT: "app",
-        HEKATE_STATUS_URL: "https://status.review.endlesshall.example",
         // Never a settings file left by a development install.
         HEKATE_SETTINGS_FILE: join(state, "hekate.env"),
         NO_PROXY: "localhost,127.0.0.1",

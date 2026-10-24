@@ -1,11 +1,11 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { type Audit, requestInfo } from "../audit.ts";
 import { recordAuth, requestOf } from "../auth-log.ts";
+import { brandingOf } from "../branding.ts";
 import { CodedException } from "../errors.ts";
 import { emitEvent } from "../events.ts";
 import { maskEmail } from "../guest-code.ts";
@@ -19,6 +19,7 @@ import {
   verifyGuestCode,
 } from "../guests.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { guestReviews } from "./reviews.ts";
 
 const { organisations, guestSessions } = schema;
@@ -52,6 +53,8 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
       .where(eq(organisations.id, organisationId));
     return {
       organisation: organisation?.name ?? null,
+      // The workspace's logo and accent (#185), on every page a guest sees.
+      branding: await brandingOf(deps.db, organisationId),
       reviews: await guestReviews(deps.db, organisationId, guestId),
     };
   };
@@ -108,7 +111,20 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
             "code_limit",
             "No more codes for this link. Ask whoever invited you to send a new one.",
           );
-    return c.json({ verify: "code" as const, sentTo: maskEmail(sent.email) }, 202);
+    // The page asking for the code is the workspace's too (#185): its logo, named.
+    const [workspace] = await deps.db
+      .select({ name: organisations.name })
+      .from(organisations)
+      .where(eq(organisations.id, sent.organisationId));
+    return c.json(
+      {
+        verify: "code" as const,
+        sentTo: maskEmail(sent.email),
+        organisation: workspace?.name ?? null,
+        branding: await brandingOf(deps.db, sent.organisationId),
+      },
+      202,
+    );
   };
 
   return (

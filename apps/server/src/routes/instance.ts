@@ -1,5 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  creditInput,
   type ErrorReport,
   type ErrorReportRow,
   type ErrorSource,
@@ -53,11 +54,11 @@ import {
   workspaceExportInput,
   workspaceLimits,
   workspacePlanInput,
+  workspacePromoInput,
   workspaceSettingsOf,
   workspaceStateOf,
 } from "@hekate/shared";
 import type { Backends } from "@hekate/storage";
-import { zValidator } from "@hono/zod-validator";
 import {
   and,
   count,
@@ -89,6 +90,7 @@ import {
   retakeGatewayEvent,
   settleByHand,
 } from "../billing/billing.ts";
+import { applyPromo, issueCredit, sendLatestInvoice } from "../billing/operator.ts";
 import { billingOverview, gatewayStatus, planByOperator, waive } from "../billing/overview.ts";
 import { endPromo, listPromos, savePromo, usesOf } from "../billing/promos.ts";
 import { billingReports, invoicesCsv, recognitionCsv } from "../billing/reports.ts";
@@ -112,16 +114,19 @@ import { type JobName, type Jobs, jobDefinitions } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { escapeLike, logCsv, readLog } from "../logs.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { listPlans, savePlan, workspacePlanOf } from "../plans.ts";
 import { admit } from "../rate-limit.ts";
 import { listSignUpInvitations, newSignUpLink, revokeSignUpInvitation } from "../sign-up.ts";
 import { signal } from "../signals.ts";
+import { createStatus, type Status } from "../status.ts";
 import type { Storage } from "../storage.ts";
 import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
 import { HEKATE_VERSION, systemInformation } from "../system-info.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
 import { nearQuota, workspaceUsageOf } from "../usage.ts";
 import { pendingRewrap } from "../workspace-keys.ts";
+import { incidentRoutes } from "./incidents.ts";
 import { operatorMove } from "./project-transfers.ts";
 import { retryFile } from "./retry.ts";
 import { supportDeskRoutes } from "./support-desk.ts";
@@ -151,6 +156,8 @@ export interface InstanceOptions {
   audit: Audit;
   /** The instance's settings (#160), shared with the rest of the server. */
   settings: InstanceSettingsStore;
+  /** The status page (#183), read afresh after an incident changes; none in some tests. */
+  status?: Status;
   /** The build running and whether releases are checked (#158). */
   system: { build: string; checkOn: boolean };
   /** What System health reads (#156). */
@@ -1405,6 +1412,17 @@ export function instanceRoutes(options: InstanceOptions) {
         });
         return c.json(done);
       })
+      // Incidents for the status page (#183), posted from the support desk whatever the module.
+      .use("/incidents", operatorsOnly)
+      .use("/incidents/*", operatorsOnly)
+      .route(
+        "/incidents",
+        incidentRoutes({
+          db,
+          status: options.status ?? createStatus(db, options.health.checks),
+          trustProxy: options.trustProxy,
+        }),
+      )
       // The support desk (#182): every workspace's tickets, with tickets in the app.
       .use("/support", operatorsOnly)
       .use("/support/*", operatorsOnly)
@@ -1422,6 +1440,64 @@ export function instanceRoutes(options: InstanceOptions) {
           subdomains: options.environment.subdomains ?? null,
         }),
       )
+      // Apply a promo code to a workspace's subscription (#445), as its owners could.
+      .post(
+        "/workspaces/:id/promo",
+        idParam,
+        zValidator("json", workspacePromoInput),
+        async (c) => {
+          const { id } = c.req.valid("param");
+          if (billingOff() || !options.billing) throw billingOffRefusal();
+          const name = await workspaceName(db, id);
+          const applied = await applyPromo(options.billing, id, c.req.valid("json").code);
+          await recordInstanceEvent(db, {
+            actorId: c.var.userId,
+            action: "billing.promo_applied",
+            target: name,
+            details: { organisationId: id, ...applied },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return c.json(applied);
+        },
+      )
+      // A credit toward what a workspace next owes (#445): at the gateway, or on its next
+      // invoice by hand.
+      .post("/workspaces/:id/credits", idParam, zValidator("json", creditInput), async (c) => {
+        const { id } = c.req.valid("param");
+        if (billingOff() || !options.billing) throw billingOffRefusal();
+        const name = await workspaceName(db, id);
+        const credit = await issueCredit(options.billing, id, c.req.valid("json"), c.var.userId);
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "billing.credited",
+          target: name,
+          details: {
+            organisationId: id,
+            creditId: credit.id,
+            source: credit.source,
+            amount: credit.amount,
+            currency: credit.currency,
+            reason: credit.reason,
+          },
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.json({ credit }, 201);
+      })
+      // Send a workspace's owners its latest invoice from the gateway again (#445).
+      .post("/workspaces/:id/invoices/latest/send", idParam, async (c) => {
+        const { id } = c.req.valid("param");
+        if (billingOff() || !options.billing) throw billingOffRefusal();
+        const name = await workspaceName(db, id);
+        const sent = await sendLatestInvoice(options.billing, id);
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "invoice.sent",
+          target: name,
+          details: { organisationId: id, ...sent },
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.json(sent);
+      })
       // Promo codes (#178): kept whether or not billing is on; used only while it is.
       .use("/promos", operatorsOnly)
       .use("/promos/*", operatorsOnly)

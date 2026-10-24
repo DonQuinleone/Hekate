@@ -20,6 +20,7 @@ import {
   instanceSettingsOf,
   type LoudnessSummary,
   levelsOf,
+  lightAccent,
   lookingPermissions,
   type MailLogRow,
   mapTime,
@@ -1399,6 +1400,49 @@ describe.runIf(url)("api", () => {
           // Off, nothing is asked for.
           expect(await ask("localhost", app)).toBe(404);
         });
+
+        it("brands a workspace's sign-in page, and lets no other workspace brand it (#185)", async () => {
+          const signedIn = cookieOf(await setup());
+          const [studio] = await db
+            .select({ id: schema.organisations.id })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.slug, "studio"));
+          const [theirs] = await db
+            .insert(schema.organisations)
+            .values({ name: "Saltmarsh Films", slug: "saltmarsh" })
+            .returning({ id: schema.organisations.id });
+          const blobId = uuidv7();
+          await db
+            .update(schema.organisations)
+            .set({ branding: { accent: "#4fb3a9", logo: { blobId, width: 400, height: 100 } } })
+            .where(eq(schema.organisations.id, studio?.id ?? ""));
+          const methods = async (host: string) =>
+            (await (await on(host, "/api/sign-in-methods")).json()) as {
+              workspace: { branding: unknown } | null;
+            };
+          expect((await methods("studio.review.test:3000")).workspace?.branding).toEqual({
+            logo: { url: `/api/branding/${studio?.id}/logo/${blobId}`, width: 400, height: 100 },
+            accent: { dark: "#4fb3a9", light: lightAccent("#4fb3a9") },
+          });
+          expect((await methods("saltmarsh.review.test:3000")).workspace?.branding).toBeNull();
+          // Studio's owner at Saltmarsh's host is no member there: refused, and nothing changes.
+          const put = await at.request("/api/organisation/branding/accent", {
+            method: "PUT",
+            headers: {
+              host: "saltmarsh.review.test:3000",
+              cookie: signedIn,
+              origin: "http://saltmarsh.review.test:3000",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({ accent: "#d4a20b" }),
+          });
+          expect(put.status).toBe(403);
+          const [after] = await db
+            .select({ branding: schema.organisations.branding })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.id, theirs?.id ?? ""));
+          expect(after?.branding).toBeNull();
+        });
       });
 
       describe("usage and quotas (#175)", () => {
@@ -1984,6 +2028,56 @@ describe.runIf(url)("api", () => {
           expect(waived).toMatchObject({
             target: "Studio",
             details: { reason: "A goodwill gesture", voided: 1 },
+          });
+        });
+
+        it("lets operators give a credit, apply a code and send an invoice, and nobody else (#445)", async () => {
+          const operator = cookieOf(await setup());
+          const admin = await join(operator, "admin@example.test", "admin");
+          const [studio] = await db
+            .select({ id: schema.organisations.id })
+            .from(schema.organisations)
+            .where(eq(schema.organisations.name, "Studio"));
+          const id = studio?.id ?? "";
+          const post = (path: string, body: unknown, cookie: string, via = paying) =>
+            via.request(`/api/instance/workspaces/${id}/${path}`, json(body, cookie));
+          const credit = { amount: 2500, currency: "gbp", reason: "Stems delivered late" };
+          for (const [path, body] of [
+            ["credits", credit],
+            ["promo", { code: "LAUNCH50" }],
+            ["invoices/latest/send", {}],
+          ] as const) {
+            expect((await post(path, body, admin)).status).toBe(403);
+            expect(await (await post(path, body, operator, asOperator)).json()).toMatchObject({
+              error: { code: "billing_off" },
+            });
+          }
+          expect((await post("credits", { ...credit, amount: -5 }, operator)).status).toBe(400);
+          // Invoiced by hand: the credit is held for its next invoice.
+          const given = await post("credits", credit, operator);
+          expect(given.status).toBe(201);
+          expect(await given.json()).toMatchObject({
+            credit: { source: "manual", amount: 2500, currency: "GBP" },
+          });
+          const overview = await paying.request("/api/instance/billing/overview", {
+            headers: { cookie: operator },
+          });
+          expect(await overview.json()).toMatchObject({
+            workspaces: [{ name: "Studio", credits: [{ amount: 2500, currency: "GBP" }] }],
+          });
+          expect(await (await post("promo", { code: "LAUNCH50" }, operator)).json()).toMatchObject({
+            error: { code: "not_subscribed" },
+          });
+          expect(await (await post("invoices/latest/send", {}, operator)).json()).toMatchObject({
+            error: { code: "no_invoice" },
+          });
+          const [event] = await db
+            .select()
+            .from(schema.instanceEvents)
+            .where(eq(schema.instanceEvents.action, "billing.credited"));
+          expect(event).toMatchObject({
+            target: "Studio",
+            details: { amount: 2500, currency: "GBP", reason: "Stems delivered late" },
           });
         });
 
@@ -6241,6 +6335,190 @@ describe.runIf(url)("api", () => {
             )
           ).status,
         ).toBe(403);
+      });
+
+      it("lets only owners and admins brand the workspace, refuses an illegible accent, and mails the logo and accent (#185)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const admin = await joinAs(owner, "engineer@example.test", "admin");
+        const member = await joinAs(owner, "player@example.test", "member");
+        const accent = (body: unknown, cookie: string) =>
+          app.request("/api/organisation/branding/accent", {
+            ...json(body, cookie),
+            method: "PUT",
+          });
+        const upload = (bytes: Uint8Array, cookie: string, type = "image/png") =>
+          app.request("/api/organisation/branding/logo", {
+            method: "POST",
+            headers: { "content-type": type, origin: "http://localhost:3000", cookie },
+            body: new Uint8Array(bytes),
+          });
+        const brandingOf = async (cookie: string) =>
+          (
+            (await (
+              await app.request("/api/organisation/branding", { headers: { cookie } })
+            ).json()) as {
+              branding: {
+                accent: string | null;
+                logo: { blobId: string; width: number; height: number } | null;
+              };
+            }
+          ).branding;
+        const dir = mkdtempSync(join(tmpdir(), "hekate-brand-"));
+        const out = join(dir, "logo.png");
+        await run("ffmpeg", [
+          ...["-hide_banner", "-v", "error", "-nostdin", "-f", "lavfi"],
+          ...["-i", "color=c=0x4fb3a9:s=800x200", "-frames:v", "1"],
+          ...["-c:v", "png", "-f", "image2", "-update", "1", "-y", out],
+        ]);
+        const png = readFileSync(out);
+        rmSync(dir, { recursive: true, force: true });
+
+        expect(await brandingOf(member)).toEqual({ accent: null, logo: null });
+        // A member may not; the settings route never takes it either.
+        expect((await accent({ accent: "#4fb3a9" }, member)).status).toBe(403);
+        expect((await upload(png, member)).status).toBe(403);
+        expect(
+          (
+            await app.request("/api/organisation/settings", {
+              ...json({ branding: { accent: "#4fb3a9" } }, owner),
+              method: "PATCH",
+            })
+          ).status,
+        ).toBe(400);
+        // Too dark to read on the dark ground: refused, saying why.
+        const dark = await accent({ accent: "#1f2a44" }, admin);
+        expect(dark.status).toBe(422);
+        expect(await dark.json()).toMatchObject({
+          error: { code: "accent_illegible", message: expect.stringMatching(/too dark/) },
+        });
+        expect((await accent({ accent: "teal" }, admin)).status).toBe(400);
+        expect((await accent({ accent: "#4FB3A9" }, admin)).status).toBe(200);
+
+        // A logo: an SVG is refused, an image is drawn again at no more than 512 pixels.
+        const svg = await upload(
+          Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>x()</script></svg>'),
+          owner,
+          "image/svg+xml",
+        );
+        expect(svg.status).toBe(422);
+        expect(await svg.json()).toMatchObject({ error: { code: "logo_refused" } });
+        expect((await upload(png, owner)).status).toBe(201);
+        const first = await brandingOf(member);
+        expect(first.accent).toBe("#4fb3a9");
+        expect(first.logo).toMatchObject({ width: 512, height: 128 });
+        const firstBlob = first.logo?.blobId ?? "";
+        // Settings rewritten whole, as the release before this one writes them, keep it.
+        await db
+          .update(schema.organisations)
+          .set({ settings: { guestLinkDays: 14 } })
+          .where(eq(schema.organisations.id, organisationId));
+        expect(await brandingOf(owner)).toEqual(first);
+
+        // Anyone may fetch it, as a sign-in page and a mail client do: only as a PNG, cached
+        // for good at an address that changes with it, and runnable nowhere.
+        const logoUrl = `/api/branding/${organisationId}/logo/${firstBlob}`;
+        const served = await app.request(logoUrl);
+        expect(served.status).toBe(200);
+        expect(served.headers.get("content-type")).toBe("image/png");
+        expect(served.headers.get("cache-control")).toContain("immutable");
+        expect(served.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
+        expect(served.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
+        expect(served.headers.get("x-content-type-options")).toBe("nosniff");
+        expect(
+          Buffer.from(await served.arrayBuffer())
+            .subarray(1, 4)
+            .toString(),
+        ).toBe("PNG");
+        // Nothing else stored answers there: not under another workspace's id, nor another blob.
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Saltmarsh Films", slug: "saltmarsh-brand" })
+          .returning({ id: schema.organisations.id });
+        expect((await app.request(`/api/branding/${elsewhere?.id}/logo/${firstBlob}`)).status).toBe(
+          404,
+        );
+        const other = await storage.put(organisationId, Buffer.from("the final master"));
+        expect((await app.request(`/api/branding/${organisationId}/logo/${other.id}`)).status).toBe(
+          404,
+        );
+
+        // A new logo replaces the old, whose bytes go.
+        expect((await upload(png, admin)).status).toBe(201);
+        const second = await brandingOf(owner);
+        expect(second.logo?.blobId).not.toBe(firstBlob);
+        expect((await app.request(logoUrl)).status).toBe(404);
+        const [kept] = await db
+          .select({ id: schema.blobs.id })
+          .from(schema.blobs)
+          .where(eq(schema.blobs.id, firstBlob));
+        expect(kept).toBeUndefined();
+
+        // The workspace's mail leads with its logo, at the instance's address, and its accent.
+        mailer.sent.length = 0;
+        expect(
+          (await app.request("/api/organisation/email/test", json({ template: "decision" }, owner)))
+            .status,
+        ).toBe(200);
+        const html = mailer.sent[0]?.html ?? "";
+        expect(html).toContain(
+          `src="http://localhost:3000/api/branding/${organisationId}/logo/${second.logo?.blobId}"`,
+        );
+        expect(html).toContain("background:#4fb3a9");
+        expect(html).toContain('alt="Studio"');
+        // And so does its preview, with the logo at this origin.
+        const preview = (await (
+          await app.request("/api/organisation/email/invitation", { headers: { cookie: owner } })
+        ).json()) as { html: string };
+        expect(preview.html).toContain(`src="/api/branding/${organisationId}/logo/`);
+
+        // Each change is in the access log.
+        const logged = (await (
+          await app.request("/api/organisation/audit?action=organisation.branding", {
+            headers: { cookie: owner },
+          })
+        ).json()) as { events: { details: Record<string, unknown> }[] };
+        expect(logged.events.map((e) => e.details)).toEqual([
+          { logo: "set", width: 512, height: 128 },
+          { logo: "set", width: 512, height: 128 },
+          { accent: "#4fb3a9" },
+        ]);
+
+        // The reconciliation leaves the logo be, however long it has been stored, while a blob
+        // nothing uses is found.
+        await db
+          .update(schema.blobs)
+          .set({ createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) })
+          .where(inArray(schema.blobs.id, [second.logo?.blobId ?? "", other.id]));
+        const report = await reconcileStorage(
+          { db, storage, audit },
+          { remove: false, organisations: [organisationId] },
+        );
+        expect(report.find((r) => r.backend === "local")?.unreferencedBlobs).toBe(1);
+
+        // Removed, and back to the signal: nothing branded is mailed.
+        expect(
+          (
+            await app.request("/api/organisation/branding/logo", {
+              method: "DELETE",
+              headers: { origin: "http://localhost:3000", cookie: member },
+            })
+          ).status,
+        ).toBe(403);
+        expect(
+          (
+            await app.request("/api/organisation/branding/logo", {
+              method: "DELETE",
+              headers: { origin: "http://localhost:3000", cookie: admin },
+            })
+          ).status,
+        ).toBe(200);
+        expect((await accent({ accent: null }, owner)).status).toBe(200);
+        expect(await brandingOf(owner)).toEqual({ accent: null, logo: null });
+        mailer.sent.length = 0;
+        await app.request("/api/organisation/email/test", json({ template: "decision" }, owner));
+        expect(mailer.sent[0]?.html).not.toContain("<img");
+        expect(mailer.sent[0]?.html).toContain("background:#f0762e");
       });
 
       it("keeps the blob record when removing its bytes fails, so removal can be retried", async () => {
@@ -17948,7 +18226,13 @@ describe.runIf(url)("api", () => {
           mailer.sent.length = 0;
           const opened = await signIn(token);
           expect(opened.status).toBe(202);
-          expect(await opened.json()).toEqual({ verify: "code", sentTo: "c•••@example.test" });
+          // With the workspace's name and branding beside it (#185), none set here.
+          expect(await opened.json()).toEqual({
+            verify: "code",
+            sentTo: "c•••@example.test",
+            organisation: "Studio",
+            branding: null,
+          });
           expect(cookieOf(opened)).not.toContain("hekate_guest=");
           expect(mailer.sent.map((m) => m.to)).toEqual(["conductor@example.test"]);
           const first = codeFor();

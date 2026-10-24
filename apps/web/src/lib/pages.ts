@@ -50,6 +50,38 @@ export function regionFromDrag(
   return { x, y, width: Math.min(round(x2 - x1), 1 - x), height: Math.min(round(y2 - y1), 1 - y) };
 }
 
+/** A point on a page, in shares of its width and height. */
+export interface Point {
+  x: number;
+  y: number;
+}
+
+/**
+ * Whether a press on the page starts a region (#150). A mouse or a pen draws by dragging, as
+ * it always has; a finger scrolls the page unless drawing is turned on.
+ */
+export const drawsWith = (pointerType: string, drawing: boolean) =>
+  pointerType !== "touch" || drawing;
+
+/**
+ * What a press on the page leaves while drawing is on (#150): a drag draws its rectangle, as
+ * ever; without one, a tap sets a corner, and the next tap its opposite corner, so a region
+ * needs no dragging at all. A second tap too close to the first moves the corner instead.
+ */
+export function regionFromPress(
+  corner: Point | null,
+  from: Point,
+  to: Point,
+): { draft: Rect | null; corner: Point | null } {
+  const dragged = regionFromDrag(from, to);
+  if (dragged) return { draft: dragged, corner: null };
+  if (!corner) return { draft: null, corner: { x: round(unit(to.x)), y: round(unit(to.y)) } };
+  const tapped = regionFromDrag(corner, to);
+  return tapped
+    ? { draft: tapped, corner: null }
+    : { draft: null, corner: { x: round(unit(to.x)), y: round(unit(to.y)) } };
+}
+
 /** Where a pointer is on an element, in shares of its size. */
 export function pointIn(rect: DOMRect, clientX: number, clientY: number) {
   return { x: (clientX - rect.left) / rect.width, y: (clientY - rect.top) / rect.height };

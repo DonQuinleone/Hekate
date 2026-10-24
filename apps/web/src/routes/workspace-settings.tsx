@@ -27,12 +27,14 @@ import { type FormEvent, useState } from "react";
 import { ScopesSection, TokensSection, WorkspaceApiLogSection } from "~/components/api-tokens";
 import { Avatar } from "~/components/avatar";
 import { BillingSection } from "~/components/billing";
+import { BrandingSection } from "~/components/branding";
 import { deliveryHint, ProfileEditor, ProfileOptions } from "~/components/delivery-profiles";
 import { DirectorySection } from "~/components/directory";
 import { EmailTemplatesSection } from "~/components/email-templates";
 import { Empty } from "~/components/empty";
 import { ChannelsSection } from "~/components/event-channels";
 import { Icon } from "~/components/icons";
+import { OAuthClientsSection } from "~/components/oauth";
 import { PageHeader } from "~/components/page-header";
 import { PlayerToolsTable } from "~/components/player-tools";
 import { TransfersSection } from "~/components/project-transfer";
@@ -123,6 +125,15 @@ const allSections: SectionSpec[] = [
     intro: "What QA measures recordings against: the built-in profiles, and the workspace's own.",
   },
   {
+    id: "branding",
+    label: "Branding",
+    group: "Workspace",
+    from: "admin",
+    intro:
+      "The workspace's logo and accent, on its sign-in page, guest pages and email. Hekate's own mark stays in the app.",
+    docs: "/use/branding/",
+  },
+  {
     id: "email",
     label: "Email templates",
     group: "Workspace",
@@ -155,11 +166,12 @@ const allSections: SectionSpec[] = [
   },
   {
     id: "api",
-    label: "API",
+    label: "API and OAuth clients",
     group: "Access",
     from: "admin",
-    intro: "Tokens that act for the workspace, what a token may be given, and every call one made.",
-    docs: "/use/api-tokens/",
+    intro:
+      "Applications that ask people for access, tokens that act for the workspace, what either may be given, and every call one made.",
+    docs: "/use/oauth/",
   },
   {
     id: "billing",
@@ -1321,6 +1333,7 @@ export function WorkspaceSettingsPage({
         {current.id === "general" && <General role={role} />}
         {current.id === "defaults" && <Defaults />}
         {current.id === "delivery" && <DeliveryProfiles />}
+        {current.id === "branding" && <BrandingSection />}
         {current.id === "email" && <EmailTemplatesSection />}
         {current.id === "members" && <Members role={role} />}
         {current.id === "security" && (
@@ -1333,6 +1346,7 @@ export function WorkspaceSettingsPage({
         {current.id === "notifications" && <ChannelsSection />}
         {current.id === "api" && (
           <>
+            <OAuthClientsSection />
             <TokensSection kind="service" />
             <ScopesSection />
             <WorkspaceApiLogSection />

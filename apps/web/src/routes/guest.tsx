@@ -9,6 +9,7 @@ import { GuestFrame } from "~/components/shell";
 import { Button } from "~/components/ui/button";
 import { CodeField } from "~/components/ui/code-field";
 import { StatusPill } from "~/components/ui/status";
+import { useBrandAccent } from "~/lib/branding";
 import { formatDates } from "~/lib/locale";
 import { accessNote } from "~/lib/permissions";
 import {
@@ -19,7 +20,7 @@ import {
   useGuestSignIn,
   useGuestSignOut,
 } from "~/lib/queries";
-import { ErrorLine, Frame } from "~/routes/auth-pages";
+import { ErrorLine, Frame, type FrameBrand } from "~/routes/auth-pages";
 
 const day = formatDates({ day: "numeric", month: "long" });
 
@@ -54,7 +55,17 @@ export function GuestLinkPage({ token }: { token: string }) {
     });
   });
   if (signIn.data && "verify" in signIn.data)
-    return <GuestCode token={token} sentTo={signIn.data.sentTo} onOpened={arrive} />;
+    return (
+      <GuestCode
+        token={token}
+        sentTo={signIn.data.sentTo}
+        brand={{
+          name: signIn.data.organisation ?? "Workspace",
+          branding: signIn.data.branding ?? null,
+        }}
+        onOpened={arrive}
+      />
+    );
   return (
     <Centred>
       {signIn.error ? (
@@ -77,10 +88,13 @@ export function GuestLinkPage({ token }: { token: string }) {
 function GuestCode({
   token,
   sentTo,
+  brand,
   onOpened,
 }: {
   token: string;
   sentTo: string;
+  /** The workspace whose review it opens, with its logo and accent (#185). */
+  brand: FrameBrand;
   onOpened: (me: GuestSignedIn) => void;
 }) {
   const { resend, verify } = useGuestCode(token);
@@ -102,6 +116,7 @@ function GuestCode({
     );
   return (
     <Frame
+      brand={brand}
       title="Check your email"
       intro={`A six-digit code has gone to ${resend.data?.sentTo ?? sentTo}, the address the review was sent to. It lasts ten minutes.`}
     >
@@ -165,8 +180,12 @@ export function GuestShell({ children }: { children: ReactNode }) {
   const { data: me } = useQuery(guestMeQuery);
   const signOut = useGuestSignOut();
   const navigate = useNavigate();
+  // The workspace's accent and logo (#185) on every page a guest sees.
+  useBrandAccent(me?.branding?.accent);
+  const logo = me?.branding?.logo;
   return (
     <GuestFrame
+      logo={logo ? { ...logo, name: me?.organisation ?? "Workspace" } : null}
       account={
         <>
           <span className="hidden min-w-0 flex-col items-end leading-tight @3xl/app:flex">

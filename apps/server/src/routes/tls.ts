@@ -1,9 +1,9 @@
 import { type Database, schema } from "@hekate/db";
-import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { hostKind, type Subdomains } from "../hosts.ts";
+import { zValidator } from "../openapi/validator.ts";
 
 /**
  * `/api/tls/ask` (#176): Caddy's on-demand TLS asks here before it gets a certificate for a

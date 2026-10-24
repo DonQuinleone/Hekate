@@ -46,25 +46,38 @@ const tokens = [
   },
 ];
 
+/**
+ * The applications this person connected to the workspace (#447). Each is one of the
+ * workspace's own OAuth clients, so none is marked as anyone's: the workspace registered it.
+ */
 const connected = [
   {
     name: "Hekate for Slack",
-    by: "Hekate (official)",
-    scopes: "Read reviews, post on your behalf",
+    scopes: "Read reviews, read and write comments",
+    granted: [
+      ["reviews:read", "Read reviews, reviewers and decisions"],
+      ["comments", "Read and write comments and their anchors"],
+    ],
     since: "19 Aug",
     last: "2 h ago",
   },
   {
     name: "Hekate for Logic Pro",
-    by: "Hekate (official)",
-    scopes: "Upload versions, read comments",
+    scopes: "Upload and change files, read and write comments",
+    granted: [
+      ["files:write", "Upload versions and variations, make folders, change files"],
+      ["comments", "Read and write comments and their anchors"],
+    ],
     since: "14 Sep",
     last: "yesterday",
   },
   {
     name: "Lantern Deliveries",
-    by: "Lantern Pictures",
     scopes: "Read files, download originals",
+    granted: [
+      ["files:read", "List and read projects, folders, files, tracks, versions and variations"],
+      ["downloads", "Download originals and proxies, watermarked and logged"],
+    ],
     since: "4 Oct",
     last: "3 d ago",
   },
@@ -86,6 +99,8 @@ export function AccountPage({ section }: { section: string }) {
   const viewer = useViewer();
   const state = useScreenState();
   const [tokenOpen, setTokenOpen] = useState(false);
+  // A connected app's "What it may do" (#447).
+  const [reading, setReading] = useState<(typeof connected)[number] | null>(null);
   const person = personById(viewer.personId);
   const [adding, setAdding] = useState(false);
   const [theme, setTheme] = useState("signal-dark");
@@ -392,28 +407,19 @@ export function AccountPage({ section }: { section: string }) {
         <>
           <Section
             title="Connected apps"
-            intro="Applications you have let in through OAuth. Each sees only what you granted, and only what you can see."
+            intro="Applications you have let into this workspace through OAuth. Each sees only what you granted, and only what you can see."
           >
             {connected.map((a) => (
               <Row
                 key={a.name}
-                name={
-                  <span className="flex items-center gap-2">
-                    {a.name}
-                    {a.by.includes("official") && (
-                      <span className="rounded-chip border border-line px-1.5 text-[11px] text-ink-3">
-                        official
-                      </span>
-                    )}
-                  </span>
-                }
-                hint={`${a.by} · ${a.scopes} · connected ${a.since} · last used ${a.last}`}
+                name={a.name}
+                hint={`${a.scopes} · connected ${a.since} · last used ${a.last}`}
               >
                 <ActionMenu
                   always
                   label={a.name}
                   actions={[
-                    { label: "What it may do…", onSelect: () => {} },
+                    { label: "What it may do…", onSelect: () => setReading(a) },
                     "divider",
                     { label: "Disconnect", danger: true, onSelect: () => {} },
                   ]}
@@ -421,6 +427,32 @@ export function AccountPage({ section }: { section: string }) {
               </Row>
             ))}
           </Section>
+          {reading && (
+            <Dialog
+              title={`What ${reading.name} may do`}
+              description="It acts as you, in this workspace alone, and can do no more than you can."
+              onClose={() => setReading(null)}
+              footer={
+                <>
+                  <Button variant="ghost" onClick={() => setReading(null)}>
+                    Disconnect
+                  </Button>
+                  <Button variant="primary" onClick={() => setReading(null)}>
+                    Done
+                  </Button>
+                </>
+              }
+            >
+              <ul className="flex flex-col gap-2 text-[13px]">
+                {reading.granted.map(([k, v]) => (
+                  <li key={k} className="flex gap-3">
+                    <span className="tabular w-28 shrink-0 text-ink">{k}</span>
+                    <span className="text-ink-3">{v}</span>
+                  </li>
+                ))}
+              </ul>
+            </Dialog>
+          )}
           <Section
             title="For developers"
             intro="An application that connects to Hekate on people's behalf is registered by a workspace, under its settings."
@@ -428,7 +460,11 @@ export function AccountPage({ section }: { section: string }) {
             <Row
               name="Register an application"
               hint="Client id and secret, redirect addresses, scopes; in Workspace settings under API and OAuth clients."
-            />
+            >
+              <Button variant="ghost" size="md">
+                Open the guide
+              </Button>
+            </Row>
           </Section>
         </>
       )}

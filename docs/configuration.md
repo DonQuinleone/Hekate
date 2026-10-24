@@ -65,7 +65,8 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | `MAIL_GRAPH_CLIENT_SECRET` | unset | Microsoft 365: a client secret of the app registration. Or `MAIL_GRAPH_CLIENT_SECRET_FILE`, naming a file that holds it. |
 | `MAIL_MAILCOACH_URL` | unset | Mailcoach, instead of SMTP: the address of the Mailcoach account whose transactional API sends mail. With MAIL_MAILCOACH_TOKEN. Example: `https://endlesshall.mailcoach.app`. |
 | `MAIL_MAILCOACH_TOKEN` | unset | Mailcoach: an API token allowed to send transactional mail. Or `MAIL_MAILCOACH_TOKEN_FILE`, naming a file that holds it. |
-| `MAIL_WEBHOOK_SECRET` | unset | Bounce reports (#161): what proves a report came from the instance's mail provider, so Hekate stops sending to addresses that bounced for good or complained. Resend's webhook signing secret, Mailgun's HTTP webhook signing key, SendGrid's verification key, or SparkPost's webhook user:password. The provider's webhook goes to /api/hooks/mail/instance. Or `MAIL_WEBHOOK_SECRET_FILE`, naming a file that holds it. |
+| `MAIL_WEBHOOK_SECRET` | unset | Bounce reports (#161, #432): what proves a report came from the instance's mail provider, so Hekate stops sending to addresses that bounced for good or complained. Resend's webhook signing secret, Mailgun's HTTP webhook signing key, SendGrid's verification key, SparkPost's webhook user:password, the ARN of the Amazon SNS topic Amazon SES notifies, Postal's signing public key (its DKIM record's p= value), the bearer token a Plunk workflow's Webhook step sends, or the secret on Mailcoach's webhook. The provider's webhook goes to /api/hooks/mail/instance. Or `MAIL_WEBHOOK_SECRET_FILE`, naming a file that holds it. |
+| `MAIL_BOUNCE_PROVIDER` | unset | Bounce reports: which provider the instance's mail is (resend, mailgun, sendgrid, sparkpost, ses, postal, plunk, mailcoach), where its host cannot say. Needed for Postal, which runs on a host of your own, and for a self-hosted Plunk; Amazon SES's regional SMTP endpoints, Plunk's own host and Mailcoach are known without it. Example: `postal`. |
 
 ## Media
 
@@ -96,7 +97,7 @@ A setting marked as secret may instead name a file that holds it, with `_FILE` a
 | `HEKATE_UPDATE_CHECK` | `false` | Check the project's public releases once a day, for System information and the Overview. Nothing about the instance is sent. Off by default: the instance asks nothing of anyone. |
 | `HEKATE_BUILD` | `dev` | The commit the image was built from. Set by the image; leave it alone. |
 | `HEKATE_DOCS_URL` | `https://docs.hekate.studio` | Where the help menu's documentation link goes. |
-| `HEKATE_STATUS_URL` | unset | A status page for the help menu and the Support page to link to; none when unset. The support desk can set its own, which is used instead. |
+| `HEKATE_STATUS_URL` | unset | Another status page for the help menu and the Support page to link to, kept somewhere that stays up when the instance does not. Unset, they link the instance's own page at /status, which always shows the incidents posted from the support desk. The desk can set its own address, which is used instead. |
 
 ## Storage
 

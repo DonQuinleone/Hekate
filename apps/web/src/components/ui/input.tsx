@@ -51,6 +51,61 @@ export function FileInput({
   return <input ref={ref} type="file" className="hidden" {...props} />;
 }
 
+/**
+ * A colour, as a workspace's accent is chosen (#185): its swatch opens the system's picker, and
+ * its six hexadecimal digits can be typed or pasted beside it. `value` is what was typed, whole
+ * or not; the swatch shows it once it is a colour.
+ */
+export function ColourInput({
+  value,
+  onChange,
+  label,
+  disabled,
+  invalid,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+  disabled?: boolean;
+  invalid?: boolean;
+}) {
+  const whole = /^#[0-9a-f]{6}$/i.test(value);
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span
+        className="relative size-9 shrink-0 overflow-hidden rounded-control border border-line-strong shadow-1 focus-within:border-edge-strong"
+        // The colour being chosen is data here, not chrome.
+        style={whole ? { background: value } : undefined}
+      >
+        <input
+          type="color"
+          aria-label={`${label}: pick`}
+          value={whole ? value.toLowerCase() : "#000000"}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+        />
+      </span>
+      <input
+        type="text"
+        aria-label={label}
+        aria-invalid={invalid || undefined}
+        value={value}
+        disabled={disabled}
+        spellCheck={false}
+        autoComplete="off"
+        maxLength={7}
+        placeholder="#4fb3a9"
+        onChange={(e) => {
+          const typed = e.target.value.trim();
+          onChange(typed && !typed.startsWith("#") ? `#${typed}` : typed);
+        }}
+        className={cn(fieldClass, heights.md, "tabular w-28")}
+      />
+    </span>
+  );
+}
+
 /** A name edited where it is shown: no border until hovered or focused, as in Linear and Notion. */
 export function InlineInput({
   className,

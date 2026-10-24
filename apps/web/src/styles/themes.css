@@ -202,3 +202,15 @@
   --hk-nav: var(--hk-ground);
   --hk-scheme: dark;
 }
+
+/*
+ * A workspace's accent (#185), on its sign-in page and its guest pages: it stands in for the
+ * signal in Signal's dark and light themes, each cut checked for 4.5:1 on every surface
+ * (packages/shared/src/branding.ts). A palette someone chose for themselves keeps its own.
+ */
+:root[data-brand]:not([data-theme]) {
+  --hk-signal: var(--hk-brand-dark);
+}
+:root[data-brand][data-theme="signal-light"] {
+  --hk-signal: var(--hk-brand-light);
+}

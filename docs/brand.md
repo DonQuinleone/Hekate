@@ -87,6 +87,10 @@ One set, in `apps/web/src/components/ui`, restyled on the tokens and never stock
 
 Every piece, in each of its states, is on the reference page at `/reference`. It exists in `pnpm dev` and in the build the visual suite captures, never in a release: it is a reference for whoever builds screens, not part of the product.
 
+## A workspace's own branding
+
+A workspace may show its own logo and accent on its sign-in page, its guest pages and its email (#185, decision 226). The logo takes the lockup's place there; the lockup stays in the member's shell and the foot of every email. The accent stands in for the signal in Signal's dark and light themes only, and is held to the signal's rule: 4.5:1 on every surface in the dark theme, refused otherwise, with a darker cut computed for the light theme that holds 4.5:1 there (`packages/shared/src/branding.ts`). Other palettes keep their own signal.
+
 ## Imagery
 
 Photography is matte, low-key and quiet: dark surfaces, a single hairline, a single point of light. Generated imagery is for mood and marketing only; product UI and the mark are always vector and code.

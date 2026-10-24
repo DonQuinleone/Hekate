@@ -47,6 +47,10 @@ export interface Seeded {
   printFileId: string;
   /** The approval the booklet went through. */
   signOffId: string;
+  /** The label's logo (#185), as its public pages are told it. */
+  brandLogo: { url: string; width: number; height: number };
+  /** An OAuth consent screen (#447): a delivery service asking the owner for access. */
+  consentPath: string;
 }
 
 export const seeded = (): Seeded =>

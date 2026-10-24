@@ -12,13 +12,14 @@ Support is a module, off by default: a self-hosted install answers its own peopl
 | `link` | The documentation, and **Contact support** opening your own help desk at `HEKATE_SUPPORT_ADDRESS`. |
 | `mail` | The documentation, and **Contact support** writing to `HEKATE_SUPPORT_ADDRESS`. |
 
-`HEKATE_STATUS_URL` points the Support page at a status page; the desk can set its own instead. See the [configuration reference](../../install/configuration/).
+In every mode the help menu also offers **Status**: the instance's own [status page](../status/), or another page set by the desk or `HEKATE_STATUS_URL`. See the [configuration reference](../../install/configuration/).
 
 ## The desk
 
 With `HEKATE_SUPPORT=app`, the instance side has a **Support** section for its operators.
 
-- **Figures**: tickets open and those waiting on you, the median time to a first reply this month, those resolved this month, and whether a status page is linked.
+- **Figures**: tickets open and those waiting on you, the median time to a first reply this month, those resolved this month, and whether an incident is open on the status page.
+- **Status page**: the incidents posted for it, and where the help menu links; see [Status page and incidents](../status/).
 - **Tickets** from every workspace, newest activity first, filtered by state (open, waiting on you, all), workspace and severity, and searched by subject, reference, workspace or who asked.
 - **A ticket** opens as its thread beside who asked (their role in the workspace and when they were last seen) and the workspace (its plan and open reviews), each a step from its page on the instance side; the error reference, looked up in place; the file or review it is about, and whether they let you open it; and its severity.
 - **Answering** sends the reply by email to whoever asked, and the ticket waits on them; the state select sets any state, with or without a reply. A **canned reply** puts its words in the reply box, to change before sending. Attachments go both ways, each download in the workspace's access log under your name.
@@ -27,7 +28,6 @@ With `HEKATE_SUPPORT=app`, the instance side has a **Support** section for its o
 ## The desk's settings
 
 - **Severities by plan.** Low and Normal on every plan; what else each plan allows is set with the plan, under Billing. Without billing every workspace may mark any severity.
-- **Status page.** Linked from the help menu and the Support page; left empty, `HEKATE_STATUS_URL` is used.
 - **On call.** The operator who hears of each new ticket and reply first. With nobody on call, every operator does. An Emergency is marked as one in the subject, so a mail rule can page whoever is on call.
 - **Canned replies.** The answers the desk gives most.
 

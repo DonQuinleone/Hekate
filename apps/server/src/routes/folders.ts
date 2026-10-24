@@ -8,7 +8,6 @@ import {
   updateFileInput,
   updateFolderInput,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -19,6 +18,7 @@ import { assertProfileRef } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
 import { nextOf } from "../file-chains.ts";
 import type { ViewerVariables } from "../guests.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
 const { folders, files, projects, variations, versions, tracks, reviewItems, reviews } = schema;

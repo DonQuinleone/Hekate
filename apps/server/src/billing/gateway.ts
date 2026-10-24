@@ -57,6 +57,18 @@ export interface Gateway {
    * it then stands: one paid or voided meanwhile is left as it is.
    */
   voidInvoice(invoiceId: string): Promise<InvoiceFacts | null>;
+  /**
+   * A credit toward the customer's next invoice (#445): its balance, which the gateway takes off
+   * what it next bills. Asked again with the same key, the same credit comes back. Returns the
+   * gateway's id for it.
+   */
+  credit(input: {
+    customerId: string;
+    amount: number;
+    currency: string;
+    description: string;
+    key: string;
+  }): Promise<string>;
   /** The soonest payout to the instance not yet arrived; null with none due. */
   nextPayout(): Promise<{ amount: number; currency: string; arrivesAt: Date } | null>;
   /** Where an owner changes the card and billing details, and reads past invoices. */

@@ -1,3 +1,4 @@
+import { logoBox } from "@hekate/shared";
 import type { SVGProps } from "react";
 
 /** Two stems and a point. See docs/brand.md. Below 24 px the optically heavier small cut is used. */
@@ -83,5 +84,32 @@ export function Lockup({ size = 18 }: { size?: number }) {
       />
       <Wordmark height={size} className="block opacity-85" />
     </span>
+  );
+}
+
+/**
+ * A workspace's own logo (#185), on its sign-in page and guest pages, where Hekate's lockup
+ * would be. Shown at `height` pixels tall unless that makes it wider than `maxWidth`.
+ */
+export function WorkspaceLogo({
+  logo,
+  name,
+  height,
+  maxWidth,
+}: {
+  logo: { url: string; width: number; height: number };
+  name: string;
+  height: number;
+  maxWidth: number;
+}) {
+  const box = logoBox(logo, height, maxWidth);
+  return (
+    <img
+      src={logo.url}
+      alt={name}
+      width={box.width}
+      height={box.height}
+      className="block shrink-0 object-contain"
+    />
   );
 }

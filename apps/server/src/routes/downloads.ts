@@ -24,7 +24,6 @@ import {
   watermarkText,
 } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
-import { zValidator } from "@hono/zod-validator";
 import { asc, desc, eq, gt, isNotNull, isNull, lt } from "drizzle-orm";
 import { type Context, Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -60,6 +59,7 @@ import {
   watermark,
 } from "../media/watermark.ts";
 import { streamInWorkspace } from "../media/workspace.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { admit, tooMany } from "../rate-limit.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";

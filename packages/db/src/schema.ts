@@ -23,6 +23,8 @@ import {
   defaultReviewerPermissions,
   type EventKind,
   type FileColumnLayout,
+  type IncidentImpact,
+  type IncidentState,
   type InstanceSettings,
   type InvoiceSource,
   type InvoiceStatus,
@@ -36,6 +38,7 @@ import {
   type NotificationKind,
   type NotificationMail,
   notificationKinds,
+  type OAuthClientKind,
   type OverviewSection,
   type PlanFeature,
   type PlayerTool,
@@ -58,6 +61,7 @@ import {
   type SessionFactor,
   type SsoProtocol,
   type StandingGrant,
+  type StatusService,
   type SupportSeverity,
   scheduleRowKinds,
   type TaskEventDetail,
@@ -162,6 +166,12 @@ export const organisations = pgTable("organisations", {
   storageBackend: text("storage_backend"),
   /** Workspace settings, read through workspaceSettingsOf (packages/shared). */
   settings: jsonb("settings").notNull().default({}),
+  /**
+   * Its logo and accent (#185), read through storedBrandingOf (packages/shared); null is none.
+   * A column of its own rather than a setting, so a release that rewrites the settings whole,
+   * as the one before this does, cannot drop it.
+   */
+  branding: jsonb("branding"),
   /**
    * Suspended by an operator (#174): everything is kept and nobody gets in, members and guests
    * alike, until it is reinstated. The reason is shown to its members.
@@ -2708,12 +2718,43 @@ export const invoices = pgTable(
     url: text("url"),
     /** The gateway's PDF of it. */
     pdfUrl: text("pdf_url"),
+    /**
+     * What credits took off one made by hand (#445), shown as a line of its own; `amountDue` is
+     * what is left. Null when none did.
+     */
+    credit: integer("credit"),
     ...timestamps,
   },
   (t) => [
     uniqueIndex("invoices_gateway_idx").on(t.source, t.gatewayId),
     index("invoices_organisation_idx").on(t.organisationId, t.issuedAt),
   ],
+);
+
+/**
+ * Credits an operator gave a workspace toward what it next owes (#445). Through the gateway, a
+ * credit is its customer's balance, which the gateway takes off the next invoice itself; for a
+ * workspace invoiced by hand, it is held here until the next invoice made by hand, which takes
+ * it off as a line of its own. Amounts in the minor unit.
+ */
+export const billingCredits = pgTable(
+  "billing_credits",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    source: text("source").$type<InvoiceSource>().notNull(),
+    /** The gateway's id for it (Stripe's customer balance transaction); null for one by hand. */
+    gatewayId: text("gateway_id"),
+    amount: integer("amount").notNull(),
+    currency: text("currency").notNull(),
+    /** Why, in the operator's words. */
+    reason: text("reason").notNull(),
+    /** The invoice by hand it was taken off; null while it is held (and always, the gateway's). */
+    invoiceId: uuid("invoice_id").references(() => invoices.id, { onDelete: "set null" }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("billing_credits_organisation_idx").on(t.organisationId, t.invoiceId)],
 );
 
 /**
@@ -2866,6 +2907,65 @@ export const cannedReplies = pgTable("canned_replies", {
   createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
   ...timestamps,
 });
+
+// The status page (#183)
+
+/**
+ * Something down for everyone, posted by an operator from the support desk (#183): what it
+ * touches, how badly, and where it stands. Instance-wide, as the services are: it names no
+ * workspace, and its readers are anyone who opens the status page.
+ */
+export const incidents = pgTable(
+  "incidents",
+  {
+    id: id(),
+    title: text("title").notNull(),
+    impact: text("impact").$type<IncidentImpact>().notNull(),
+    services: text("services").array().$type<StatusService[]>().notNull(),
+    state: text("state").$type<IncidentState>().notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("incidents_started").on(t.startedAt)],
+);
+
+/** An incident's updates, from the first through to its resolution. */
+export const incidentUpdates = pgTable(
+  "incident_updates",
+  {
+    id: id(),
+    incidentId: uuid("incident_id")
+      .notNull()
+      .references(() => incidents.id, { onDelete: "cascade" }),
+    state: text("state").$type<IncidentState>().notNull(),
+    body: text("body").notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("incident_updates_incident").on(t.incidentId, t.createdAt)],
+);
+
+/**
+ * Each service's day as the instance measured it (#183), for the status page's 90 days: the
+ * minutes checked and those it was not answering. Every replica checks each minute; the first
+ * to record a minute counts it, so a minute counts once however many replicas run.
+ */
+export const serviceDays = pgTable(
+  "service_days",
+  {
+    id: id(),
+    /** In UTC. */
+    day: date("day", { mode: "string" }).notNull(),
+    service: text("service").$type<StatusService>().notNull(),
+    minutes: integer("minutes").notNull().default(0),
+    down: integer("down").notNull().default(0),
+    /** The last minute counted, so another replica's check of it is not counted again. */
+    lastMinute: timestamp("last_minute", { withTimezone: true }).notNull(),
+  },
+  (t) => [uniqueIndex("service_days_day_service").on(t.day, t.service)],
+);
 
 // Notifications (docs/domain.md)
 
@@ -3593,11 +3693,18 @@ export const apiTokens = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
     revokedBy: text("revoked_by").references(() => users.id, { onDelete: "set null" }),
+    /**
+     * An application's access token (#447): the connection it was issued under
+     * (`oauth_grants`), whose ending revokes it. No foreign key yet: adding one to a table the
+     * release before knows contracts the schema (decision 198).
+     */
+    grantId: uuid("grant_id"),
     ...timestamps,
   },
   (t) => [
     index("api_tokens_organisation_idx").on(t.organisationId, t.kind),
     index("api_tokens_user_idx").on(t.userId),
+    index("api_tokens_grant_idx").on(t.grantId),
   ],
 );
 
@@ -3625,4 +3732,106 @@ export const apiRequests = pgTable(
     index("api_requests_org_idx").on(t.organisationId, t.id),
     index("api_requests_token_idx").on(t.tokenId),
   ],
+);
+
+// OAuth clients and connected apps (#447)
+
+/**
+ * An application a workspace registered to ask its members for access with OAuth 2.1 (decision
+ * 225). A confidential client keeps a secret, of which only a SHA-256 hash is stored, shown once
+ * when it is made or rotated; a public one has none and proves each exchange with PKCE alone.
+ */
+export const oauthClients = pgTable(
+  "oauth_clients",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    name: text("name").notNull(),
+    kind: text("kind").$type<OAuthClientKind>().notNull(),
+    /** What the application sends to name itself (`hk_cli_…`): public, unique on the instance. */
+    clientId: text("client_id").notNull().unique(),
+    secretHash: text("secret_hash"),
+    /** The secret's first characters (`hk_cls_7f3a`), to tell it apart in settings. */
+    secretHint: text("secret_hint"),
+    secretRotatedAt: timestamp("secret_rotated_at", { withTimezone: true }),
+    /** Where it may be sent back to, matched character for character. */
+    redirectUris: text("redirect_uris").array().notNull(),
+    /** What it may ask for; each person grants some or all of it. */
+    scopes: text("scopes").array().$type<ApiScope[]>().notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("oauth_clients_organisation_idx").on(t.organisationId)],
+);
+
+/**
+ * A member's connection of a client: what they granted it, in the client's workspace. Their
+ * application's tokens are issued under it, and ending it (disconnecting, leaving the workspace,
+ * deleting the client) revokes them.
+ */
+export const oauthGrants = pgTable(
+  "oauth_grants",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => oauthClients.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scopes: text("scopes").array().$type<ApiScope[]>().notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("oauth_grants_client_user_idx").on(t.clientId, t.userId),
+    index("oauth_grants_organisation_idx").on(t.organisationId, t.userId),
+  ],
+);
+
+/**
+ * An authorisation code: a minute long, used once, bound to its client, its redirect address
+ * and its PKCE challenge. Only a hash of the code is stored.
+ */
+export const oauthCodes = pgTable(
+  "oauth_codes",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    grantId: uuid("grant_id")
+      .notNull()
+      .references(() => oauthGrants.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull().unique(),
+    redirectUri: text("redirect_uri").notNull(),
+    scopes: text("scopes").array().$type<ApiScope[]>().notNull(),
+    /** The SHA-256 of the application's code verifier, in base64url (S256 only). */
+    codeChallenge: text("code_challenge").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("oauth_codes_grant_idx").on(t.grantId)],
+);
+
+/**
+ * A refresh token, used once: each use answers a new one, and one used again revokes every
+ * token of its connection, as it may have been stolen (OAuth 2.1, section 4.3.1). Only a hash is
+ * stored.
+ */
+export const oauthRefreshTokens = pgTable(
+  "oauth_refresh_tokens",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    grantId: uuid("grant_id")
+      .notNull()
+      .references(() => oauthGrants.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull().unique(),
+    scopes: text("scopes").array().$type<ApiScope[]>().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("oauth_refresh_tokens_grant_idx").on(t.grantId)],
 );

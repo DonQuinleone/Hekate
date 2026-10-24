@@ -11,7 +11,6 @@ import {
   watermarkOf,
 } from "@hekate/shared";
 import { unwrapKey } from "@hekate/storage";
-import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
@@ -35,6 +34,7 @@ import type { Jobs } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { watermark } from "../media/watermark.ts";
 import { normalisationOf } from "../normalisation.ts";
+import { zValidator } from "../openapi/validator.ts";
 import {
   PLAYBACK_LIFETIME_SECONDS,
   type PlaybackClaims,

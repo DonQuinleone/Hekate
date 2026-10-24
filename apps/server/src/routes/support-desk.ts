@@ -11,7 +11,6 @@ import {
   ticketStateInput,
   ticketsQuery,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import {
   and,
   asc,
@@ -32,6 +31,7 @@ import { requestInfo } from "../audit.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { recordInstanceEvent } from "../instance-events.ts";
 import { escapeLike } from "../logs.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { listPlans, workspacePlanOf } from "../plans.ts";
 import { signal } from "../signals.ts";
 import {
@@ -39,6 +39,7 @@ import {
   attachTo,
   detailOf,
   messageCounts,
+  ownStatusUrl,
   replyTo,
   rowOf,
   type SupportDeps,
@@ -91,6 +92,46 @@ export const supportDeskRoutes = (deps: DeskDeps) => {
     });
   return (
     new Hono<{ Variables: DeskVariables }>()
+      // The desk's settings: its status page and who is on call. Before the module's check: the
+      // status page is every instance's (#183), whether or not tickets are answered here.
+      .get("/desk", async (c) => c.json(await deskOf(deps)))
+      .put("/desk", zValidator("json", supportDeskInput), async (c) => {
+        const input = c.req.valid("json");
+        if (input.onCall) {
+          const [operator] = await db
+            .select({ id: schema.instanceOperators.userId })
+            .from(schema.instanceOperators)
+            .where(eq(schema.instanceOperators.userId, input.onCall));
+          if (!operator)
+            throw new CodedException(422, "not_operator", "Only an operator can be on call");
+        }
+        await db.transaction(async (tx) => {
+          const { before, after } = await deps.settings.write(
+            tx,
+            (stored) => ({ ...stored, support: input }),
+            c.var.userId,
+          );
+          await signal(tx, "settings");
+          if (before.support.statusUrl !== after.support.statusUrl)
+            await recordInstanceEvent(tx, {
+              actorId: c.var.userId,
+              action: "support.status_page",
+              target: "The support desk",
+              details: { url: after.support.statusUrl },
+              ipAddress: requestInfo(c, deps.trustProxy).ipAddress ?? null,
+            });
+          if (before.support.onCall !== after.support.onCall)
+            await recordInstanceEvent(tx, {
+              actorId: c.var.userId,
+              action: "support.on_call",
+              target: "The support desk",
+              details: { userId: after.support.onCall },
+              ipAddress: requestInfo(c, deps.trustProxy).ipAddress ?? null,
+            });
+        });
+        deps.settings.forget();
+        return c.json(await deskOf(deps));
+      })
       .use("*", async (_c, next) => {
         assertSupportOn(deps.modules);
         await next();
@@ -246,45 +287,6 @@ export const supportDeskRoutes = (deps: DeskDeps) => {
         await event(c, "support.reply_removed", gone.title, {});
         return c.json({ replies: await repliesOf(deps) });
       })
-      // The desk's settings: its status page and who is on call.
-      .get("/desk", async (c) => c.json(await deskOf(deps)))
-      .put("/desk", zValidator("json", supportDeskInput), async (c) => {
-        const input = c.req.valid("json");
-        if (input.onCall) {
-          const [operator] = await db
-            .select({ id: schema.instanceOperators.userId })
-            .from(schema.instanceOperators)
-            .where(eq(schema.instanceOperators.userId, input.onCall));
-          if (!operator)
-            throw new CodedException(422, "not_operator", "Only an operator can be on call");
-        }
-        await db.transaction(async (tx) => {
-          const { before, after } = await deps.settings.write(
-            tx,
-            (stored) => ({ ...stored, support: input }),
-            c.var.userId,
-          );
-          await signal(tx, "settings");
-          if (before.support.statusUrl !== after.support.statusUrl)
-            await recordInstanceEvent(tx, {
-              actorId: c.var.userId,
-              action: "support.status_page",
-              target: "The support desk",
-              details: { url: after.support.statusUrl },
-              ipAddress: requestInfo(c, deps.trustProxy).ipAddress ?? null,
-            });
-          if (before.support.onCall !== after.support.onCall)
-            await recordInstanceEvent(tx, {
-              actorId: c.var.userId,
-              action: "support.on_call",
-              target: "The support desk",
-              details: { userId: after.support.onCall },
-              ipAddress: requestInfo(c, deps.trustProxy).ipAddress ?? null,
-            });
-        });
-        deps.settings.forget();
-        return c.json(await deskOf(deps));
-      })
   );
 };
 
@@ -306,6 +308,7 @@ async function deskOf(deps: SupportDeps): Promise<SupportDesk> {
   return {
     statusUrl: support.statusUrl,
     environmentStatusUrl: deps.modules.statusUrl,
+    ownStatusUrl: ownStatusUrl(deps.publicUrl),
     onCall: operators.some((o) => o.id === support.onCall) ? support.onCall : null,
     operators,
     plans: billing

@@ -1,4 +1,6 @@
 import {
+  type AuthorizeParams,
+  authorizeParams,
   fileKinds,
   type InstanceSection,
   instanceSectionIds,
@@ -52,6 +54,7 @@ import { InstallerPage } from "~/routes/install";
 import { InstancePage } from "~/routes/instance";
 import { InvitePage } from "~/routes/invite";
 import { NotificationsPage } from "~/routes/notifications";
+import { ConsentPage } from "~/routes/oauth-consent";
 import { PatchListPage } from "~/routes/patch-list";
 import { PersonnelPage } from "~/routes/personnel";
 import {
@@ -75,6 +78,7 @@ import { SearchPage } from "~/routes/search";
 import { SessionPage, SessionsPage } from "~/routes/sessions";
 import { SignUpLinkPage, SignUpPage } from "~/routes/sign-up";
 import { StagePlanPage } from "~/routes/stage-plan";
+import { StatusPage } from "~/routes/status";
 import { TakeLogPage } from "~/routes/take-log";
 import { TasksPage } from "~/routes/tasks";
 import { TrackPage } from "~/routes/track";
@@ -83,7 +87,8 @@ import { WorkflowsPage } from "~/routes/workflows";
 import { WorkspaceSettingsPage } from "~/routes/workspace-settings";
 
 /** Pages that are not a member's, where a session ending means nothing to undo. */
-const outside = /^\/(sign-in|sign-up|setup|invite|guest|second-factor|suspended|u\/|g(\/|$))/;
+const outside =
+  /^\/(sign-in|sign-up|setup|invite|guest|second-factor|suspended|oauth\/|u\/|g(\/|$))/;
 
 /**
  * A member whose session ends mid-visit (it ran out, or was ended from another device) is
@@ -249,6 +254,43 @@ const signUpLink = createRoute({
   },
 });
 
+/**
+ * The OAuth consent screen (#447): an application asks a signed-in member for access. Someone
+ * signed out signs in first and comes back to it.
+ */
+const oauthAuthorize = createRoute({
+  getParentRoute: () => root,
+  path: "/oauth/authorize",
+  validateSearch: (search: Record<string, unknown>): AuthorizeParams => {
+    // Each parameter as the application sent it. The router reads `state=1e5` as the number
+    // 100000, which would lose its spelling, so a value it did not keep as a string is read
+    // from the address itself. (Once the router has rewritten the address, it keeps strings.)
+    const sent = new URLSearchParams(window.location.search);
+    return authorizeParams
+      .catch({})
+      .parse(
+        Object.fromEntries(
+          Object.entries(search).map(([k, v]) => [
+            k,
+            typeof v === "string" ? v : (sent.get(k) ?? JSON.stringify(v)),
+          ]),
+        ),
+      );
+  },
+  beforeLoad: async ({ context }) => {
+    if (await context.queryClient.ensureQueryData(setupQuery)) throw redirect({ to: "/setup" });
+    if (!(await context.queryClient.fetchQuery(meQuery)))
+      throw redirect({
+        to: "/sign-in",
+        search: { redirect: window.location.pathname + window.location.search },
+      });
+  },
+  component: function OAuthAuthorizeRoute() {
+    const params = oauthAuthorize.useSearch();
+    return <ConsentPage params={params} />;
+  },
+});
+
 /** An upload request's link (#139): someone with no account sends files into a folder. */
 const uploadLink = createRoute({
   getParentRoute: () => root,
@@ -257,6 +299,13 @@ const uploadLink = createRoute({
     const { token } = uploadLink.useParams();
     return <UploadLinkPage token={token} />;
   },
+});
+
+/** The status page (#183): for anyone, signed in or not (decision 227). */
+const status = createRoute({
+  getParentRoute: () => root,
+  path: "/status",
+  component: StatusPage,
 });
 
 /** Guest reviewers: a magic link, and the pages of their reviews (docs/security.md). */
@@ -912,7 +961,9 @@ export const router = createRouter({
     signUp,
     signUpLink,
     invite,
+    oauthAuthorize,
     uploadLink,
+    status,
     guestLink,
     guestSignedOut,
     guestApp.addChildren([guestHome, guestReview, guestFile]),

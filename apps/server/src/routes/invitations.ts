@@ -1,12 +1,12 @@
 import { type Database, schema } from "@hekate/db";
 import { acceptInvitationInput } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, eq, gt, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import type { Auth } from "../auth.ts";
 import { hashInvitationToken } from "../invitation-token.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { assertMemberRoom } from "../usage.ts";
 
 const { invitations, organisations, users, members } = schema;

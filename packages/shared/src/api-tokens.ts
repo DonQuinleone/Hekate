@@ -35,8 +35,11 @@ export const apiScopeLabels: Record<ApiScope, string> = {
   "org:read": "Members, roles and settings, read-only",
 };
 
-/** Whose a token is: a member's own, or the workspace's (a service token). */
-export const apiTokenKinds = ["personal", "service"] as const;
+/**
+ * Whose a token is: a member's own, the workspace's (a service token), or an application's that
+ * the member connected through OAuth (#447), acting as them within what they granted.
+ */
+export const apiTokenKinds = ["personal", "service", "oauth"] as const;
 export type ApiTokenKind = (typeof apiTokenKinds)[number];
 
 /** How long a new token lasts, in days; null never ends (until revoked). */
@@ -59,14 +62,16 @@ export const API_TOKEN_LIMIT = 50;
 export const API_TOKEN_RATE = { max: 600, windowMs: 60_000 } as const;
 
 /**
- * What a token looks like: `hk_pat_` for a member's, `hk_svc_` for a service token's, then 43
- * characters of base64url (32 random bytes). The prefix lets secret scanners find one that leaked.
+ * What a token looks like: `hk_pat_` for a member's, `hk_svc_` for a service token's, `hk_oat_`
+ * for an application's access token, then 43 characters of base64url (32 random bytes). The
+ * prefix lets secret scanners find one that leaked.
  */
 export const apiTokenPrefixes: Record<ApiTokenKind, string> = {
   personal: "hk_pat_",
   service: "hk_svc_",
+  oauth: "hk_oat_",
 };
-export const API_TOKEN_PATTERN = /^hk_(pat|svc)_[A-Za-z0-9_-]{43}$/;
+export const API_TOKEN_PATTERN = /^hk_(pat|svc|oat)_[A-Za-z0-9_-]{43}$/;
 
 /** The start of a token, which settings show to tell tokens apart: `hk_pat_7f3a`. */
 export const apiTokenHint = (token: string) => token.slice(0, 11);

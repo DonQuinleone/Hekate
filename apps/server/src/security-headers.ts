@@ -40,13 +40,17 @@ export const securityHeaders = (options: { https: boolean }) =>
   createMiddleware(async (c, next) => {
     await next();
     const headers = c.res.headers;
-    headers.set("Content-Security-Policy", contentSecurityPolicy);
+    // A workspace's logo (#185) carries a stricter policy of its own, which it keeps.
+    if (!headers.has("Content-Security-Policy"))
+      headers.set("Content-Security-Policy", contentSecurityPolicy);
     headers.set("X-Frame-Options", "DENY");
     headers.set("X-Content-Type-Options", "nosniff");
     headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     headers.set("Permissions-Policy", permissionsPolicy);
     headers.set("Cross-Origin-Opener-Policy", "same-origin");
-    headers.set("Cross-Origin-Resource-Policy", "same-origin");
+    // Only that logo is meant for other origins (mail clients show it), so only it may say so.
+    if (headers.get("Cross-Origin-Resource-Policy") !== "cross-origin")
+      headers.set("Cross-Origin-Resource-Policy", "same-origin");
     headers.set("Origin-Agent-Cluster", "?1");
     // Behind HTTPS only: a browser told this over plain HTTP would refuse the instance after.
     if (options.https) headers.set("Strict-Transport-Security", "max-age=31536000");

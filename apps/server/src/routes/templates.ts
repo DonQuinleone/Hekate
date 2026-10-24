@@ -5,13 +5,13 @@ import {
   type TemplateContent,
   templateContent,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { asc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import { NotFound } from "../errors.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { categoriesOf } from "./categories.ts";
 

@@ -17,6 +17,8 @@ const notSecret = new Set([
   "api_requests.token_id",
   "api_requests.token_name",
   "api_requests.token_kind",
+  // When an OAuth client's secret was last rotated (#447), never the secret.
+  "oauth_clients.secret_rotated_at",
 ]);
 
 describe("an export's records (#186)", () => {

@@ -7,12 +7,13 @@ import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { Danger, Row, Section, SwitchRow } from "~/components/settings";
 import { Dot, type DotState } from "~/components/status";
+import { StatusDesk } from "~/components/status-desk";
 import { TicketDialog, TicketRow } from "~/components/tickets";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
-import { env, severities, tickets } from "~/data";
+import { env, openIncident, severities, tickets } from "~/data";
 import { cn } from "~/lib/cn";
 import { useViewer } from "~/viewer/context";
 import { useScreenState } from "~/viewer/state-gate";
@@ -1650,10 +1651,12 @@ export function InstancePage({ section }: { section: string }) {
             />
             <Tile label="First reply" value="1.8 h" hint="median this month · target 4 h" />
             <Tile label="Resolved" value="14" hint="this month" />
+            {/* Whether anything is open on the status page (#183); the switcher's failed state opens one. */}
             <Tile
               label="Status page"
-              value="Linked"
-              hint={env.statusUrl.replace(/^https?:\/\//, "")}
+              value={state === "failed" ? "1 incident" : "Up"}
+              hint={state === "failed" ? openIncident.title : "no incidents in 41 days"}
+              flag={state === "failed"}
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1705,6 +1708,7 @@ export function InstancePage({ section }: { section: string }) {
                 <TicketRow key={t.id} ticket={t} operator onOpen={() => setTicketId(t.id)} />
               ))}
           </div>
+          <StatusDesk incidentOpen={state === "failed"} />
           <Section
             title="Desk"
             intro="Support is a module: on because the instance runs with HEKATE_SUPPORT=app. Set it to link or mail to answer elsewhere, or off."
@@ -1712,14 +1716,6 @@ export function InstancePage({ section }: { section: string }) {
             <Row
               name="Severities by plan"
               hint="Low and Normal on every plan; High from Studio; Urgent and Emergency on Label. Emergency pages the operator on call."
-            >
-              <Button variant="ghost" size="md">
-                Edit
-              </Button>
-            </Row>
-            <Row
-              name="Status page"
-              hint={`${env.statusUrl.replace(/^https?:\/\//, "")} · linked from the help menu and the Support page`}
             >
               <Button variant="ghost" size="md">
                 Edit
@@ -2403,7 +2399,10 @@ export function InstancePage({ section }: { section: string }) {
             <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
               <span className="tabular text-[13px] text-ink-2">{env.docsUrl}</span>
             </Row>
-            <Row name="Status page" hint="HEKATE_STATUS_URL · linked from Help when set">
+            <Row
+              name="Status page"
+              hint="HEKATE_STATUS_URL · another page to link; unset, the instance’s own at /status"
+            >
               <span className="tabular text-[13px] text-ink-2">None</span>
             </Row>
           </Section>

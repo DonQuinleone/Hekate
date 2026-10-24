@@ -1,5 +1,4 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { zValidator } from "@hono/zod-validator";
 import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -10,6 +9,7 @@ import type { ViewerVariables } from "../guests.ts";
 import type { Jobs } from "../jobs.ts";
 import { pageSourceOf } from "../media/pages.ts";
 import { type RetryJob, retryPlan } from "../media/retry.ts";
+import { zValidator } from "../openapi/validator.ts";
 
 const { files } = schema;
 

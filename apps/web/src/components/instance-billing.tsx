@@ -13,6 +13,7 @@ import {
   type PromoCodeInput,
   planFeatures,
   planSummary,
+  promoRefusal,
   promoSummary,
   type SupportSeverity,
   supportSeverities,
@@ -27,11 +28,14 @@ import {
   instancePlansQuery,
   instancePromosQuery,
   promoUsesQuery,
+  useApplyPromo,
   useEndPromo,
+  useIssueCredit,
   usePutWorkspacePlan,
   useRetirePlan,
   useSavePlan,
   useSavePromo,
+  useSendLatestInvoice,
   useWaive,
 } from "~/lib/queries";
 import { TileGrid } from "./billing";
@@ -116,6 +120,9 @@ function Overview() {
   const { data, error } = useQuery(instanceBillingQuery);
   const [changing, setChanging] = useState<BillingWorkspaceRow | null>(null);
   const [waiving, setWaiving] = useState<BillingWorkspaceRow | null>(null);
+  const [applying, setApplying] = useState<BillingWorkspaceRow | null>(null);
+  const [crediting, setCrediting] = useState<BillingWorkspaceRow | null>(null);
+  const [notice, setNotice] = useState<{ text: string; failed?: boolean } | null>(null);
   if (error) return <p className="m-0 text-[13px] text-signal">{error.message}</p>;
   if (!data) return null;
   const [main, ...others] = data.revenue;
@@ -168,6 +175,14 @@ function Overview() {
         title="Workspaces"
         intro="Each with its plan, its next invoice and anything overdue."
       >
+        {notice && (
+          <p
+            role={notice.failed ? "alert" : "status"}
+            className={`m-0 px-4 py-3 text-[13px] ${notice.failed ? "text-signal" : "text-ink-2"}`}
+          >
+            {notice.text}
+          </p>
+        )}
         {data.workspaces.length === 0 ? (
           <Row name="No workspaces yet" hint="Each appears here with its plan once it is made." />
         ) : (
@@ -175,13 +190,31 @@ function Overview() {
             <WorkspaceRow
               key={w.id}
               workspace={w}
+              gateway={data.gateway !== null}
               onChangePlan={() => setChanging(w)}
+              onApplyPromo={() => setApplying(w)}
+              onCredit={() => setCrediting(w)}
+              onSent={setNotice}
               onWaive={() => setWaiving(w)}
             />
           ))
         )}
       </Section>
       {changing && <ChangeWorkspacePlan workspace={changing} onClose={() => setChanging(null)} />}
+      {applying && (
+        <ApplyPromo
+          workspace={applying}
+          onClose={() => setApplying(null)}
+          onApplied={(text) => setNotice({ text })}
+        />
+      )}
+      {crediting && (
+        <IssueCredit
+          workspace={crediting}
+          onClose={() => setCrediting(null)}
+          onIssued={(text) => setNotice({ text })}
+        />
+      )}
       {waiving && <Waive workspace={waiving} onClose={() => setWaiving(null)} />}
     </>
   );
@@ -197,8 +230,15 @@ function dotOf(w: BillingWorkspaceRow): ReviewState {
   return "approved";
 }
 
-/** Its plan and what comes next, in a line. */
+/** Its plan and what comes next, in a line, with any credit held for its next invoice by hand. */
 export function workspaceBillingLine(w: BillingWorkspaceRow): string {
+  return [
+    standingOf(w),
+    ...w.credits.map((c) => `${formatMoney(c.amount, c.currency)} credit held`),
+  ].join(" · ");
+}
+
+function standingOf(w: BillingWorkspaceRow): string {
   const plan = w.plan?.name ?? "No plan";
   if (owes(w)) {
     const since = w.pastDueSince ?? w.overdue?.dueAt;
@@ -222,15 +262,48 @@ export function workspaceBillingLine(w: BillingWorkspaceRow): string {
   return w.price ? plan : `${plan} · invoiced by hand`;
 }
 
+/**
+ * What an operator can do for a workspace (#445), only what applies: a code needs a subscription
+ * on a priced plan, a credit goes to the gateway's balance or the next invoice by hand, and only
+ * the gateway's invoices are sent from here.
+ */
+export function workspaceActionsOf(w: BillingWorkspaceRow, gateway: boolean) {
+  const paysThroughGateway = gateway && w.subscribed;
+  return {
+    promo: paysThroughGateway && w.price !== null,
+    credit: paysThroughGateway || (!w.subscribed && w.plan !== null),
+    send: w.latestInvoice !== null,
+    waive: owes(w),
+  };
+}
+
 function WorkspaceRow({
   workspace: w,
+  gateway,
   onChangePlan,
+  onApplyPromo,
+  onCredit,
+  onSent,
   onWaive,
 }: {
   workspace: BillingWorkspaceRow;
+  gateway: boolean;
   onChangePlan: () => void;
+  onApplyPromo: () => void;
+  onCredit: () => void;
+  onSent: (notice: { text: string; failed?: boolean }) => void;
   onWaive: () => void;
 }) {
+  const send = useSendLatestInvoice(w.id);
+  const can = workspaceActionsOf(w, gateway);
+  const sendLatest = () =>
+    send.mutate(undefined, {
+      onSuccess: ({ number, sent }) =>
+        onSent({
+          text: `${number ?? "The latest invoice"} is on its way to ${plural(sent, "owner")} of ${w.name}.`,
+        }),
+      onError: (error) => onSent({ text: error.message, failed: true }),
+    });
   return (
     <Row
       name={
@@ -252,7 +325,10 @@ function WorkspaceRow({
         label={w.name}
         actions={[
           { label: "Change plan…", onSelect: onChangePlan },
-          ...(owes(w)
+          ...(can.promo ? [{ label: "Apply a promo code…", onSelect: onApplyPromo }] : []),
+          ...(can.credit ? [{ label: "Issue a credit…", onSelect: onCredit }] : []),
+          ...(can.send ? [{ label: "Send the latest invoice", onSelect: sendLatest }] : []),
+          ...(can.waive
             ? ["divider" as const, { label: "Waive and reinstate…", onSelect: onWaive }]
             : []),
         ]}
@@ -337,6 +413,196 @@ function ChangeWorkspacePlan({
         {put.isError && (
           <p role="alert" className="m-0 text-[13px] text-signal">
             {put.error.message}
+          </p>
+        )}
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * An operator applies one of the instance's codes to a workspace's subscription (#445): the
+ * codes that apply to its plan now, as choices, since the operators keep them.
+ */
+function ApplyPromo({
+  workspace: w,
+  onClose,
+  onApplied,
+}: {
+  workspace: BillingWorkspaceRow;
+  onClose: () => void;
+  onApplied: (notice: string) => void;
+}) {
+  const { data } = useQuery(instancePromosQuery);
+  const apply = useApplyPromo(w.id);
+  const [code, setCode] = useState("");
+  const plan = w.plan;
+  const currency = w.price?.currency ?? "";
+  const now = new Date();
+  const codes = (data?.promos ?? []).filter(
+    (p) => plan && promoRefusal(p, { planId: plan.id, currency, now }) === null,
+  );
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    apply.mutate(code, {
+      onSuccess: (applied) => {
+        onApplied(`${applied.code} now applies to the subscription of ${w.name}.`);
+        onClose();
+      },
+    });
+  };
+  return (
+    <Dialog
+      title="Apply a promo code"
+      description={`Its subscription to ${plan?.name ?? "its plan"} takes the code's discount from its next invoice, and the code counts a use.`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="submit"
+            form="workspace-promo"
+            disabled={!code || apply.isPending}
+          >
+            Apply code
+          </Button>
+        </>
+      }
+    >
+      <form id="workspace-promo" onSubmit={submit} className="flex flex-col gap-3">
+        {!data ? null : codes.length === 0 ? (
+          <p className="m-0 text-[13px] text-ink-2">
+            None of the instance's codes applies to {plan?.name ?? "its plan"} now. Add one under
+            Promo codes.
+          </p>
+        ) : (
+          <div role="radiogroup" aria-label="Code" className="flex flex-col gap-2">
+            {codes.map((p) => (
+              <ChoiceCard
+                key={p.id}
+                name="code"
+                value={p.code}
+                checked={code === p.code}
+                onChange={() => setCode(p.code)}
+                title={<span className="tabular">{p.code}</span>}
+                hint={promoSummary(p, (iso) => fullDate.format(new Date(iso)))}
+              />
+            ))}
+          </div>
+        )}
+        {apply.isError && (
+          <p role="alert" className="m-0 text-[13px] text-signal">
+            {apply.error.message}
+          </p>
+        )}
+      </form>
+    </Dialog>
+  );
+}
+
+/**
+ * A credit toward what a workspace next owes (#445): Stripe takes it off the next invoice of one
+ * paying through it, in the currency it bills; the next invoice by hand takes it off otherwise.
+ */
+function IssueCredit({
+  workspace: w,
+  onClose,
+  onIssued,
+}: {
+  workspace: BillingWorkspaceRow;
+  onClose: () => void;
+  onIssued: (notice: string) => void;
+}) {
+  const issue = useIssueCredit(w.id);
+  const instanceCurrency = useInstanceCurrency();
+  const [amount, setAmount] = useState("");
+  const [currency, setCurrency] = useState(w.price?.currency ?? instanceCurrency);
+  const [reason, setReason] = useState("");
+  const [problem, setProblem] = useState<string | null>(null);
+  // Stripe keeps one balance per customer, in the currency it bills them in.
+  const fixed = w.subscribed && w.price !== null;
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const minor = minorUnits(amount, currency);
+    if (!minor) return setProblem(`An amount in ${currency}, such as 20.00`);
+    setProblem(null);
+    issue.mutate(
+      { amount: minor, currency, reason },
+      {
+        onSuccess: ({ credit }) => {
+          const money = formatMoney(credit.amount, credit.currency);
+          onIssued(
+            credit.source === "manual"
+              ? `${money} comes off the next invoice by hand for ${w.name}.`
+              : `${money} is credited to ${w.name} at Stripe, for its next invoice.`,
+          );
+          onClose();
+        },
+      },
+    );
+  };
+  return (
+    <Dialog
+      title="Issue a credit"
+      description={
+        w.subscribed
+          ? `Stripe takes it off the next invoice for ${w.name}.`
+          : `It comes off the next invoice made by hand for ${w.name}, as a line of its own.`
+      }
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="submit"
+            form="workspace-credit"
+            disabled={!amount.trim() || !reason.trim() || issue.isPending}
+          >
+            Issue credit
+          </Button>
+        </>
+      }
+    >
+      <form id="workspace-credit" onSubmit={submit} className="flex flex-col gap-4">
+        <div className="flex flex-wrap gap-3">
+          <Field label={fixed ? `Amount in ${currency}` : "Amount"} className="w-32">
+            <Input
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="decimal"
+              className="tabular"
+              autoFocus
+            />
+          </Field>
+          {!fixed && (
+            <Field label="Currency" className="w-24">
+              <Input
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))}
+                className="uppercase"
+              />
+            </Field>
+          )}
+        </div>
+        <Field
+          label="Why"
+          hint={
+            w.subscribed
+              ? "Kept with the instance's events, and given to Stripe as its description."
+              : "Kept with the instance's events."
+          }
+        >
+          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} />
+        </Field>
+        {(problem || issue.isError) && (
+          <p role="alert" className="m-0 text-[13px] text-signal">
+            {problem ?? issue.error?.message}
           </p>
         )}
       </form>

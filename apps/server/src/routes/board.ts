@@ -7,11 +7,11 @@ import {
   sameStatus,
   type WorkflowDefinition,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
 

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   churnRate,
+  creditInput,
+  creditsAgainst,
   DUNNING_REASON,
   dunningDue,
   dunningRule,
@@ -183,5 +185,46 @@ describe("reports (#180)", () => {
   it("takes churn as those lost against those lost and those paying", () => {
     expect(churnRate(1, 9)).toBe(0.1);
     expect(churnRate(0, 0)).toBeNull();
+  });
+});
+
+describe("credits (#445)", () => {
+  const a = { id: "a", amount: 2000 };
+  const b = { id: "b", amount: 3000 };
+  const c = { id: "c", amount: 500 };
+  it("takes credits off an invoice oldest first, each whole while it fits", () => {
+    expect(creditsAgainst([a, b], 10_000)).toEqual({
+      taken: [
+        { credit: a, amount: 2000 },
+        { credit: b, amount: 3000 },
+      ],
+      remainder: null,
+    });
+    expect(creditsAgainst([a, b], 5000).remainder).toBeNull();
+  });
+  it("splits the first that does not fit, holding the rest of it, and leaves those after", () => {
+    expect(creditsAgainst([a, b, c], 3500)).toEqual({
+      taken: [
+        { credit: a, amount: 2000 },
+        { credit: b, amount: 1500 },
+      ],
+      remainder: { credit: b, amount: 1500 },
+    });
+    expect(creditsAgainst([a], 0)).toEqual({ taken: [], remainder: null });
+    expect(creditsAgainst([], 4900)).toEqual({ taken: [], remainder: null });
+  });
+  it("asks a credit for a whole amount, a currency and a reason", () => {
+    expect(creditInput.parse({ amount: 2000, currency: "gbp", reason: " Late stems " })).toEqual({
+      amount: 2000,
+      currency: "GBP",
+      reason: "Late stems",
+    });
+    for (const bad of [
+      { amount: 0, currency: "GBP", reason: "x" },
+      { amount: 12.5, currency: "GBP", reason: "x" },
+      { amount: 100, currency: "pounds", reason: "x" },
+      { amount: 100, currency: "GBP", reason: " " },
+    ])
+      expect(creditInput.safeParse(bad).success).toBe(false);
   });
 });

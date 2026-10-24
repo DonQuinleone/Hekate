@@ -8,13 +8,13 @@ import {
   workInput,
   workTrackNumberInput,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { asc, eq, inArray, max } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can, lockLiveProject } from "../access.ts";
 import { NotFound } from "../errors.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { swapScore } from "../score-swap.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { daysOf } from "./schedule.ts";

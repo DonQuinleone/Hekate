@@ -54,15 +54,19 @@ export interface SupportDeps {
 export async function supportModuleOf(
   modules: InstanceModules,
   settings: InstanceSettingsStore,
+  publicUrl: string,
 ): Promise<SupportModule> {
   const desk = (await settings.get()).support;
   return {
     mode: modules.support,
     address: modules.supportAddress ?? null,
     docsUrl: modules.docsUrl,
-    statusUrl: desk.statusUrl ?? modules.statusUrl,
+    statusUrl: desk.statusUrl ?? modules.statusUrl ?? ownStatusUrl(publicUrl),
   };
 }
+
+/** The instance's own status page (#183), which every instance serves. */
+export const ownStatusUrl = (publicUrl: string) => new URL("/status", publicUrl).toString();
 
 /** Refused unless tickets are answered in the app (HEKATE_SUPPORT=app). */
 export function assertSupportOn(modules: InstanceModules) {

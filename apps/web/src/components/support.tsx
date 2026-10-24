@@ -19,6 +19,7 @@ import { type DragEvent, type FormEvent, type ReactNode, useRef, useState } from
 import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { Row, Section } from "~/components/settings";
+import { StatusRows } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Choice } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
@@ -338,6 +339,7 @@ export function SupportSection({
           )}
         </Row>
         <DocumentationRow docsUrl={support.docsUrl} />
+        <StatusRows url={support.statusUrl} />
       </Section>
     );
   }
@@ -355,7 +357,7 @@ export function SupportSection({
       <Tickets onNew={() => go({ new: "1" })} onOpen={(id) => go({ ticket: id })} />
       <Section title="Help yourself" intro="Most answers are already written down.">
         <DocumentationRow docsUrl={support.docsUrl} />
-        {support.statusUrl && <StatusRow url={support.statusUrl} />}
+        <StatusRows url={support.statusUrl} />
       </Section>
     </>
   );
@@ -368,18 +370,6 @@ function DocumentationRow({ docsUrl }: { docsUrl: string }) {
     <Row name="Documentation" hint={hostOf(docsUrl)} inline>
       <Button variant="ghost" size="md" asChild>
         <a href={docsUrl} target="_blank" rel="noopener noreferrer">
-          Open
-        </a>
-      </Button>
-    </Row>
-  );
-}
-
-function StatusRow({ url, hint }: { url: string; hint?: string }) {
-  return (
-    <Row name="Status" hint={hint ?? hostOf(url)} inline>
-      <Button variant="ghost" size="md" asChild>
-        <a href={url} target="_blank" rel="noopener noreferrer">
           Open
         </a>
       </Button>
@@ -442,7 +432,7 @@ function NewTicket({
   onOpen,
 }: {
   docsUrl: string;
-  statusUrl: string | null;
+  statusUrl: string;
   from?: AskedFrom;
   onDone: () => void;
   onOpen: (id: string) => void;
@@ -561,9 +551,7 @@ function NewTicket({
             </div>
           )}
         </div>
-        {statusUrl && (
-          <StatusRow url={statusUrl} hint="Something down for everyone is posted here first." />
-        )}
+        <StatusRows url={statusUrl} hint="Something down for everyone is posted here first." />
       </Section>
       <Section
         title="New ticket"

@@ -13,7 +13,7 @@ import { Chip, Count, ToggleChip } from "~/components/ui/chip";
 import { Checkbox, Choice, ChoiceCard, Radio } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
-import { InlineInput, Input, Select, Textarea } from "~/components/ui/input";
+import { ColourInput, InlineInput, Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { Slider } from "~/components/ui/slider";
@@ -251,6 +251,7 @@ function MarkSlot({ name }: { name: IconName }) {
 
 function Components() {
   const [on, setOn] = useState(true);
+  const [colour, setColour] = useState("#4fb3a9");
   const [view, setView] = useState<"list" | "grid">("list");
   const [mode, setMode] = useState<"light" | "dark" | "text">("light");
   const [level, setLevel] = useState(60);
@@ -398,6 +399,14 @@ function Components() {
             className="w-32 text-[14px]"
             aria-label="Role name"
           />
+        </Spec>
+        <Spec
+          name="Colour"
+          rule="A swatch that opens the system's picker, beside its six digits to type or paste."
+        >
+          <ColourInput label="Accent" value={colour} onChange={setColour} />
+          <ColourInput label="Unfinished" value="#4fb" invalid onChange={noop} />
+          <ColourInput label="Fixed" value="#4fb3a9" disabled onChange={noop} />
         </Spec>
         <Spec name="Switch" rule="A setting that takes effect at once.">
           <Switch label="On" checked={on} onChange={setOn} />

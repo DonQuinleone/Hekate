@@ -1,7 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { createUploadInput } from "@hekate/shared";
 import { CHUNK_SIZE, MAX_PARTS } from "@hekate/storage";
-import { zValidator } from "@hono/zod-validator";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -11,6 +10,7 @@ import { actorOf, can, type MemberActor } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { uploadEngine, uploadView } from "../upload-engine.ts";

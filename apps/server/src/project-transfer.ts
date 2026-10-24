@@ -140,7 +140,12 @@ export const transferTables = {
     "billing_accounts",
     "api_tokens",
     "api_requests",
+    "oauth_clients",
+    "oauth_grants",
+    "oauth_codes",
+    "oauth_refresh_tokens",
     "invoices",
+    "billing_credits",
     "workspace_usage",
     // An export (#186) is of the workspace as it was; the project's files in it stay there.
     "workspace_exports",

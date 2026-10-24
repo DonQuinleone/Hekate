@@ -308,6 +308,18 @@ export async function reconcileStorage(
                   ),
                 ),
             ),
+            // Nor the workspace's logo (#185), named in its branding.
+            notExists(
+              db
+                .select({ x: sql`1` })
+                .from(organisations)
+                .where(
+                  and(
+                    eq(organisations.id, owner),
+                    sql`${organisations.branding} -> 'logo' ->> 'blobId' = ${blobs.id}::text`,
+                  ),
+                ),
+            ),
             // Nor an upload that may still finish and make a file of it.
             notExists(
               db

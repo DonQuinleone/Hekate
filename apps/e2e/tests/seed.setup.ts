@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Page, test as setup } from "@playwright/test";
@@ -925,6 +926,39 @@ setup("seed", async ({ page, browser }) => {
     kinds: { guest_opened: { app: true, mail: false } },
   });
 
+  // The label's branding (#185): a logo and an accent, which every guest page then shows.
+  const logoPath = join(media, "endless-hall-logo.png");
+  execFileSync("ffmpeg", [
+    ...["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi"],
+    "-i",
+    [
+      "color=c=black@0.0:s=480x128",
+      "format=rgba",
+      "drawbox=x=0:y=24:w=80:h=80:color=0x4fb3a9@1:t=fill",
+      "drawbox=x=104:y=40:w=360:h=18:color=0xf4f4f5@1:t=fill",
+      "drawbox=x=104:y=72:w=220:h=14:color=0xa1a1aa@1:t=fill",
+    ].join(","),
+    ...["-frames:v", "1", "-c:v", "png", "-f", "image2", "-update", "1", logoPath],
+  ]);
+  const branded = await page.request.post("/api/organisation/branding/logo", {
+    headers: { "content-type": "image/png" },
+    data: readFileSync(logoPath),
+  });
+  expect(branded.ok(), await branded.text()).toBe(true);
+  const { branding } = await api<{
+    branding: { logo: { blobId: string; width: number; height: number } };
+  }>(page, "PUT", "/api/organisation/branding/accent", { accent: "#4fb3a9" });
+  const { activeOrganisationId: label } = await api<{ activeOrganisationId: string }>(
+    page,
+    "GET",
+    "/api/me",
+  );
+  const brandLogo = {
+    url: `/api/branding/${label}/logo/${branding.logo.blobId}`,
+    width: branding.logo.width,
+    height: branding.logo.height,
+  };
+
   // An invitation waiting to be accepted.
   const { link: invitation } = await api<{ link: string }>(
     page,
@@ -1295,6 +1329,68 @@ setup("seed", async ({ page, browser }) => {
     expect(call.status(), `${method} ${path}`).toBe(method === "POST" ? 403 : 200);
   }
 
+  // OAuth (#447): a chat integration the owner connected, a desktop tool nobody has yet, and a
+  // delivery service whose consent screen waits for the owner's answer.
+  type MadeClient = { client: { clientId: string }; secret: string | null };
+  const slackCallback = "https://slack.endlesshall.example/oauth/callback";
+  const slack = await api<MadeClient>(page, "POST", "/api/organisation/oauth-clients", {
+    name: "Hekate for Slack",
+    kind: "confidential",
+    redirectUris: [slackCallback],
+    scopes: ["reviews:read", "comments"],
+  });
+  await api(page, "POST", "/api/organisation/oauth-clients", {
+    name: "Hekate for Logic Pro",
+    kind: "public",
+    redirectUris: ["hekate-logic://callback", "http://127.0.0.1/callback"],
+    scopes: ["files:write", "comments"],
+  });
+  const deliveries = await api<MadeClient>(page, "POST", "/api/organisation/oauth-clients", {
+    name: "Lantern Deliveries",
+    kind: "confidential",
+    redirectUris: ["https://deliveries.lantern.example/hekate/callback"],
+    scopes: ["files:read", "downloads"],
+  });
+  const verifier = "endless-hall-seed-verifier-".padEnd(64, "0");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const asked = {
+    response_type: "code",
+    client_id: slack.client.clientId,
+    redirect_uri: slackCallback,
+    scope: "reviews:read comments",
+    state: "seed",
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+  };
+  const { redirect: back } = await api<{ redirect: string }>(page, "POST", "/api/oauth/authorize", {
+    ...asked,
+    approve: true,
+  });
+  const exchanged = await page.request.fetch("/api/oauth/token", {
+    method: "POST",
+    form: {
+      grant_type: "authorization_code",
+      code: new URL(back).searchParams.get("code") ?? "",
+      redirect_uri: slackCallback,
+      code_verifier: verifier,
+      client_id: slack.client.clientId,
+      client_secret: slack.secret ?? "",
+    },
+  });
+  expect(exchanged.status(), await exchanged.text()).toBe(200);
+  const { access_token: slackToken } = (await exchanged.json()) as { access_token: string };
+  const slackCall = await page.request.fetch(`/api/projects/${music.id}/reviews`, {
+    headers: { authorization: `Bearer ${slackToken}` },
+  });
+  expect(slackCall.status()).toBe(200);
+  const consentPath = `/oauth/authorize?${new URLSearchParams({
+    ...asked,
+    client_id: deliveries.client.clientId,
+    redirect_uri: "https://deliveries.lantern.example/hekate/callback",
+    scope: "files:read downloads",
+    state: "lantern",
+  }).toString()}`;
+
   // The same moment for every run, so dates and "ago" read the same in every capture.
   const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", {
     onnotice: () => undefined,
@@ -1456,6 +1552,12 @@ setup("seed", async ({ page, browser }) => {
       description: "Label, September 2026",
       dueAt: "2026-09-20T00:00:00Z",
     });
+    // A credit held for the next invoice by hand to Endless Hall Records (#445).
+    await api(page, "POST", `/api/instance/workspaces/${label?.id}/credits`, {
+      amount: 2500,
+      currency: "GBP",
+      reason: "Stems for Joplin Rags delivered late",
+    });
     const [lanternRow] = await sql<
       { id: string }[]
     >`select id from organisations where name = 'Lantern Pictures'`;
@@ -1542,6 +1644,39 @@ setup("seed", async ({ page, browser }) => {
       { title: "Quota raised", body: "Your storage quota is raised; it applies at once." },
     ])
       await api(page, "POST", "/api/instance/support/replies", reply);
+
+    // The status page (#183): playback slow to start, identified and being worked on, and an
+    // outage of uploads in September, posted and resolved. Their times are set against the
+    // fixed clock below.
+    type Posted = { id: string };
+    const slow = await api<Posted>(page, "POST", "/api/instance/incidents", {
+      title: "Playback is slow to start",
+      impact: "degraded",
+      services: ["storage"],
+      body: "Some files take up to half a minute to start playing. Uploads and comments are not affected.",
+    });
+    await api(page, "POST", `/api/instance/incidents/${slow.id}/updates`, {
+      state: "identified",
+      body: "The storage provider is answering slowly in one region. Files play once started; we are moving reads to the other region.",
+    });
+    await api(page, "POST", "/api/instance/incidents", {
+      title: "Uploads stop at 99%",
+      impact: "partial",
+      services: ["storage", "worker"],
+      state: "resolved",
+      body: "Every upload since 14:02 is in and measured. A full disk on the worker held them back; it has more room now.",
+      startedAt: new Date(Date.now() - 41 * 86_400_000).toISOString(),
+      resolvedAt: new Date(Date.now() - 41 * 86_400_000 + 30 * 60_000).toISOString(),
+    });
+    // 90 days measured, to the database's today: the September outage, and a slow day in July.
+    await sql`insert into service_days (id, day, service, minutes, down, last_minute)
+      select gen_random_uuid(), d::date, s, 1440,
+        case when s in ('storage', 'worker') and d::date = current_date - 41 then 30
+             when s = 'api' and d::date = current_date - 58 then 18 else 0 end,
+        d + interval '1439 minutes'
+      from generate_series(current_date - 89, current_date - 1, interval '1 day') as d,
+        unnest(array['api', 'database', 'storage', 'worker']) as s
+      on conflict (day, service) do nothing`;
 
     // Where the workspace's events go (#161): a Slack channel, a Teams one and a webhook that
     // kept failing and paused, with a few deliveries for the webhook log. Their addresses are
@@ -1631,6 +1766,8 @@ setup("seed", async ({ page, browser }) => {
     await sql`update api_tokens set last_used_at = ${at(-26)} where name = 'Logic Pro export'`;
     await sql`update api_tokens set last_used_at = ${at(-41 * 24)}, expires_at = ${at(-13 * 24)}
       where name = 'Old laptop'`;
+    // Slack's last call for the owner (#447), three hours ago.
+    await sql`update api_tokens set last_used_at = ${at(-3)} where kind = 'oauth'`;
 
     const columns = await sql<{ table_name: string; column_name: string }[]>`
       select table_name, column_name from information_schema.columns
@@ -1656,6 +1793,20 @@ setup("seed", async ({ page, browser }) => {
     // The desk's first reply, as long after its ticket as on a good day (#182).
     await sql`update tickets set first_reply_at = created_at + interval '108 minutes'
       where first_reply_at is not null`;
+    // The incidents against the fixed clock (#183): the open one began 50 minutes before it and
+    // was last updated 19 minutes before; the September one lasted half an hour, 41 days before.
+    const clock = Date.parse(FIXED_TIME);
+    const before = (minutes: number) => new Date(clock - minutes * 60_000);
+    await sql`update incidents set started_at = ${before(50)}, updated_at = ${before(19)}
+      where title = 'Playback is slow to start'`;
+    await sql`update incident_updates set created_at = case when state = 'investigating'
+        then ${before(50)}::timestamptz else ${before(19)}::timestamptz end
+      where incident_id = (select id from incidents where title = 'Playback is slow to start')`;
+    await sql`update incidents set started_at = ${before(41 * 1440)},
+        resolved_at = ${before(41 * 1440 - 30)}, updated_at = ${before(41 * 1440 - 30)}
+      where title = 'Uploads stop at 99%'`;
+    await sql`update incident_updates set created_at = ${before(41 * 1440 - 30)}
+      where incident_id = (select id from incidents where title = 'Uploads stop at 99%')`;
   } finally {
     await sql.end();
   }
@@ -1682,6 +1833,8 @@ setup("seed", async ({ page, browser }) => {
     bookletFileId: proof,
     printFileId: booklet("Print files"),
     signOffId: signOff.id,
+    brandLogo,
+    consentPath,
   };
   writeFileSync(join(state, "seeded.json"), JSON.stringify(seeded, null, 2));
   await page.context().storageState({ path: join(state, "owner.json") });

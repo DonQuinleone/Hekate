@@ -9,7 +9,6 @@ import {
   qaSettingsOf,
   ruleFindings,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -19,6 +18,7 @@ import { alignmentsFrom } from "../alignment-graph.ts";
 import { profilesForFiles } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { qaReport, qaReportFormats } from "../qa-report.ts";
 import { requesterOf } from "../requester.ts";
 import { attachment } from "./comments.ts";

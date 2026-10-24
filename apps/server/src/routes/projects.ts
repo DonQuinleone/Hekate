@@ -14,7 +14,6 @@ import {
   watermarkOf,
   workspaceSettingsOf,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -23,6 +22,7 @@ import { actorOf, can, projectAccess, visibleProjects } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { assertProfileRef } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { projectFigures } from "../project-figures.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { assertProjectRoom } from "../usage.ts";

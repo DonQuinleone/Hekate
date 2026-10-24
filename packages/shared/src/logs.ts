@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ApiTokenKind } from "./api-tokens.ts";
 import type { ChannelKind, DeliveryStatus, EventKind } from "./events.ts";
 
 /**
@@ -112,8 +113,11 @@ export interface ApiLogRow {
   id: string;
   at: string;
   workspace: { id: string; name: string };
-  /** The token's name as it was then, and whose: a member's own, or the workspace's. */
-  token: { id: string | null; name: string; kind: "personal" | "service" };
+  /**
+   * The token's name as it was then, and whose: a member's own, the workspace's, or an
+   * application's acting for a member (#447).
+   */
+  token: { id: string | null; name: string; kind: ApiTokenKind };
   method: string;
   /** The path, without its query. */
   path: string;

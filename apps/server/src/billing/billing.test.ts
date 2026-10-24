@@ -14,6 +14,7 @@ import {
   settleByHand,
   takeGatewayEvent,
 } from "./billing.ts";
+import { applyPromo, issueCredit, sendLatestInvoice } from "./operator.ts";
 import { billingOverview, gatewayStatus, planByOperator, totals, waive } from "./overview.ts";
 import { endPromo, savePromo, usesOf } from "./promos.ts";
 import { type Stripe, StripeError, signStripeEvent } from "./stripe.ts";
@@ -41,6 +42,8 @@ describe.runIf(url)("billing (#178)", () => {
     async request(method, path, params = {}) {
       calls.push([method, path, params]);
       if (path === "/v1/customers") return { id: `cus_${uuidv7().slice(-12)}` } as never;
+      if (/^\/v1\/customers\/\w+\/balance_transactions$/.test(path))
+        return { id: `cbtxn_${uuidv7().slice(-12)}` } as never;
       if (path === "/v1/checkout/sessions") {
         const id = `cs_${uuidv7().slice(-12)}`;
         sessions.set(id, { status: "open" });
@@ -838,6 +841,8 @@ describe.runIf(url)("billing (#178)", () => {
       pastDueSince: null,
       overdue: null,
       dunningSuspended: false,
+      credits: [],
+      latestInvoice: null,
     };
     const month = { amount: 4900, currency: "GBP", interval: "month" as const };
     expect(
@@ -998,5 +1003,189 @@ describe.runIf(url)("billing (#178)", () => {
       ),
     ).toEqual({ name: "House" });
     expect(calls).toHaveLength(0);
+  });
+
+  /** A workspace's row on the overview. */
+  const rowOf = async (id: string) =>
+    (await billingOverview(db, gateway)).workspaces.find((r) => r.id === id);
+
+  it("applies a code to a workspace's subscription from the operators' side (#445)", async () => {
+    const w = await workspace();
+    const code = await promo({ maxUses: 1 });
+    // Before it has a subscription, its owners use the code at checkout.
+    expect(await applyPromo(deps, w.id, code.code).catch((e: unknown) => e)).toMatchObject({
+      status: 409,
+      code: "not_subscribed",
+    });
+    await checkedOut(w);
+    calls.length = 0;
+    expect(await applyPromo(deps, w.id, ` ${code.code.toLowerCase()} `)).toEqual({
+      code: code.code,
+      plan: "Studio",
+    });
+    expect(
+      calls.find(([m, p]) => m === "POST" && p === `/v1/subscriptions/${w.subscriptionId}`)?.[2],
+    ).toMatchObject({
+      metadata: { planId: w.planId },
+      discounts: [{ coupon: expect.stringMatching(/_p50_m3$/) }],
+    });
+    expect(await useCount(code.id)).toBe(1);
+    expect((await usesOf(db, code.id))[0]).toMatchObject({
+      workspace: { id: w.id },
+      status: "taken",
+    });
+    // The same checks as an owner's: its one use is gone, and a code for other plans refused.
+    const other = await workspace();
+    await checkedOut(other);
+    expect(await applyPromo(deps, other.id, code.code).catch((e: unknown) => e)).toMatchObject({
+      message: "That code has been used up.",
+    });
+    const elsewhere = await promo({ planIds: [uuidv7()] });
+    expect(await applyPromo(deps, other.id, elsewhere.code).catch((e: unknown) => e)).toMatchObject(
+      { code: "promo_refused", message: "That code is not for this plan." },
+    );
+    expect(await useCount(elsewhere.id)).toBe(0);
+    expect(
+      await applyPromo({ db, gateway: null }, other.id, elsewhere.code).catch((e: unknown) => e),
+    ).toMatchObject({ code: "billing_unavailable" });
+  });
+
+  it("gives a credit through the gateway's balance, in the currency it bills (#445)", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    calls.length = 0;
+    const credit = await issueCredit(
+      deps,
+      w.id,
+      { amount: 2000, currency: "GBP", reason: "Stems delivered late" },
+      w.userId,
+    );
+    expect(credit).toMatchObject({ source: "stripe", amount: 2000, invoiceId: null });
+    expect(calls).toEqual([
+      [
+        "POST",
+        `/v1/customers/${w.customerId}/balance_transactions`,
+        {
+          amount: -2000,
+          currency: "gbp",
+          description: "Stems delivered late",
+          metadata: { hekateCreditId: credit.id },
+        },
+      ],
+    ]);
+    const [kept] = await db
+      .select()
+      .from(schema.billingCredits)
+      .where(inOrg(schema.billingCredits, w.id));
+    expect(kept?.gatewayId).toMatch(/^cbtxn_/);
+    expect(
+      await issueCredit(deps, w.id, { amount: 2000, currency: "EUR", reason: "x" }, null).catch(
+        (e: unknown) => e,
+      ),
+    ).toMatchObject({ status: 409, code: "credit_currency" });
+    // The gateway takes it off the next invoice itself: nothing is held here for one by hand.
+    expect((await rowOf(w.id))?.credits).toEqual([]);
+    expect(
+      await issueCredit(
+        { db, gateway: null },
+        w.id,
+        {
+          amount: 100,
+          currency: "GBP",
+          reason: "x",
+        },
+        null,
+      ).catch((e: unknown) => e),
+    ).toMatchObject({ code: "billing_unavailable" });
+  });
+
+  it("holds a credit for the next invoice by hand, which takes it off as a line (#445)", async () => {
+    // Customers without a subscription: invoiced by hand.
+    const w = await workspace();
+    const other = await workspace();
+    const give = (id: string, amount: number, currency = "GBP") =>
+      issueCredit({ db, gateway: null }, id, { amount, currency, reason: "Goodwill" }, null);
+    await give(w.id, 3000);
+    await give(w.id, 2500);
+    await give(w.id, 1000, "EUR");
+    await give(other.id, 9900);
+    expect((await rowOf(w.id))?.credits).toEqual([
+      { amount: 1000, currency: "EUR" },
+      { amount: 5500, currency: "GBP" },
+    ]);
+    const byHand = (id: string, amount: number) =>
+      invoiceByHand(db, id, {
+        amount,
+        currency: "GBP",
+        description: "Mastering, by agreement",
+        periodStart: null,
+        periodEnd: null,
+        dueAt: null,
+      });
+    // The oldest whole, the next split: covered in full, so nothing is left to pay.
+    const first = await byHand(w.id, 4000);
+    expect(first).toMatchObject({ credit: 4000, amountDue: 0, status: "paid" });
+    expect((await rowOf(w.id))?.credits).toEqual([
+      { amount: 1000, currency: "EUR" },
+      { amount: 1500, currency: "GBP" },
+    ]);
+    const second = await byHand(w.id, 4900);
+    expect(second).toMatchObject({ credit: 1500, amountDue: 3400, status: "open" });
+    const third = await byHand(w.id, 4900);
+    expect(third).toMatchObject({ credit: null, amountDue: 4900 });
+    // What each credit went to, the split one in two.
+    const rows = await db
+      .select()
+      .from(schema.billingCredits)
+      .where(and(inOrg(schema.billingCredits, w.id), eq(schema.billingCredits.currency, "GBP")));
+    expect(
+      rows
+        .map((r) => [r.amount, r.invoiceId])
+        .sort((a, b) => String(a[1]).localeCompare(String(b[1])) || Number(a[0]) - Number(b[0])),
+    ).toEqual(
+      [
+        [3000, first.id],
+        [1000, first.id],
+        [1500, second.id],
+      ].sort((a, b) => String(a[1]).localeCompare(String(b[1])) || Number(a[0]) - Number(b[0])),
+    );
+    // Another workspace's credit is its own.
+    expect((await rowOf(other.id))?.credits).toEqual([{ amount: 9900, currency: "GBP" }]);
+  });
+
+  it("sends the owners the latest invoice again, its page and its PDF (#445)", async () => {
+    const w = await workspace();
+    await checkedOut(w);
+    expect(await sendLatestInvoice(deps, w.id).catch((e: unknown) => e)).toMatchObject({
+      status: 409,
+      code: "no_invoice",
+    });
+    expect((await rowOf(w.id))?.latestInvoice).toBeNull();
+    await send(
+      "invoice.paid",
+      invoice(w, "paid", { invoice_pdf: "https://pay.stripe.com/invoice/abc/pdf" }),
+    );
+    expect((await rowOf(w.id))?.latestInvoice).toMatchObject({ number: "INV-0412" });
+    const before = mailer.sent.length;
+    expect(await sendLatestInvoice(deps, w.id)).toEqual({ number: "INV-0412", sent: 1 });
+    const [mail] = mailer.sent.slice(before);
+    expect(mail?.to).toBe(w.email);
+    expect(mail?.subject).toBe("Endless Hall Records: invoice INV-0412");
+    expect(mail?.text).toContain("https://invoice.stripe.com/i/abc");
+    expect(mail?.text).toContain("https://pay.stripe.com/invoice/abc/pdf");
+    expect(mail?.text).toContain("It is paid");
+    // A workspace invoiced by hand has none from the gateway to send.
+    const other = await workspace();
+    await invoiceByHand(db, other.id, {
+      amount: 100,
+      currency: "GBP",
+      description: "Seats",
+      periodStart: null,
+      periodEnd: null,
+      dueAt: null,
+    });
+    expect(await sendLatestInvoice(deps, other.id).catch((e: unknown) => e)).toMatchObject({
+      code: "no_invoice",
+    });
   });
 });

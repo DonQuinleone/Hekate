@@ -127,6 +127,13 @@ const screens: Screen[] = [
     ready: "text=This link does not lead anywhere",
     as: "signed-out",
   },
+  // The status page (#183): readable signed out, an incident open, past ones beneath.
+  {
+    name: "status",
+    path: () => "/status",
+    ready: "main >> text=Playback is slow to start",
+    as: "signed-out",
+  },
   { name: "guest-signed-out", path: () => "/guest", ready: "h1", as: "signed-out" },
   {
     name: "guest-link-used",
@@ -191,6 +198,25 @@ const screens: Screen[] = [
     name: "account-tokens",
     path: () => "/account/tokens",
     ready: "main >> text=Logic Pro export",
+  },
+  // Connected apps (#447): Slack, connected by the owner, with what it may do.
+  {
+    name: "account-apps",
+    path: () => "/account/apps",
+    ready: "main >> text=Hekate for Slack",
+  },
+  // The consent screen (#447): a delivery service asks the owner for access.
+  {
+    name: "oauth-consent",
+    path: (s) => s.consentPath,
+    ready: "text=Connect Lantern Deliveries",
+  },
+  // A request the consent screen refuses: an application that is not registered here.
+  {
+    name: "oauth-consent-refused",
+    path: () =>
+      "/oauth/authorize?response_type=code&client_id=hk_cli_AAAAAAAAAAAAAAAAAAAAAA&redirect_uri=https%3A%2F%2Fapp.example%2Fcb",
+    ready: "text=This application cannot connect",
   },
   {
     name: "project-overview",
@@ -472,6 +498,12 @@ const screens: Screen[] = [
     path: () => "/settings/security",
     ready: "main >> text=Directory (LDAP)",
   },
+  // The label's logo and accent (#185), seeded, with the preview in each theme.
+  {
+    name: "settings-branding",
+    path: () => "/settings/branding",
+    ready: "main >> text=Light · #30736c",
+  },
   {
     name: "settings-email",
     path: () => "/settings/email",
@@ -504,6 +536,12 @@ const screens: Screen[] = [
     name: "settings-support-new",
     path: () => "/settings/support?new=1",
     ready: "main >> text=Before you ask",
+  },
+  // Where people look for help (#183): the open incident before a ticket is written.
+  {
+    name: "settings-support-incident",
+    path: () => "/settings/support?new=1",
+    ready: "main >> text=Playback is slow to start",
   },
   // The desk (#182): every workspace's tickets, its figures and its settings.
   {
@@ -562,11 +600,65 @@ function capture(screen: Screen) {
 test.describe("signed out", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
   for (const screen of screens.filter((s) => s.as === "signed-out")) capture(screen);
+
+  // The sign-in page at a workspace's own address (#176) carries its logo and accent (#185).
+  // The suite runs without workspace subdomains, so the answer a workspace's host gives is
+  // stood in for, with the label's real logo.
+  test("sign-in-workspace-branded", async ({ page }) => {
+    await page.route("**/api/sign-in-methods", (route) =>
+      route.fulfill({
+        json: {
+          directory: false,
+          sso: false,
+          root: "http://localhost:3990",
+          workspace: {
+            name: "Endless Hall Records",
+            slug: "endless-hall-records",
+            providerId: null,
+            branding: {
+              logo: seeded().brandLogo,
+              accent: { dark: "#4fb3a9", light: "#30736c" },
+            },
+          },
+        },
+      }),
+    );
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto("/sign-in");
+    await settle(page, "text=Sign in to Endless Hall Records");
+    await expect(page.getByRole("img", { name: "Endless Hall Records" })).toBeVisible();
+    await saveScreen(page, "sign-in-workspace-branded");
+    await checkScreen(page);
+  });
 });
 
 test.describe("guest", () => {
   test.use({ storageState: join(state, "guest.json") });
+  // Every guest page carries the label's logo and accent (#185), seeded.
   for (const screen of screens.filter((s) => s.as === "guest")) capture(screen);
+
+  // In the light theme, the accent's darker cut, which holds 4.5:1 there.
+  test("guest-review-branded-light", async ({ page }) => {
+    await page.addInitScript(() => {
+      try {
+        localStorage.setItem("hekate.theme", "signal-light");
+      } catch {}
+    });
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto(`/g/reviews/${seeded().reviewId}`);
+    await settle(page, "h1:has-text('Album masters')");
+    await expect(page.getByRole("link", { name: "Your reviews" }).getByRole("img")).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          getComputedStyle(document.documentElement).getPropertyValue("--hk-signal").trim(),
+        ),
+      )
+      .toBe("#30736c");
+    await showWhole(page);
+    await saveScreen(page, "guest-review-branded-light");
+    await checkScreen(page);
+  });
 
   // A guest their review lets invite others (#55): the Reviewers section's Invite, open. The
   // review's answer is amended in this page alone, so no other capture sees the grant.
@@ -611,6 +703,34 @@ test("file-decision", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}?review=${seeded().reviewId}`);
   await settle(page, "section[aria-label='Your decision'] button:has-text('Approve')");
   await saveScreen(page, "file-decision");
+  await checkScreen(page);
+});
+
+// Drawing a region by touch (#150): with Draw on, a finger drags a rectangle on the proof's
+// page instead of scrolling it. The touches are the browser's own (Chromium's DevTools
+// protocol), so the page sees touch pointers as a tablet would send them.
+test("file-document-draw-touch", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "Drawn by a finger: the desktop draws with a mouse");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().bookletFileId}`);
+  const sheet = page.getByRole("img", { name: /^Page 1 of / });
+  await settle(page, "role=img[name=/^Page 1 of /]");
+  await page.getByRole("button", { name: "Draw", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Draw", pressed: true })).toBeVisible();
+  await sheet.scrollIntoViewIfNeeded();
+  const box = await sheet.boundingBox();
+  if (!box) throw new Error("The page is not on the screen");
+  const at = (x: number, y: number) => ({ x: box.x + box.width * x, y: box.y + box.height * y });
+  const touch = await page.context().newCDPSession(page);
+  await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [at(0.2, 0.3)] });
+  for (const step of [0.3, 0.4, 0.5, 0.6])
+    await touch.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [at(step + 0.1, step * 0.8)],
+    });
+  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+  await settle(page, "[data-draft]");
+  await saveScreen(page, "file-document-draw-touch");
   await checkScreen(page);
 });
 
@@ -1219,6 +1339,13 @@ for (const [name, steps, ready] of [
     ["button:Actions for Saltmarsh Films", "menuitem:Waive and reinstate…"],
     "[role=dialog] >> text=Kept with the instance's events.",
   ],
+  // A credit for a workspace invoiced by hand (#445). Applying a code and sending an invoice
+  // need Stripe, which the suite runs without.
+  [
+    "instance-billing-credit",
+    ["button:Actions for Saltmarsh Films", "menuitem:Issue a credit…"],
+    "[role=dialog] >> text=as a line of its own",
+  ],
 ] as const) {
   test(name, async ({ page }) => {
     await page.clock.setFixedTime(FIXED_TIME);
@@ -1256,6 +1383,19 @@ for (const [name, path, open, ready] of [
     "[role=dialog] >> text=Quota raised",
   ],
   ["help-menu", "/", "button:Help", "[role=menu] >> text=Contact support"],
+  // The status page on the desk (#183): posting an incident, and one open with its updates.
+  [
+    "instance-incident-post",
+    "/instance/support",
+    "button:Post an incident",
+    "[role=dialog] >> text=What it touches",
+  ],
+  [
+    "instance-incident",
+    "/instance/support",
+    "button:Playback is slow to start",
+    "[role=dialog] >> text=Post update",
+  ],
 ] as const) {
   test(name, async ({ page }) => {
     await page.clock.setFixedTime(FIXED_TIME);
@@ -1340,6 +1480,36 @@ test("account-token-new", async ({ page }) => {
   await page.getByRole("button", { name: "Token", exact: true }).click();
   await settle(page, "[role=dialog] >> text=Pick the least it needs.");
   await saveScreen(page, "account-token-new");
+  await checkScreen(page);
+});
+
+// OAuth clients (#447): a new client's editor, opened, not saved; then who has connected the
+// Slack integration.
+test("settings-oauth-clients", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/settings/api");
+  await settle(page, "main >> text=Hekate for Slack");
+  await page.getByRole("button", { name: "Client", exact: true }).click();
+  await settle(page, "[role=dialog] >> text=Scopes it may ask for");
+  await saveScreen(page, "settings-oauth-client-new");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Actions for Hekate for Slack" }).click();
+  await page.getByRole("menuitem", { name: "Who has connected" }).click();
+  await settle(page, "[role=dialog] [data-connections] >> text=Alex Rivera");
+  await saveScreen(page, "settings-oauth-connections");
+  await checkScreen(page);
+});
+
+// What a connected app may do (#447), from its menu in Account.
+test("account-app-scopes", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/account/apps");
+  await settle(page, "main >> text=Hekate for Slack");
+  await page.getByRole("button", { name: "Actions for Hekate for Slack" }).click();
+  await page.getByRole("menuitem", { name: "What it may do…" }).click();
+  await settle(page, "[role=dialog] >> text=reviews:read");
+  await saveScreen(page, "account-app-scopes");
   await checkScreen(page);
 });
 

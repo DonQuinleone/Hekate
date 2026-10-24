@@ -13,13 +13,13 @@ import {
   type TakeNumbering,
   takeImportInput,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can, lockLiveProject, lockTakeNumbers } from "../access.ts";
 import { NotFound } from "../errors.ts";
+import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { takeRowsFor } from "./takes.ts";
 

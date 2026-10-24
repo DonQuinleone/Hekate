@@ -7,7 +7,6 @@ import {
   visitorUploadInput,
   workspaceSettingsOf,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, count, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -21,6 +20,7 @@ import { type LinkRoots, workspaceLinkBase } from "../hosts.ts";
 import type { Jobs } from "../jobs.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { notifyNow } from "../notifications.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { measuredKind, versionFromRequest } from "../request-versions.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";

@@ -102,6 +102,8 @@ export interface Sampler {
   cpu(): { share: number; cores: number } | null;
   /** Measure the minute just ended, and forget samples a day old. */
   tick(): Promise<void>;
+  /** Something else to do each minute, after the sample: counting the services' uptime (#183). */
+  also(task: () => Promise<void>): void;
   /** Tick at each minute's turn until stopped. */
   start(): () => void;
 }
@@ -111,9 +113,13 @@ export function createSampler(db: Database, options: { now?: () => number } = {}
   const replica = randomUUID();
   let last = readNow();
   let latest: { share: number; cores: number } | null = null;
+  const tasks: (() => Promise<void>)[] = [];
   const sampler: Sampler = {
     replica,
     cpu: () => latest,
+    also(task) {
+      tasks.push(task);
+    },
     async tick() {
       const reading = readNow();
       const minute = between(last, reading);
@@ -143,6 +149,8 @@ export function createSampler(db: Database, options: { now?: () => number } = {}
       await db
         .delete(schema.healthSamples)
         .where(lt(schema.healthSamples.at, new Date(now() - DAY)));
+      for (const task of tasks)
+        await task().catch((error: unknown) => console.warn(`Could not count a minute: ${error}`));
     },
     start() {
       let interval: NodeJS.Timeout | undefined;

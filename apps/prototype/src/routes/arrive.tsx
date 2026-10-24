@@ -1147,6 +1147,79 @@ export function InvitationPage() {
 
 /** The visitor's side of an upload request: no account, one folder, a limit and an expiry. */
 /**
+ * The OAuth consent screen (#447): an application one of the person's workspaces registered
+ * asks for access. It names the application, the workspace, what it would be allowed and where
+ * the answer goes. Refused: a request it cannot trust (an application not registered, an address
+ * it did not register), shown here and sent nowhere.
+ */
+export function ConsentPage() {
+  const navigate = useNavigate();
+  const { settings } = useViewer();
+  if (settings.state === "refused" || settings.state === "expired")
+    return (
+      <Frame
+        title="This application cannot connect"
+        intro="Lantern Deliveries asked to be sent back to an address it has not registered. Nothing was shared with it."
+      >
+        <div className="flex flex-col gap-2">
+          <Button variant="secondary" size="lg" onClick={() => navigate({ to: "/" })}>
+            Go to Hekate
+          </Button>
+          <Link
+            to="/sign-in"
+            className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
+          >
+            Sign in as someone else
+          </Link>
+        </div>
+      </Frame>
+    );
+  return (
+    <Frame
+      title="Connect Lantern Deliveries"
+      intro={`It would act as you in ${organisation.name}, and can do no more than you can.`}
+    >
+      <div className="flex flex-col gap-3">
+        <span className="text-[13px] text-ink-2">It asks to</span>
+        <ul className="flex flex-col gap-2 rounded-panel border border-line bg-raised/25 p-3 text-[13px]">
+          {[
+            [
+              "files:read",
+              "List and read projects, folders, files, tracks, versions and variations",
+            ],
+            ["downloads", "Download originals and proxies, watermarked and logged"],
+          ].map(([k, v]) => (
+            <li key={k} className="flex gap-3">
+              <span className="tabular w-24 shrink-0 text-ink">{k}</span>
+              <span className="text-ink-3">{v}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="m-0 text-[13px] text-ink-3">
+          Your answer goes back to{" "}
+          <span className="tabular text-ink-2">deliveries.lantern.example</span>. You can disconnect
+          it at any time in Account, Connected apps.
+        </p>
+      </div>
+      <div className="flex flex-col gap-2">
+        <Button variant="primary" size="lg" onClick={() => navigate({ to: "/" })}>
+          Allow
+        </Button>
+        <Button variant="secondary" size="lg" onClick={() => navigate({ to: "/" })}>
+          Cancel
+        </Button>
+      </div>
+      <p className="m-0 text-[13px] text-ink-3">
+        Signed in as <span className="text-ink-2">Mira Solberg</span>.{" "}
+        <Link to="/sign-in" className="text-ink-3 transition-colors hover:text-ink">
+          Not you?
+        </Link>
+      </p>
+    </Frame>
+  );
+}
+
+/**
  * A member whose workspace the instance's operators suspended (#174): why, and the way out,
  * to another workspace of theirs or signed out. Nothing of the workspace is shown.
  */

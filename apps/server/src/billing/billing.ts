@@ -1,6 +1,7 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   type BillingRules,
+  creditsAgainst,
   DUNNING_REASON,
   DUNNING_STEPS,
   type DunningRule,
@@ -28,6 +29,7 @@ import { assertApplies, discountOf, findPromo, releaseHeld, takeHeld, useOf } fr
 
 const {
   billingAccounts,
+  billingCredits,
   gatewayCustomers,
   invoices,
   gatewayEvents,
@@ -83,6 +85,7 @@ const invoiceOf = (row: typeof invoices.$inferSelect): Invoice => ({
   paidAt: row.paidAt?.toISOString() ?? null,
   url: row.url,
   pdfUrl: row.pdfUrl,
+  credit: row.credit,
 });
 
 /** A workspace's invoices, newest first. */
@@ -851,6 +854,26 @@ export async function invoiceByHand(
       .from(invoices)
       // Across workspaces deliberately: the series is the instance's.
       .where(eq(invoices.source, "manual"));
+    // Credits held for it in its currency (#445), the oldest first, come off as a line of
+    // their own; what is left of one that does not fit waits for the next.
+    const held = await tx
+      .select()
+      .from(billingCredits)
+      .where(
+        inOrg(
+          billingCredits,
+          organisationId,
+          eq(billingCredits.source, "manual"),
+          isNull(billingCredits.invoiceId),
+          eq(billingCredits.currency, input.currency),
+        ),
+      )
+      .orderBy(asc(billingCredits.createdAt), asc(billingCredits.id))
+      .for("update");
+    const { taken, remainder } = creditsAgainst(held, input.amount);
+    const credit = taken.reduce((sum, t) => sum + t.amount, 0);
+    const due = input.amount - credit;
+    const now = new Date();
     const [made] = await tx
       .insert(invoices)
       .values({
@@ -858,16 +881,30 @@ export async function invoiceByHand(
         source: "manual",
         number: `HK-${String((counted?.n ?? 0) + 1).padStart(4, "0")}`,
         description: input.description,
-        status: "open",
+        // Covered in full by credits, nothing is left to pay.
+        status: due === 0 ? "paid" : "open",
         currency: input.currency,
-        amountDue: input.amount,
+        amountDue: due,
+        credit: credit > 0 ? credit : null,
         periodStart: input.periodStart ? new Date(input.periodStart) : null,
         periodEnd: input.periodEnd ? new Date(input.periodEnd) : null,
         dueAt: input.dueAt ? new Date(input.dueAt) : null,
-        issuedAt: new Date(),
+        issuedAt: now,
+        paidAt: due === 0 ? now : null,
       })
       .returning();
     if (!made) throw new Error("The invoice was not written");
+    for (const t of taken)
+      await tx
+        .update(billingCredits)
+        .set({ invoiceId: made.id, amount: t.amount, updatedAt: now })
+        .where(inOrg(billingCredits, organisationId, eq(billingCredits.id, t.credit.id)));
+    if (remainder) {
+      const { id: _split, invoiceId: _none, ...rest } = remainder.credit;
+      await tx
+        .insert(billingCredits)
+        .values({ ...rest, amount: remainder.amount, invoiceId: null, updatedAt: now });
+    }
     return invoiceOf(made);
   });
 }

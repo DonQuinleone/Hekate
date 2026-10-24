@@ -14,9 +14,10 @@ import {
   scopeAllows,
   scopeFor,
 } from "@hekate/shared";
-import { and, eq, gt, isNull, lt, or } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lt, or } from "drizzle-orm";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
+import { getPath } from "hono/utils/url";
 import { requestInfo } from "./audit.ts";
 import type { ApiError } from "./errors.ts";
 import { pinnedWorkspace } from "./hosts.ts";
@@ -222,7 +223,8 @@ async function logCall(
     tokenName: token.name,
     tokenKind: token.kind,
     method: c.req.method,
-    path: c.req.path.slice(0, 500),
+    // The path as asked, so the log shows the version a call used (decision 224).
+    path: getPath(c.req.raw).slice(0, 500),
     status,
     durationMs: Math.round(performance.now() - started),
     ipAddress: requestInfo(c, deps.trustProxy).ipAddress ?? null,
@@ -243,9 +245,13 @@ async function logCall(
     );
 }
 
-/** Every live token a member holds in a workspace stops working: they have left it. */
+/**
+ * Every live token a member holds in a workspace stops working: they have left it. Their own
+ * tokens, and their connected apps' (#447), whose connections go with them (and with those,
+ * their codes and refresh tokens).
+ */
 export async function revokeMemberTokens(
-  db: Pick<Database, "update">,
+  db: Pick<Database, "update" | "delete">,
   organisationId: string,
   userId: string,
   by: string | null,
@@ -257,11 +263,14 @@ export async function revokeMemberTokens(
       inOrg(
         apiTokens,
         organisationId,
-        eq(apiTokens.kind, "personal"),
+        inArray(apiTokens.kind, ["personal", "oauth"]),
         eq(apiTokens.userId, userId),
         isNull(apiTokens.revokedAt),
       ),
     );
+  await db
+    .delete(schema.oauthGrants)
+    .where(inOrg(schema.oauthGrants, organisationId, eq(schema.oauthGrants.userId, userId)));
 }
 
 /**

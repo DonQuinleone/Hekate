@@ -1,22 +1,28 @@
 import { tmpdir } from "node:os";
 import type { Database } from "@hekate/db";
 import {
+  apiBase,
   type BounceProvider,
   COMMENT_ATTACHMENT_MAX_BYTES,
   type InstanceMail,
   type InstanceModules,
   type InstanceNotice,
   type MailStepInput,
+  OPENAPI_PATH,
+  scopeFor,
   TICKET_ATTACHMENT_MAX_BYTES,
+  unversioned,
 } from "@hekate/shared";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
+import { getPath } from "hono/utils/url";
 import { tokenAuth } from "./api-tokens.ts";
 import type { Audit } from "./audit.ts";
 import { type Auth, SESSION_DAYS } from "./auth.ts";
 import type { Gateway } from "./billing/gateway.ts";
+import { brandedMailer } from "./branding.ts";
 import { createSend, type Send } from "./channels.ts";
 import { errorHandler, requestId } from "./errors.ts";
 import { requirePlaySession, requireViewer } from "./guests.ts";
@@ -28,12 +34,14 @@ import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
 import { countRequests, metricsHandler } from "./metrics/index.ts";
 import type { Sampler } from "./metrics/sampler.ts";
+import { type OpenApiDocument, openapiDocument } from "./openapi/document.ts";
 import { rateLimit } from "./rate-limit.ts";
 import { personalTokenRoutes, serviceTokenRoutes } from "./routes/api-tokens.ts";
 import { attachmentRoutes } from "./routes/attachments.ts";
 import { billingRoutes } from "./routes/billing.ts";
 import { billingHookRoutes } from "./routes/billing-hooks.ts";
 import { projectBoardRoutes } from "./routes/board.ts";
+import { brandingRoutes, logoRoutes } from "./routes/branding.ts";
 import { calendarFeedRoutes, projectCalendarRoutes } from "./routes/calendar.ts";
 import { captionRoutes } from "./routes/captions.ts";
 import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
@@ -59,6 +67,13 @@ import { mailHookRoutes } from "./routes/mail-hooks.ts";
 import { projectMarkRoutes } from "./routes/marks.ts";
 import { accountRoutes, meRoutes } from "./routes/me.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
+import {
+  connectedAppRoutes,
+  oauthAuthorizeRoutes,
+  oauthClientRoutes,
+  oauthMetadata,
+  oauthTokenRoutes,
+} from "./routes/oauth.ts";
 import { operationsRoutes } from "./routes/operations.ts";
 import { organisationRoutes } from "./routes/organisation.ts";
 import { projectOverviewRoutes } from "./routes/overview.ts";
@@ -89,6 +104,7 @@ import { signInMethodRoutes } from "./routes/sign-in-methods.ts";
 import { signUpRoutes } from "./routes/sign-up.ts";
 import { ssoRoutes } from "./routes/sso.ts";
 import { projectStagePlanRoutes, stagePlanRoutes } from "./routes/stage-plans.ts";
+import { statusRoutes } from "./routes/status.ts";
 import { storageSettingsRoutes } from "./routes/storage-settings.ts";
 import { supportRoutes } from "./routes/support.ts";
 import { fileTagRoutes, tagRoutes } from "./routes/tags.ts";
@@ -115,6 +131,7 @@ import { workspaceDeletionRoutes, workspaceExportRoutes } from "./routes/workspa
 import { workspaceMailRoutes } from "./routes/workspace-mail.ts";
 import { securityHeaders } from "./security-headers.ts";
 import type { SetupGate } from "./setup-code.ts";
+import { createStatus } from "./status.ts";
 import type { Storage } from "./storage.ts";
 import { supportModuleOf } from "./support.ts";
 import { traced } from "./telemetry.ts";
@@ -191,7 +208,14 @@ export interface AppDeps {
   gateway?: Gateway | null;
 }
 
-export function createApi(deps: AppDeps) {
+export function createApi(given: AppDeps) {
+  // Mail sent for a workspace carries its logo and accent (#185), whichever route sends it.
+  const deps = {
+    ...given,
+    mailer: given.mailer.brand
+      ? given.mailer
+      : brandedMailer(given.mailer, given.db, given.publicUrl),
+  };
   const settings = deps.settings ?? createInstanceSettings(deps.db);
   // What links sent out are made from: each workspace's own address with subdomains on (#437).
   const links = { publicUrl: deps.publicUrl, subdomains: deps.subdomains ?? null };
@@ -239,6 +263,9 @@ export function createApi(deps: AppDeps) {
     backends: deps.storage.backends,
     mailer: deps.mailer,
   });
+  // The status page (#183): its services as checked here, each minute counted for its uptime.
+  const status = createStatus(deps.db, checks);
+  deps.sampler?.also(() => status.record());
   // Someone who still owes a second factor may read who they are, to be sent to add one, and
   // switch to a workspace that does not ask for it; nothing else.
   const owingAllowed = new Set(["/api/me", "/api/me/organisation"]);
@@ -264,6 +291,7 @@ export function createApi(deps: AppDeps) {
   };
   const taskMail = { db: deps.db, mailer: deps.mailer, ...links };
   const tokenDeps = { db: deps.db, audit: deps.audit, trustProxy: deps.trustProxy ?? false };
+  const oauthDeps = { ...tokenDeps, publicUrl: deps.publicUrl, secondFactor: rule };
   // Exporting and deleting the workspace (#186).
   const lifecycle = {
     db: deps.db,
@@ -315,6 +343,8 @@ export function createApi(deps: AppDeps) {
       .get("/notice", async (c) =>
         c.json({ maintenance: (await settings.get()).maintenance } satisfies InstanceNotice),
       )
+      // The status page (#183), for anyone, signed in or not.
+      .route("/status", statusRoutes(status))
       .route(
         "/setup",
         setupRoutes(deps.db, deps.auth, deps.passwordLeakCheck ?? false, deps.setupGate),
@@ -337,6 +367,7 @@ export function createApi(deps: AppDeps) {
           storage: deps.storage,
           audit: deps.audit,
           settings,
+          status,
           system: { build: deps.build ?? "dev", checkOn: deps.updateCheck ?? false },
           health: {
             checks,
@@ -373,6 +404,8 @@ export function createApi(deps: AppDeps) {
           async () => (await settings.get()).registration.mode,
         ),
       )
+      // A workspace's logo (#185): public, as its sign-in page and its mail show it.
+      .route("/branding", logoRoutes({ db: deps.db, storage: deps.storage }))
       // Which names Caddy may get a certificate for (#176): asked before each one.
       .route("/tls", tlsRoutes(deps.db, deps.subdomains ?? null))
       // The billing gateway's events (#178): no session, a signature instead.
@@ -405,11 +438,18 @@ export function createApi(deps: AppDeps) {
           maxPasskeys: deps.maxPasskeys ?? 5,
           subdomains: deps.subdomains ?? null,
           billing: (deps.modules?.billing ?? "off") !== "off",
-          support: () => supportModuleOf(modules, settings),
+          support: () => supportModuleOf(modules, settings, deps.publicUrl),
         }),
       )
       // A member's own API tokens (#198), in this workspace.
       .route("/me/tokens", personalTokenRoutes(tokenDeps))
+      // The applications a member connected through OAuth (#447), in this workspace.
+      .route("/me/connected-apps", connectedAppRoutes(oauthDeps))
+      // OAuth 2.1 (#447): the consent screen's request and answer, for a signed-in member of
+      // the client's workspace; the token and revocation endpoints, for applications.
+      .use("/oauth/authorize", requireSession(deps.auth))
+      .route("/oauth/authorize", oauthAuthorizeRoutes(oauthDeps))
+      .route("/oauth", oauthTokenRoutes(oauthDeps))
       .route("/invitations", invitationRoutes(deps.db, deps.auth))
       // Making a workspace without an operator (#184), as the instance's registration allows.
       .route(
@@ -446,9 +486,21 @@ export function createApi(deps: AppDeps) {
           billing: (deps.modules?.billing ?? "off") !== "off",
         }),
       )
+      .route(
+        "/organisation/branding",
+        brandingRoutes({
+          db: deps.db,
+          storage: deps.storage,
+          audit: deps.audit,
+          trustProxy: deps.trustProxy ?? false,
+          ...(deps.workDir ? { workDir: deps.workDir } : {}),
+        }),
+      )
       .route("/organisation/plan", planRoutes(deps.db, (deps.modules?.billing ?? "off") !== "off"))
       // The workspace's service tokens (#198), and the calls its tokens made.
       .route("/organisation/tokens", serviceTokenRoutes(tokenDeps))
+      // The workspace's OAuth clients (#447), for its owners and admins.
+      .route("/organisation/oauth-clients", oauthClientRoutes(oauthDeps))
       .route("/organisation/billing", billingRoutes(billing))
       .route("/organisation/support", supportRoutes(support))
       .route(
@@ -732,13 +784,29 @@ const uploading = (method: string, path: string) =>
     /^\/api\/upload-links\/[^/]+\/uploads/.test(path) ||
     ATTACHMENT_PATH.test(path));
 
+/**
+ * The path the router reads (decision 224): a version's (`/api/v1/files/…`) without its
+ * version, so each version reaches the same routes as the unversioned API the web app uses.
+ * The path as asked stays in the request's URL, for the version gate below.
+ */
+const routedPath = (request: Request) => {
+  const path = getPath(request);
+  return unversioned(path)?.path ?? path;
+};
+
 export function createApp(given: AppDeps) {
   const deps = { ...given, settings: given.settings ?? createInstanceSettings(given.db) };
   const settings = deps.settings;
-  const app = new Hono();
+  const app = new Hono({ getPath: routedPath });
+  const api = createApi(deps);
   app.use("*", securityHeaders({ https: deps.publicUrl.startsWith("https://") }));
   // For Prometheus (#70): only with a token, and never through the API's own middleware.
   app.get("/metrics", metricsHandler(deps.metricsToken));
+  // OAuth's metadata (#447, RFC 8414): where applications send people and exchange tokens.
+  app.get("/.well-known/oauth-authorization-server", (c) => {
+    c.header("Access-Control-Allow-Origin", "*");
+    return c.json(oauthMetadata(deps.publicUrl));
+  });
   // A span for each request (#162), around everything else so the rest happens inside it.
   app.use("/api/*", traced);
   app.use("/api/*", countRequests);
@@ -791,6 +859,36 @@ export function createApp(given: AppDeps) {
       );
     await next();
   });
+  // The public API's description (#197): OpenAPI 3.1, read from the routes once, on first ask.
+  // Deliberately public, and before the token check: it describes calls and holds no data, and
+  // a script may fetch it with its token in hand.
+  let described: OpenApiDocument | undefined;
+  app.get(OPENAPI_PATH, (c) => {
+    described ??= openapiDocument(api, {
+      server: { url: new URL(apiBase(), deps.publicUrl).toString() },
+      ...(deps.modules?.docsUrl ? { docsUrl: deps.modules.docsUrl } : {}),
+    });
+    return c.json(described, 200, { "cache-control": "public, max-age=300" });
+  });
+  // A version (`/api/v1`) answers the calls a token may make, and nothing else: whatever else
+  // the unversioned API does is the web app's own, and may change in any release.
+  app.use("/api/*", async (c, next) => {
+    const asked = getPath(c.req.raw);
+    if (unversioned(asked)) {
+      if (scopeFor(c.req.method, c.req.path)) return next();
+      return c.json(
+        { error: { code: "not_found", message: "That is not part of this version of the API." } },
+        404,
+      );
+    }
+    // A version this server does not answer: said plainly, before any token is judged.
+    if (/^\/api\/v\d+(\/|$)/.test(asked))
+      return c.json(
+        { error: { code: "not_found", message: "This server does not answer that version." } },
+        404,
+      );
+    return next();
+  });
   // API tokens (#198): a call that carries one is let in on it alone, within its scopes, and
   // logged; one that carries none goes on to the session checks.
   app.use("/api/*", tokenAuth({ db: deps.db, trustProxy: deps.trustProxy ?? false }));
@@ -800,7 +898,7 @@ export function createApp(given: AppDeps) {
     throw new HTTPException(403, { message: "Sign-up is by invitation" });
   });
   app.on(["GET", "POST"], "/api/auth/*", (c) => deps.auth.handler(c.req.raw));
-  app.route("/api", createApi(deps));
+  app.route("/api", api);
   app.notFound((c) => c.json({ error: { code: "not_found", message: "Not found" } }, 404));
   app.onError(errorHandler(deps.db));
   return app;

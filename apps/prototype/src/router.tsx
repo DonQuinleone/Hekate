@@ -13,6 +13,7 @@ import { GuestShell, Shell } from "~/components/shell";
 import { appRoot } from "~/lib/dom";
 import { AccountPage } from "~/routes/account";
 import {
+  ConsentPage,
   DeletingPage,
   GuestLinkPage,
   GuestSignedOutPage,
@@ -35,6 +36,7 @@ import { ProjectsPage } from "~/routes/projects";
 import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
 import { SettingsPage } from "~/routes/settings";
+import { StatusPage } from "~/routes/status";
 import { SessionPage, TakePage } from "~/routes/takes";
 import { TrackPage } from "~/routes/track";
 import { useViewer, ViewerProvider } from "~/viewer/context";
@@ -188,6 +190,12 @@ const deleting = createRoute({
   path: "/deleting",
   component: DeletingPage,
 });
+/** The OAuth consent screen (#447): an application asks for access. */
+const consent = createRoute({
+  getParentRoute: () => root,
+  path: "/oauth/authorize",
+  component: ConsentPage,
+});
 const uploadRequest = createRoute({
   getParentRoute: () => root,
   path: "/u/$code",
@@ -195,6 +203,12 @@ const uploadRequest = createRoute({
     const { code } = uploadRequest.useParams();
     return <UploadRequestPage code={code} />;
   },
+});
+/** The status page (#183): for anyone, signed in or not. */
+const status = createRoute({
+  getParentRoute: () => root,
+  path: "/status",
+  component: StatusPage,
 });
 const app = createRoute({ getParentRoute: () => root, id: "app", component: App });
 const home = createRoute({ getParentRoute: () => app, path: "/", component: DashboardPage });
@@ -441,7 +455,9 @@ export const router = createRouter({
     invite,
     suspended,
     deleting,
+    consent,
     uploadRequest,
+    status,
     app.addChildren([
       home,
       inbox,

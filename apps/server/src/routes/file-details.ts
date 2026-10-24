@@ -1,5 +1,4 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -7,6 +6,7 @@ import { z } from "zod";
 import { canOnFile } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
+import { zValidator } from "../openapi/validator.ts";
 
 const {
   files,

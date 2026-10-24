@@ -1,6 +1,6 @@
 import { type Database, schema } from "@hekate/db";
 import { createTransport } from "nodemailer";
-import { type Email, render } from "./email/render.ts";
+import { type Email, type EmailBrand, render } from "./email/render.ts";
 
 /** One mail: plain text always, and its HTML alternative when there is one. */
 export interface Message {
@@ -21,6 +21,22 @@ export interface Mailer {
   send(message: Message): Promise<void | "sent" | "suppressed">;
   /** Whether the mail server answers (#156); none when mail goes to the log. */
   verify?(): Promise<unknown>;
+  /** A workspace's logo and accent for its mail (#185); none where nothing looks them up. */
+  brand?(organisationId: string): Promise<EmailBrand | undefined>;
+}
+
+/** The branding a workspace's mail carries; never in the way of the message if it fails. */
+export async function brandFor(
+  mailer: Mailer,
+  organisationId: string | undefined,
+): Promise<EmailBrand | undefined> {
+  if (!organisationId || !mailer.brand) return undefined;
+  try {
+    return await mailer.brand(organisationId);
+  } catch (error) {
+    console.warn(`Could not read a workspace's branding for its mail: ${String(error)}`);
+    return undefined;
+  }
 }
 
 /**
@@ -218,10 +234,11 @@ export function createMailer(options: {
 
 /**
  * Send a message in Hekate's shape, as plain text and HTML together; for a workspace, through
- * its own mail where it has one (#161).
+ * its own mail where it has one (#161), and with its logo and accent where it has set them (#185).
  */
-export function sendEmail(mailer: Mailer, to: string, email: Email, organisationId?: string) {
-  const { subject, text, html } = render(email);
+export async function sendEmail(mailer: Mailer, to: string, email: Email, organisationId?: string) {
+  const brand = email.brand ?? (await brandFor(mailer, organisationId));
+  const { subject, text, html } = render(brand ? { ...email, brand } : email);
   return mailer.send({ to, subject, text, html, ...(organisationId ? { organisationId } : {}) });
 }
 

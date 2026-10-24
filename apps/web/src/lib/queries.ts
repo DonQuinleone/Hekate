@@ -4,6 +4,7 @@ import {
   type Anchor,
   type ApprovalRule,
   analysisKey,
+  type BillingCredit,
   type BillingGatewayStatus,
   type BillingOverview,
   type BillingReports,
@@ -23,6 +24,7 @@ import {
   type CreateReviewInput,
   type CreateUploadRequestInput,
   type CreateVersionInput,
+  type CreditInput,
   type CustomProfile,
   type CustomProfileInput,
   type DeletionConfirmation,
@@ -102,6 +104,7 @@ import {
   type ProjectTransfer,
   type PromoCode,
   type PromoCodeInput,
+  type PublicBranding,
   permissionsOfLevels,
   type QaFinding,
   type QaSettings,
@@ -141,6 +144,7 @@ import {
   type StagePlanInput,
   type StandingGrant,
   type StartTake,
+  type StoredBranding,
   type SupportModule,
   type SystemHealth,
   type SystemInformation,
@@ -347,7 +351,13 @@ export interface SignInMethods {
   directory: boolean;
   sso: boolean;
   /** The workspace this host answers for: the page need not ask which. */
-  workspace: { name: string; slug: string; providerId: string | null } | null;
+  workspace: {
+    name: string;
+    slug: string;
+    providerId: string | null;
+    /** Its logo and accent (#185), on its sign-in page. */
+    branding: PublicBranding | null;
+  } | null;
   /** The root's address, with workspace subdomains on. */
   root: string | null;
   /** Open sign-up (#184): anyone may make a workspace, from the root's sign-in. */
@@ -1097,6 +1107,48 @@ export function useSaveSso() {
       ),
     onSuccess: () => client.invalidateQueries({ queryKey: ssoQuery.queryKey }),
   });
+}
+
+/** The workspace's logo and accent (#185), as stored; every member reads them. */
+export const brandingQuery = queryOptions({
+  queryKey: ["organisation", "branding"],
+  queryFn: async () =>
+    (await json<{ branding: StoredBranding }>(await api.organisation.branding.$get())).branding,
+});
+
+/** The workspace's logo and accent (#185): owners and admins set them. */
+export function useBranding() {
+  const client = useQueryClient();
+  const settle = (data: { branding: StoredBranding }) => {
+    client.setQueryData(brandingQuery.queryKey, data.branding);
+    void client.invalidateQueries({ queryKey: ["organisation", "email"] });
+  };
+  return {
+    accent: useMutation({
+      mutationFn: async (accent: string | null) =>
+        json<{ branding: StoredBranding }>(
+          await api.organisation.branding.accent.$put({ json: { accent } }),
+        ),
+      onSuccess: settle,
+    }),
+    upload: useMutation({
+      mutationFn: async (file: File) =>
+        json<{ branding: StoredBranding }>(
+          await fetch("/api/organisation/branding/logo", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "content-type": file.type || "application/octet-stream" },
+            body: file,
+          }),
+        ),
+      onSuccess: settle,
+    }),
+    remove: useMutation({
+      mutationFn: async () =>
+        json<{ branding: StoredBranding }>(await api.organisation.branding.logo.$delete()),
+      onSuccess: settle,
+    }),
+  };
 }
 
 export function useSaveWorkspaceSettings() {
@@ -3470,6 +3522,8 @@ export function useReviewActions(reviewId: string) {
 export interface GuestMe {
   guest: { id: string; name: string; email: string; label: string | null };
   organisation: string | null;
+  /** The workspace's logo and accent (#185). */
+  branding: PublicBranding | null;
   reviews: (Pick<
     ReviewSummary,
     "id" | "kind" | "title" | "status" | "outcome" | "dueAt" | "createdAt"
@@ -3530,6 +3584,9 @@ export type GuestSignedIn = Omit<GuestMe, "guest"> & { guest: { id: string } };
 export interface GuestCodeSent {
   verify: "code";
   sentTo: string;
+  /** The workspace whose review it opens, and its logo and accent (#185), on the page. */
+  organisation: string | null;
+  branding: PublicBranding | null;
 }
 
 /**
@@ -4540,6 +4597,40 @@ export function useWaive(id: string) {
         await api.instance.workspaces[":id"].waive.$post({ param: { id }, json: { reason } }),
       ),
     onSuccess: () => client.invalidateQueries({ queryKey: ["instance"] }),
+  });
+}
+
+/** Apply one of the instance's codes to a workspace's subscription (#445). */
+export function useApplyPromo(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (code: string) =>
+      json<{ code: string; plan: string }>(
+        await api.instance.workspaces[":id"].promo.$post({ param: { id }, json: { code } }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance", "billing"] }),
+  });
+}
+
+/** A credit toward what a workspace next owes (#445). */
+export function useIssueCredit(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreditInput) =>
+      json<{ credit: BillingCredit }>(
+        await api.instance.workspaces[":id"].credits.$post({ param: { id }, json: input }),
+      ),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance", "billing"] }),
+  });
+}
+
+/** Send a workspace's owners its latest invoice again (#445). */
+export function useSendLatestInvoice(id: string) {
+  return useMutation({
+    mutationFn: async () =>
+      json<{ number: string | null; sent: number }>(
+        await api.instance.workspaces[":id"].invoices.latest.send.$post({ param: { id } }),
+      ),
   });
 }
 

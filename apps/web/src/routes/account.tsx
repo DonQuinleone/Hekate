@@ -13,6 +13,7 @@ import {
   SessionsSection,
 } from "~/components/account-sections";
 import { TokensSection, UsingTheApiSection } from "~/components/api-tokens";
+import { ConnectedAppsSection } from "~/components/oauth";
 import { PageHeader } from "~/components/page-header";
 import { PasskeysSection } from "~/components/passkeys";
 import { type NavSection, Row, Section, SettingsLayout } from "~/components/settings";
@@ -43,6 +44,11 @@ const sections: (NavSection & { intro: string })[] = [
     id: "tokens",
     label: "API tokens",
     intro: "For scripts and tools of your own, against Hekate's API.",
+  },
+  {
+    id: "apps",
+    label: "Connected apps",
+    intro: "Applications that act for you here, with what each may do.",
   },
   {
     id: "notifications",
@@ -220,6 +226,7 @@ export function AccountPage({ section }: { section: string }) {
             <UsingTheApiSection />
           </>
         )}
+        {current.id === "apps" && <ConnectedAppsSection />}
         {current.id === "notifications" && <Notifications />}
         {current.id === "appearance" && <AppearanceSection />}
       </SettingsLayout>

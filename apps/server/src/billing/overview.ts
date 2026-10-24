@@ -8,13 +8,34 @@ import {
   monthlyAmount,
   type WorkspacePlanStatus,
 } from "@hekate/shared";
-import { and, asc, count, desc, eq, gte, inArray, isNotNull, isNull, like, lt } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  like,
+  lt,
+  sum,
+} from "drizzle-orm";
 import { CodedException, NotFound } from "../errors.ts";
 import { assignPlan } from "../plans.ts";
 import { type BillingDeps, keepInvoice, priceOf, settle } from "./billing.ts";
 import type { Gateway, InvoiceFacts } from "./gateway.ts";
 
-const { organisations, workspacePlans, plans, billingAccounts, invoices, gatewayEvents } = schema;
+const {
+  organisations,
+  workspacePlans,
+  plans,
+  billingAccounts,
+  billingCredits,
+  invoices,
+  gatewayEvents,
+} = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 type Reader = Pick<Database, "select" | "selectDistinctOn">;
@@ -34,7 +55,7 @@ export async function billingOverview(
   now = new Date(),
 ): Promise<BillingOverview> {
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const [rows, late, [failed], payout] = await Promise.all([
+  const [rows, late, [failed], payout, held, latest] = await Promise.all([
     db
       .select({
         id: organisations.id,
@@ -82,10 +103,49 @@ export async function billingOverview(
           return null;
         })
       : null,
+    // Credits held for each workspace's next invoice by hand (#445), by currency.
+    db
+      .select({
+        organisationId: billingCredits.organisationId,
+        currency: billingCredits.currency,
+        amount: sum(billingCredits.amount).mapWith(Number),
+      })
+      .from(billingCredits)
+      // Across workspaces deliberately, as above.
+      .where(and(eq(billingCredits.source, "manual"), isNull(billingCredits.invoiceId)))
+      .groupBy(billingCredits.organisationId, billingCredits.currency)
+      .orderBy(asc(billingCredits.currency)),
+    // Each workspace's latest invoice from the gateway, which can be sent again if it has a page.
+    db
+      .selectDistinctOn([invoices.organisationId], {
+        organisationId: invoices.organisationId,
+        number: invoices.number,
+        issuedAt: invoices.issuedAt,
+        url: invoices.url,
+        pdfUrl: invoices.pdfUrl,
+      })
+      .from(invoices)
+      // Across workspaces deliberately, as above.
+      .where(
+        and(
+          eq(invoices.source, "stripe"),
+          isNotNull(invoices.gatewayId),
+          inArray(invoices.status, ["open", "paid", "uncollectible"]),
+        ),
+      )
+      .orderBy(asc(invoices.organisationId), desc(invoices.issuedAt)),
   ]);
   const overdueOf = new Map(late.map((l) => [l.organisationId, l]));
+  const creditsOf = new Map<string, { amount: number; currency: string }[]>();
+  for (const c of held)
+    creditsOf.set(c.organisationId, [
+      ...(creditsOf.get(c.organisationId) ?? []),
+      { amount: c.amount, currency: c.currency },
+    ]);
+  const latestOf = new Map(latest.map((l) => [l.organisationId, l]));
   const workspaces: BillingWorkspaceRow[] = rows.map((r) => {
     const owed = overdueOf.get(r.id);
+    const last = latestOf.get(r.id);
     return {
       id: r.id,
       name: r.name,
@@ -99,6 +159,11 @@ export async function billingOverview(
       pastDueSince: r.pastDueSince?.toISOString() ?? null,
       overdue: owed?.dueAt ? { number: owed.number, dueAt: owed.dueAt.toISOString() } : null,
       dunningSuspended: isDunningReason(r.suspendedReason),
+      credits: creditsOf.get(r.id) ?? [],
+      latestInvoice:
+        last && (last.url || last.pdfUrl)
+          ? { number: last.number, issuedAt: last.issuedAt.toISOString() }
+          : null,
     };
   });
   return {

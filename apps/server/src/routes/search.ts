@@ -8,12 +8,12 @@ import {
   searchFilters,
   sinceDate,
 } from "@hekate/shared";
-import { zValidator } from "@hono/zod-validator";
 import { and, type Column, desc, eq, gte, ilike, isNull, or, type SQL, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, visibleProjects } from "../access.ts";
 import { NotFound } from "../errors.ts";
+import { zValidator } from "../openapi/validator.ts";
 import { excerpt, prefixQuery } from "../search.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
