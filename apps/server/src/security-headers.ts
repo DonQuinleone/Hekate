@@ -22,10 +22,15 @@ export const contentSecurityPolicy = [
   "frame-ancestors 'none'",
 ].join("; ");
 
-/** Nothing here needs a camera, a microphone or a location; passkeys and full screen do. */
+/**
+ * Nothing here needs a camera or a location; passkeys and full screen do. The take log reads a
+ * recorder (decision 240) through Web MIDI and, for a recorder's timecode out, an audio input,
+ * so this origin may ask for those, and only when someone connects one.
+ */
 export const permissionsPolicy = [
   "camera=()",
-  "microphone=()",
+  "microphone=(self)",
+  "midi=(self)",
   "geolocation=()",
   "payment=()",
   "usb=()",
