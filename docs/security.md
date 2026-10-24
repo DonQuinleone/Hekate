@@ -82,6 +82,11 @@ A workspace's owners, and the instance's operators, can take away everything it 
 - A guest reaches a shared take only through a thread their review shows them: on a file of their review, or carried to one, and within their comment scope. They reach it as they reach that file, within the same window and play limit, but to listen only: no comment, no download, and none of the take's own comments, their own from an earlier review included, while a share is all that reaches it.
 - Only those who triage the thread's file and may see the project's takes share or unshare one, from takes of the same project. Both are in the access log (`comment.takes_share`, `comment.takes_unshare`), and unsharing closes the take to the guest at once.
 
+### Listening rooms
+
+- A listening room (#200, decision 224) carries only where its leader is: a file's id, playing or paused, a position and a speed. No playback token, segment address or key passes from the leader to a listener; each listener's page asks for its own playback of that file, on its own session, so their permissions, watermark and access log apply as they would to the file opened by hand.
+- A room is reached on a member's session alone (never an API token or a guest link), only by members who can see its project in its workspace; someone taken off the project is let go within fifteen seconds. Only the leader moves or ends it, and only to files of the room's project that they can see.
+
 ## Watermarking
 
 ### Visible

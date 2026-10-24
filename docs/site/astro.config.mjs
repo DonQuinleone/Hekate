@@ -60,6 +60,7 @@ export default defineConfig({
             "use/guests",
             "use/branding",
             "use/upload-requests",
+            "use/listen-together",
             "use/workflow-files",
             "use/integrations",
             "use/api-tokens",
