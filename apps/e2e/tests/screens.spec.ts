@@ -2467,7 +2467,10 @@ test("player-follow-daw", async ({ page, context }, info) => {
   await page.getByRole("button", { name: "View", exact: true }).click();
   await page.getByRole("switch", { name: "Follow the DAW" }).click();
   await settle(page, "section#player-view >> text=File starts at");
-  await expect(page.locator("section#player-view")).toContainText("No MIDI input");
+  // A browser with no MIDI device says so; one that refuses MIDI (headless Chromium) says that.
+  await expect(page.locator("section#player-view")).toContainText(
+    /No MIDI input|MIDI was not allowed/,
+  );
   if (info.project.name === "phone")
     await page
       .locator("section#player-view")
