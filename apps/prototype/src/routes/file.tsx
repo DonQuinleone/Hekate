@@ -29,12 +29,18 @@ import {
 import { QaView } from "~/components/qa";
 import { VideoQaView } from "~/components/qa-video";
 import { Dot } from "~/components/status";
+import {
+  CaptionLine,
+  CaptionsMenu,
+  PanelTabs,
+  type SidePanel,
+  TranscriptColumn,
+} from "~/components/transcript";
 import { Button } from "~/components/ui/button";
 import { ActionMenu, Dropdown, MenuList, usePopover } from "~/components/ui/menu";
 import { Filmstrip, Frame } from "~/components/video";
 import {
   AudioLayoutMenu,
-  Captions,
   CompareCuts,
   type DrawTool,
   DrawToolbar,
@@ -45,6 +51,7 @@ import {
   comments as allComments,
   takes as allTakes,
   type Comment,
+  captionTracksFor,
   fileById,
   findingsFor,
   personById,
@@ -316,7 +323,10 @@ export function FilePage({
   const [colour, setColour] = useState("var(--hk-signal)");
   const [matte, setMatte] = useState<"none" | "2.39" | "1.85">("none");
   const [safe, setSafe] = useState(false);
-  const [captions, setCaptions] = useState(false);
+  // A caption track shown over the picture (or under the waveform), and the panel beside it.
+  const [captionId, setCaptionId] = useState<string | null>(null);
+  const [panel, setPanel] = useState<SidePanel>("comments");
+  const [transcriptId, setTranscriptId] = useState<string | null>(null);
   const [cuts, setCuts] = useState<"wipe" | "side" | null>(null);
   const duration = file?.media.duration ?? 1;
   const playback = usePlayback(duration, 14.3);
@@ -346,6 +356,9 @@ export function FilePage({
   const isVideo = file?.kind === "video";
   const isAudio = file?.kind === "audio";
   const isPages = file?.kind === "document" || file?.kind === "image";
+  // Caption tracks (#201): a video's or a recording's, in the Captions menu and the transcript.
+  const captionTracks = file && (isVideo || isAudio) ? captionTracksFor(file.id) : [];
+  const caption = captionTracks.find((t) => t.id === captionId) ?? null;
   const tools = access?.tools ?? new Set();
   const qaAllowed = (isAudio || isVideo) && (tools.has("qa") || tools.has("meters"));
   const all = useMemo(
@@ -774,7 +787,6 @@ export function FilePage({
                     checked: matte === "1.85",
                     onSelect: () => setMatte(matte === "1.85" ? "none" : "1.85"),
                   },
-                  { label: "Captions", checked: captions, onSelect: () => setCaptions((v) => !v) },
                   "divider",
                   {
                     label: "Compare cuts: wipe",
@@ -788,9 +800,15 @@ export function FilePage({
                   },
                 ]}
               />
+              {captionTracks.length > 0 && (
+                <CaptionsMenu tracks={captionTracks} current={captionId} onChange={setCaptionId} />
+              )}
               <GoTo onGo={(t) => playback.seek(t)} />
               <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
             </>
+          )}
+          {isAudio && !pending && !failed && captionTracks.length > 0 && (
+            <CaptionsMenu tracks={captionTracks} current={captionId} onChange={setCaptionId} />
           )}
           {isAudio && !pending && !failed && channels >= 2 && (
             <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
@@ -893,7 +911,7 @@ export function FilePage({
             }
           />
           <SafeAreas matte={matte} safe={safe} />
-          {captions && <Captions time={playback.time} />}
+          {caption && <CaptionLine cues={caption.cues} time={playback.time} over />}
           {drawing && (
             <>
               <svg
@@ -991,6 +1009,7 @@ export function FilePage({
           <Ruler duration={duration} className="mt-1" />
         </div>
       </div>
+      {caption && <CaptionLine cues={caption.cues} time={playback.time} over={false} />}
     </div>
   );
 
@@ -1091,6 +1110,11 @@ export function FilePage({
       kind={isPages ? "document" : "media"}
       banner={decisionStrip}
       tools={<PanelPlacement layout={layout} set={setLayout} />}
+      heading={
+        captionTracks.length > 0
+          ? (open) => <PanelTabs panel="comments" onPanel={setPanel} count={open} />
+          : undefined
+      }
       className="@3xl/app:h-full"
       onPost={(body) =>
         setPosted((p) => [
@@ -1108,6 +1132,23 @@ export function FilePage({
           },
         ])
       }
+    />
+  );
+
+  // The transcript in the comments' place (#201): the track shown in the player, unless
+  // another is chosen here.
+  const transcriptColumn = captionTracks.length > 0 && (
+    <TranscriptColumn
+      tracks={captionTracks}
+      trackId={transcriptId ?? captionId}
+      onTrack={setTranscriptId}
+      playback={playback}
+      heading={<PanelTabs panel="transcript" onPanel={setPanel} count={openThreads.length} />}
+      tools={<PanelPlacement layout={layout} set={setLayout} />}
+      video={isVideo}
+      fps={file.media.fps}
+      canExport={access.download !== "none"}
+      className="@3xl/app:h-full"
     />
   );
 
@@ -1277,7 +1318,7 @@ export function FilePage({
             )}
             style={{ ["--w" as string]: `${layout.width}px` }}
           >
-            {commentsColumn}
+            {panel === "transcript" && transcriptColumn ? transcriptColumn : commentsColumn}
           </div>
         </>
       )}
