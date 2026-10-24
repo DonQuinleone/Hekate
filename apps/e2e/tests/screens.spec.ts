@@ -2827,20 +2827,40 @@ test("deliverable-compare-cuts", async ({ page }) => {
   await checkScreen(page);
 });
 
-// A video's captions from a sidecar file (#146): shown over the picture from the Frame menu,
-// and listed in its details, where whoever may upload adds and removes them.
+// A video's caption tracks (#146, #201): one shown over the picture from the Captions menu,
+// the transcript beside the comments (searched), and the tracks listed in its details, where
+// whoever may upload adds, renames and removes them and whoever may download exports them.
 test("video-captions", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/files/${seeded().cutFileId}`);
-  await page.getByRole("button", { name: "Frame" }).click();
-  await page.getByRole("menuitemradio", { name: "Captions" }).click();
+  await page.getByRole("button", { name: /^Captions/ }).click();
+  await expect(page.getByRole("menuitemradio", { name: /French \(SDH\)/ })).toBeVisible();
+  await saveScreen(page, "video-captions-menu");
+  await page.getByRole("menuitemradio", { name: /^English/ }).click();
   await settle(page, "main >> text=ENDLESS HALL RECORDS");
   await saveScreen(page, "video-captions");
   await checkScreen(page);
+  // The transcript, in the comments' place.
+  await page.getByRole("tab", { name: "Transcript" }).click();
+  const transcript = page.getByRole("region", { name: "Transcript" });
+  await expect(transcript.getByRole("list", { name: "English transcript" })).toContainText(
+    "Every hall has a sound of its own.",
+  );
+  await saveScreen(page, "video-transcript");
+  await checkScreen(page);
+  await transcript.getByRole("button", { name: "Search the transcript" }).click();
+  await transcript.getByRole("textbox", { name: "Search the transcript" }).fill("hall");
+  await expect(transcript).toContainText("2 matches");
+  await saveScreen(page, "video-transcript-search");
+  await checkScreen(page);
+  await page.getByRole("tab", { name: "Comments" }).click();
   await page.getByRole("button", { name: "Details" }).click();
   const details = page.getByRole("complementary", { name: "Details" });
   await expect(details.getByRole("list", { name: "Captions" })).toContainText(
-    "SubRip · 2 captions",
+    "Subtitles · SubRip · 4 captions",
+  );
+  await expect(details.getByRole("list", { name: "Captions" })).toContainText(
+    "Captions (SDH) · WebVTT · 3 captions",
   );
   // Its filmstrip (#16), made with its streams.
   await expect(details).toContainText("Filmstrip, 12 frames");

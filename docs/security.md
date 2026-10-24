@@ -65,6 +65,12 @@ This is not DRM: a determined person can capture the key from a live session. Th
 - It reaches a browser only as a download: a one-time link made for the person asking, in their session, for five minutes, as for a file's downloads (decision 056). The comment is checked again as the link is made and as it is used: it must be among the threads the file shows that person, within a guest's scope. The download is in the access log (`comment.attachment_download`) before the first byte leaves, and is sent as an attachment, `no-store`, `nosniff`, never shown in the page.
 - Only a comment's author attaches to it (up to five files of 25 MB each), and only they remove them; adding one is logged (`comment.attachment_add`). Attachments are not watermarked: they are the reviewers' own material, not the media under review.
 
+### Caption tracks
+
+- A caption track's sidecar (#146, #201, decisions 144 and 224) is an encrypted blob like any other, kept as it came and never sent back. Its cues (the words and their times) are in the database, scoped by workspace, and reach whoever may view the file, as its comments do.
+- An export is written afresh from the cues as SubRip, WebVTT or TTML, for whoever may download from the file at either level (or through a review that allows downloads), in their session; an API token needs the `downloads` scope. It is in the access log (`file.captions_export`, with the format) before it is sent, as an attachment, `no-store`. Not watermarked: text carries no mark. Adding, changing and removing a track are logged too.
+- Hekate transcribes nothing: no media is sent to a speech service.
+
 ### Workspace export and deletion
 
 A workspace's owners, and the instance's operators, can take away everything it holds (#186, decision 220). It is the one way originals leave unwatermarked, so it is held to the rest of this page in every other way.

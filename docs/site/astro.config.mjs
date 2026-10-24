@@ -57,6 +57,7 @@ export default defineConfig({
           items: [
             "use/reviews",
             "use/takes",
+            "use/captions",
             "use/guests",
             "use/branding",
             "use/upload-requests",
