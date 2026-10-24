@@ -5,6 +5,7 @@ import { CommentsColumn, orderThreads } from "~/components/comments/column";
 import { DownloadDialog, FileDetailsSheet } from "~/components/details";
 import { ExportCommentsDialog, ImportCommentsDialog } from "~/components/exports";
 import { Icon } from "~/components/icons";
+import { ListeningNotice, ListenTogether } from "~/components/listen-together";
 import { usePageHeader } from "~/components/page-header";
 import { markersFrom, PageViewer } from "~/components/pages";
 import { CompareBar, type Source } from "~/components/player/compare";
@@ -460,6 +461,8 @@ export function FilePage({
               {openThreads.length}
             </Button>
           )}
+          {/* Listening together (#200): members, on a recording or a video. */}
+          {!viewer.isGuest && (isAudio || isVideo) && <ListenTogether fileId={fileId} />}
           {access.download !== "none" && (
             <Button
               variant="ghost"
@@ -710,96 +713,99 @@ export function FilePage({
   );
 
   const strip = (isAudio || isVideo) && (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2 @3xl/app:px-4">
-      {versionMenu}
-      {variationSeg}
-      {!access.history && inTrack && (
-        <span className="text-[13px] text-ink-3">V{inTrack.version.number} is under review</span>
-      )}
-      <div className="ml-auto flex items-center gap-1">
-        {score && isAudio && tools.has("score") && (
-          <button
-            type="button"
-            aria-pressed={layout.score}
-            onClick={() => setLayout({ score: !layout.score })}
-            className={cn(
-              "flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] transition-colors",
-              layout.score
-                ? "bg-raised text-ink shadow-1"
-                : "text-ink-2 hover:bg-raised hover:text-ink",
-            )}
-          >
-            <Icon name="score" size={14} />
-            Score
-          </button>
+    <>
+      <ListeningNotice fileId={fileId} />
+      <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2 @3xl/app:px-4">
+        {versionMenu}
+        {variationSeg}
+        {!access.history && inTrack && (
+          <span className="text-[13px] text-ink-3">V{inTrack.version.number} is under review</span>
         )}
-        {isVideo && !pending && !failed && (
-          <>
+        <div className="ml-auto flex items-center gap-1">
+          {score && isAudio && tools.has("score") && (
             <button
               type="button"
-              aria-pressed={drawing !== null}
-              onClick={() => setDrawing(drawing ? null : "arrow")}
+              aria-pressed={layout.score}
+              onClick={() => setLayout({ score: !layout.score })}
               className={cn(
                 "flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] transition-colors",
-                drawing
+                layout.score
                   ? "bg-raised text-ink shadow-1"
                   : "text-ink-2 hover:bg-raised hover:text-ink",
               )}
             >
-              <Icon name="edit" size={14} />
-              Draw
+              <Icon name="score" size={14} />
+              Score
             </button>
-            <Dropdown
-              value={
-                <span className="flex items-center gap-1.5">
-                  <Icon name="grid" size={14} />
-                  Frame
-                </span>
-              }
-              align="right"
-              actions={[
-                { label: "Safe areas", checked: safe, onSelect: () => setSafe((v) => !v) },
-                {
-                  label: "Matte 2.39:1",
-                  checked: matte === "2.39",
-                  onSelect: () => setMatte(matte === "2.39" ? "none" : "2.39"),
-                },
-                {
-                  label: "Matte 1.85:1",
-                  checked: matte === "1.85",
-                  onSelect: () => setMatte(matte === "1.85" ? "none" : "1.85"),
-                },
-                { label: "Captions", checked: captions, onSelect: () => setCaptions((v) => !v) },
-                "divider",
-                {
-                  label: "Compare cuts: wipe",
-                  checked: cuts === "wipe",
-                  onSelect: () => setCuts("wipe"),
-                },
-                {
-                  label: "Compare cuts: side by side",
-                  checked: cuts === "side",
-                  onSelect: () => setCuts("side"),
-                },
-              ]}
-            />
-            <GoTo onGo={(t) => playback.seek(t)} />
+          )}
+          {isVideo && !pending && !failed && (
+            <>
+              <button
+                type="button"
+                aria-pressed={drawing !== null}
+                onClick={() => setDrawing(drawing ? null : "arrow")}
+                className={cn(
+                  "flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] transition-colors",
+                  drawing
+                    ? "bg-raised text-ink shadow-1"
+                    : "text-ink-2 hover:bg-raised hover:text-ink",
+                )}
+              >
+                <Icon name="edit" size={14} />
+                Draw
+              </button>
+              <Dropdown
+                value={
+                  <span className="flex items-center gap-1.5">
+                    <Icon name="grid" size={14} />
+                    Frame
+                  </span>
+                }
+                align="right"
+                actions={[
+                  { label: "Safe areas", checked: safe, onSelect: () => setSafe((v) => !v) },
+                  {
+                    label: "Matte 2.39:1",
+                    checked: matte === "2.39",
+                    onSelect: () => setMatte(matte === "2.39" ? "none" : "2.39"),
+                  },
+                  {
+                    label: "Matte 1.85:1",
+                    checked: matte === "1.85",
+                    onSelect: () => setMatte(matte === "1.85" ? "none" : "1.85"),
+                  },
+                  { label: "Captions", checked: captions, onSelect: () => setCaptions((v) => !v) },
+                  "divider",
+                  {
+                    label: "Compare cuts: wipe",
+                    checked: cuts === "wipe",
+                    onSelect: () => setCuts("wipe"),
+                  },
+                  {
+                    label: "Compare cuts: side by side",
+                    checked: cuts === "side",
+                    onSelect: () => setCuts("side"),
+                  },
+                ]}
+              />
+              <GoTo onGo={(t) => playback.seek(t)} />
+              <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
+            </>
+          )}
+          {isAudio && !pending && !failed && channels >= 2 && (
             <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
-          </>
-        )}
-        {isAudio && !pending && !failed && channels >= 2 && (
-          <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
-        )}
-        {isAudio && !pending && !failed && (
-          <ViewMenu
-            view={view}
-            onView={setView}
-            spectrogramAllowed={tools.has("spectrogram")}
-            normaliseAllowed={tools.has("normalise") && project.normalisation === "optional"}
-          />
-        )}
+          )}
+          {isAudio && !pending && !failed && (
+            <ViewMenu
+              view={view}
+              onView={setView}
+              spectrogramAllowed={tools.has("spectrogram")}
+              normaliseAllowed={tools.has("normalise") && project.normalisation === "optional"}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 
   const waveHeight = Math.max(

@@ -5,6 +5,7 @@ import { Lockup, Mark } from "~/components/brand";
 import { CommandPalette, paletteKey } from "~/components/command-palette";
 import { Icon, type IconName } from "~/components/icons";
 import { StateDot } from "~/components/incidents";
+import { ListeningPill } from "~/components/listen-together";
 import { NotificationsMenu } from "~/components/notifications";
 import { Trail, useCurrentHeader } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-card";
@@ -736,6 +737,8 @@ export function Shell({ children }: { children: ReactNode }) {
             </nav>
           )}
           <main className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
+          {/* A listening room in reach away from the file pages, whose header holds it (#200). */}
+          {!pathname.startsWith("/files/") && <ListeningPill />}
           <nav
             aria-label="Main"
             className="flex h-14 shrink-0 items-stretch border-t border-line bg-ground @3xl/app:hidden"
