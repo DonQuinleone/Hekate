@@ -56,7 +56,16 @@ function quarterFrames(
     const s = Math.floor(total / fps) % 60;
     const m = Math.floor(total / (fps * 60)) % 60;
     const h = Math.floor(total / (fps * 3600)) % 24;
-    const values = [f & 15, f >> 4, s & 15, s >> 4, m & 15, m >> 4, h & 15, (h >> 4) | (rateBits << 1)];
+    const values = [
+      f & 15,
+      f >> 4,
+      s & 15,
+      s >> 4,
+      m & 15,
+      m >> 4,
+      h & 15,
+      (h >> 4) | (rateBits << 1),
+    ];
     const order = backwards ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
     for (const p of order) {
       out.push({ at: t, bytes: [0xf1, (p << 4) | (values[p] ?? 0)] });
@@ -95,7 +104,10 @@ describe("decodeMidi on a recorded stream", () => {
 
   it("gives the timecode the record strobe came at, from the quarter frames before it", () => {
     const strobe = events.findIndex((e) => e.type === "transport" && e.command === "record-strobe");
-    const before = events.slice(0, strobe).filter((e) => e.type === "timecode").at(-1);
+    const before = events
+      .slice(0, strobe)
+      .filter((e) => e.type === "timecode")
+      .at(-1);
     expect(label(before as MidiTimecodeEvent)).toBe("01:00:02:00");
   });
 

@@ -59,7 +59,7 @@ export function addFrames(tc: RecorderTimecode, frames: number): RecorderTimecod
 }
 
 /** Seconds since midnight a label stands for, as its frames run in real time. */
-export function timecodeSeconds(tc: RecorderTimecode): number {
+export function secondsOfTimecode(tc: RecorderTimecode): number {
   const rate = frameRates[tc.rate];
   return ((timecodeFrames(tc) ?? 0) * rate.den) / rate.num;
 }

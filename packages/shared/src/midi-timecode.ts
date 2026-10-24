@@ -20,19 +20,19 @@ export const mtcRates: readonly FrameRateId[] = ["24", "25", "29.97df", "30"];
 
 /** The machine control commands a DAW sends from its transport, by their number. */
 export const mmcCommands = {
-  0x01: "stop",
-  0x02: "play",
-  0x03: "deferred-play",
-  0x04: "fast-forward",
-  0x05: "rewind",
-  0x06: "record-strobe",
-  0x07: "record-exit",
-  0x08: "record-pause",
-  0x09: "pause",
-  0x0a: "eject",
-  0x0b: "chase",
-  0x0d: "reset",
-  0x44: "locate",
+  1: "stop",
+  2: "play",
+  3: "deferred-play",
+  4: "fast-forward",
+  5: "rewind",
+  6: "record-strobe",
+  7: "record-exit",
+  8: "record-pause",
+  9: "pause",
+  10: "eject",
+  11: "chase",
+  13: "reset",
+  68: "locate",
 } as const;
 export type MmcCommand = (typeof mmcCommands)[keyof typeof mmcCommands];
 

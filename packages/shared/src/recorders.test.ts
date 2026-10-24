@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   addFrames,
-  parseTimecodeLabel,
   POSITION_STALE_MS,
+  parseTimecodeLabel,
   RECORDER_GONE_MS,
   type RecorderEvent,
   type RecorderTimecode,
@@ -13,7 +13,7 @@ import {
   timecodeAtFrame,
   timecodeLabel,
   timecodeNow,
-  timecodeSeconds,
+  secondsOfTimecode,
 } from "./recorders.ts";
 
 const tc = (label: string, rate: RecorderTimecode["rate"] = "25") =>
@@ -34,10 +34,10 @@ describe("timecode arithmetic", () => {
   });
 
   it("gives the seconds a label stands for, at its rate", () => {
-    expect(timecodeSeconds(tc("01:00:00:00"))).toBe(3600);
-    expect(timecodeSeconds(tc("00:00:01:12"))).toBe(1.48);
+    expect(secondsOfTimecode(tc("01:00:00:00"))).toBe(3600);
+    expect(secondsOfTimecode(tc("00:00:01:12"))).toBe(1.48);
     // An hour of 29.97 timecode, dropping frames, is 3600 seconds of labels in 3599.9964 s.
-    expect(timecodeSeconds(tc("01:00:00;00", "29.97df"))).toBeCloseTo(3599.9964, 3);
+    expect(secondsOfTimecode(tc("01:00:00;00", "29.97df"))).toBeCloseTo(3599.9964, 3);
   });
 
   it("reads typed labels, refusing what the rate cannot show", () => {
@@ -62,9 +62,7 @@ describe("timecodeNow", () => {
   it("plays a rolling one on from its last word, but not past a second of silence", () => {
     const position = { timecode: tc("01:00:00:00"), at, rolling: true };
     expect(timecodeLabel(timecodeNow(position, at + 520))).toBe("01:00:00:13");
-    expect(timecodeLabel(timecodeNow(position, at + POSITION_STALE_MS + 9000))).toBe(
-      "01:00:01:00",
-    );
+    expect(timecodeLabel(timecodeNow(position, at + POSITION_STALE_MS + 9000))).toBe("01:00:01:00");
     expect(timecodeLabel(timecodeNow(position, at - 100))).toBe("01:00:00:00");
   });
 });
