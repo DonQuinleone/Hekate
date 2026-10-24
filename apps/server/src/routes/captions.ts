@@ -256,7 +256,7 @@ export const captionRoutes = (deps: CaptionDeps) =>
         const { id: fileId, captionId } = c.req.valid("param");
         const { format } = c.req.valid("query");
         const access = await fileAccess(db, actor, fileId);
-        if (!access || !access.permissions.has("view")) throw new NotFound("File");
+        if (!access?.permissions.has("view")) throw new NotFound("File");
         const level = access.grant ? access.grant.download : downloadLevelOf(access.permissions);
         if (level === "none")
           throw new HTTPException(403, { message: "You may not download from this file" });
