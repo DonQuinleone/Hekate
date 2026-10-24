@@ -160,13 +160,6 @@ const screens: Screen[] = [
     ready: "section[aria-label=Comments]",
     as: "guest",
   },
-  // A guest whose review gives them compare (#44, #55) flips between what it gives them.
-  {
-    name: "guest-file-compare",
-    path: (s) => `/g/files/${s.dryFileId}`,
-    ready: "main >> text=V2 · Wet",
-    as: "guest",
-  },
   { name: "home", path: () => "/", ready: "main section[aria-label=Activity] li a" },
   { name: "projects", path: () => "/projects", ready: "main a:has-text('Joplin Rags')" },
   {
@@ -643,6 +636,19 @@ test.describe("guest", () => {
   // Every guest page carries the label's logo and accent (#185), seeded.
   for (const screen of screens.filter((s) => s.as === "guest")) capture(screen);
 
+  // A guest whose review gives them compare (#44, #55) flips between what it gives them,
+  // opened from the transport as the prototype's (#15).
+  test("guest-file-compare", async ({ page }) => {
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto(`/g/files/${seeded().dryFileId}`);
+    await settle(page, "section[aria-label=Comments] li");
+    await page.getByRole("button", { name: "Compare", exact: true }).click();
+    await settle(page, "main >> text=V2 · Wet");
+    await showWhole(page);
+    await saveScreen(page, "guest-file-compare");
+    await checkScreen(page);
+  });
+
   // In the light theme, the accent's darker cut, which holds 4.5:1 there.
   test("guest-review-branded-light", async ({ page }) => {
     await page.addInitScript(() => {
@@ -795,7 +801,8 @@ test("file-recording-versions", async ({ page }) => {
 });
 
 // The track's score under the player (#15), shown from the strip's Score switch (the browser
-// keeps the choice) and put away from its own header. A phone shows it after the comments.
+// keeps the choice) and put away from its own header. A phone shows it before the comments,
+// as the prototype does.
 test("file-recording-score", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/files/${seeded().dryFileId}`);
@@ -2163,7 +2170,8 @@ test("file-channels-levels", async ({ page }, info) => {
   // A thread about the left channel (deferred in triage) says so, and a new one can be about
   // one channel.
   const comments = page.getByRole("region", { name: "Comments" });
-  await comments.getByRole("button", { name: /^Show \d+ deferred$/ }).click();
+  await comments.getByRole("button", { name: /^Show / }).click();
+  await comments.getByRole("menuitemradio", { name: /^Deferred/ }).click();
   await expect(
     comments
       .getByRole("listitem")
@@ -2388,7 +2396,7 @@ test("file-normalised", async ({ page }) => {
   });
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "button:has-text('View')");
-  await page.getByRole("button", { name: "View" }).click();
+  await page.getByRole("button", { name: "View", exact: true }).click();
   await page.getByRole("switch", { name: "Normalised playback" }).click();
   await settle(page, "text=Normalised to −14 LUFS");
   await saveScreen(page, "file-normalised");
@@ -2409,7 +2417,7 @@ for (const [place, wave] of [
     );
     await page.goto(`/files/${seeded().dryFileId}`);
     await settle(page, "[role=img][aria-label^=Spectrogram]:not(.animate-pulse) canvas");
-    await page.getByRole("button", { name: "View" }).click();
+    await page.getByRole("button", { name: "View", exact: true }).click();
     await settle(page, "section#player-view");
     // On a phone the menu runs on below the fold: shown, rather than left against the tab bar.
     if (info.project.name === "phone") {
@@ -2447,7 +2455,7 @@ test("player-spectrogram-analysis", async ({ page }, info) => {
   );
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "[role=img][aria-label^=Spectrogram]:not(.animate-pulse) canvas");
-  await page.getByRole("button", { name: "View" }).click();
+  await page.getByRole("button", { name: "View", exact: true }).click();
   await page.getByRole("button", { name: "Channel, levels, range and analysis…" }).click();
   // Each choice asks for its spectrograms once it has taken; the next follows it.
   const asked = page.waitForRequest(/spectrograms\?.*window=kaiser/);
