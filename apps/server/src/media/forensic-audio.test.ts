@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { MediaInfo } from "@hekate/shared";
@@ -11,8 +11,10 @@ import {
   markedAudioFormat,
   markInThread,
   mixArgs,
+  splicedWave,
   traceFile,
   traceInThread,
+  waveData,
   writeMark,
 } from "./forensic-audio.ts";
 import { sampleMusic } from "./sample-music.ts";
@@ -176,6 +178,53 @@ describe.runIf(hasFfmpeg || process.env.CI)("forensic marks: through ffmpeg", ()
     const info = await probe(path("marked.wav"));
     expect(info.audio).toMatchObject({ codec: "pcm_s24le", channels: 2, sampleRate: 44_100 });
   });
+
+  it("keeps a WAV original's own chunks, byte for byte, around its marked samples", async () => {
+    // A Broadcast Wave description before the samples and an ADM one after, as masters have.
+    const master = readFileSync(path("master.wav"));
+    const at = await waveData(path("master.wav"));
+    if (!at) throw new Error("No data chunk");
+    const chunk = (id: string, body: Buffer) => {
+      const head = Buffer.alloc(8);
+      head.write(id, 0, "latin1");
+      head.writeUInt32LE(body.length, 4);
+      return Buffer.concat([head, body, Buffer.alloc(body.length % 2)]);
+    };
+    const fmtEnd = master.indexOf("data", 12, "latin1");
+    const body = Buffer.concat([
+      master.subarray(12, fmtEnd),
+      chunk("bext", Buffer.from("Joplin Rags, take 4, Endless Hall Records")),
+      master.subarray(at.offset - 8, at.offset + at.size),
+      chunk("axml", Buffer.from("<ebuCoreMain>an audio programme</ebuCoreMain>")),
+    ]);
+    const riff = Buffer.alloc(12);
+    riff.write("RIFF", 0, "latin1");
+    riff.writeUInt32LE(4 + body.length, 4);
+    riff.write("WAVE", 8, "latin1");
+    writeFileSync(path("bwf.wav"), Buffer.concat([riff, body]));
+    await mark(path("bwf.wav"), wav("pcm_s24le"), "original", path("bwf-marked.wav"));
+    const pieces = await splicedWave(path("bwf.wav"), path("bwf-marked.wav"));
+    if (!pieces) throw new Error("Not spliced");
+    const parts: Buffer[] = [];
+    for await (const piece of pieces) parts.push(piece);
+    const spliced = Buffer.concat(parts);
+    const original = readFileSync(path("bwf.wav"));
+    const inside = await waveData(path("bwf.wav"));
+    if (!inside) throw new Error("No data chunk");
+    expect(spliced.length).toBe(original.length);
+    expect(spliced.subarray(0, inside.offset).equals(original.subarray(0, inside.offset))).toBe(
+      true,
+    );
+    const end = inside.offset + inside.size;
+    expect(spliced.subarray(end).equals(original.subarray(end))).toBe(true);
+    expect(spliced.subarray(inside.offset, end).equals(original.subarray(inside.offset, end))).toBe(
+      false,
+    );
+    writeFileSync(path("bwf-spliced.wav"), spliced);
+    expect((await traceFile(path("bwf-spliced.wav"), groups, ample)).match?.id).toBe(recipient);
+    // Something that is not a WAV file has no samples to put back.
+    expect(await waveData(path("source.f32"))).toBeNull();
+  }, 60_000);
 
   it("is found in the marked file, and in a 20-second cut of it", async () => {
     const found = await traceFile(path("marked.wav"), groups, ample);

@@ -43,7 +43,13 @@ import {
   streamFfmpeg,
 } from "../media/burn.ts";
 import { MediaToolError, probe, run } from "../media/ffmpeg.ts";
-import { ffmpegLayout, markedAudioFormat, markInThread, mixArgs } from "../media/forensic-audio.ts";
+import {
+  ffmpegLayout,
+  markedAudioFormat,
+  markInThread,
+  mixArgs,
+  splicedWave,
+} from "../media/forensic-audio.ts";
 import {
   IMAGE_DEMUXERS,
   MAX_PAGES,
@@ -621,9 +627,9 @@ const marksFile = async (deps: DownloadDeps, organisationId: string, file: FileR
 
 /**
  * A recording with an inaudible mark for its recipient (#32): made from the original, the
- * mark first, then the recording again with it, in the form `markedAudioFormat` gives. Made
- * whole in the private workspace before it is sent, so the file's header is right, and gone
- * when the download ends.
+ * mark first, then the recording again with it, in the form `markedAudioFormat` gives; a WAV
+ * original is its own file with the marked samples in place. Made whole in the private
+ * workspace before it is sent, so the file's header is right, and gone when the download ends.
  */
 function markedAudio(
   deps: DownloadDeps,
@@ -669,7 +675,10 @@ function markedAudio(
       ),
       { signal, timeoutMs },
     );
-    for await (const chunk of createReadStream(output)) yield chunk as Buffer;
+    // A WAV original keeps every chunk of its own (Broadcast Wave, iXML, ADM), its samples marked.
+    const spliced = format.muxer === "wav" ? await splicedWave(input, output) : null;
+    if (spliced) yield* spliced;
+    else for await (const chunk of createReadStream(output)) yield chunk as Buffer;
   });
 }
 

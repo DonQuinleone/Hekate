@@ -1,4 +1,5 @@
-import { closeSync, openSync, writeSync } from "node:fs";
+import { closeSync, createReadStream, openSync, writeSync } from "node:fs";
+import { open } from "node:fs/promises";
 import { Worker } from "node:worker_threads";
 import type { MediaInfo } from "@hekate/shared";
 import { MediaToolError, run, safeInputArgs } from "./ffmpeg.ts";
@@ -42,6 +43,8 @@ const PCM = new Set([
 /** What a marked download of a recording is made as, and how it is described. */
 export interface MarkedAudioFormat {
   codecArgs: string[];
+  /** The source's own tags go with an original, as they did unmarked; never with a proxy. */
+  keepsTags: boolean;
   muxer: string;
   extension: string;
   contentType: string;
@@ -69,6 +72,7 @@ export function markedAudioFormat(
         ...["-ar", audio?.sampleRate === 44100 ? "44100" : "48000"],
         ...["-movflags", "+faststart"],
       ],
+      keepsTags: false,
       muxer: "mp4",
       extension: "m4a",
       contentType: "audio/mp4",
@@ -82,6 +86,7 @@ export function markedAudioFormat(
   if (PCM.has(codec) && (container === "wav" || container === "w64")) {
     return {
       codecArgs: ["-c:a", codec, "-rf64", "auto"],
+      keepsTags: true,
       muxer: "wav",
       extension: "wav",
       contentType: "audio/wav",
@@ -91,6 +96,7 @@ export function markedAudioFormat(
   if (PCM.has(codec) && container === "aiff") {
     return {
       codecArgs: ["-c:a", codec.replace(/le$/, "be")],
+      keepsTags: true,
       muxer: "aiff",
       extension: "aiff",
       contentType: "audio/aiff",
@@ -105,6 +111,7 @@ export function markedAudioFormat(
   ];
   return {
     codecArgs: flac,
+    keepsTags: true,
     muxer: "flac",
     extension: "flac",
     contentType: "audio/flac",
@@ -119,6 +126,76 @@ export function markedAudioFormat(
 const codecName = (codec: string) =>
   ({ mp3: "MP3", aac: "AAC", opus: "Opus", vorbis: "Vorbis", alac: "ALAC", ac3: "AC-3" })[codec] ??
   (codec ? codec.toUpperCase() : "the original");
+
+/** Where a WAV file's samples are: its data chunk's payload, and the file's whole size. */
+export async function waveData(
+  path: string,
+): Promise<{ offset: number; size: number; fileSize: number } | null> {
+  const handle = await open(path, "r");
+  try {
+    const { size: fileSize } = await handle.stat();
+    const read = async (position: number, length: number) => {
+      const buffer = Buffer.alloc(length);
+      const { bytesRead } = await handle.read(buffer, 0, length, position);
+      return buffer.subarray(0, bytesRead);
+    };
+    const head = await read(0, 12);
+    if (
+      head.length < 12 ||
+      !["RIFF", "RF64", "BW64"].includes(head.subarray(0, 4).toString("latin1")) ||
+      head.subarray(8, 12).toString("latin1") !== "WAVE"
+    )
+      return null;
+    // RF64 and BW64 keep the data chunk's real size in ds64, as it may not fit in 32 bits.
+    let large: number | undefined;
+    let position = 12;
+    for (let n = 0; n < 1000 && position + 8 <= fileSize; n += 1) {
+      const header = await read(position, 8);
+      if (header.length < 8) return null;
+      const id = header.subarray(0, 4).toString("latin1");
+      let length = header.readUInt32LE(4);
+      if (id === "ds64") {
+        const ds64 = await read(position + 8, 16);
+        if (ds64.length === 16) large = Number(ds64.readBigUInt64LE(8));
+      }
+      if (id === "data") {
+        if (length === 0xffffffff && large !== undefined) length = large;
+        return position + 8 + length <= fileSize
+          ? { offset: position + 8, size: length, fileSize }
+          : null;
+      }
+      position += 8 + length + (length % 2);
+    }
+    return null;
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * A marked WAV original: the original file, chunk for chunk (its Broadcast Wave, iXML and ADM
+ * descriptions among them), with the marked samples in place of its own. Null where the two
+ * do not hold samples of the same size, when the marked file as ffmpeg wrote it is sent.
+ */
+export async function splicedWave(
+  original: string,
+  marked: string,
+): Promise<AsyncGenerator<Buffer> | null> {
+  const [from, into] = await Promise.all([waveData(original), waveData(marked)]);
+  if (!from || !into || from.size !== into.size || from.size === 0) return null;
+  const parts: [string, number, number][] = [
+    [original, 0, from.offset],
+    [marked, into.offset, into.offset + into.size],
+    [original, from.offset + from.size, from.fileSize],
+  ];
+  async function* pieces() {
+    for (const [path, start, end] of parts)
+      if (end > start)
+        for await (const chunk of createReadStream(path, { start, end: end - 1 }))
+          yield chunk as Buffer;
+  }
+  return pieces();
+}
 
 /** ffmpeg's arguments for the first pass: every channel at the analysis rate. */
 export function analysisArgs(input: string): string[] {
@@ -154,8 +231,8 @@ export function mixArgs(
     // The mark is ours, a WAV file; opened as narrowly as the recording.
     ...["-protocol_whitelist", "file", "-format_whitelist", "wav", "-i", `file:${markPath}`],
     ...["-filter_complex", graph, "-map", "[out]"],
-    // Nothing of the source's own description (names, places, devices) goes with it.
-    ...["-map_metadata", "-1"],
+    // An original's tags go with it, as they did unmarked; a proxy's description is its own.
+    ...["-map_metadata", format.keepsTags ? "0" : "-1"],
     ...format.codecArgs,
     ...["-f", format.muxer, "-y", `file:${output}`],
   ];
