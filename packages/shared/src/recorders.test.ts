@@ -143,10 +143,13 @@ describe("takeActionFor", () => {
 });
 
 describe("the recorder's claim", () => {
-  it("names an adapter plainly", () => {
-    expect(recorderClaimInput.safeParse({ kind: "daw-midi" }).success).toBe(true);
-    expect(recorderClaimInput.safeParse({ kind: "DAW MIDI" }).success).toBe(false);
-    expect(recorderClaimInput.safeParse({ kind: "" }).success).toBe(false);
+  it("names an adapter plainly, and carries the connection's own claim", () => {
+    const claim = "01a16b55-0000-7000-8000-000000000001";
+    expect(recorderClaimInput.safeParse({ kind: "daw-midi", claim }).success).toBe(true);
+    expect(recorderClaimInput.safeParse({ kind: "DAW MIDI", claim }).success).toBe(false);
+    expect(recorderClaimInput.safeParse({ kind: "", claim }).success).toBe(false);
+    expect(recorderClaimInput.safeParse({ kind: "daw-midi" }).success).toBe(false);
+    expect(recorderClaimInput.safeParse({ kind: "daw-midi", claim: "tab 1" }).success).toBe(false);
   });
 
   it("holds while the browser driving it is heard from", () => {

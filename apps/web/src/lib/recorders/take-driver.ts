@@ -66,6 +66,8 @@ export function useRecorderTakes({
   const [claimedAt, setClaimedAt] = useState<number | null>(null);
   /** The server said someone else's browser drives it now, when this one renewed its claim. */
   const [refused, setRefused] = useState(false);
+  /** This connection's claim, its own even beside another tab of the same person's. */
+  const [claim, setClaim] = useState<string | null>(null);
   const kind = recorder?.kind ?? null;
   const claiming = connected && canLog && Boolean(sessionId) && Boolean(kind);
 
@@ -77,8 +79,10 @@ export function useRecorderTakes({
     setRefused(false);
     let live = true;
     const param = { id: sessionId };
+    const mine = uuidv7();
+    setClaim(mine);
     void api.sessions[":id"].recorder
-      .$put({ param, json: { kind } })
+      .$put({ param, json: { kind, claim: mine } })
       .then(async (res) => {
         if (!res.ok || !live) return;
         const body = (await res.json()) as { recorder: SessionRecorder | null };
@@ -87,7 +91,7 @@ export function useRecorderTakes({
       .catch(() => undefined);
     const timer = setInterval(() => {
       void api.sessions[":id"].recorder
-        .$put({ param, json: { kind, renew: true } })
+        .$put({ param, json: { kind, claim: mine, renew: true } })
         .then((res) => {
           if (live && res.status === 409) setRefused(true);
         })
@@ -97,7 +101,10 @@ export function useRecorderTakes({
       live = false;
       clearInterval(timer);
       setClaimedAt(null);
-      void api.sessions[":id"].recorder.$delete({ param }).catch(() => undefined);
+      setClaim(null);
+      void api.sessions[":id"].recorder
+        .$delete({ param, query: { claim: mine } })
+        .catch(() => undefined);
     };
   }, [claiming, sessionId, kind]);
 
@@ -108,16 +115,18 @@ export function useRecorderTakes({
     claiming &&
     (refused ||
       (holder !== null &&
-        holder.by.id !== meId &&
+        holder.claim !== claim &&
         claimedAt !== null &&
         Date.parse(holder.seenAt) > claimedAt));
   useEffect(() => {
     if (!takenOver) return;
     recorder?.disconnect();
     setLost(
-      holder && holder.by.id !== meId
-        ? `${holder.by.name}'s browser took over the recorder.`
-        : "Someone else's browser took over the recorder.",
+      holder && holder.by.id === meId
+        ? "Your other browser or tab took over the recorder."
+        : holder
+          ? `${holder.by.name}'s browser took over the recorder.`
+          : "Someone else's browser took over the recorder.",
     );
   }, [takenOver, holder, recorder, meId]);
 
@@ -182,7 +191,8 @@ export function useRecorderTakes({
   const position = recorder?.position ?? null;
   return {
     drives,
-    others: holder && holder.by.id !== meId ? holder : null,
+    // Whoever drives from another connection, this person's own other tab among them.
+    others: holder && holder.claim !== claim ? holder : null,
     lost,
     problem,
     timecode: () =>

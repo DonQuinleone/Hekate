@@ -1,5 +1,5 @@
 {
-  "id": "2e432f07-55fb-44d2-88cb-0c23e5628f2e",
+  "id": "6d8f64bc-0c5a-4171-8604-f125ebb20ff5",
   "prevId": "ed44a371-a05d-4fd9-92e2-810efcc9257f",
   "version": "7",
   "dialect": "postgresql",
@@ -14325,6 +14325,12 @@
         "recorder_seen_at": {
           "name": "recorder_seen_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recorder_claim": {
+          "name": "recorder_claim",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

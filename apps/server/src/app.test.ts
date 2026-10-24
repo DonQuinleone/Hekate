@@ -13537,10 +13537,12 @@ describe.runIf(url)("api", () => {
                 session: { recorder: { kind: string; by: { id: string } } | null };
               }
             ).session.recorder;
-          const claim = (kind: string, cookie = s.engineer) =>
-            send("PUT", `/api/sessions/${session.id}/recorder`, { kind }, cookie);
-          const release = (cookie = s.engineer) =>
-            app.request(`/api/sessions/${session.id}/recorder`, {
+          // Each connection (a browser tab) has its own claim, the same person's two included.
+          const tab = uuidv7();
+          const claim = (kind: string, cookie = s.engineer, id = tab) =>
+            send("PUT", `/api/sessions/${session.id}/recorder`, { kind, claim: id }, cookie);
+          const release = (cookie = s.engineer, id = tab) =>
+            app.request(`/api/sessions/${session.id}/recorder?claim=${id}`, {
               method: "DELETE",
               headers: { cookie, origin: "http://localhost:3000" },
             });
@@ -13561,18 +13563,27 @@ describe.runIf(url)("api", () => {
           });
 
           // Still there, it renews its claim.
-          const renew = (cookie = s.engineer) =>
+          const renew = (cookie = s.engineer, id = tab) =>
             send(
               "PUT",
               `/api/sessions/${session.id}/recorder`,
-              { kind: "daw-midi", renew: true },
+              { kind: "daw-midi", claim: id, renew: true },
               cookie,
             );
           expect((await renew()).status).toBe(200);
+          // The same person's other tab takes it over: the first tab's renewal and goodbye no
+          // longer reach it, though the person is the same.
+          const other = uuidv7();
+          expect((await claim("daw-midi", s.engineer, other)).status).toBe(200);
+          expect((await renew()).status).toBe(409);
+          expect((await release()).status).toBe(204);
+          expect(await recorderOf()).toMatchObject({ by: { id: s.ids.engineer }, claim: other });
+          expect((await claim("daw-midi")).status).toBe(200);
 
           // Another claims it: theirs now. The first browser's renewal and late goodbye leave it
           // theirs.
-          expect((await claim("sound-devices", s.owner)).status).toBe(200);
+          const owners = uuidv7();
+          expect((await claim("sound-devices", s.owner, owners)).status).toBe(200);
           expect((await renew()).status).toBe(409);
           expect((await release()).status).toBe(204);
           expect(await recorderOf()).toMatchObject({
@@ -13586,8 +13597,8 @@ describe.runIf(url)("api", () => {
             .set({ recorderSeenAt: new Date(Date.now() - RECORDER_GONE_MS - 1000) })
             .where(eq(schema.sessions.id, session.id));
           expect(await recorderOf()).toBeNull();
-          expect((await claim("sound-devices", s.owner)).status).toBe(200);
-          expect((await release(s.owner)).status).toBe(204);
+          expect((await claim("sound-devices", s.owner, owners)).status).toBe(200);
+          expect((await release(s.owner, owners)).status).toBe(204);
           expect(await recorderOf()).toBeNull();
 
           // Not another workspace's session.
@@ -13608,8 +13619,12 @@ describe.runIf(url)("api", () => {
             })
             .returning();
           expect(
-            (await send("PUT", `/api/sessions/${theirs?.id}/recorder`, { kind: "daw-midi" }))
-              .status,
+            (
+              await send("PUT", `/api/sessions/${theirs?.id}/recorder`, {
+                kind: "daw-midi",
+                claim: tab,
+              })
+            ).status,
           ).toBe(404);
           const [untouched] = await db
             .select({ by: schema.sessions.recorderBy })

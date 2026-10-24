@@ -655,6 +655,8 @@ export const sessions = pgTable(
     recorderKind: text("recorder_kind"),
     recorderBy: text("recorder_by").references(() => users.id, { onDelete: "set null" }),
     recorderSeenAt: timestamp("recorder_seen_at", { withTimezone: true }),
+    /** The connection that claimed it: each browser tab's own, so two of one person's differ. */
+    recorderClaim: text("recorder_claim"),
     ...timestamps,
   },
   (t) => [

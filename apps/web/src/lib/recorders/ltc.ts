@@ -38,49 +38,74 @@ const supported = () =>
   Boolean(navigator.mediaDevices?.getUserMedia) &&
   typeof AudioWorkletNode !== "undefined";
 
+/**
+ * What the frames read mean for the take log: each one a position, and the run rolling or
+ * stopping, whether a frame or time passing shows it (#51). `frame` takes each frame decoded;
+ * `tick` the time a block of samples brought, whatever it held.
+ */
+export function createLtcReader(
+  out: Pick<ReturnType<typeof createEmitter>, "emit" | "position">,
+  sampleRate: number,
+) {
+  let run = initialLtcRun();
+  /** The run stopped: the last position, no longer rolling, and the stop itself. */
+  const stopped = (at: number) => {
+    const last = out.position();
+    const position = last ? { ...last, rolling: false } : null;
+    if (position) out.emit({ type: "position", position });
+    out.emit({ type: "stopped", timecode: position?.timecode ?? null, at });
+  };
+  return {
+    /** A frame whose sync word ended at `frame.end`; `at` is when that was, by the clock. */
+    frame(frame: LtcFrame, at: number) {
+      // A frame's label is its own start; by its sync word's end the next frame has begun.
+      const timecode = addFrames(frame.timecode, 1);
+      const step = ltcRunStep(run, frame, frame.end, sampleRate);
+      run = step.run;
+      out.emit({ type: "position", position: { timecode, at, rolling: run.rolling } });
+      if (step.change === "rolling")
+        // It counts as running from the first of the frames that moved on.
+        out.emit({ type: "rolling", timecode: addFrames(frame.timecode, -2), at });
+      // A frame held on Rec Run between takes stops the run as it is read.
+      if (step.change === "stopped") stopped(at);
+    },
+    /** Time passing to sample `index`: frames that stop moving on, or stop coming, stop it. */
+    tick(index: number, at: number) {
+      const step = ltcRunStep(run, null, index, sampleRate);
+      run = step.run;
+      if (step.change === "stopped") stopped(at);
+    },
+  };
+}
+
 export function createLtcAdapter(options: RecorderOptions): RecorderAdapter {
   const out = createEmitter();
   let stream: MediaStream | null = null;
   let context: AudioContext | null = null;
   let node: AudioWorkletNode | null = null;
   let decoder = initialLtcState(48_000);
-  let run = initialLtcRun();
+  let reader = createLtcReader(out, decoder.sampleRate);
   let heard = false;
   let silence: ReturnType<typeof setTimeout> | undefined;
+  /** Each connection's turn: one disconnected while the browser asked is not carried on. */
+  let generation = 0;
 
   /** The wall-clock moment a sample was heard, from where the latest block ended. */
   const momentOf = (sample: number, blockEnd: number, arrived: number) =>
     arrived - ((blockEnd - sample) / decoder.sampleRate) * 1000;
 
-  const onFrame = (frame: LtcFrame, blockEnd: number, arrived: number) => {
-    const at = momentOf(frame.end, blockEnd, arrived);
-    // A frame's label is its own start; by its sync word's end the next frame has begun.
-    const timecode = addFrames(frame.timecode, 1);
-    const step = ltcRunStep(run, frame, frame.end, decoder.sampleRate);
-    run = step.run;
-    if (!heard) {
-      heard = true;
-      out.setStatus({ state: "listening" });
-    }
-    out.emit({ type: "position", position: { timecode, at, rolling: run.rolling } });
-    if (step.change === "rolling")
-      // It counts as running from the first of the frames that moved on.
-      out.emit({ type: "rolling", timecode: addFrames(frame.timecode, -2), at });
-  };
   const onBlock = (samples: Float32Array, blockEnd: number) => {
     const arrived = Date.now();
     const decoded = decodeLtc(decoder, samples);
     decoder = decoded.state;
-    for (const frame of decoded.frames) onFrame(frame, blockEnd, arrived);
-    // Time passing: frames that stop moving on (held on Rec Run, or gone) stop the run.
-    const step = ltcRunStep(run, null, decoder.index, decoder.sampleRate);
-    if (step.change === "stopped") {
-      const last = out.position();
-      const position = last ? { ...last, rolling: false } : null;
-      if (position) out.emit({ type: "position", position });
-      out.emit({ type: "stopped", timecode: position?.timecode ?? null, at: arrived });
+    for (const frame of decoded.frames) {
+      if (!heard) {
+        heard = true;
+        out.setStatus({ state: "listening" });
+      }
+      reader.frame(frame, momentOf(frame.end, blockEnd, arrived));
     }
-    run = step.run;
+    reader.tick(decoder.index, arrived);
   };
   const stop = () => {
     clearTimeout(silence);
@@ -99,6 +124,13 @@ export function createLtcAdapter(options: RecorderOptions): RecorderAdapter {
         out.setStatus({ state: "failed", reason: NO_INPUT });
         throw new Error(NO_INPUT);
       }
+      const mine = ++generation;
+      /** Disconnected while the browser asked: let go of what was opened, and go no further. */
+      const abandoned = () => {
+        if (mine === generation) return false;
+        stop();
+        return true;
+      };
       out.setStatus({ state: "connecting" });
       try {
         // Timecode is a signal, not speech: nothing may clean it up on its way in.
@@ -116,9 +148,11 @@ export function createLtcAdapter(options: RecorderOptions): RecorderAdapter {
         out.setStatus({ state: "failed", reason });
         throw new Error(reason);
       }
+      if (abandoned()) return;
       try {
         context = new AudioContext();
         await context.audioWorklet.addModule(WORKLET);
+        if (abandoned()) return;
         const source = context.createMediaStreamSource(stream);
         const channels = stream.getAudioTracks()[0]?.getSettings().channelCount ?? 1;
         if (options.channel >= channels) {
@@ -135,6 +169,7 @@ export function createLtcAdapter(options: RecorderOptions): RecorderAdapter {
           processorOptions: { channel: options.channel },
         });
         decoder = initialLtcState(context.sampleRate);
+        reader = createLtcReader(out, context.sampleRate);
         node.port.onmessage = (event: MessageEvent<{ samples: Float32Array; end: number }>) =>
           onBlock(event.data.samples, event.data.end);
         // Pulled through a silent gain, so the browser runs it without anything being heard.
@@ -144,6 +179,7 @@ export function createLtcAdapter(options: RecorderOptions): RecorderAdapter {
         node.connect(mute);
         mute.connect(context.destination);
         await context.resume();
+        if (abandoned()) return;
       } catch (error) {
         stop();
         const reason = `The timecode reader could not start: ${error instanceof Error ? error.message : "the browser refused"}.`;
@@ -168,6 +204,7 @@ export function createLtcAdapter(options: RecorderOptions): RecorderAdapter {
       }, SILENT_AFTER_MS);
     },
     disconnect() {
+      generation += 1;
       stop();
       out.setStatus({ state: "idle" });
     },

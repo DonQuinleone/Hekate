@@ -4,6 +4,7 @@ import {
   nextTakeNumber,
   recorderClaimInput,
   recorderHeld,
+  recorderReleaseQuery,
   type SessionDetail,
   type SessionRecorder,
   type SessionSummary,
@@ -162,8 +163,13 @@ async function recorderOf(
     .select({ id: users.id, name: users.name })
     .from(users)
     .where(eq(users.id, row.recorderBy));
-  if (!by || !row.recorderSeenAt) return null;
-  return { kind: row.recorderKind, by, seenAt: row.recorderSeenAt.toISOString() };
+  if (!by || !row.recorderSeenAt || !row.recorderClaim) return null;
+  return {
+    kind: row.recorderKind,
+    by,
+    claim: row.recorderClaim,
+    seenAt: row.recorderSeenAt.toISOString(),
+  };
 }
 
 /** A session of this workspace, with its project; not found otherwise. */
@@ -446,17 +452,23 @@ export const sessionRoutes = (db: Database) =>
       const organisationId = c.var.organisationId;
       const row = await sessionOf(db, organisationId, c.req.valid("param").id);
       await can(db, actorOf(c.var), "edit_takes", row.projectId);
-      const { kind, renew } = c.req.valid("json");
+      const { kind, claim, renew } = c.req.valid("json");
       // Renewed only while it is still the caller's: checked and written in one statement.
       const [held] = await db
         .update(sessions)
-        .set({ recorderKind: kind, recorderBy: c.var.userId, recorderSeenAt: new Date() })
+        .set({
+          recorderKind: kind,
+          recorderBy: c.var.userId,
+          recorderClaim: claim,
+          recorderSeenAt: new Date(),
+        })
         .where(
           inOrg(
             sessions,
             organisationId,
             eq(sessions.id, row.id),
-            renew ? eq(sessions.recorderBy, c.var.userId) : undefined,
+            // The connection's own claim: another tab of the same person's is another claim.
+            renew ? eq(sessions.recorderClaim, claim) : undefined,
           ),
         )
         .returning();
@@ -467,19 +479,19 @@ export const sessionRoutes = (db: Database) =>
       return c.json({ recorder: await recorderOf(db, held) });
     })
     // Letting go of it: only the browser's own claim, so a late goodbye never ends another's.
-    .delete("/:id/recorder", idParam, async (c) => {
+    .delete("/:id/recorder", idParam, zValidator("query", recorderReleaseQuery), async (c) => {
       const organisationId = c.var.organisationId;
       const row = await sessionOf(db, organisationId, c.req.valid("param").id);
       await can(db, actorOf(c.var), "view_takes", row.projectId);
       await db
         .update(sessions)
-        .set({ recorderKind: null, recorderBy: null, recorderSeenAt: null })
+        .set({ recorderKind: null, recorderBy: null, recorderClaim: null, recorderSeenAt: null })
         .where(
           inOrg(
             sessions,
             organisationId,
             eq(sessions.id, row.id),
-            eq(sessions.recorderBy, c.var.userId),
+            eq(sessions.recorderClaim, c.req.valid("query").claim),
           ),
         );
       return c.body(null, 204);

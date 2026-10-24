@@ -68,6 +68,8 @@ export function createMidiAdapter(options: RecorderOptions): RecorderAdapter {
     }
     for (const event of decoded.events) step(event, now);
   };
+  /** Each connection's turn: one disconnected while the browser asked is not carried on. */
+  let generation = 0;
   const stop = () => {
     clearInterval(timer);
     clearTimeout(silence);
@@ -85,6 +87,7 @@ export function createMidiAdapter(options: RecorderOptions): RecorderAdapter {
         out.setStatus({ state: "failed", reason: SAFARI });
         throw new Error(SAFARI);
       }
+      const mine = ++generation;
       out.setStatus({ state: "connecting" });
       try {
         access = await navigator.requestMIDIAccess({ sysex });
@@ -96,6 +99,11 @@ export function createMidiAdapter(options: RecorderOptions): RecorderAdapter {
         );
         out.setStatus({ state: "failed", reason });
         throw new Error(reason);
+      }
+      // Disconnected while the browser asked: go no further.
+      if (mine !== generation) {
+        stop();
+        return;
       }
       const inputs = [...access.inputs.values()];
       input = (options.input ? inputs.find((i) => i.id === options.input) : inputs[0]) ?? null;
@@ -130,6 +138,7 @@ export function createMidiAdapter(options: RecorderOptions): RecorderAdapter {
       }, SILENT_AFTER_MS);
     },
     disconnect() {
+      generation += 1;
       stop();
       out.setStatus({ state: "idle" });
     },

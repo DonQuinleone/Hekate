@@ -11848,7 +11848,7 @@
           "Takes and sessions"
         ],
         "summary": "Drive a session's takes from a recorder",
-        "description": "Says that this member's browser or tool reads the recorder and starts and stops the takes; sent again with `renew` every ten seconds while it does, which answers 409 once someone else has claimed it. The last to claim it drives.\n\nNeeds the `files:write` scope.",
+        "description": "Says that this connection (a browser tab or a tool) reads the recorder and starts and stops the takes, under a `claim` id of its own; sent again with `renew` every ten seconds while it does, which answers 409 once another connection has claimed it, the same member's included. The last to claim it drives.\n\nNeeds the `files:write` scope.",
         "security": [
           {
             "token": [
@@ -11879,16 +11879,22 @@
                     "type": "string",
                     "pattern": "^[a-z0-9-]{1,40}$"
                   },
+                  "claim": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
                   "renew": {
                     "type": "boolean"
                   }
                 },
                 "required": [
-                  "kind"
+                  "kind",
+                  "claim"
                 ]
               },
               "example": {
-                "kind": "daw-midi"
+                "kind": "daw-midi",
+                "claim": "01a16b55-0000-7000-8000-000000000001"
               }
             }
           }
@@ -11928,7 +11934,7 @@
           "Takes and sessions"
         ],
         "summary": "Stop driving a session's takes from a recorder",
-        "description": "Needs the `files:write` scope.",
+        "description": "Only the connection's own claim, named by `claim`: a late goodbye never ends another's.\n\nNeeds the `files:write` scope.",
         "security": [
           {
             "token": [
@@ -11941,6 +11947,15 @@
           {
             "name": "id",
             "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "claim",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "string",

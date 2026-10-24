@@ -208,14 +208,20 @@ export const recorderKind = z.string().regex(/^[a-z0-9-]{1,40}$/, "An adapter's 
  */
 export const recorderClaimInput = z.object({
   kind: recorderKind,
+  /** The connection's own id, made when it connects: renewals and goodbyes carry it. */
+  claim: z.uuid(),
   renew: z.boolean().optional(),
 });
+/** Letting go: only of the connection's own claim. */
+export const recorderReleaseQuery = z.object({ claim: z.uuid() });
 export type RecorderClaim = z.infer<typeof recorderClaimInput>;
 
 /** Who drives a session's takes from a recorder, as everyone in the room sees it. */
 export interface SessionRecorder {
   kind: string;
   by: { id: string; name: string };
+  /** The connection that drives, so a tab tells its own claim from another's, the same person's too. */
+  claim: string;
   /** When their browser last said it still drives. */
   seenAt: string;
 }

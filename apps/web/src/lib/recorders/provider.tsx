@@ -113,11 +113,16 @@ export function RecorderProvider({ children }: { children: ReactNode }) {
       });
       try {
         await made.connect();
-        return adapter.current === made;
       } catch {
         // Its status says why, where the recorder is chosen.
         return false;
       }
+      // Replaced or closed while the browser asked: nothing may be left listening for it.
+      if (adapter.current !== made) {
+        made.disconnect();
+        return false;
+      }
+      return true;
     },
     [close],
   );

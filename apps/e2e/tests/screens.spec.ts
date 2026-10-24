@@ -1092,6 +1092,7 @@ test("take-log-recorder", async ({ page }) => {
     body.session.recorder = {
       kind: "daw-midi",
       by: { id: "someone-else", name: "Tomas Varga" },
+      claim: "01a16b55-0000-7000-8000-000000000001",
       seenAt: new Date(FIXED_TIME).toISOString(),
     };
     await route.fulfill({ response, json: body });
