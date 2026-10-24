@@ -1,9 +1,4 @@
-import type {
-  RecorderEvent,
-  RecorderPosition,
-  RecorderStatus,
-  TakeTrigger,
-} from "@hekate/shared";
+import type { RecorderEvent, RecorderPosition, RecorderStatus, TakeTrigger } from "@hekate/shared";
 
 /**
  * A recorder adapter (#51, decision 240): how the control room's browser reads one kind of
