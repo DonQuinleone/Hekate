@@ -122,7 +122,9 @@ const toolError = (message: string) => ({
  * Keys that never leave, wherever an answer came to hold them: the tools pass on fields by
  * name, so none should be there; this is the second lock on that door.
  */
-const WITHHELD = /url|href|link|playlist|segment|secret|token|key$/i;
+const WITHHELD = /url|href|link|playlist|segment|secret|token/i;
+/** And any key ending in one: `key`, `contentKey`, `apiKey`. */
+const WITHHELD_ENDING = /key$/i;
 
 /** An answer with every withheld key taken out, all the way down. */
 export function withheld(value: unknown): unknown {
@@ -130,7 +132,7 @@ export function withheld(value: unknown): unknown {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => !WITHHELD.test(key))
+      .filter(([key]) => !WITHHELD.test(key) && !WITHHELD_ENDING.test(key))
       .map(([key, inner]) => [key, withheld(inner)]),
   );
 }

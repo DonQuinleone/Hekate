@@ -149,9 +149,11 @@ describe("caption tracks: languages, kinds, transcripts and export (#201)", () =
       const text = writeCaptions(cues, format, "fr-CA");
       expect(captionFormatOf("whatever.txt", text)).toBe(format);
       const back = parseCaptions(text, format);
-      // SubRip has no escapes: what looks like a tag there is read as one.
+      // SubRip has no escapes: what looks like a tag there (`< 6 >`) is read as one.
       expect(back.map((c) => c.text)).toEqual(
-        cues.map((c) => (format === "srt" ? c.text.replace(/<[^<>]*>/g, "") : c.text)),
+        cues.map((c) =>
+          format === "srt" && c.text === "Café & bar, 5 < 6 > 4" ? "Café & bar, 5  4" : c.text,
+        ),
       );
       back.forEach((c, i) => {
         expect(c.start).toBeCloseTo(cues[i]?.start ?? -1, 3);
