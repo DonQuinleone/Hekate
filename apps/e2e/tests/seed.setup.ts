@@ -1492,7 +1492,11 @@ setup("seed", async ({ page, browser }) => {
     await sql`insert into workspace_usage (id, organisation_id, month, storage_bytes, storage_peak, members, guests, projects, plays, downloads, measured_at)
       select gen_random_uuid(), ${label?.id ?? null}, date_trunc('month', ${FIXED_TIME}::timestamptz)::date,
         coalesce(sum(byte_size), 0), coalesce(sum(byte_size), 0), 0, 0, 0, 184, 12, ${FIXED_TIME}::timestamptz
-      from blobs where organisation_id = ${label?.id ?? null}`;
+      from blobs where organisation_id = ${label?.id ?? null}
+      on conflict (organisation_id, month) do update set storage_bytes = excluded.storage_bytes,
+        storage_peak = excluded.storage_peak, members = excluded.members, guests = excluded.guests,
+        projects = excluded.projects, plays = excluded.plays, downloads = excluded.downloads,
+        measured_at = excluded.measured_at`;
     const [saltmarsh] = await sql<
       { id: string }[]
     >`select id from organisations where name = 'Saltmarsh Films'`;
