@@ -2,7 +2,7 @@ import { createHmac, hkdfSync } from "node:crypto";
 import { Fft } from "./spectrogram.ts";
 
 /**
- * The forensic audio mark (#32, decision 236): the signal processing alone, with no files,
+ * The forensic audio mark (#32, decision 239): the signal processing alone, with no files,
  * processes or database, so every part of it can be tested by itself.
  *
  * A mark is a pattern of small gains on a recording's spectrum. The sound is looked at in

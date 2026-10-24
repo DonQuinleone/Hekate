@@ -182,7 +182,7 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   emailSubjects: {},
   secondFactor: "off",
   securityKeyForAdmins: false,
-  forensicAudio: true,
+  forensicAudio: false,
   roleTools: startingRoleTools,
   reviewer: {
     comment: true,

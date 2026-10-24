@@ -2,7 +2,7 @@ import { z } from "zod";
 import { downloadKinds } from "./downloads.ts";
 
 /**
- * Forensic marking (#32, decision 236): an inaudible mark in every recording a person
+ * Forensic marking (#32, decision 239): an inaudible mark in every recording a person
  * downloads, made for them, so a leaked copy can be traced to whose download it was. Owners
  * turn it on or off for the workspace (it is on unless they turn it off, where the plan
  * includes it) and trace suspected leaks. Streams, video, pictures and pages carry only the
@@ -17,7 +17,7 @@ export type ForensicSettingsInput = z.infer<typeof forensicSettingsInput>;
 export interface ForensicStatus {
   /** Whether the workspace's plan includes it (always, without the billing module). */
   included: boolean;
-  /** Whether recordings' downloads are marked: on by default. */
+  /** Whether recordings' downloads are marked: off until the owners turn it on (decision 239). */
   audio: boolean;
   /** How many marks have been made, every one of them traceable. */
   marks: number;

@@ -156,6 +156,9 @@ describe.runIf(url)("forensic marking and leak tracing (#32)", () => {
         mediaInfo: await probe(join(dir, "probe.wav")),
       })
       .returning();
+    // Off until the owners turn it on (decision 239).
+    const on = await app.request("/api/organisation/forensic", json({ audio: true }, owner, "PUT"));
+    expect(on.status).toBe(200);
     return { owner, engineer, organisationId, projectId, fileId: file?.id ?? "" };
   };
   /** A download, asked for and taken, as someone with the cookie would. */
@@ -292,7 +295,7 @@ describe.runIf(url)("forensic marking and leak tracing (#32)", () => {
     120_000,
   );
 
-  it("is for owners alone, and turning it off is theirs and logged", async () => {
+  it("is for owners alone, and turning it on is theirs and logged", async () => {
     const owner = await setup();
     const organisationId = await organisationOf(owner);
     const admin = await joinAs(owner, "ines@endlesshall.example", "Ines Arlow", "admin");
@@ -317,12 +320,9 @@ describe.runIf(url)("forensic marking and leak tracing (#32)", () => {
     const status = (await (
       await get("/api/organisation/forensic", owner)
     ).json()) as ForensicStatus;
-    expect(status).toEqual({ included: true, audio: true, marks: 0 });
-    const off = await app.request(
-      "/api/organisation/forensic",
-      json({ audio: false }, owner, "PUT"),
-    );
-    expect(((await off.json()) as ForensicStatus).audio).toBe(false);
+    expect(status).toEqual({ included: true, audio: false, marks: 0 });
+    const on = await app.request("/api/organisation/forensic", json({ audio: true }, owner, "PUT"));
+    expect(((await on.json()) as ForensicStatus).audio).toBe(true);
     const [logged] = await db
       .select()
       .from(schema.accessEvents)
@@ -332,12 +332,12 @@ describe.runIf(url)("forensic marking and leak tracing (#32)", () => {
           eq(schema.accessEvents.action, "organisation.settings"),
         ),
       );
-    expect(logged?.details).toEqual({ change: { forensicAudio: false } });
+    expect(logged?.details).toEqual({ change: { forensicAudio: true } });
     // The admin's own change keeps the owners' choice.
     await app.request("/api/organisation/settings", json({ guestLinkDays: 14 }, admin, "PATCH"));
     expect(
       ((await (await get("/api/organisation/forensic", owner)).json()) as ForensicStatus).audio,
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it.runIf(hasFfmpeg || process.env.CI)(

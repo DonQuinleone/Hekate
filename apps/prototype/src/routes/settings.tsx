@@ -1427,7 +1427,11 @@ export function SettingsPage({
             title="Forensic marking"
             intro="Every stream and permitted download carries an inaudible, invisible mark that names the person who received it."
           >
-            <SwitchRow name="Audio" checked />
+            <SwitchRow
+              name="Audio"
+              hint="Off until you turn it on. Listen to a marked download of quiet material first."
+              checked={false}
+            />
             <SwitchRow name="Video" checked />
             <SwitchRow
               name="Pages"

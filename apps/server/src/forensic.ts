@@ -17,7 +17,7 @@ const { forensicMarks, organisations, reviews } = schema;
 type Reader = Pick<Database, "select">;
 
 /**
- * Forensic marks (#32, decision 236), as the workspace keeps them: whether its recordings'
+ * Forensic marks (#32, decision 239), as the workspace keeps them: whether its recordings'
  * downloads are marked, a mark made for each, and the marks a suspected leak is compared with.
  */
 

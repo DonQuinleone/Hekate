@@ -44,7 +44,7 @@ describe("workspace settings", () => {
       emailSubjects: { invitation: "Join {workspace}" },
       secondFactor: "off",
       securityKeyForAdmins: false,
-      forensicAudio: true,
+      forensicAudio: false,
       roleTools: { ...defaultWorkspaceSettings.roleTools, Reviewer: ["score"] },
       reviewer: {
         comment: true,

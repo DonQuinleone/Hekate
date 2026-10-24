@@ -14,11 +14,11 @@ describe("forensic marking", () => {
     expect(chanceWords(1e-300)).toBe("less than one in 10^30");
   });
 
-  it("is on unless the owners turn it off", () => {
-    expect(defaultWorkspaceSettings.forensicAudio).toBe(true);
-    expect(workspaceSettingsOf({}).forensicAudio).toBe(true);
-    expect(workspaceSettingsOf({ forensicAudio: false }).forensicAudio).toBe(false);
-    expect(workspaceSettingsOf({ forensicAudio: "no" }).forensicAudio).toBe(true);
+  it("is off until the owners turn it on", () => {
+    expect(defaultWorkspaceSettings.forensicAudio).toBe(false);
+    expect(workspaceSettingsOf({}).forensicAudio).toBe(false);
+    expect(workspaceSettingsOf({ forensicAudio: true }).forensicAudio).toBe(true);
+    expect(workspaceSettingsOf({ forensicAudio: "yes" }).forensicAudio).toBe(false);
     expect(forensicSettingsInput.safeParse({ audio: false }).success).toBe(true);
     expect(forensicSettingsInput.safeParse({ audio: false, video: true }).success).toBe(false);
   });
