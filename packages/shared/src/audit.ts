@@ -69,6 +69,9 @@ export const auditActions = [
   /** Someone added a caption file to a video (#146), or removed one. */
   "file.captions_add",
   "file.captions_remove",
+  /** Someone renamed a caption track or changed its language or kind (#201), or exported one. */
+  "file.captions_update",
+  "file.captions_export",
   /** Someone exported a file's comments as a marker list. */
   "comment.export",
   /** Someone imported a marker list as comments on a file (#134). */

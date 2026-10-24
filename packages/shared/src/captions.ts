@@ -1,8 +1,9 @@
 import { z } from "zod";
 
 /**
- * Captions from a sidecar file beside a video (#146): SubRip, WebVTT or TTML, read once into
- * cues when the file is added, then shown over the picture as it plays. Only what is said and
+ * Caption tracks (#146, #201): SubRip, WebVTT or TTML files added to a video or a recording,
+ * read once into cues, then shown over the picture (or under the waveform) as it plays, read
+ * as a transcript, searched, and exported in any of the three formats. Only what is said and
  * when: positions, styles and voices are left to the deliverable itself.
  */
 
@@ -20,8 +21,161 @@ export const captionFormatNames: Record<CaptionFormat, string> = {
 export const CAPTION_FILE_MAX_BYTES = 2 * 1024 * 1024;
 /** And hold at most this many cues. */
 export const CAPTION_CUES_MAX = 20_000;
-/** A video can carry at most this many caption files (languages, captions and subtitles). */
+/** A file can carry at most this many caption tracks (languages, captions and subtitles). */
 export const CAPTION_TRACKS_MAX = 12;
+
+/** The kinds of file that carry caption tracks: those that play. */
+export const captionedKinds: readonly string[] = ["video", "audio"];
+
+/**
+ * What a track is for. Subtitles carry the words, for viewers who hear them but may not follow
+ * the language; captions (SDH) carry the sounds as well, for viewers who are deaf or hard of
+ * hearing. The same distinction as HTML's track kinds.
+ */
+export const captionKinds = ["subtitles", "captions"] as const;
+export type CaptionKind = (typeof captionKinds)[number];
+export const captionKind = z.enum(captionKinds);
+export const captionKindNames: Record<CaptionKind, string> = {
+  subtitles: "Subtitles",
+  captions: "Captions (SDH)",
+};
+
+/** A language tag (BCP 47), in its canonical form: "en", "fr-CA", "zh-Hant"; null if none. */
+export function canonicalLanguage(tag: string): string | null {
+  if (!/^[a-z]{2,3}(-[a-z0-9]{1,8})*$/i.test(tag.trim())) return null;
+  try {
+    return Intl.getCanonicalLocales(tag.trim())[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** A track's language as it is given: a tag such as "en" or "fr-CA", stored canonical. */
+export const captionLanguage = z
+  .string()
+  .trim()
+  .max(35)
+  .refine(
+    (tag) => canonicalLanguage(tag) !== null,
+    "Give the language as a tag such as en or fr-CA",
+  )
+  .transform((tag) => canonicalLanguage(tag) ?? tag);
+
+const languageNames = (() => {
+  try {
+    return new Intl.DisplayNames(["en-GB"], { type: "language", fallback: "none" });
+  } catch {
+    return null;
+  }
+})();
+
+/** A language tag's name in English ("British English", "Canadian French"); null if unknown. */
+export function languageName(tag: string): string | null {
+  try {
+    return languageNames?.of(tag) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The languages offered when a track is added, by tag; any other tag is accepted too. */
+export const commonCaptionLanguages = [
+  "en",
+  "en-GB",
+  "en-US",
+  "fr",
+  "fr-CA",
+  "de",
+  "es",
+  "es-419",
+  "it",
+  "pt",
+  "pt-BR",
+  "nl",
+  "sv",
+  "nb",
+  "da",
+  "fi",
+  "is",
+  "pl",
+  "cs",
+  "sk",
+  "hu",
+  "ro",
+  "bg",
+  "el",
+  "ru",
+  "uk",
+  "tr",
+  "ar",
+  "he",
+  "fa",
+  "hi",
+  "th",
+  "vi",
+  "id",
+  "ja",
+  "ko",
+  "zh-Hans",
+  "zh-Hant",
+] as const;
+
+/** What a new track is called unless someone names it: "English", "English (SDH)". */
+export function defaultCaptionLabel(language: string | null, kind: CaptionKind): string {
+  const name = language ? languageName(language) : null;
+  if (!name) return kind === "captions" ? "Captions (SDH)" : "Subtitles";
+  return kind === "captions" ? `${name} (SDH)` : name;
+}
+
+/** Name parts that say what a sidecar is for rather than its language: `titles.sdh.srt`. */
+const KIND_WORDS: Record<string, CaptionKind> = {
+  sdh: "captions",
+  cc: "captions",
+  hoh: "captions",
+  subs: "subtitles",
+  forced: "subtitles",
+};
+
+/**
+ * The language a caption file says it is in: WebVTT's `Language:` header, TTML's `xml:lang`,
+ * or a tag in the name before its extension (`titles.fr-CA.srt`). Null when none says.
+ */
+export function captionLanguageOf(
+  name: string,
+  text: string,
+  format: CaptionFormat,
+): string | null {
+  const head = text.replace(/^﻿/, "").slice(0, 4096);
+  if (format === "vtt") {
+    const header = head.replace(/\r\n?/g, "\n").split(/\n[ \t]*\n/)[0] ?? "";
+    const said = /^Language:[ \t]*(\S+)/im.exec(header)?.[1];
+    const tag = said ? canonicalLanguage(said) : null;
+    if (tag) return tag;
+  }
+  if (format === "ttml") {
+    const root = /<(?:\w+:)?tt[\s>][^>]*>?/.exec(head)?.[0] ?? "";
+    const said = /\sxml:lang\s*=\s*(?:"([^"]*)"|'([^']*)')/.exec(root);
+    const tag = said ? canonicalLanguage(said[1] ?? said[2] ?? "") : null;
+    if (tag) return tag;
+  }
+  const parts = name.split(".").slice(1, -1).reverse();
+  for (const part of parts) {
+    if (KIND_WORDS[part.toLowerCase()]) continue;
+    const tag = canonicalLanguage(part.replace(/_/g, "-"));
+    if (tag && languageName(tag)) return tag;
+    break;
+  }
+  return null;
+}
+
+/** What a caption file's name says it is for: `titles.en.sdh.srt` is captions (SDH). */
+export function captionKindOf(name: string): CaptionKind | null {
+  for (const part of name.toLowerCase().split(".").slice(1, -1)) {
+    const kind = KIND_WORDS[part];
+    if (kind) return kind;
+  }
+  return null;
+}
 
 export const captionCue = z.object({
   /** Seconds from the start of the video. */
@@ -39,10 +193,33 @@ export const captionLabel = z
   .min(1, "Name the captions")
   .max(60, "A name can be at most 60 characters");
 
+/** Adding a caption track: what the menu calls it, its language and what it is for. */
+export const captionUploadQuery = z.object({
+  label: captionLabel,
+  language: captionLanguage.optional(),
+  kind: captionKind.default("subtitles"),
+});
+
+/** Renaming a track, or saying again what language it is in and what it is for. */
+export const captionUpdate = z
+  .object({
+    label: captionLabel.optional(),
+    language: captionLanguage.nullable().optional(),
+    kind: captionKind.optional(),
+  })
+  .refine((v) => Object.values(v).some((x) => x !== undefined), "Nothing to change");
+export type CaptionUpdate = z.infer<typeof captionUpdate>;
+
+/** Exporting a track, in any of the three formats whatever it came as. */
+export const captionExportQuery = z.object({ format: captionFormat });
+
 export interface CaptionTrack {
   id: string;
   /** "English": how the menu names it. */
   label: string;
+  /** Its language tag, where it is known: "en", "fr-CA". */
+  language: string | null;
+  kind: CaptionKind;
   /** The sidecar's own file name. */
   name: string;
   format: CaptionFormat;
@@ -283,4 +460,179 @@ function paragraph(text: string, from: number): string | null {
   end.lastIndex = from;
   const m = end.exec(text);
   return m ? text.slice(from, m.index) : null;
+}
+
+/** The type each format is sent and stored as. */
+export const captionContentTypes: Record<CaptionFormat, string> = {
+  srt: "application/x-subrip",
+  vtt: "text/vtt",
+  ttml: "application/ttml+xml",
+};
+
+/** A time as SubRip (`00:01:02,345`) or WebVTT and TTML (`00:01:02.345`) write it. */
+function stamp(seconds: number, separator: "," | "."): string {
+  const ms = Math.max(0, Math.round(seconds * 1000));
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor(ms / 60_000) % 60;
+  const s = Math.floor(ms / 1000) % 60;
+  const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+  return `${pad(h)}:${pad(m)}:${pad(s)}${separator}${pad(ms % 1000, 3)}`;
+}
+
+const escapeXml = (text: string) =>
+  text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+/** A cue's lines, none of them blank, which would end the cue in SubRip and WebVTT. */
+const linesOf = (text: string) =>
+  text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+
+/**
+ * SubRip: numbered blocks, with the CRLF line ends most players expect. SubRip has no
+ * escapes, so the words are written as they are.
+ */
+function writeSrt(cues: readonly CaptionCue[]): string {
+  return cues
+    .map(
+      (c, i) =>
+        `${i + 1}\r\n${stamp(c.start, ",")} --> ${stamp(c.end, ",")}\r\n${linesOf(c.text).join("\r\n")}\r\n`,
+    )
+    .join("\r\n");
+}
+
+/** WebVTT, with the language in its header where it is known. */
+function writeVtt(cues: readonly CaptionCue[], language: string | null): string {
+  const header = language ? `WEBVTT\nLanguage: ${language}\n` : "WEBVTT\n";
+  const blocks = cues.map(
+    (c) =>
+      `${stamp(c.start, ".")} --> ${stamp(c.end, ".")}\n${linesOf(c.text).map(escapeXml).join("\n")}\n`,
+  );
+  return [header, ...blocks].join("\n");
+}
+
+/** TTML: one division of paragraphs, lines apart by breaks, the language on its root. */
+function writeTtml(cues: readonly CaptionCue[], language: string | null): string {
+  const paragraphs = cues.map(
+    (c) =>
+      `      <p begin="${stamp(c.start, ".")}" end="${stamp(c.end, ".")}">${linesOf(c.text)
+        .map(escapeXml)
+        .join("<br/>")}</p>`,
+  );
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    `<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="${escapeXml(language ?? "").replace(/"/g, "&quot;")}">`,
+    "  <body>",
+    "    <div>",
+    ...paragraphs,
+    "    </div>",
+    "  </body>",
+    "</tt>",
+    "",
+  ].join("\n");
+}
+
+/** A track's cues written out in a format, whichever it was read from (#201). */
+export function writeCaptions(
+  cues: readonly CaptionCue[],
+  format: CaptionFormat,
+  language: string | null = null,
+): string {
+  if (format === "srt") return writeSrt(cues);
+  if (format === "vtt") return writeVtt(cues, language);
+  return writeTtml(cues, language);
+}
+
+/**
+ * The name an exported track is saved as, as players look for a sidecar beside its video:
+ * the file's name, then the language and `sdh` where they apply, then the format's extension.
+ * `Opening titles - Cut 3.mov` gives `Opening titles - Cut 3.en.sdh.srt`.
+ */
+export function captionFileName(
+  fileName: string,
+  track: Pick<CaptionTrack, "language" | "kind">,
+  format: CaptionFormat,
+): string {
+  const base = fileName.replace(/\.[^./\\]{1,8}$/, "") || "Captions";
+  const parts = [base, track.language, track.kind === "captions" ? "sdh" : null, format];
+  return parts.filter((p): p is string => Boolean(p)).join(".");
+}
+
+/**
+ * The cue to mark in a transcript at a moment: of those showing, the one that began last;
+ * -1 between cues.
+ */
+export function activeCue(cues: readonly CaptionCue[], time: number): number {
+  // The last cue to begin by now, found by halves: cues are in time order.
+  let lo = 0;
+  let hi = cues.length - 1;
+  let last = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if ((cues[mid]?.start ?? 0) <= time) {
+      last = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  // An earlier, longer cue can still be showing; a few back is as far as overlaps reach.
+  for (let i = last; i >= 0 && i > last - 32; i--) {
+    const cue = cues[i];
+    if (cue && cue.start <= time && time < cue.end) return i;
+  }
+  return -1;
+}
+
+/**
+ * A text folded for searching: lower case, accents dropped, each run of spaces and line
+ * breaks one space; with, for each folded letter, where its letter begins and ends in the
+ * original, so a match can be marked there.
+ */
+function fold(text: string): { folded: string; from: number[]; to: number[] } {
+  let folded = "";
+  const from: number[] = [];
+  const to: number[] = [];
+  let at = 0;
+  for (const ch of text) {
+    const f = /\s/.test(ch)
+      ? folded.endsWith(" ")
+        ? ""
+        : " "
+      : ch.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+    for (let k = 0; k < f.length; k++) {
+      from.push(at);
+      to.push(at + ch.length);
+    }
+    folded += f;
+    at += ch.length;
+  }
+  return { folded, from, to };
+}
+
+/** A search box's words as they are matched: folded, without spaces at either end. */
+const needle = (query: string) => fold(query.trim()).folded;
+
+/** Where a search matches in a text, as [start, end) ranges of the original, for marking. */
+export function matchRanges(text: string, query: string): [number, number][] {
+  const n = needle(query);
+  if (!n) return [];
+  const { folded, from, to } = fold(text);
+  const ranges: [number, number][] = [];
+  for (let i = folded.indexOf(n); i >= 0; i = folded.indexOf(n, i + n.length))
+    ranges.push([from[i] ?? 0, to[i + n.length - 1] ?? text.length]);
+  return ranges;
+}
+
+/**
+ * A transcript searched (#201): the cues whose words hold the search as a phrase, whatever
+ * the case and accents, across their line breaks. Their places in the track, in order.
+ */
+export function searchCues(cues: readonly CaptionCue[], query: string): number[] {
+  const n = needle(query);
+  if (!n) return [];
+  const found: number[] = [];
+  cues.forEach((c, i) => {
+    if (fold(c.text).folded.includes(n)) found.push(i);
+  });
+  return found;
 }

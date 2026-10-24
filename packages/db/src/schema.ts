@@ -10,6 +10,7 @@ import {
   authResults,
   type CaptionCue,
   type CaptionFormat,
+  type CaptionKind,
   type ChannelKind,
   type CommentMention,
   type CommentReferences,
@@ -1552,9 +1553,9 @@ export const comments = pgTable(
 );
 
 /**
- * A video's captions, from a sidecar file (#146): its bytes an encrypted blob like any other,
- * kept as it came, and its cues read once when it was added, which the player shows over the
- * picture. It goes with its video.
+ * A caption track on a video or a recording, from a sidecar file (#146, #201): its bytes an
+ * encrypted blob like any other, kept as it came, and its cues read once when it was added,
+ * which the player shows and the transcript lists. It goes with its file.
  */
 export const captionTracks = pgTable(
   "caption_tracks",
@@ -1567,8 +1568,12 @@ export const captionTracks = pgTable(
     blobId: uuid("blob_id")
       .notNull()
       .references(() => blobs.id, { onDelete: "no action" }),
-    /** How the player's menu names it: "English", "SDH". */
+    /** How the player's menu names it: "English", "English (SDH)". */
     label: text("label").notNull(),
+    /** Its language tag (BCP 47), where it is known: "en", "fr-CA". */
+    language: text("language"),
+    /** Subtitles (the words) or captions for the deaf and hard of hearing (#201). */
+    kind: text("kind").$type<CaptionKind>().notNull().default("subtitles"),
     /** The sidecar's own file name. */
     name: text("name").notNull(),
     format: text("format").$type<CaptionFormat>().notNull(),
