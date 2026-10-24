@@ -1,6 +1,6 @@
 // Run inside the app image (CI's image job): it starts as built, read-only and with every
-// capability dropped, its media tools work (the ADM renderer too), and nothing in it can raise
-// its privileges.
+// capability dropped, its media tools work (the ADM renderer too), its PDF fonts are there, and
+// nothing in it can raise its privileges.
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -35,6 +35,13 @@ try {
   });
 } catch (error) {
   fail(`the ADM renderer does not run: ${error.stderr || error.message}`);
+}
+// The fonts the PDFs set text outside WinAnsi in (decision 236) are where the image says.
+for (const name of ["PDF_FONT", "PDF_FONT_BOLD", "PDF_FONT_FALLBACK"]) {
+  for (const font of (process.env[name] ?? "").split(",").filter(Boolean)) {
+    if (!existsSync(font)) fail(`${name} names ${font}, which is missing`);
+  }
+  if (!process.env[name]) fail(`${name} is not set`);
 }
 for (const gone of [
   "/bin/sh",
