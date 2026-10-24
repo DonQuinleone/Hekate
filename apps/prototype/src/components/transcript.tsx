@@ -183,7 +183,6 @@ export function TranscriptColumn({
   const [following, setFollowing] = useState(true);
   const [exportOpen, setExportOpen, exportBox] = usePopover();
   const list = useRef<HTMLOListElement>(null);
-  const ours = useRef(false);
   const cues = track?.cues ?? [];
   const at = activeCue(cues, playback.time);
   const shown = useMemo(() => {
@@ -191,13 +190,20 @@ export function TranscriptColumn({
     return cues.map((c, i) => ({ c, i })).filter(({ c }) => !q || foldText(c.text).includes(q));
   }, [cues, query]);
 
+  // The cue being said kept in view, scrolling the list alone and never the page.
   useEffect(() => {
-    if (!following || at < 0) return;
-    const row = list.current?.querySelector<HTMLElement>(`[data-cue="${at}"]`);
+    const box = list.current;
+    if (!following || at < 0 || !box) return;
+    const row = box.querySelector<HTMLElement>(`[data-cue="${at}"]`);
     if (!row) return;
-    ours.current = true;
-    row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    const top = row.offsetTop;
+    if (top < box.scrollTop || top + row.offsetHeight > box.scrollTop + box.clientHeight)
+      box.scrollTo({ top: Math.max(0, top - box.clientHeight / 3), behavior: "smooth" });
   }, [at, following]);
+  /** The reader scrolled: stop following while it plays, until asked back. */
+  const away = () => {
+    if (playback.playing) setFollowing(false);
+  };
 
   if (!track) return null;
   const time = (s: number) => (video ? formatTimecode(s, fps) : formatClock(s, false));
@@ -287,12 +293,9 @@ export function TranscriptColumn({
         <ol
           ref={list}
           aria-label={`${track.label} transcript`}
-          onScroll={() => {
-            // A scroll we made follows; one the reader made stops the following.
-            if (ours.current) ours.current = false;
-            else if (playback.playing) setFollowing(false);
-          }}
-          className="scroll-quiet m-0 flex min-h-0 flex-1 list-none flex-col gap-px overflow-auto px-1.5 pb-2"
+          onWheel={away}
+          onTouchMove={away}
+          className="scroll-quiet relative m-0 flex min-h-0 flex-1 list-none flex-col gap-px overflow-auto px-1.5 pb-2"
         >
           {shown.length === 0 && (
             <li className="px-4 py-10 text-center text-[13px] text-ink-3">Nothing matches.</li>

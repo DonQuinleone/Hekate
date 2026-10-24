@@ -59,61 +59,61 @@ function CaptionTracks({ file }: { file: File }) {
           </li>
         ))}
       </ul>
-      <div>
-        <Button variant="secondary" size="sm" onClick={() => setAdding(true)}>
-          Add captions…
-        </Button>
-      </div>
-      {adding && <AddCaptionsDialog onClose={() => setAdding(false)} />}
+      {adding ? (
+        <AddCaptionsForm onClose={() => setAdding(false)} />
+      ) : (
+        <div>
+          <Button variant="secondary" size="sm" onClick={() => setAdding(true)}>
+            Add captions…
+          </Button>
+        </div>
+      )}
     </section>
   );
 }
 
 /**
- * Adding a caption track: the file first, then what the menu calls it. Its language and what
- * it is for are read from the file where it says (`.fr.`, `.sdh.`, WebVTT's header, TTML's
- * `xml:lang`) and can be changed before it is added.
+ * Adding a caption track, in the sheet itself once the file is chosen: what the menu calls
+ * it, its language and what it is for. The language and kind are read from the file where it
+ * says (`.fr.`, `.sdh.`, WebVTT's header, TTML's `xml:lang`); the name follows them until it
+ * is typed over. Renaming a track opens the same form in its row.
  */
-function AddCaptionsDialog({ onClose }: { onClose: () => void }) {
+function AddCaptionsForm({ onClose }: { onClose: () => void }) {
   const [language, setLanguage] = useState("fr");
   const [kind, setKind] = useState<"subtitles" | "captions">("subtitles");
   const [label, setLabel] = useState("French");
   return (
-    <Dialog
-      title="Add captions"
-      description="A SubRip (.srt), WebVTT (.vtt) or TTML (.ttml) file, at most 2 MB."
-      onClose={onClose}
-      width="sm"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={onClose}>Add captions</Button>
-        </>
-      }
+    <form
+      aria-label="Add captions"
+      className="flex flex-col gap-3 rounded-panel border border-line p-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
     >
-      <div className="flex flex-col gap-4">
-        <div className="flex h-10 items-center gap-2 rounded-control border border-line px-3 text-[13px]">
-          <Icon name="file" size={14} className="text-ink-3" />
-          <span className="min-w-0 flex-1 truncate text-ink">Opening titles.fr.vtt</span>
-          <span className="text-ink-3">WebVTT · 18 captions</span>
-        </div>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[13px] text-ink-2">Language</span>
-          <Select value={language} onChange={(e) => setLanguage(e.target.value)}>
-            <option value="">Not said</option>
-            <option value="en">English</option>
-            <option value="fr">French</option>
-            <option value="de">German</option>
-            <option value="es">Spanish</option>
-          </Select>
-        </label>
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[13px] text-ink-2">For</span>
+      <span className="flex min-w-0 items-center gap-2 text-[13px]">
+        <Icon name="file" size={14} className="shrink-0 text-ink-3" />
+        <span className="min-w-0 truncate text-ink">Opening titles.fr.vtt</span>
+      </span>
+      <label className="flex flex-col gap-1.5">
+        <span className="text-[13px] text-ink-2">Language</span>
+        <Select
+          className="h-8 text-[13px]"
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+        >
+          <option value="">Not said</option>
+          <option value="en">English</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+          <option value="es">Spanish</option>
+        </Select>
+      </label>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[13px] text-ink-2">For</span>
+        <div className="self-start">
           <Seg
             label="What the track is for"
-            size="md"
             value={kind}
             onChange={setKind}
             options={[
@@ -121,18 +121,31 @@ function AddCaptionsDialog({ onClose }: { onClose: () => void }) {
               { id: "captions", label: "Captions (SDH)" },
             ]}
           />
-          <span className="text-[12px] text-ink-3">
-            {kind === "subtitles"
-              ? "The words, for viewers who hear them."
-              : "The words and the sounds, for viewers who are deaf or hard of hearing."}
-          </span>
         </div>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[13px] text-ink-2">Name in the Captions menu</span>
-          <Input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={60} />
-        </label>
+        <span className="text-[12px] text-ink-3">
+          {kind === "subtitles"
+            ? "The words, for viewers who hear them."
+            : "The words and the sounds, for viewers who are deaf or hard of hearing."}
+        </span>
       </div>
-    </Dialog>
+      <label className="flex flex-col gap-1.5">
+        <span className="text-[13px] text-ink-2">Name in the Captions menu</span>
+        <Input
+          className="h-8 text-[13px]"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          maxLength={60}
+        />
+      </label>
+      <div className="flex items-center justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" size="sm">
+          Add captions
+        </Button>
+      </div>
+    </form>
   );
 }
 
