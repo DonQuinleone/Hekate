@@ -98,7 +98,7 @@ describe("contracting statements (#421)", () => {
     ).toEqual([]);
   });
 
-  it("leaves the release before able to run against file chains, spectrogram variants, events, workspace mail, suppressions, trace ids, usage, plans, billing, upload requests to a track, API tokens, workspace export, support, OAuth, ticket notifications, listening rooms, caption tracks and forensic marks", () => {
+  it("leaves the release before able to run against file chains, spectrogram variants, events, workspace mail, suppressions, trace ids, usage, plans, billing, upload requests to a track, API tokens, workspace export, support, OAuth, ticket notifications, listening rooms, caption tracks and forensic marks, and the recorder driving a session", () => {
     for (const name of [
       "0116_file_chains",
       "0117_spectrogram_variants",
@@ -124,10 +124,22 @@ describe("contracting statements (#421)", () => {
       "0137_listening",
       "0138_captions",
       "0139_forensic",
+      "0141_recorders",
     ]) {
       const text = readFileSync(join(migrationsFolder, `${name}.sql`), "utf8");
       expect(contractingStatements(text)).toEqual([]);
     }
+  });
+
+  it("leaves out a constraint on columns the same migration adds, but not on older ones", () => {
+    const added = [
+      'ALTER TABLE "sessions" ADD COLUMN "recorder_by" text;--> statement-breakpoint',
+      'ALTER TABLE "sessions" ADD CONSTRAINT "sessions_recorder_by_users_id_fk" FOREIGN KEY ("recorder_by") REFERENCES "public"."users"("id") ON DELETE set null;',
+    ].join("\n");
+    expect(contractingStatements(added)).toEqual([]);
+    const older =
+      'ALTER TABLE "files" ADD CONSTRAINT "files_previous_file_id_files_id_fk" FOREIGN KEY ("previous_file_id") REFERENCES "public"."files"("id");';
+    expect(contractingStatements(older)).toHaveLength(1);
   });
 
   it("takes a migration's own word that it contracts", () => {

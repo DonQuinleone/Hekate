@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/label";
+import { FollowDaw } from "~/components/recorder";
 import { Dropdown, MenuList, usePopover } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
@@ -343,6 +344,7 @@ export function ViewMenu({
               />
             </div>
           )}
+          <FollowDaw />
           {/* Views kept with the account under a name; removed from Account, Appearance. */}
           <div className={cn(row, "border-t border-hairline pt-3")}>
             Presets

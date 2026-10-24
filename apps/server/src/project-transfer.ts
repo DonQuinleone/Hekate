@@ -654,6 +654,9 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
   // Who it lists stays listed, but not as a member or guest of the workspace it left.
   await tx.execute(sql`update personnel set user_id = null, guest_id = null
     where organisation_id = ${to} and project_id = ${P}`);
+  // No browser in the workspace it left drives a session's takes from a recorder any more.
+  await tx.execute(sql`update sessions set recorder_kind = null, recorder_by = null,
+    recorder_seen_at = null, recorder_claim = null where organisation_id = ${to} and project_id = ${P}`);
   // A template made from it in the losing workspace no longer points at it.
   await tx.execute(sql`update project_templates set from_project_id = null
     where organisation_id = ${from} and from_project_id = ${P}`);

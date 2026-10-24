@@ -755,6 +755,17 @@ export const apiOperations: Record<string, ApiOperation> = {
     summary: "Log the next take",
     description: "Numbered as the session numbers them, rolling or armed.",
   },
+  "PUT /sessions/{id}/recorder": {
+    summary: "Drive a session's takes from a recorder",
+    description:
+      "Says that this connection (a browser tab or a tool) reads the recorder and starts and stops the takes, under a `claim` id of its own; sent again with `renew` every ten seconds while it does, which answers 409 once another connection has claimed it, the same member's included. The last to claim it drives.",
+    request: { kind: "daw-midi", claim: "01a16b55-0000-7000-8000-000000000001" },
+  },
+  "DELETE /sessions/{id}/recorder": {
+    summary: "Stop driving a session's takes from a recorder",
+    description:
+      "Only the connection's own claim, named by `claim`: a late goodbye never ends another's.",
+  },
   "POST /sessions/{id}/todos": { summary: "Add to a session's to-do list" },
   "PATCH /sessions/{id}/todos/{todoId}": { summary: "Change a session's to-do" },
   "DELETE /sessions/{id}/todos/{todoId}": { summary: "Remove a session's to-do" },

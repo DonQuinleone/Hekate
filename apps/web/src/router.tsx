@@ -38,6 +38,7 @@ import {
   setupQuery,
   WorkspaceSuspendedError,
 } from "~/lib/queries";
+import { RecorderProvider } from "~/lib/recorders/provider";
 import { useFollowSystemTheme } from "~/lib/theme";
 import { ViewerProvider } from "~/lib/viewer";
 import { AccountPage } from "~/routes/account";
@@ -431,12 +432,15 @@ const app = createRoute({
     return { me };
   },
   component: () => (
-    // A listening room (#200) lasts across pages, so it lives around them all.
+    // A listening room (#200) lasts across pages, so it lives around them all; so does the
+    // recorder the take log reads (decision 240), which the player can follow.
     <ListeningProvider>
-      <Shell>
-        <Outlet />
-      </Shell>
-      <PillHere />
+      <RecorderProvider>
+        <Shell>
+          <Outlet />
+        </Shell>
+        <PillHere />
+      </RecorderProvider>
     </ListeningProvider>
   ),
 });

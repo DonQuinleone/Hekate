@@ -647,6 +647,16 @@ export const sessions = pgTable(
     notes: text("notes"),
     /** The producer's quick reference: where the repeats are, which take to keep. */
     reference: text("reference"),
+    /**
+     * The browser driving the take log's takes from a recorder (#51, decision 240): the
+     * adapter it connected, whose browser it is, and when it last said it still drives. Held
+     * only while that is recent; nothing of the recorder itself is kept.
+     */
+    recorderKind: text("recorder_kind"),
+    recorderBy: text("recorder_by").references(() => users.id, { onDelete: "set null" }),
+    recorderSeenAt: timestamp("recorder_seen_at", { withTimezone: true }),
+    /** The connection that claimed it: each browser tab's own, so two of one person's differ. */
+    recorderClaim: text("recorder_claim"),
     ...timestamps,
   },
   (t) => [

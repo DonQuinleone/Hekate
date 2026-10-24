@@ -11841,6 +11841,153 @@
         }
       }
     },
+    "/sessions/{id}/recorder": {
+      "put": {
+        "operationId": "putSessionsIdRecorder",
+        "tags": [
+          "Takes and sessions"
+        ],
+        "summary": "Drive a session's takes from a recorder",
+        "description": "Says that this connection (a browser tab or a tool) reads the recorder and starts and stops the takes, under a `claim` id of its own; sent again with `renew` every ten seconds while it does, which answers 409 once another connection has claimed it, the same member's included. The last to claim it drives.\n\nNeeds the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "pattern": "^[a-z0-9-]{1,40}$"
+                  },
+                  "claim": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "renew": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "claim"
+                ]
+              },
+              "example": {
+                "kind": "daw-midi",
+                "claim": "01a16b55-0000-7000-8000-000000000001"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteSessionsIdRecorder",
+        "tags": [
+          "Takes and sessions"
+        ],
+        "summary": "Stop driving a session's takes from a recorder",
+        "description": "Only the connection's own claim, named by `claim`: a late goodbye never ends another's.\n\nNeeds the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "claim",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done; nothing to answer."
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
     "/sessions/{id}/takes": {
       "post": {
         "operationId": "postSessionsIdTakes",

@@ -2,6 +2,7 @@ import {
   admHeading,
   admLine,
   type CaptionTrack,
+  fileStart,
   formatBytes,
   formatChannels,
   formatDuration,
@@ -32,6 +33,7 @@ import { ExportCommentsDialog } from "~/components/exports";
 import { FileDetailsSheet } from "~/components/file-details";
 import { FileChain, NewVersionDialog, takesVersions } from "~/components/file-versions";
 import { fileSummary, mediaSummary } from "~/components/files";
+import { FollowRecorderSettings, useFollowRecorder } from "~/components/follow-recorder";
 import { Icon } from "~/components/icons";
 import { ListeningNotice, ListenTogether, useListeningSync } from "~/components/listening";
 import { Loudness } from "~/components/loudness";
@@ -53,6 +55,7 @@ import { threadsOf } from "~/lib/comments";
 import { compareSources, previousCut } from "~/lib/compare";
 import { editSegments } from "~/lib/edit-decisions";
 import { useFileMedia } from "~/lib/file-media";
+import { useListening } from "~/lib/listening-room";
 import { formatDates } from "~/lib/locale";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
@@ -116,6 +119,17 @@ function NothingToShow({ fileId, name }: { fileId: string; name: string }) {
   );
 }
 
+/**
+ * Where a file starts on a DAW's timeline, in seconds since midnight (#450): its Broadcast Wave
+ * time reference, or a video's own timecode; zero where it says neither.
+ */
+function fileStartOf(info: MediaInfo | null): number {
+  const bext = fileStart(info?.metadata, info?.audio?.sampleRate);
+  if (bext !== null) return bext;
+  const clock = info?.video ? videoClock(info.video) : null;
+  return clock ? (clock.start * clock.rate.den) / clock.rate.num : 0;
+}
+
 function Playback({
   file,
   onMedia,
@@ -137,6 +151,7 @@ function Playback({
   onCaption,
   strip,
   compare = null,
+  follow,
 }: {
   file: FileDetail;
   /** The page's part of the strip above the player (#15), shown while it waits too. */
@@ -167,6 +182,8 @@ function Playback({
   canComment: boolean;
   normalised: boolean;
   onNormalised: (normalised: boolean) => void;
+  /** Following a DAW's position (#450): its settings for the View menu, for members. */
+  follow?: ReactNode;
 }) {
   const client = useQueryClient();
   // A take shared with a guest has no comments for them (#133).
@@ -276,6 +293,7 @@ function Playback({
       onDraft={file.kind === "video" && canComment ? onDraft : undefined}
       cuts={cuts}
       compact={compact}
+      follow={follow}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
     />
   );
@@ -403,6 +421,14 @@ export function FilePage({
   const { media, onMedia } = useFileMedia(fileId, startAt, onStarted);
   // Leading or following a listening room (#200) with this page's player; members only.
   const listening = useListeningSync(fileId, file?.projectId ?? "", guest ? null : media);
+  // Following a DAW's position (#450, decision 240), from where the file starts on its timeline:
+  // its own Broadcast Wave time reference, or a video's own timecode, as far as either says.
+  const room = useListening();
+  const follow = useFollowRecorder(
+    guest ? null : media,
+    fileStartOf(file?.mediaInfo ?? null),
+    Boolean(room?.room && !room.leading && room.status !== "ended"),
+  );
   // Where the comments sit on a wide screen, this viewer's choice (#15).
   const [layout, setLayout] = usePanelLayout();
   // Counted only while they are put away, for the button that brings them back.
@@ -657,6 +683,7 @@ export function FilePage({
       captions={captions}
       caption={captionId}
       onCaption={setCaptionId}
+      follow={guest ? undefined : <FollowRecorderSettings follow={follow} />}
     />
   );
   /** The transcript is offered beside the comments wherever there is a track to read. */

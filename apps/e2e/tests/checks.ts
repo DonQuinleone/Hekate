@@ -11,7 +11,7 @@ import { expect, type Page } from "@playwright/test";
  * `data-e2e-overlap`; it is then left out of the overlap checks, along with its contents.
  * A panel that floats over the page without shutting it off (a side sheet) says so with
  * `data-e2e-layer`: what it covers is out of sight, and its own text is checked against
- * itself. An open menu is treated as a modal is: a target it half covers is not read as crowded.
+ * itself, and a target it half covers is not read as crowded. An open menu is treated the same way.
  */
 
 /** The smallest target WCAG 2.2 accepts (2.5.8), in CSS pixels. */
@@ -271,17 +271,17 @@ export async function accessibilityProblems(page: Page): Promise<string[]> {
       line: `${v.id}: ${n.target.join(" ")} (${v.help})`,
     })),
   );
-  // An open menu lies over the page on purpose, as a modal does: a target it half covers would
-  // read as crowded by it. Those are checked on the screens where the menu is shut.
+  // An open menu or a floating layer lies over the page on purpose, as a modal does: a target it
+  // half covers would read as crowded by it. Those are checked on the screens where it is shut.
   const covered = await page.evaluate(
     (targets) => {
-      const menus = [...document.querySelectorAll("[role=menu]")].map((m) =>
+      const menus = [...document.querySelectorAll("[role=menu], [data-e2e-layer]")].map((m) =>
         m.getBoundingClientRect(),
       );
       return targets.map((selector) => {
         if (!selector) return false;
         const el = document.querySelector(selector);
-        if (!el || el.closest("[role=menu]")) return false;
+        if (!el || el.closest("[role=menu], [data-e2e-layer]")) return false;
         const r = el.getBoundingClientRect();
         return menus.some(
           (m) => r.left < m.right && r.right > m.left && r.top < m.bottom && r.bottom > m.top,

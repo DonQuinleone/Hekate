@@ -84,7 +84,7 @@ const createdTable = (statement: string) =>
  * made required, a required column added without a default, a uniqueness, check or foreign
  * key constraint or a unique index on a table older code knows, a table or column renamed. Constraints and
  * indexes on a table the same migration creates are not counted, as older code never touches
- * it. A migration can also say so itself, with a line `-- hekate: contracts`.
+ * it; nor is a foreign key or uniqueness constraint on columns the same migration adds. A migration can also say so itself, with a line `-- hekate: contracts`.
  */
 export function contractingStatements(text: string): string[] {
   const statements = statementsOf(text);
@@ -96,6 +96,28 @@ export function contractingStatements(text: string): string[] {
       )?.[1];
     return table !== undefined && created.has(table);
   };
+  // Columns this migration adds: older code never writes them, so a constraint on them alone
+  // (a foreign key or uniqueness on a new column) holds nothing older code does.
+  const added = new Set(
+    statements.flatMap((statement) => {
+      const m =
+        /^ALTER TABLE (?:ONLY )?("?[\w.]+"?(?:\."?\w+"?)?) ADD COLUMN (?:IF NOT EXISTS )?("?\w+"?)/i.exec(
+          statement,
+        );
+      // A required column with no default already contracts: constraints on it count too.
+      const required = /\bNOT NULL\b/i.test(statement) && !/\bDEFAULT\b/i.test(statement);
+      return m && !required ? [`${m[1]}.${m[2]}`] : [];
+    }),
+  );
+  const onNewColumns = (statement: string) => {
+    const m =
+      /^ALTER TABLE (?:ONLY )?("?[\w.]+"?(?:\."?\w+"?)?) ADD CONSTRAINT \S+ (?:UNIQUE|FOREIGN KEY) ?\(([^)]*)\)/i.exec(
+        statement,
+      );
+    if (!m) return false;
+    const columns = (m[2] as string).split(",").map((c) => c.trim());
+    return columns.length > 0 && columns.every((c) => added.has(`${m[1]}.${c}`));
+  };
   const marked = /^\s*-- hekate: contracts\b/im.test(text) ? ["-- hekate: contracts"] : [];
   return [
     ...marked,
@@ -103,6 +125,7 @@ export function contractingStatements(text: string): string[] {
     ...statements.filter(
       (statement) =>
         !onNewTable(statement) &&
+        !onNewColumns(statement) &&
         [
           /^ALTER TABLE .* ALTER COLUMN .* SET NOT NULL\b/i,
           /^ALTER TABLE .* ADD COLUMN (?!.*\bDEFAULT\b).*\bNOT NULL\b/i,

@@ -259,6 +259,7 @@ export function Player({
   compact = false,
   strip,
   compare = null,
+  follow = null,
 }: {
   fileId: string;
   kind: "audio" | "video";
@@ -320,6 +321,8 @@ export function Player({
   draft?: FrameDraft | null;
   /** Drawing is offered where it is given: to someone who may comment on a video. */
   onDraft?: (draft: FrameDraft | null) => void;
+  /** Following a DAW (#450): its settings, at the View menu's end, where the page offers it. */
+  follow?: ReactNode;
 }) {
   const preferences = usePreferences();
   const { guest } = useViewer();
@@ -968,6 +971,7 @@ export function Player({
               onChange={(on) => onNormalised?.(on)}
             />
           )}
+          {follow}
           {/* Presets go with an account; a guest has none to keep them in. */}
           {kind === "audio" && !guest && (
             <div className="flex items-center justify-between gap-4 border-t border-hairline pt-2.5">
@@ -1138,7 +1142,7 @@ export function Player({
           )}
         </div>
       )}
-      {(kind === "audio" || offersNormalise) && (
+      {(kind === "audio" || offersNormalise || follow) && (
         <div ref={settingsBox} className="relative">
           <Button
             variant="ghost"

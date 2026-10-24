@@ -32,6 +32,7 @@ import {
   lookingPermissions,
   type MailLogRow,
   mapTime,
+  RECORDER_GONE_MS,
   type SystemHealth,
   type WorkspaceOperations,
   workspaceSettingsOf,
@@ -13519,6 +13520,117 @@ describe.runIf(url)("api", () => {
             headers: { cookie: s.engineer, origin: "http://localhost:3000" },
           });
           expect(gone.status).toBe(204);
+        });
+
+        it("says whose browser drives a session's takes from a recorder, while it says so (#51)", async () => {
+          const s = await studio();
+          const send = (method: string, url: string, body: unknown, cookie = s.engineer) =>
+            app.request(url, { ...json(body, cookie), method });
+          const session = (
+            (await (
+              await send("POST", `/api/projects/${s.projectId}/sessions`, { name: "Day 5" })
+            ).json()) as { session: { id: string } }
+          ).session;
+          const recorderOf = async (cookie = s.composer) =>
+            (
+              (await (await getAs(`/api/sessions/${session.id}`, cookie)).json()) as {
+                session: { recorder: { kind: string; by: { id: string } } | null };
+              }
+            ).session.recorder;
+          // Each connection (a browser tab) has its own claim, the same person's two included.
+          const tab = uuidv7();
+          const claim = (kind: string, cookie = s.engineer, id = tab) =>
+            send("PUT", `/api/sessions/${session.id}/recorder`, { kind, claim: id }, cookie);
+          const release = (cookie = s.engineer, id = tab) =>
+            app.request(`/api/sessions/${session.id}/recorder?claim=${id}`, {
+              method: "DELETE",
+              headers: { cookie, origin: "http://localhost:3000" },
+            });
+          expect(await recorderOf()).toBeNull();
+
+          // Someone who may not log takes may not drive them; a name must be an adapter's.
+          expect((await claim("daw-midi", s.composer)).status).toBe(403);
+          expect((await claim("A DAW")).status).toBe(400);
+          const claimed = await claim("daw-midi");
+          expect(claimed.status).toBe(200);
+          expect(await claimed.json()).toMatchObject({
+            recorder: { kind: "daw-midi", by: { id: s.ids.engineer } },
+          });
+          // Everyone in the room sees who drives it.
+          expect(await recorderOf()).toMatchObject({
+            kind: "daw-midi",
+            by: { id: s.ids.engineer },
+          });
+
+          // Still there, it renews its claim.
+          const renew = (cookie = s.engineer, id = tab) =>
+            send(
+              "PUT",
+              `/api/sessions/${session.id}/recorder`,
+              { kind: "daw-midi", claim: id, renew: true },
+              cookie,
+            );
+          expect((await renew()).status).toBe(200);
+          // The same person's other tab takes it over: the first tab's renewal and goodbye no
+          // longer reach it, though the person is the same.
+          const other = uuidv7();
+          expect((await claim("daw-midi", s.engineer, other)).status).toBe(200);
+          expect((await renew()).status).toBe(409);
+          expect((await release()).status).toBe(204);
+          expect(await recorderOf()).toMatchObject({ by: { id: s.ids.engineer }, claim: other });
+          expect((await claim("daw-midi")).status).toBe(200);
+
+          // Another claims it: theirs now. The first browser's renewal and late goodbye leave it
+          // theirs.
+          const owners = uuidv7();
+          expect((await claim("sound-devices", s.owner, owners)).status).toBe(200);
+          expect((await renew()).status).toBe(409);
+          expect((await release()).status).toBe(204);
+          expect(await recorderOf()).toMatchObject({
+            kind: "sound-devices",
+            by: { id: s.ids.owner },
+          });
+
+          // Gone quiet, it is no one's.
+          await db
+            .update(schema.sessions)
+            .set({ recorderSeenAt: new Date(Date.now() - RECORDER_GONE_MS - 1000) })
+            .where(eq(schema.sessions.id, session.id));
+          expect(await recorderOf()).toBeNull();
+          expect((await claim("sound-devices", s.owner, owners)).status).toBe(200);
+          expect((await release(s.owner, owners)).status).toBe(204);
+          expect(await recorderOf()).toBeNull();
+
+          // Not another workspace's session.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-recorder" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [theirs] = await db
+            .insert(schema.sessions)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+            })
+            .returning();
+          expect(
+            (
+              await send("PUT", `/api/sessions/${theirs?.id}/recorder`, {
+                kind: "daw-midi",
+                claim: tab,
+              })
+            ).status,
+          ).toBe(404);
+          const [untouched] = await db
+            .select({ by: schema.sessions.recorderBy })
+            .from(schema.sessions)
+            .where(eq(schema.sessions.id, theirs?.id ?? ""));
+          expect(untouched).toEqual({ by: null });
         });
 
         it("logs takes written offline once, at their own times, keeping each field's history (#51)", async () => {

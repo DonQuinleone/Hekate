@@ -1,5 +1,6 @@
 import {
   type SessionDetail,
+  type StartTake,
   TAKE_RATING_MAX,
   type TakeChange,
   takeLifecycleNames,
@@ -12,6 +13,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { PageHeader } from "~/components/page-header";
+import { RecorderControl, useRecorderReadout } from "~/components/recorder";
 import { openShortcutMap } from "~/components/shortcut-map";
 import { TakeOverview } from "~/components/take-overview";
 import { Rating } from "~/components/takes";
@@ -23,6 +25,7 @@ import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import {
+  meQuery,
   patchQuery,
   projectQuery,
   sessionQuery,
@@ -30,6 +33,7 @@ import {
   useTakeOutbox,
   viewQuery,
 } from "~/lib/queries";
+import { useRecorderTakes } from "~/lib/recorders/take-driver";
 import { TEMPO_MAX, TEMPO_MIN, TONES, tempoOf, useReferenceAudio } from "~/lib/reference-audio";
 import { useShortcuts } from "~/lib/shortcuts";
 import {
@@ -107,6 +111,7 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
     enabled: Boolean(session),
   });
   const can = useProjectCan(session?.projectId);
+  const { data: me } = useQuery(meQuery);
   const now = useNow();
   const [view, setView] = useState<View>("producer");
   const [chosen, setChosen] = useState<string | null>(null);
@@ -142,8 +147,51 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
   const recorded = session?.numbering === "recorder";
   const recorderValue = Number.parseInt(recorderNumber || String(next ?? ""), 10);
 
-  const move = (lifecycle: LoggedTake["lifecycle"]) =>
-    current && outbox.change(current, { lifecycle });
+  /**
+   * The next take, with the recorder's number where the recorder numbers them: from the keys,
+   * or from a recorder this browser reads (decision 240). Says why not, where it cannot start.
+   */
+  const startNext = (
+    input: Pick<StartTake, "lifecycle" | "timecodeIn" | "number" | "id">,
+  ): string | null => {
+    if (!canLog) return "this log cannot be written to";
+    if (!trackId) return "choose the track first";
+    const number = input.number ?? recorderValue;
+    if (recorded && !(number >= 1)) return "type the recorder's take number first";
+    void outbox.start(
+      {
+        trackId,
+        lifecycle: input.lifecycle ?? "recording",
+        ...(input.id ? { id: input.id } : {}),
+        ...(input.timecodeIn ? { timecodeIn: input.timecodeIn } : {}),
+        ...(recorded ? { number } : {}),
+      },
+      recorded ? number : (next ?? 1),
+    );
+    setRecorderNumber("");
+    return null;
+  };
+  // A recorder read in this browser fills in timecode, and may start and stop takes itself.
+  const drive = useRecorderTakes({
+    session,
+    meId: me?.user.id ?? null,
+    canLog,
+    live: current,
+    start: startNext,
+    change: (take, patch) => void outbox.change(take, patch),
+  });
+  const readout = useRecorderReadout();
+  const move = (lifecycle: LoggedTake["lifecycle"]) => {
+    if (!current) return;
+    const tc = drive.drives ? drive.timecode() : null;
+    const stamp =
+      tc && lifecycle === "recorded"
+        ? { timecodeOut: tc }
+        : tc && lifecycle === "recording" && !current.timecodeIn
+          ? { timecodeIn: tc }
+          : {};
+    void outbox.change(current, { lifecycle, ...stamp });
+  };
   const toggle = () => {
     if (!canLog) return;
     if (current?.lifecycle === "recording") return move("recorded");
@@ -154,15 +202,9 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
     if (!canLog || current) return;
     begin("armed");
   };
-  /** The next take, with the recorder's number where the recorder numbers them. */
   const begin = (lifecycle: "armed" | "recording") => {
-    if (!trackId) return;
-    if (recorded && !(recorderValue >= 1)) return;
-    void outbox.start(
-      { trackId, lifecycle, ...(recorded ? { number: recorderValue } : {}) },
-      recorded ? recorderValue : (next ?? 1),
-    );
-    setRecorderNumber("");
+    const tc = drive.drives && lifecycle === "recording" ? drive.timecode() : null;
+    startNext({ lifecycle, ...(tc ? { timecodeIn: tc } : {}) });
   };
   const onTarget = (patch: TakeChange) => target && outbox.change(target, patch);
   const saveNote = () => {
@@ -306,6 +348,7 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
               </span>
             )}
           </span>
+          <RecorderControl drive={drive} canLog={canLog} />
         </div>
 
         {session.tracks.length === 0 ? (
@@ -361,7 +404,11 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                   </span>
                   <span className="text-[12px] text-ink-3">
                     {recording ? "recording" : armed ? "armed" : "idle"}
-                    {current?.timecodeIn ? ` · timecode in ${current.timecodeIn}` : ""}
+                    {readout
+                      ? ` · timecode ${readout.timecode}`
+                      : current?.timecodeIn
+                        ? ` · timecode in ${current.timecodeIn}`
+                        : ""}
                   </span>
                 </div>
                 <label className="flex min-w-0 flex-col gap-1 text-[12px] text-ink-3">
