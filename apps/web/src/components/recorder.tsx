@@ -82,13 +82,16 @@ export function RecorderControl({ drive, canLog }: { drive: RecorderDrive; canLo
   const [kind, setKind] = useState(
     recorder?.kind ?? remembered?.kind ?? recorderDefinitions[0]?.kind ?? "",
   );
-  const [options, setOptions] = useState<RecorderOptions>(
+  const [chosen, setOptions] = useState<RecorderOptions>(
     recorder?.kind ? recorder.options : (remembered?.options ?? defaultRecorderOptions),
   );
   const status = recorder?.status ?? { state: "idle" };
   const connected = Boolean(recorder?.kind) && listening(status);
-  const definition = recorderDefinition(connected ? recorder?.kind : kind);
-  const inputs = useInputs(kind, status.state);
+  // Connected (here, or from the player), the connection's own choices are the ones shown.
+  const current = connected && recorder?.kind ? recorder.kind : kind;
+  const options = connected && recorder ? recorder.options : chosen;
+  const definition = recorderDefinition(current);
+  const inputs = useInputs(current, status.state);
   const labelId = useId();
   if (!recorder || !definition) return null;
   const others = drive.others;
@@ -111,7 +114,7 @@ export function RecorderControl({ drive, canLog }: { drive: RecorderDrive; canLo
       remembered?.kind === next ? remembered.options : { ...defaultRecorderOptions, channel: 0 };
     setOptions({ ...keep, trigger: def?.triggers.includes(keep.trigger) ? keep.trigger : "off" });
   };
-  const connect = (chosen: RecorderOptions) => void recorder.connect(kind, { ...chosen, trigger });
+  const connect = (next: RecorderOptions) => void recorder.connect(current, { ...next, trigger });
   const label = connected
     ? `${definition.short}${readout ? ` · ${readout.timecode}` : ""}`
     : others
