@@ -4,6 +4,7 @@ import {
   type DrawingColour,
   type DrawingTool,
   formatChannels,
+  formatClock,
   formatDuration,
   frameShowing,
   frameTime,
@@ -51,6 +52,7 @@ import {
 import { cn } from "~/lib/cn";
 import type { EditSegment } from "~/lib/edit-decisions";
 import { type Loop, loopEntry, loopFrom, type Rolls, roll, wrapTarget } from "~/lib/loop";
+import { adjacentMarker, markerTimes } from "~/lib/markers";
 import { usePlayerView } from "~/lib/player-view";
 import { type Playback, type Rendition, usePreferences, useSavePreferences } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
@@ -721,6 +723,26 @@ export function Player({
       say(`Loop ${which} point set`);
     }
   };
+  /** Where the playhead jumps between: the comment markers and the checks' findings. */
+  const marked = useMemo(
+    () =>
+      markerTimes(
+        markers.map((m) => m.at),
+        findings.map((f) => f.start),
+      ),
+    [markers, findings],
+  );
+  const toMarker = (direction: 1 | -1) => {
+    const element = media.current;
+    if (!element) return;
+    const at = adjacentMarker(marked, element.currentTime, direction);
+    if (at === null) {
+      say(direction === 1 ? "No marker after the playhead" : "No marker before the playhead");
+      return;
+    }
+    element.currentTime = Math.min(duration, at);
+    say(`Marker at ${formatClock(at)}`);
+  };
   // The player's keys work anywhere on the page it is on, as in Frame.io; never in a field.
   useShortcuts("player", "Player", [
     {
@@ -752,6 +774,14 @@ export function Player({
       label: info?.video?.fps ? "One frame forward" : "A hundredth of a second forward",
       run: () => stepBy(1),
     },
+    { keys: ["Home"], label: "Go to the start", run: () => seekBy(-duration) },
+    { keys: ["End"], label: "Go to the end", run: () => seekBy(duration) },
+    ...(marked.length > 0
+      ? [
+          { keys: ["Shift+ArrowUp"], label: "Previous marker", run: () => toMarker(-1) },
+          { keys: ["Shift+ArrowDown"], label: "Next marker", run: () => toMarker(1) },
+        ]
+      : []),
     ...(kind === "audio" && mostZoom > 1
       ? [
           {

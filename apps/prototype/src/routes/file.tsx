@@ -389,6 +389,13 @@ export function FilePage({
           };
     })
     .filter((m): m is Marker => m !== null);
+  /** Where Shift+up and down jump: the comment markers, and QA's findings where QA shows. */
+  const marks = [
+    ...markers.map((m) => m.at),
+    ...(tools.has("qa")
+      ? findingsFor(fileId).flatMap((f) => (f.start === undefined ? [] : [f.start]))
+      : []),
+  ];
   const regionMarkers = markersFrom(visible, openThreads).map((m) => ({
     ...m,
     active: selected === m.id,
@@ -1033,6 +1040,7 @@ export function FilePage({
             hearing={hearing}
             zoom={isAudio ? zoom : undefined}
             onZoom={isAudio ? setZoom : undefined}
+            marks={marks}
           />
           <LoopBar playback={playback} />
           {compareOpen && (
@@ -1231,6 +1239,7 @@ export function FilePage({
               compareAllowed={false}
               compareOpen={false}
               onCompare={() => {}}
+              marks={marks}
             />
             <LoopBar playback={playback} />
           </div>

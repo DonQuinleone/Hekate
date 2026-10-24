@@ -55,6 +55,8 @@ const interactive =
   "button, a[href], summary, [role=button], [role=switch], [role=tab], [role=checkbox], [role=menuitem], [role=option]";
 /** Arrow keys move within these controls, so a shortcut must leave them alone there. */
 const arrows = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+/** As do Home and End, to the first and last item, as ARIA's patterns have them. */
+const moves = new Set([...arrows, "Home", "End"]);
 const composite =
   "[role=tab], [role=tablist], [role=menu], [role=menubar], [role=listbox], [role=radiogroup], [role=slider], [role=grid], [role=tree]";
 
@@ -62,7 +64,7 @@ const composite =
 export function ownedByTarget(key: string, target: Element | null): boolean {
   if (!target) return false;
   if (activates.has(key) && target.closest(interactive)) return true;
-  return arrows.has(key) && Boolean(target.closest(composite));
+  return moves.has(key) && Boolean(target.closest(composite));
 }
 
 /**
