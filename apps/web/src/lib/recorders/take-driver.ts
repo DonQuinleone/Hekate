@@ -62,45 +62,64 @@ export function useRecorderTakes({
   const sessionId = session?.id ?? null;
   const [lost, setLost] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  /** When this browser last claimed the recorder, by its own clock. */
-  const claimedAt = useRef<number | null>(null);
+  /** When the server took this browser's claim, by the server's clock; null before it has. */
+  const [claimedAt, setClaimedAt] = useState<number | null>(null);
+  /** The server said someone else's browser drives it now, when this one renewed its claim. */
+  const [refused, setRefused] = useState(false);
   const kind = recorder?.kind ?? null;
   const claiming = connected && canLog && Boolean(sessionId) && Boolean(kind);
 
-  // Claimed while connected, said again while it lasts, and let go after.
+  // Claimed on connecting (taking over from anyone else), renewed while it lasts, only while it
+  // is still this browser's, and let go after.
   useEffect(() => {
     if (!claiming || !sessionId || !kind) return;
     setLost(null);
-    const claim = () => {
-      claimedAt.current ??= Date.now();
+    setRefused(false);
+    let live = true;
+    const param = { id: sessionId };
+    void api.sessions[":id"].recorder
+      .$put({ param, json: { kind } })
+      .then(async (res) => {
+        if (!res.ok || !live) return;
+        const body = (await res.json()) as { recorder: SessionRecorder | null };
+        if (live && body.recorder) setClaimedAt(Date.parse(body.recorder.seenAt));
+      })
+      .catch(() => undefined);
+    const timer = setInterval(() => {
       void api.sessions[":id"].recorder
-        .$put({ param: { id: sessionId }, json: { kind } })
+        .$put({ param, json: { kind, renew: true } })
+        .then((res) => {
+          if (live && res.status === 409) setRefused(true);
+        })
         .catch(() => undefined);
-    };
-    claim();
-    const timer = setInterval(claim, RECORDER_HEARTBEAT_MS);
+    }, RECORDER_HEARTBEAT_MS);
     return () => {
+      live = false;
       clearInterval(timer);
-      claimedAt.current = null;
-      void api.sessions[":id"].recorder
-        .$delete({ param: { id: sessionId } })
-        .catch(() => undefined);
+      setClaimedAt(null);
+      void api.sessions[":id"].recorder.$delete({ param }).catch(() => undefined);
     };
   }, [claiming, sessionId, kind]);
 
-  // Someone else claimed it after this browser did: theirs now, so this one lets go.
+  // Someone else claimed it after the server took this browser's claim (both by the server's
+  // clock), or the server refused to renew it: theirs now, so this browser lets go.
   const holder = session?.recorder ?? null;
   const takenOver =
     claiming &&
-    holder !== null &&
-    holder.by.id !== meId &&
-    claimedAt.current !== null &&
-    Date.parse(holder.seenAt) > claimedAt.current;
+    (refused ||
+      (holder !== null &&
+        holder.by.id !== meId &&
+        claimedAt !== null &&
+        Date.parse(holder.seenAt) > claimedAt));
   useEffect(() => {
-    if (!takenOver || !holder) return;
+    if (!takenOver) return;
     recorder?.disconnect();
-    setLost(`${holder.by.name}'s browser took over the recorder.`);
-  }, [takenOver, holder, recorder]);
+    setLost(
+      holder && holder.by.id !== meId
+        ? `${holder.by.name}'s browser took over the recorder.`
+        : "Someone else's browser took over the recorder.",
+    );
+  }, [takenOver, holder, recorder, meId]);
 
   const drives = claiming && !takenOver;
   // The newest of everything the handler needs, so a recorder's event never acts on an old log.

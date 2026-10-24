@@ -446,17 +446,25 @@ export const sessionRoutes = (db: Database) =>
       const organisationId = c.var.organisationId;
       const row = await sessionOf(db, organisationId, c.req.valid("param").id);
       await can(db, actorOf(c.var), "edit_takes", row.projectId);
+      const { kind, renew } = c.req.valid("json");
+      // Renewed only while it is still the caller's: checked and written in one statement.
       const [held] = await db
         .update(sessions)
-        .set({
-          recorderKind: c.req.valid("json").kind,
-          recorderBy: c.var.userId,
-          recorderSeenAt: new Date(),
-        })
-        .where(inOrg(sessions, organisationId, eq(sessions.id, row.id)))
+        .set({ recorderKind: kind, recorderBy: c.var.userId, recorderSeenAt: new Date() })
+        .where(
+          inOrg(
+            sessions,
+            organisationId,
+            eq(sessions.id, row.id),
+            renew ? eq(sessions.recorderBy, c.var.userId) : undefined,
+          ),
+        )
         .returning();
-      const recorder = held ? await recorderOf(db, held) : null;
-      return c.json({ recorder });
+      if (!held)
+        throw new HTTPException(409, {
+          message: "Someone else's browser drives this session's takes now",
+        });
+      return c.json({ recorder: await recorderOf(db, held) });
     })
     // Letting go of it: only the browser's own claim, so a late goodbye never ends another's.
     .delete("/:id/recorder", idParam, async (c) => {

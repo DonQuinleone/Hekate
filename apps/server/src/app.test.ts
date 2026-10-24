@@ -13560,8 +13560,20 @@ describe.runIf(url)("api", () => {
             by: { id: s.ids.engineer },
           });
 
-          // Another claims it: theirs now. The first browser's late goodbye leaves it theirs.
+          // Still there, it renews its claim.
+          const renew = (cookie = s.engineer) =>
+            send(
+              "PUT",
+              `/api/sessions/${session.id}/recorder`,
+              { kind: "daw-midi", renew: true },
+              cookie,
+            );
+          expect((await renew()).status).toBe(200);
+
+          // Another claims it: theirs now. The first browser's renewal and late goodbye leave it
+          // theirs.
           expect((await claim("sound-devices", s.owner)).status).toBe(200);
+          expect((await renew()).status).toBe(409);
           expect((await release()).status).toBe(204);
           expect(await recorderOf()).toMatchObject({
             kind: "sound-devices",

@@ -11848,7 +11848,7 @@
           "Takes and sessions"
         ],
         "summary": "Drive a session's takes from a recorder",
-        "description": "Says that this member's browser or tool reads the recorder and starts and stops the takes; sent again every ten seconds while it does. The last to claim it drives.\n\nNeeds the `files:write` scope.",
+        "description": "Says that this member's browser or tool reads the recorder and starts and stops the takes; sent again with `renew` every ten seconds while it does, which answers 409 once someone else has claimed it. The last to claim it drives.\n\nNeeds the `files:write` scope.",
         "security": [
           {
             "token": [
@@ -11878,6 +11878,9 @@
                   "kind": {
                     "type": "string",
                     "pattern": "^[a-z0-9-]{1,40}$"
+                  },
+                  "renew": {
+                    "type": "boolean"
                   }
                 },
                 "required": [

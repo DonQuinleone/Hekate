@@ -201,8 +201,15 @@ export const RECORDER_GONE_MS = 30_000;
 /** An adapter's name, as the registry in the web app knows it ("daw-midi", "sound-devices"). */
 export const recorderKind = z.string().regex(/^[a-z0-9-]{1,40}$/, "An adapter's name");
 
-/** Driving a session's takes from a recorder connected in this browser. */
-export const recorderClaimInput = z.object({ kind: recorderKind });
+/**
+ * Driving a session's takes from a recorder connected in this browser: claimed (taking over
+ * from anyone else), or renewed, which holds only while the claim is still the caller's, so a
+ * browser that was taken over from never takes it back by saying it is still there.
+ */
+export const recorderClaimInput = z.object({
+  kind: recorderKind,
+  renew: z.boolean().optional(),
+});
 export type RecorderClaim = z.infer<typeof recorderClaimInput>;
 
 /** Who drives a session's takes from a recorder, as everyone in the room sees it. */
