@@ -6,6 +6,7 @@ const actionWords = {
   "stream.segment": "Segment served",
   "page.render": "Page rendered",
   download: "Downloaded",
+  "forensic.trace": "Leak traced",
   "file.upload": "Uploaded",
   "file.delete": "Deleted",
   "upload_request.create": "Upload request made",

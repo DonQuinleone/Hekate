@@ -523,6 +523,12 @@ const screens: Screen[] = [
     path: () => "/settings/api",
     ready: "main [data-log-entry] >> nth=0",
   },
+  // Leak tracing (#32): forensic marking's switches, and a suspected leak to drop.
+  {
+    name: "settings-leaks",
+    path: () => "/settings/leaks",
+    ready: "main >> text=Drop the file here, or choose it",
+  },
   { name: "settings-log", path: () => "/settings/log", ready: "main [data-log-entry]" },
   { name: "settings-billing", path: () => "/settings/billing", ready: "main >> text=HK-0002" },
   // Support (#181): the workspace's tickets, and a new one with the deflection first.

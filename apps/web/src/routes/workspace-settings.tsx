@@ -34,6 +34,7 @@ import { EmailTemplatesSection } from "~/components/email-templates";
 import { Empty } from "~/components/empty";
 import { ChannelsSection } from "~/components/event-channels";
 import { Icon } from "~/components/icons";
+import { LeakTracingSection } from "~/components/leak-tracing";
 import { OAuthClientsSection } from "~/components/oauth";
 import { PageHeader } from "~/components/page-header";
 import { PlayerToolsTable } from "~/components/player-tools";
@@ -203,6 +204,14 @@ const allSections: SectionSpec[] = [
     from: "admin",
     intro: "Where new files are kept. Everything is encrypted before any backend sees it.",
     docs: "/install/storage/",
+  },
+  {
+    id: "leaks",
+    label: "Leak tracing",
+    group: "Operations",
+    from: "owner",
+    intro: "Find which recipient a leaked file was watermarked for.",
+    docs: "/use/leak-tracing/",
   },
   {
     id: "log",
@@ -1362,6 +1371,7 @@ export function WorkspaceSettingsPage({
             from={askedFrom(search.from)}
           />
         )}
+        {current.id === "leaks" && <LeakTracingSection />}
         {current.id === "log" && <AccessLog />}
         {current.id === "operations" && <Operations />}
       </SettingsLayout>

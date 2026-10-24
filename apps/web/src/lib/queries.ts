@@ -50,6 +50,7 @@ import {
   type FileInspection,
   type FileKind,
   type FollowInput,
+  type ForensicStatus,
   type GroupInput,
   type GuestInput,
   type HealthRange,
@@ -159,6 +160,7 @@ import {
   type TaskDetail,
   type TaskInput,
   type TaskSummary,
+  type TraceResult,
   type TrackState,
   type TransferConfirmation,
   type TransferDestination,
@@ -1228,6 +1230,38 @@ export function useWorkspaceStorage() {
   });
 }
 
+/** Forensic marking (#32): whether recordings' downloads are marked; the workspace's owners. */
+export const forensicQuery = queryOptions({
+  queryKey: ["organisation", "forensic"],
+  queryFn: async () => json<ForensicStatus>(await api.organisation.forensic.$get()),
+});
+
+export function useForensic() {
+  const client = useQueryClient();
+  return {
+    audio: useMutation({
+      mutationFn: async (audio: boolean) =>
+        json<ForensicStatus>(await api.organisation.forensic.$put({ json: { audio } })),
+      onSuccess: (status) => client.setQueryData(forensicQuery.queryKey, status),
+    }),
+    /** A suspected leak, sent to be traced: examined, never kept, and logged. */
+    trace: useMutation({
+      mutationFn: async (file: File) =>
+        json<TraceResult>(
+          await fetch("/api/organisation/forensic/trace", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+              "content-type": "application/octet-stream",
+              "x-file-name": encodeURIComponent(file.name),
+            },
+            body: file,
+          }),
+        ),
+    }),
+  };
+}
+
 /** Where a project's new files go, and how much it keeps (#240); workspace admins only. */
 export interface ProjectStorage {
   /** The project's choice; null follows the workspace's. */
@@ -1779,8 +1813,10 @@ export interface DownloadChoices {
   level: DownloadLevel;
   proxy: { available: boolean; detail: string };
   original: { available: boolean; detail: string };
-  /** Whether the download carries the recipient's mark (audio does not yet). */
+  /** Whether the download carries the recipient's mark. */
   marked: boolean;
+  /** A recording's mark is inaudible rather than drawn (#32). */
+  inaudible?: boolean;
 }
 
 export const downloadsQuery = (fileId: string) =>
