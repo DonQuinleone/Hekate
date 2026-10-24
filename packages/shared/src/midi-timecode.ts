@@ -1,5 +1,12 @@
 import type { FrameRateId } from "./comment-export.ts";
-import { addFrames, type RecorderTimecode, timecodeFrames } from "./recorders.ts";
+import {
+  addFrames,
+  type RecorderEvent,
+  type RecorderPosition,
+  type RecorderTimecode,
+  timecodeFrames,
+  timecodeNow,
+} from "./recorders.ts";
 
 /**
  * MIDI Time Code and MIDI Machine Control, read (#450, decision 240): what a DAW sends to a
@@ -218,4 +225,77 @@ export function decodeMidi(
     partial = [];
   }
   return { state: { ...s, partial, inSysex }, events };
+}
+
+/** Where the DAW is, as the recorder events need it: its position, and whether it rolls. */
+export interface MidiRun {
+  position: RecorderPosition | null;
+  rolling: boolean;
+}
+
+export const initialMidiRun = (): MidiRun => ({ position: null, rolling: false });
+
+/**
+ * What the DAW's MIDI means for the take log, as recorder events: each timecode a position;
+ * quarter frames starting, rolling, and stopping (or an MMC stop), stopped; the record strobe,
+ * recording, and record exit, its end. A step with no event (`null`) is time passing, which is
+ * how quarter frames that have stopped arriving are noticed (`rolling`, from the decoder).
+ */
+export function midiRecorderStep(
+  run: MidiRun,
+  event: MidiTimecodeEvent | null,
+  now: number,
+  rolling: boolean,
+): { run: MidiRun; events: RecorderEvent[] } {
+  const here = run.position ? timecodeNow(run.position, now) : null;
+  if (!event) {
+    if (!run.rolling || rolling) return { run, events: [] };
+    const position = run.position ? { ...run.position, rolling: false } : null;
+    return {
+      run: { position, rolling: false },
+      events: [
+        ...(position ? [{ type: "position" as const, position }] : []),
+        { type: "stopped", timecode: position?.timecode ?? null, at: now },
+      ],
+    };
+  }
+  if (event.type === "timecode") {
+    const moving = event.source === "quarter-frame";
+    const position = { timecode: event.timecode, at: event.at, rolling: moving };
+    const events: RecorderEvent[] = [{ type: "position", position }];
+    if (moving && !run.rolling)
+      events.push({
+        type: "rolling",
+        // The timecode was whole two frames after it began: the DAW started then.
+        timecode: addFrames(event.timecode, -2),
+        at: event.at,
+      });
+    if (!moving && run.rolling)
+      events.push({ type: "stopped", timecode: event.timecode, at: event.at });
+    return { run: { position, rolling: moving }, events };
+  }
+  if (event.type === "locate") {
+    const position = { timecode: event.timecode, at: event.at, rolling: false };
+    return { run: { ...run, position }, events: [{ type: "position", position }] };
+  }
+  switch (event.command) {
+    case "record-strobe":
+      return { run, events: [{ type: "record", timecode: here, at: event.at }] };
+    case "record-exit":
+      return { run, events: [{ type: "record-stop", timecode: here, at: event.at }] };
+    case "stop":
+    case "pause": {
+      if (!run.rolling) return { run, events: [] };
+      const position = here ? { timecode: here, at: event.at, rolling: false } : null;
+      return {
+        run: { position, rolling: false },
+        events: [
+          ...(position ? [{ type: "position" as const, position }] : []),
+          { type: "stopped", timecode: here, at: event.at },
+        ],
+      };
+    }
+    default:
+      return { run, events: [] };
+  }
 }

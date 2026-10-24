@@ -3,13 +3,15 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   decodeMidi,
+  initialMidiRun,
   initialMidiState,
   type MidiDecoderState,
   type MidiTimecodeEvent,
   MTC_STOPPED_MS,
+  midiRecorderStep,
   mtcRolling,
 } from "./midi-timecode.ts";
-import { type RecorderTimecode, timecodeLabel } from "./recorders.ts";
+import { type RecorderEvent, type RecorderTimecode, timecodeLabel } from "./recorders.ts";
 
 /** A recorded stream: each line its time in milliseconds, then its bytes in hex. */
 function readStream(name: string): { at: number; bytes: number[] }[] {
@@ -186,5 +188,43 @@ describe("decodeMidi", () => {
     expect(mtcRolling(state, last + 10)).toBe(true);
     expect(mtcRolling(state, last + MTC_STOPPED_MS + 1)).toBe(false);
     expect(mtcRolling(initialMidiState(), 0)).toBe(false);
+  });
+});
+
+describe("midiRecorderStep on a recorded stream", () => {
+  /** The recorder events a stream makes, with time passing between its messages. */
+  function recorderEvents(stream: { at: number; bytes: number[] }[]) {
+    let decoder = initialMidiState();
+    let run = initialMidiRun();
+    const out: RecorderEvent[] = [];
+    const step = (event: MidiTimecodeEvent | null, now: number) => {
+      const next = midiRecorderStep(run, event, now, mtcRolling(decoder, now));
+      run = next.run;
+      out.push(...next.events.filter((e) => e.type !== "position"));
+    };
+    for (const { at, bytes } of stream) {
+      step(null, at);
+      const decoded = decodeMidi(decoder, bytes, at);
+      decoder = decoded.state;
+      for (const event of decoded.events) step(event, at);
+    }
+    step(null, (stream.at(-1)?.at ?? 0) + 1000);
+    return out.map((e) =>
+      "timecode" in e ? `${e.type} ${e.timecode ? timecodeLabel(e.timecode) : "?"}` : e.type,
+    );
+  }
+
+  it("rolls, records, stops recording and stops, each at the DAW's timecode", () => {
+    expect(recorderEvents(readStream("daw-25fps.txt"))).toEqual([
+      "rolling 01:00:00:00",
+      "record 01:00:02:00",
+      "record-stop 01:00:06:00",
+      "stopped 01:00:06:10",
+    ]);
+  });
+
+  it("notices quarter frames that stop without an MMC stop", () => {
+    const stream = quarterFrames({ h: 1, m: 0, s: 0, f: 0 }, 5, 25, 1);
+    expect(recorderEvents(stream)).toEqual(["rolling 01:00:00:00", "stopped 01:00:00:10"]);
   });
 });
