@@ -6,6 +6,7 @@ describe("where a file's comments sit (#15)", () => {
     expect(readPanelLayout({ comments: "below", width: 420 })).toEqual({
       comments: "below",
       width: 420,
+      score: false,
     });
     expect(readPanelLayout(null)).toEqual(defaultPanelLayout);
     expect(readPanelLayout("right")).toEqual(defaultPanelLayout);
@@ -19,6 +20,13 @@ describe("where a file's comments sit (#15)", () => {
     expect(readPanelLayout({ comments: "hidden", width: 10_000 })).toEqual({
       comments: "hidden",
       width: 640,
+      score: false,
     });
+  });
+
+  it("shows the score only once asked for, as the prototype does", () => {
+    expect(defaultPanelLayout.score).toBe(false);
+    expect(readPanelLayout({ comments: "right", width: 340, score: true }).score).toBe(true);
+    expect(readPanelLayout({ comments: "right", width: 340, score: "yes" }).score).toBe(false);
   });
 });

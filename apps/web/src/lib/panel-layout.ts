@@ -1,18 +1,24 @@
 import { useCallback, useState } from "react";
 
-/** Where a file's comments sit on a wide screen (#15): beside the player, below it, or away. */
+/**
+ * Where a file's comments sit on a wide screen (#15): beside the player, below it, or away;
+ * and whether the score is shown.
+ */
 export type CommentsPlace = "right" | "below" | "hidden";
 
 export interface PanelLayout {
   comments: CommentsPlace;
   /** The comments column's width beside the player, in pixels. */
   width: number;
+  /** Whether a track's linked score is shown under the player: off until asked for (#15). */
+  score: boolean;
 }
 
 export const COMMENTS_WIDTH = { min: 300, max: 640, default: 340 } as const;
 export const defaultPanelLayout: PanelLayout = {
   comments: "right",
   width: COMMENTS_WIDTH.default,
+  score: false,
 };
 
 const places: readonly CommentsPlace[] = ["right", "below", "hidden"];
@@ -25,7 +31,7 @@ export const commentsWidth = (width: number) =>
 /** What a browser kept, read safely: anything unreadable or out of range falls back. */
 export function readPanelLayout(stored: unknown): PanelLayout {
   if (!stored || typeof stored !== "object") return defaultPanelLayout;
-  const { comments, width } = stored as Partial<Record<keyof PanelLayout, unknown>>;
+  const { comments, width, score } = stored as Partial<Record<keyof PanelLayout, unknown>>;
   return {
     comments: places.includes(comments as CommentsPlace)
       ? (comments as CommentsPlace)
@@ -34,6 +40,7 @@ export function readPanelLayout(stored: unknown): PanelLayout {
       typeof width === "number" && Number.isFinite(width)
         ? commentsWidth(width)
         : defaultPanelLayout.width,
+    score: typeof score === "boolean" ? score : defaultPanelLayout.score,
   };
 }
 

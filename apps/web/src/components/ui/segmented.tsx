@@ -15,8 +15,11 @@ export function Segmented<T extends string>({
   /** What the choice is, for assistive technology. */
   label: string;
   value: T;
-  /** Each choice: its value, its words, and an icon to show in place of the words. */
-  options: readonly { value: T; label: string; icon?: ReactNode }[];
+  /**
+   * Each choice: its value, its words, an icon to show in place of the words, and a quiet
+   * word after them (a count, or "analysing").
+   */
+  options: readonly { value: T; label: string; icon?: ReactNode; hint?: string }[];
   onChange: (value: T) => void;
   className?: string;
 }) {
@@ -37,12 +40,13 @@ export function Segmented<T extends string>({
           title={o.icon ? o.label : undefined}
           onClick={() => onChange(o.value)}
           className={cn(
-            "flex h-7 items-center justify-center rounded-[5px] text-[13px] transition-colors",
+            "flex h-7 items-center justify-center gap-1.5 rounded-[5px] text-[13px] transition-colors",
             o.icon ? "w-7" : "px-2.5",
             value === o.value ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
           )}
         >
           {o.icon ?? o.label}
+          {!o.icon && o.hint && <span className="tabular text-ink-3">{o.hint}</span>}
         </button>
       ))}
     </fieldset>
