@@ -279,6 +279,7 @@ export async function accessibilityProblems(page: Page): Promise<string[]> {
         m.getBoundingClientRect(),
       );
       return targets.map((selector) => {
+        if (!selector) return false;
         const el = document.querySelector(selector);
         if (!el || el.closest("[role=menu]")) return false;
         const r = el.getBoundingClientRect();
