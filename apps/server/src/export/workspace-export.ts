@@ -42,8 +42,9 @@ type Row = typeof workspaceExports.$inferSelect;
 
 /**
  * Tables left out of the records: keys, the hashes of tokens and links that work only here,
- * downloads and uploads under way, and how renditions are encrypted. None of it means anything
- * outside this instance, and some of it would be a way in.
+ * downloads and uploads under way, listening rooms and who is in them (#200), and how
+ * renditions are encrypted. None of it means anything outside this instance, and some of it
+ * would be a way in.
  */
 export const tablesLeftOut = new Set([
   "organisation_keys",
@@ -54,6 +55,8 @@ export const tablesLeftOut = new Set([
   "uploads",
   "upload_parts",
   "upload_request_uploads",
+  "listening_rooms",
+  "listening_room_people",
   "renditions",
   "rendition_segments",
   "workspace_exports",

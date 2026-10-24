@@ -32,6 +32,7 @@ import { type Subdomains, workspaceFromHost } from "./hosts.ts";
 import { createInstanceSettings, type InstanceSettingsStore } from "./instance-settings.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
+import { createListeningHub, type ListeningHub } from "./listening.ts";
 import type { Mailer } from "./mail.ts";
 import { mcpRoutes, protectedResourceMetadata } from "./mcp.ts";
 import { countRequests, metricsHandler } from "./metrics/index.ts";
@@ -65,6 +66,7 @@ import { homeRoutes } from "./routes/home.ts";
 import { installRoutes } from "./routes/install.ts";
 import { instanceRoutes } from "./routes/instance.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
+import { listeningRoutes, projectListeningRoutes } from "./routes/listening.ts";
 import { mailHookRoutes } from "./routes/mail-hooks.ts";
 import { projectMarkRoutes } from "./routes/marks.ts";
 import { accountRoutes, meRoutes } from "./routes/me.ts";
@@ -210,6 +212,8 @@ export interface AppDeps {
   modules?: InstanceModules;
   /** The billing gateway (#178), with HEKATE_BILLING=stripe; none otherwise. */
   gateway?: Gateway | null;
+  /** This process's listening room streams (#200), woken by the replicas' channel. */
+  listening?: ListeningHub;
 }
 
 export function createApi(given: AppDeps) {
@@ -221,6 +225,7 @@ export function createApi(given: AppDeps) {
       : brandedMailer(given.mailer, given.db, given.publicUrl),
   };
   const settings = deps.settings ?? createInstanceSettings(deps.db);
+  const listening = { db: deps.db, hub: deps.listening ?? createListeningHub() };
   // What links sent out are made from: each workspace's own address with subdomains on (#437).
   const links = { publicUrl: deps.publicUrl, subdomains: deps.subdomains ?? null };
   const modules: InstanceModules = deps.modules ?? {
@@ -601,6 +606,10 @@ export function createApi(given: AppDeps) {
       .route("/projects", projectTaskRoutes(taskMail))
       .route("/projects", projectBoardRoutes(deps.db))
       .route("/projects", projectCalendarRoutes(deps.db, deps.publicUrl))
+      .route("/projects", projectListeningRoutes(listening))
+      // Listening rooms (#200): a member's own session, never a token or a guest.
+      .use("/listening-rooms/*", ...member)
+      .route("/listening-rooms", listeningRoutes(listening))
       .use("/tags/*", ...member)
       .use("/tags", ...member)
       .route("/tags", tagRoutes(deps.db))
@@ -801,7 +810,11 @@ const routedPath = (request: Request) => {
 };
 
 export function createApp(given: AppDeps) {
-  const deps = { ...given, settings: given.settings ?? createInstanceSettings(given.db) };
+  const deps = {
+    ...given,
+    settings: given.settings ?? createInstanceSettings(given.db),
+    listening: given.listening ?? createListeningHub(),
+  };
   const settings = deps.settings;
   const app = new Hono({ getPath: routedPath });
   const api = createApi(deps);

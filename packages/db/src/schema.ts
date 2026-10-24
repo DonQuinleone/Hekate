@@ -3835,3 +3835,62 @@ export const oauthRefreshTokens = pgTable(
   },
   (t) => [index("oauth_refresh_tokens_grant_idx").on(t.grantId)],
 );
+
+/**
+ * A listening room (#200, decision 224): one member leads, and everyone who joins hears what
+ * they play. It holds only where the leader is (the file, playing or paused, the position at a
+ * moment, the speed); each listener plays that file through their own protected stream. It is
+ * open until its leader ends it or has not been heard from for a while (`roomOpen` in
+ * packages/shared); one that has ended is kept only until the project goes.
+ */
+export const listeningRooms = pgTable(
+  "listening_rooms",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    leaderId: text("leader_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** What the leader plays; null once that file is deleted. */
+    fileId: uuid("file_id").references(() => files.id, { onDelete: "set null" }),
+    playing: boolean("playing").notNull().default(false),
+    /** Seconds into the file at `state_at`. */
+    position: doublePrecision("position").notNull().default(0),
+    rate: doublePrecision("rate").notNull().default(1),
+    stateAt: timestamp("state_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Counts the leader's changes. */
+    revision: integer("revision").notNull().default(0),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index("listening_rooms_org_idx").on(t.organisationId),
+    index("listening_rooms_project_idx").on(t.organisationId, t.projectId),
+    index("listening_rooms_leader_idx").on(t.leaderId),
+  ],
+);
+
+/**
+ * Who is in a listening room now, its leader among them: each connected page says so every
+ * few seconds, and someone not heard from lately has gone (`stillThere` in packages/shared).
+ */
+export const listeningRoomPeople = pgTable(
+  "listening_room_people",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    roomId: uuid("room_id")
+      .notNull()
+      .references(() => listeningRooms.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("listening_room_people_org_idx").on(t.organisationId),
+    uniqueIndex("listening_room_people_idx").on(t.roomId, t.userId),
+  ],
+);
