@@ -34,6 +34,7 @@ export * from "./layouts.ts";
 export * from "./logs.ts";
 export * from "./loudness.ts";
 export * from "./mail-bounces.ts";
+export * from "./mcp.ts";
 export * from "./media.ts";
 export * from "./metadata.ts";
 export * from "./normalisation.ts";
