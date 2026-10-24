@@ -696,7 +696,6 @@ export const apiOperations: Record<string, ApiOperation> = {
         detail: "WAV, 24-bit, 48 kHz, as uploaded but for an inaudible mark",
       },
       marked: true,
-      inaudible: true,
     },
   },
   "POST /files/{id}/downloads": {

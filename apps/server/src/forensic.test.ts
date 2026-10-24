@@ -360,13 +360,11 @@ describe.runIf(url)("forensic marking and leak tracing (#32)", () => {
         .insert(schema.organisations)
         .values({ name: "Elsewhere", slug: "elsewhere-forensic" })
         .returning();
-      await db
-        .insert(schema.members)
-        .values({
-          organisationId: elsewhere?.id ?? "",
-          userId: await idOf(engineer),
-          role: "owner",
-        });
+      await db.insert(schema.members).values({
+        organisationId: elsewhere?.id ?? "",
+        userId: await idOf(engineer),
+        role: "owner",
+      });
       const moved = await app.request(
         "/api/me/organisation",
         json({ organisationId: elsewhere?.id }, engineer, "PUT"),
@@ -378,6 +376,25 @@ describe.runIf(url)("forensic marking and leak tracing (#32)", () => {
       // Back home, the owner names the engineer.
       const ours = (await (await trace(marked, owner)).json()) as TraceResult;
       expect(ours.match?.recipient).toBe("Tomas Varga <tomas@endlesshall.example>");
+
+      // A recording that cannot be marked does not leave unmarked.
+      await app.request("/api/organisation/forensic", json({ audio: true }, owner, "PUT"));
+      const [file] = await db.select().from(schema.files).where(eq(schema.files.id, fileId));
+      const broken = await storage.put(file?.organisationId ?? "", Buffer.from("not really audio"));
+      const [fake] = await db
+        .insert(schema.files)
+        .values({
+          organisationId: file?.organisationId ?? "",
+          projectId: file?.projectId ?? "",
+          name: "Broken.wav",
+          kind: "audio",
+          blobId: broken.id,
+          contentType: "audio/wav",
+          byteSize: broken.byteSize,
+          mediaInfo: file?.mediaInfo ?? null,
+        })
+        .returning();
+      expect((await download(fake?.id ?? "", "original", owner)).status).toBe(422);
 
       // What is not a recording is refused; nothing is refused silently.
       expect((await trace(Buffer.from("not really audio"), owner)).status).toBe(422);

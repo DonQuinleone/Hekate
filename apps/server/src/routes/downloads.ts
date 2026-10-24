@@ -42,7 +42,7 @@ import {
   burnFormat,
   streamFfmpeg,
 } from "../media/burn.ts";
-import { probe, run } from "../media/ffmpeg.ts";
+import { MediaToolError, probe, run } from "../media/ffmpeg.ts";
 import { ffmpegLayout, markedAudioFormat, markInThread, mixArgs } from "../media/forensic-audio.ts";
 import {
   IMAGE_DEMUXERS,
@@ -912,9 +912,16 @@ export const downloadRoutes = (deps: DownloadDeps) =>
           reviewId: record.reviewId,
         });
         const format = markedAudioFormat(file.mediaInfo, kind);
+        // A recording that cannot be marked does not leave unmarked.
         const stream = await primed(
           markedAudio(deps, organisationId, file, kind, mark, c.req.raw.signal),
-        );
+        ).catch((error: unknown) => {
+          if (error instanceof MediaToolError)
+            throw new HTTPException(422, {
+              message: "This recording could not be marked, so it cannot be downloaded",
+            });
+          throw error;
+        });
         return new Response(stream as unknown as ReadableStream, {
           headers: {
             ...PRIVATE,

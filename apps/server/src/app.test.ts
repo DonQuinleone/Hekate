@@ -6210,6 +6210,7 @@ describe.runIf(url)("api", () => {
           emailSubjects: {},
           secondFactor: "off",
           securityKeyForAdmins: false,
+          forensicAudio: true,
           roleTools: {
             Producer: ["qa", "meters", "spectrogram", "score", "compare", "loops", "normalise"],
             Engineer: ["qa", "meters", "spectrogram", "score", "compare", "loops", "normalise"],
@@ -8552,6 +8553,10 @@ describe.runIf(url)("api", () => {
 
       it("makes each download once, for its session, logged, and only as the role allows", async () => {
         const { owner, organisationId, projectId, fileId } = await studio();
+        // This recording is not really audio, so it can leave only unmarked (#32): as it was.
+        expect(
+          (await send("PUT", "/api/organisation/forensic", { audio: false }, owner)).status,
+        ).toBe(200);
         type Choices = {
           level: string;
           proxy: { available: boolean };
@@ -18901,6 +18906,11 @@ describe.runIf(url)("api", () => {
           const s = await invited();
           const reviewer = s.review.reviewers.find((r) => r.guest);
           const downloads = `/api/files/${s.mix}/downloads`;
+          // The mix is not really audio, so it can leave only unmarked (#32): as it was.
+          await app.request("/api/organisation/forensic", {
+            ...json({ audio: false }, s.owner),
+            method: "PUT",
+          });
           const ask = (cookie: string) =>
             app.request(downloads, json({ kind: "original" }, cookie));
           // Nothing unless the review says so.

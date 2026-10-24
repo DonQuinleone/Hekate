@@ -16424,8 +16424,7 @@
                     "available": true,
                     "detail": "WAV, 24-bit, 48 kHz, as uploaded but for an inaudible mark"
                   },
-                  "marked": true,
-                  "inaudible": true
+                  "marked": true
                 }
               }
             }
