@@ -45,4 +45,4 @@ Open threads are exported unless you choose all of them, and replies can follow 
 
 ## Playing media
 
-Audio and video play through Hekate's own player, as encrypted segments decrypted in the browser for that session alone. The space bar or K plays and pauses, J and L step back and forward, I and O set a loop, and C starts a comment at the playhead; press ? on any page for every shortcut there.
+Audio and video play through Hekate's own player, as encrypted segments decrypted in the browser for that session alone. The space bar or K plays and pauses, J and L step back and forward, Shift+↑ and Shift+↓ jump to the previous and next marker (a comment or a quality check's finding), I and O set a loop, and C starts a comment at the playhead; press ? on any page for every shortcut there.
