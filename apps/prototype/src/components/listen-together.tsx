@@ -21,7 +21,17 @@ import { useViewer } from "~/viewer/context";
 export type ListeningMode =
   | { kind: "idle" }
   | { kind: "leading"; listeners: string[] }
-  | { kind: "following"; leaderId: string; fileId: string; blocked: boolean };
+  | {
+      kind: "following";
+      leaderId: string;
+      fileId: string;
+      /** The browser waits for a tap before it plays. */
+      blocked: boolean;
+      /** The listener played, paused or sought themselves, and stopped following. */
+      detached: boolean;
+    }
+  /** The room ended under a listener: said until they put it away. */
+  | { kind: "ended"; leaderId: string };
 
 /** The room already live in Joplin Rags, led by Tomas Varga, for the prototype to join. */
 export const liveRoom = {
@@ -61,6 +71,7 @@ export function ListenTogether({ fileId }: { fileId: string }) {
   const leaderFirst = personById(
     listening.kind === "following" ? listening.leaderId : liveRoom.leaderId,
   ).name.split(" ")[0];
+  const idle = listening.kind === "idle" || listening.kind === "ended";
   const label =
     listening.kind === "leading"
       ? `Leading · ${listening.listeners.length}`
@@ -76,11 +87,11 @@ export function ListenTogether({ fileId }: { fileId: string }) {
         size="md"
         aria-haspopup="dialog"
         aria-expanded={open}
-        title={listening.kind === "idle" ? "Lead or join a listening room" : label}
+        title={idle ? "Lead or join a listening room" : label}
         onClick={() => setOpen(!open)}
-        className={cn(open && "bg-raised text-ink", listening.kind !== "idle" && "text-ink")}
+        className={cn(open && "bg-raised text-ink", !idle && "text-ink")}
       >
-        {listening.kind === "idle" ? (
+        {idle ? (
           <Icon name="headphones" size={14} />
         ) : (
           <span aria-hidden="true" className="size-1.5 rounded-full bg-signal" />
@@ -94,7 +105,7 @@ export function ListenTogether({ fileId }: { fileId: string }) {
           data-e2e-overlap
           className="rise-in absolute top-full right-0 z-40 mt-1.5 flex w-80 flex-col gap-3 rounded-panel-lg bg-overlay p-4 shadow-4"
         >
-          {listening.kind === "idle" && (
+          {idle && (
             <>
               <div className="flex flex-col gap-1">
                 <span className="text-[14px] font-medium text-ink">Listen together</span>
@@ -126,6 +137,7 @@ export function ListenTogether({ fileId }: { fileId: string }) {
                           leaderId: liveRoom.leaderId,
                           fileId: liveRoom.fileId,
                           blocked: false,
+                          detached: false,
                         });
                         navigate({ to: "/files/$fileId", params: { fileId: liveRoom.fileId } });
                       }}
@@ -216,6 +228,18 @@ export function ListenTogether({ fileId }: { fileId: string }) {
                 >
                   Leave
                 </Button>
+                {/* Prototype only: what a listener sees when the leader ends the room. */}
+                <Button
+                  size="sm"
+                  variant="quiet"
+                  className="ml-auto"
+                  onClick={() => {
+                    setOpen(false);
+                    setListening({ kind: "ended", leaderId: listening.leaderId });
+                  }}
+                >
+                  Leader ends it
+                </Button>
               </div>
             </>
           )}
@@ -232,7 +256,7 @@ export function ListenTogether({ fileId }: { fileId: string }) {
 
 /**
  * A strip above the player, only when there is something to do: the browser waits for a tap
- * before it will play, or the leader is on another file than this one.
+ * before it will play, the listener stopped following, or the leader is on another file.
  */
 export function ListeningNotice({ fileId }: { fileId: string }) {
   const navigate = useNavigate();
@@ -256,6 +280,20 @@ export function ListeningNotice({ fileId }: { fileId: string }) {
         </Button>
       </div>
     );
+  if (listening.detached)
+    return (
+      <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2 text-[13px]">
+        <span aria-hidden="true" className="size-1.5 rounded-full bg-signal" />
+        <span className="min-w-0 flex-1 text-ink-2">You stopped following {leader}.</span>
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => setListening({ ...listening, detached: false })}
+        >
+          Follow again
+        </Button>
+      </div>
+    );
   if (fileId === listening.fileId) return null;
   return (
     <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-2 text-[13px]">
@@ -274,11 +312,31 @@ export function ListeningNotice({ fileId }: { fileId: string }) {
   );
 }
 
-/** Away from the file pages, a pill keeps the room in reach: back to it, leave, or end it. */
-export function ListeningPill() {
+/**
+ * Away from the file pages, a pill keeps the room in reach: back to it, leave, or end it; and
+ * once a room has ended under a listener, it says so until put away.
+ */
+export function ListeningPill({ onFile }: { onFile: boolean }) {
   const navigate = useNavigate();
   const [listening, setListening] = useListening();
   if (listening.kind === "idle") return null;
+  if (listening.kind === "ended")
+    return (
+      <div
+        role="status"
+        data-e2e-overlap
+        className="rise-in fixed bottom-4 left-1/2 z-30 flex max-w-[calc(100%-32px)] -translate-x-1/2 items-center gap-2 rounded-panel-lg bg-overlay py-1.5 pr-1.5 pl-3.5 shadow-4"
+      >
+        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-signal" />
+        <span className="min-w-0 truncate text-[13px] text-ink">
+          {personById(listening.leaderId).name} ended the room
+        </span>
+        <Button size="sm" variant="ghost" onClick={() => setListening({ kind: "idle" })}>
+          Dismiss
+        </Button>
+      </div>
+    );
+  if (onFile) return null;
   const leading = listening.kind === "leading";
   return (
     <div
@@ -346,6 +404,7 @@ export function ListeningRoomPage({ roomId }: { roomId: string }) {
                 leaderId: liveRoom.leaderId,
                 fileId: liveRoom.fileId,
                 blocked: false,
+                detached: false,
               });
               navigate({ to: "/files/$fileId", params: { fileId: liveRoom.fileId } });
             }}

@@ -31,6 +31,7 @@ import { FileDetailsSheet } from "~/components/file-details";
 import { FileChain, NewVersionDialog, takesVersions } from "~/components/file-versions";
 import { fileSummary, mediaSummary } from "~/components/files";
 import { Icon } from "~/components/icons";
+import { ListeningNotice, ListenTogether, useListeningSync } from "~/components/listening";
 import { Loudness } from "~/components/loudness";
 import { ImportMarkersDialog } from "~/components/marker-import";
 import { type Crumb, PageHeader } from "~/components/page-header";
@@ -344,6 +345,8 @@ export function FilePage({
   const [chosenNormal, setChosenNormal] = useNormalisedChoice();
   // Arriving from another version or variation: start where that one was (#15).
   const { media, onMedia } = useFileMedia(fileId, startAt, onStarted);
+  // Leading or following a listening room (#200) with this page's player; members only.
+  const listening = useListeningSync(fileId, file?.projectId ?? "", guest ? null : media);
   // Where the comments sit on a wide screen, this viewer's choice (#15).
   const [layout, setLayout] = usePanelLayout();
   // Counted only while they are put away, for the button that brings them back.
@@ -621,6 +624,9 @@ export function FilePage({
           ) : (
             <>
               {commentsButton}
+              {(file.kind === "audio" || file.kind === "video") && (
+                <ListenTogether fileId={file.id} projectId={file.projectId} />
+              )}
               {downloadButton}
               <Button
                 variant="ghost"
@@ -712,6 +718,7 @@ export function FilePage({
           <div className="flex min-w-0 flex-col gap-6">
             {/* Comparison sets the volume while it is shown; otherwise, this does. */}
             {!comparing && <PageVolume media={media} gain={gain} />}
+            <ListeningNotice sync={listening} />
             {playback}
             {shown === "review" && hasQa && allows("qa") && loudnessShown && (
               <QaSummary fileId={file.id} onOpen={() => onView("qa")} />

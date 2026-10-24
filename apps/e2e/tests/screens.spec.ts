@@ -121,6 +121,12 @@ const screens: Screen[] = [
     ready: "text=String stems",
     as: "signed-out",
   },
+  // A listening room's link (#200) that leads nowhere: ended, or not this person's to join.
+  {
+    name: "listen-room-gone",
+    path: () => "/listen/019a0000-0000-7000-8000-000000000000",
+    ready: "text=This listening room is not open",
+  },
   {
     name: "upload-link-gone",
     path: () => "/u/not-a-real-upload-request-link",
@@ -793,6 +799,43 @@ test("file-finding-comment", async ({ page }) => {
   await settle(page, "textarea[placeholder='Comment at the playhead']:visible");
   await saveScreen(page, "file-finding-comment");
   await checkScreen(page);
+});
+
+// Listening together (#200): the header's control on a recording, opened; then leading, with
+// the room's stream open (so the page never goes quiet on the network, and is not waited for).
+// The room is ended again, so no other capture sees it.
+test("listen-together", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Listen together" }).click();
+  const dialog = page.getByRole("dialog", { name: "Listen together" });
+  await expect(dialog.getByRole("button", { name: "Start leading" })).toBeVisible();
+  await saveScreen(page, "listen-together");
+  await checkScreen(page);
+  await dialog.getByRole("button", { name: "Start leading" }).click();
+  await expect(dialog.getByText("You are leading")).toBeVisible();
+  await saveScreen(page, "listen-together-leading");
+  await checkScreen(page);
+  await dialog.getByRole("button", { name: "End for everyone" }).click();
+  await expect(page.getByRole("button", { name: "Listen together" })).toBeVisible();
+});
+
+// A listening room's link (#200), as someone about to join sees it.
+test("listen-room", async ({ page }) => {
+  const started = await page.request.fetch(
+    `/api/projects/${seeded().musicProjectId}/listening-rooms`,
+    { method: "POST", data: { fileId: seeded().dryFileId } },
+  );
+  expect(started.ok()).toBe(true);
+  const { room } = (await started.json()) as { room: { id: string } };
+  try {
+    await page.goto(`/listen/${room.id}`);
+    await settle(page, "button:has-text('Join')");
+    await saveScreen(page, "listen-room");
+    await checkScreen(page);
+  } finally {
+    await page.request.fetch(`/api/listening-rooms/${room.id}/end`, { method: "POST" });
+  }
 });
 
 // The QA report to take away (#43): its formats, and what it is stamped with.
