@@ -1305,7 +1305,7 @@ A general project is folders and files (#149). Documents and pictures are drawn 
 - **The latest stands for the chain.** Lists and the review picker show each chain by its latest file, its details led by its number ("V3 · PDF · 4 pages"); the file page offers every version a step away, and a review naming a file stays on that file, as one naming a track's version does.
 - **Simple means simple.** Comments stay on the file they were written on; nothing is carried, aligned or compared along a chain. Versions are always "V1, V2" here, whatever the profile, since cuts and versions belong to tracks.
 - **Taking one out closes the gap.** Deleting a file in the middle of a chain links the one after it to the one before; deleting the first leaves the rest as a chain of their own. A file under review cannot be deleted, as before.
-- **Expand now, constrain later.** This release adds the nullable column and a plain index only, so the release before runs against the database (decision 198). Its foreign key and uniqueness constrain a table older code knows, which contracts, so they follow in a later release (#427), once no release before this one need run against the database.
+- **Expand now, constrain later.** This release adds the nullable column and a plain index only, so the release before runs against the database (decision 198). Its foreign key and uniqueness constrain a table older code knows, which contracts, so they follow in a later release (#427), once no release before this one need run against the database. (They came before any release was cut, so none ever ran without them: `0140_file_chain_constraints`.)
 
 ## 201. A spectrogram's window, FFT size and overlap, drawn when first asked for
 
