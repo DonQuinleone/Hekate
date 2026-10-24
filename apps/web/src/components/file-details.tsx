@@ -1,4 +1,17 @@
-import { captionFormatNames, formatBytes } from "@hekate/shared";
+import {
+  type CaptionKind,
+  captionFormatNames,
+  captionFormatOf,
+  captionFormats,
+  captionKindNames,
+  captionKindOf,
+  captionKinds,
+  captionLanguageOf,
+  commonCaptionLanguages,
+  defaultCaptionLabel,
+  formatBytes,
+  languageName,
+} from "@hekate/shared";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -7,6 +20,8 @@ import { formatDates } from "~/lib/locale";
 import {
   accessLogQuery,
   captionsQuery,
+  downloadsQuery,
+  exportCaptions,
   type FileDetails,
   fileDetailsQuery,
   projectFoldersQuery,
@@ -21,7 +36,10 @@ import { mediaSummary } from "./files";
 import { Icon } from "./icons";
 import { Property } from "./property";
 import { Button } from "./ui/button";
+import { Field } from "./ui/field";
 import { FileInput, Input, Select } from "./ui/input";
+import { ActionMenu } from "./ui/menu";
+import { Segmented } from "./ui/segmented";
 import { StatusDot } from "./ui/status";
 
 const dateTime = formatDates({
@@ -105,101 +123,222 @@ function Renditions({ details }: { details: FileDetails }) {
   );
 }
 
-/** "Titles - English.srt" → "Titles - English": a first name for the player's menu. */
-const captionNameOf = (fileName: string) => fileName.replace(/\.[^.]+$/, "").slice(0, 60);
+/** What a track is called, its language and what it is for, as the form holds them. */
+interface TrackFields {
+  label: string;
+  language: string | null;
+  kind: CaptionKind;
+}
 
 /**
- * A video's captions from sidecar files (#146): which there are, and for whoever may upload,
- * adding one (named for the player's Frame menu) or removing one.
+ * A caption track's name, language and kind (#201): asked when it is added, with what the
+ * file says of itself filled in, and again when it is renamed. The name follows the language
+ * and kind until it is typed over.
  */
-function Captions({ fileId, canUpload }: { fileId: string; canUpload: boolean }) {
+function TrackForm({
+  title,
+  initial,
+  file,
+  submit,
+  pending,
+  onSubmit,
+  onCancel,
+}: {
+  title: string;
+  initial: TrackFields;
+  /** The sidecar being added, named above the fields. */
+  file?: File;
+  submit: string;
+  pending: boolean;
+  onSubmit: (fields: TrackFields) => void;
+  onCancel: () => void;
+}) {
+  const [fields, setFields] = useState(initial);
+  const [named, setNamed] = useState(
+    initial.label !== defaultCaptionLabel(initial.language, initial.kind),
+  );
+  const set = (change: Partial<TrackFields>) =>
+    setFields((f) => {
+      const next = { ...f, ...change };
+      return named ? next : { ...next, label: defaultCaptionLabel(next.language, next.kind) };
+    });
+  // The common languages, and the track's own where it is another.
+  const languages: readonly string[] =
+    fields.language && !commonCaptionLanguages.some((l) => l === fields.language)
+      ? [fields.language, ...commonCaptionLanguages]
+      : commonCaptionLanguages;
+  return (
+    <form
+      aria-label={title}
+      className="flex flex-col gap-3 rounded-panel border border-hairline p-3"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit(fields);
+      }}
+    >
+      {file && (
+        <span className="flex min-w-0 items-center gap-2 text-[13px]">
+          <Icon name="file" size={14} className="shrink-0 text-ink-3" />
+          <span className="min-w-0 truncate text-ink" title={file.name}>
+            {file.name}
+          </span>
+        </span>
+      )}
+      <Field label="Language">
+        <Select
+          size="sm"
+          value={fields.language ?? ""}
+          onChange={(event) => set({ language: event.target.value || null })}
+        >
+          <option value="">Not said</option>
+          {languages.map((tag) => (
+            <option key={tag} value={tag}>
+              {languageName(tag) ?? tag}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+        <span aria-hidden="true">For</span>
+        <Segmented
+          label="What the track is for"
+          value={fields.kind}
+          onChange={(kind) => set({ kind })}
+          options={captionKinds.map((k) => ({ value: k, label: captionKindNames[k] }))}
+          className="self-start"
+        />
+        <span className="text-[12px] text-ink-3">
+          {fields.kind === "subtitles"
+            ? "The words, for viewers who hear them."
+            : "The words and the sounds, for viewers who are deaf or hard of hearing."}
+        </span>
+      </div>
+      <Field label="Name in the Captions menu">
+        <Input
+          size="sm"
+          value={fields.label}
+          maxLength={60}
+          onChange={(event) => {
+            setNamed(true);
+            setFields((f) => ({ ...f, label: event.target.value }));
+          }}
+        />
+      </Field>
+      <div className="flex items-center justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" size="sm" disabled={!fields.label.trim() || pending}>
+          {submit}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * A video's or a recording's caption tracks (#146, #201): which there are, each with what it
+ * is for and the format it came as; for whoever may download, exporting one as SubRip, WebVTT
+ * or TTML; for whoever may upload, adding one from a sidecar, renaming or removing one.
+ */
+function Captions({
+  fileId,
+  canUpload,
+  canExport,
+}: {
+  fileId: string;
+  canUpload: boolean;
+  canExport: boolean;
+}) {
   const { data: captions = [] } = useQuery(captionsQuery(fileId));
-  const { add, remove } = useCaptionMutations(fileId);
+  const { add, update, remove } = useCaptionMutations(fileId);
   const chooser = useRef<HTMLInputElement>(null);
-  const [chosen, setChosen] = useState<File | null>(null);
-  const [label, setLabel] = useState("");
-  const failure = add.error ?? remove.error;
+  const [chosen, setChosen] = useState<{ file: File; initial: TrackFields } | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const failure = add.error ?? update.error ?? remove.error;
   return (
     <section className="flex flex-col gap-1.5">
       <Heading>Captions</Heading>
       {captions.length === 0 && (
         <span className="text-[13px] text-ink-2">
           {canUpload
-            ? "None. Add a SubRip, WebVTT or TTML file; the Frame menu shows it over the picture."
+            ? "None yet. Add SubRip, WebVTT or TTML files: each is a track in the player's Captions menu and a transcript beside the comments."
             : "None"}
         </span>
       )}
       <ul aria-label="Captions" className="m-0 flex list-none flex-col p-0">
-        {captions.map((c) => (
-          <li key={c.id} className="group flex min-h-7 items-center gap-2 text-[13px]">
-            <span className="text-ink">{c.label}</span>
-            <span className="min-w-0 flex-1 truncate text-ink-3" title={c.name}>
-              {captionFormatNames[c.format]} · {c.cues.length} caption
-              {c.cues.length === 1 ? "" : "s"}
-            </span>
-            {canUpload && (
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label={`Remove the ${c.label} captions`}
-                title="Remove"
-                disabled={remove.isPending}
-                onClick={() => remove.mutate(c.id)}
-                className="opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-              >
-                <Icon name="close" size={13} />
-              </Button>
-            )}
-          </li>
-        ))}
+        {captions.map((c) =>
+          renaming === c.id ? (
+            <li key={c.id}>
+              <TrackForm
+                title={`Rename the ${c.label} captions`}
+                initial={{ label: c.label, language: c.language, kind: c.kind }}
+                submit="Save"
+                pending={update.isPending}
+                onSubmit={(fields) =>
+                  update.mutate(
+                    { captionId: c.id, ...fields },
+                    { onSuccess: () => setRenaming(null) },
+                  )
+                }
+                onCancel={() => {
+                  setRenaming(null);
+                  update.reset();
+                }}
+              />
+            </li>
+          ) : (
+            <li key={c.id} className="group flex min-h-8 items-center gap-2 text-[13px]">
+              <span className="shrink-0 text-ink">{c.label}</span>
+              <span className="min-w-0 flex-1 truncate text-ink-3" title={c.name}>
+                {captionKindNames[c.kind]} · {captionFormatNames[c.format]} · {c.cues.length}{" "}
+                {c.cues.length === 1 ? "caption" : "captions"}
+              </span>
+              {(canUpload || canExport) && (
+                <ActionMenu
+                  label={`the ${c.label} captions`}
+                  actions={[
+                    ...(canUpload ? [{ label: "Rename…", onSelect: () => setRenaming(c.id) }] : []),
+                    ...(canExport
+                      ? captionFormats.map((f) => ({
+                          label: `Export as ${captionFormatNames[f]} (.${f})`,
+                          onSelect: () => exportCaptions(fileId, c.id, f),
+                        }))
+                      : []),
+                    ...(canUpload
+                      ? [
+                          "divider" as const,
+                          {
+                            label: "Remove",
+                            danger: true,
+                            onSelect: () => remove.mutate(c.id),
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
+              )}
+            </li>
+          ),
+        )}
       </ul>
       {canUpload &&
         (chosen ? (
-          <form
-            aria-label="Add captions"
-            className="flex flex-col gap-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              add.mutate(
-                { file: chosen, label },
-                {
-                  onSuccess: () => {
-                    setChosen(null);
-                    setLabel("");
-                  },
-                },
-              );
+          <TrackForm
+            key={chosen.file.name}
+            title="Add captions"
+            file={chosen.file}
+            initial={chosen.initial}
+            submit="Add captions"
+            pending={add.isPending}
+            onSubmit={(fields) =>
+              add.mutate({ file: chosen.file, ...fields }, { onSuccess: () => setChosen(null) })
+            }
+            onCancel={() => {
+              setChosen(null);
+              add.reset();
             }}
-          >
-            <span className="truncate text-[12px] text-ink-3" title={chosen.name}>
-              {chosen.name}
-            </span>
-            <div className="flex items-center gap-2">
-              <Input
-                size="sm"
-                aria-label="Name in the Frame menu"
-                placeholder="English"
-                value={label}
-                maxLength={60}
-                onChange={(event) => setLabel(event.target.value)}
-                className="min-w-0 flex-1"
-              />
-              <Button type="submit" size="sm" disabled={!label.trim() || add.isPending}>
-                Add
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setChosen(null);
-                  add.reset();
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
-          </form>
+          />
         ) : (
           <div>
             <Button variant="secondary" size="sm" onClick={() => chooser.current?.click()}>
@@ -208,13 +347,20 @@ function Captions({ fileId, canUpload }: { fileId: string; canUpload: boolean })
             <FileInput
               ref={chooser}
               accept=".srt,.vtt,.ttml,.dfxp,.xml"
-              onChange={(event) => {
+              onChange={async (event) => {
                 const file = event.target.files?.[0];
                 event.target.value = "";
                 if (!file) return;
                 add.reset();
-                setChosen(file);
-                setLabel(captionNameOf(file.name));
+                // What the file says of itself fills the form in: its language and kind.
+                const head = await file.slice(0, 4096).text();
+                const format = captionFormatOf(file.name, head);
+                const language = format ? captionLanguageOf(file.name, head, format) : null;
+                const kind = captionKindOf(file.name) ?? "subtitles";
+                setChosen({
+                  file,
+                  initial: { language, kind, label: defaultCaptionLabel(language, kind) },
+                });
               }}
             />
           </div>
@@ -349,6 +495,8 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
   });
   const organise = useOrganise(projectId);
   const trackMutations = useTrackMutations(projectId);
+  // Whether this member may download from the file: who may export its caption tracks.
+  const { data: downloads } = useQuery(downloadsQuery(fileId));
   const client = useQueryClient();
   const navigate = useNavigate();
   const [editing, setEditing] = useState<"rename" | "move" | "attach" | "delete" | null>(null);
@@ -464,8 +612,12 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
               )}
             </dl>
             <Renditions details={details} />
-            {details.file.kind === "video" && (
-              <Captions fileId={fileId} canUpload={details.can.upload} />
+            {(details.file.kind === "video" || details.file.kind === "audio") && (
+              <Captions
+                fileId={fileId}
+                canUpload={details.can.upload}
+                canExport={downloads !== undefined && downloads.level !== "none"}
+              />
             )}
             <UsedIn details={details} />
             {(details.can.organise || details.can.upload) && (
