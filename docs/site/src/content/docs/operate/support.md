@@ -22,7 +22,7 @@ With `HEKATE_SUPPORT=app`, the instance side has a **Support** section for its o
 - **Status page**: the incidents posted for it, and where the help menu links; see [Status page and incidents](../status/).
 - **Tickets** from every workspace, newest activity first, filtered by state (open, waiting on you, all), workspace and severity, and searched by subject, reference, workspace or who asked.
 - **A ticket** opens as its thread beside who asked (their role in the workspace and when they were last seen) and the workspace (its plan and open reviews), each a step from its page on the instance side; the error reference, looked up in place; the file or review it is about, and whether they let you open it; and its severity.
-- **Answering** sends the reply by email to whoever asked, and the ticket waits on them; the state select sets any state, with or without a reply. A **canned reply** puts its words in the reply box, to change before sending. Attachments go both ways, each download in the workspace's access log under your name.
+- **Answering** tells whoever asked, in their inbox and by email as they choose in their notification settings, and the ticket waits on them; the state select sets any state, with or without a reply. A **canned reply** puts its words in the reply box, to change before sending. Attachments go both ways, each download in the workspace's access log under your name.
 - **States**: waiting on support (new, or the workspace replied), open (being looked into), answered (waiting on the workspace) and resolved.
 
 ## The desk's settings
