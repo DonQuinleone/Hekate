@@ -86,8 +86,8 @@ export function RecorderControl() {
           <div className="flex flex-col gap-1">
             <span className="text-[14px] font-medium text-ink">Recorder</span>
             <p className="m-0 text-[13px] text-ink-3">
-              Timecode in and out, and optionally each take's start and stop, read from the
-              recorder by this browser. Everyone sees the takes in the log.
+              Timecode in and out, and optionally each take's start and stop, read from the recorder
+              by this browser. Everyone sees the takes in the log.
             </p>
           </div>
           {othersDrive && !connected && (

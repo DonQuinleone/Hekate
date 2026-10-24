@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/label";
-import { Dropdown, MenuList, usePopover } from "~/components/ui/menu";
 import { FollowDaw } from "~/components/recorder";
+import { Dropdown, MenuList, usePopover } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { inField } from "~/lib/dom";

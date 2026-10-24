@@ -1073,6 +1073,37 @@ test("take-log-engineer", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The take log's recorder (#51, decision 240): the connection's settings, as the person who
+// may log takes opens them; then as someone else's browser drives takes from a DAW.
+test("take-log-recorder", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  const sessionId = seeded().sessionId;
+  await page.goto(`/sessions/${sessionId}/log`);
+  await settle(page, "main ul[aria-label=Takes] >> text=T3");
+  await page.getByRole("button", { name: "Recorder", exact: true }).click();
+  await settle(page, "[role=dialog] >> text=Start and stop takes");
+  await saveScreen(page, "take-log-recorder");
+  await checkScreen(page);
+  // Someone else's browser drives it: said on the control, and connecting takes over.
+  await page.route(`**/api/sessions/${sessionId}`, async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const response = await route.fetch();
+    const body = (await response.json()) as { session: Record<string, unknown> };
+    body.session.recorder = {
+      kind: "daw-midi",
+      by: { id: "someone-else", name: "Tomas Varga" },
+      seenAt: new Date(FIXED_TIME).toISOString(),
+    };
+    await route.fulfill({ response, json: body });
+  });
+  await page.reload();
+  await settle(page, "button:has-text('Tomas drives the recorder')");
+  await page.getByRole("button", { name: "Tomas drives the recorder" }).click();
+  await settle(page, "[role=dialog] >> text=Connecting here takes over from it");
+  await saveScreen(page, "take-log-recorder-taken");
+  await checkScreen(page);
+});
+
 // The live take log (#51): the producer's view of Day 2, and the logger's.
 test("take-log", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
@@ -2424,6 +2455,24 @@ test("file-normalised", async ({ page }) => {
   await page.getByRole("switch", { name: "Normalised playback" }).click();
   await settle(page, "text=Normalised to −14 LUFS");
   await saveScreen(page, "file-normalised");
+  await checkScreen(page);
+});
+
+// Following the DAW (#450, decision 240): in the player's View menu, its MIDI input and where the
+// file starts on the DAW's timeline. MIDI is allowed, and no port exists here, so it says so.
+test("player-follow-daw", async ({ page, context }, info) => {
+  await context.grantPermissions(["midi"]);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "button:has-text('View')");
+  await page.getByRole("button", { name: "View", exact: true }).click();
+  await page.getByRole("switch", { name: "Follow the DAW" }).click();
+  await settle(page, "section#player-view >> text=File starts at");
+  await expect(page.locator("section#player-view")).toContainText("No MIDI input");
+  if (info.project.name === "phone")
+    await page
+      .locator("section#player-view")
+      .evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await saveScreen(page, "player-follow-daw");
   await checkScreen(page);
 });
 
