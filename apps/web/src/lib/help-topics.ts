@@ -50,6 +50,12 @@ export const helpTopics: HelpTopic[] = [
     words: "take session recording bar microphone",
   },
   {
+    title: "Recorders and the DAW",
+    hint: "Timecode and takes from the recorder, and a player that follows a DAW",
+    path: "/use/recorders/",
+    words: "recorder daw midi timecode mtc mmc ltc sound devices follow take log",
+  },
+  {
     title: "Asking someone outside for files",
     hint: "Upload requests, their links and what arrives",
     path: "/use/upload-requests/",
