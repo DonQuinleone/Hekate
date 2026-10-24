@@ -806,6 +806,24 @@ test("file-recording-versions", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Switching to QA and back keeps the same player, so the music never stops (#15).
+test("file-recording-review-to-qa", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page
+    .locator("audio, video")
+    .first()
+    .evaluate((el) => {
+      el.dataset.kept = "yes";
+    });
+  await page.getByRole("button", { name: /^QA/ }).click();
+  await settle(page, "section[aria-label=Checks] h2");
+  await expect(page.locator("audio[data-kept=yes], video[data-kept=yes]")).toHaveCount(1);
+  await page.getByRole("button", { name: /^Review$/ }).click();
+  await settle(page, "section[aria-label=Comments] li");
+  await expect(page.locator("audio[data-kept=yes], video[data-kept=yes]")).toHaveCount(1);
+});
+
 // The track's score under the player (#15), shown from the strip's Score switch (the browser
 // keeps the choice) and put away from its own header. A phone shows it before the comments,
 // as the prototype does.

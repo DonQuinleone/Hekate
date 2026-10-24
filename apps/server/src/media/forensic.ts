@@ -49,6 +49,12 @@ export const CODE_LENGTH = CODE_BANDS * BLOCKS;
 export const DEFAULT_STRENGTH = 0.05;
 /** The mark is scaled down wherever it would take a sample past this. */
 const CEILING = 0.98;
+/**
+ * The least share of its strength a recording's mark may keep, on average over the frames
+ * with sound, once the ceiling has made way for the loudest: below it, the download is
+ * refused rather than sent with a mark too weak to trace (decision 239).
+ */
+export const MIN_EMBEDDED = 0.5;
 /** Detection tries the frame grid this many ways within a hop. */
 const OFFSETS = 4;
 /**
@@ -175,6 +181,9 @@ export class MarkEmbedder {
   /** Samples taken in and given out, so the output ends exactly where the input did. */
   private taken = 0;
   private given = 0;
+  /** The share of the strength each frame with sound kept, summed, and how many there were. */
+  private kept = 0;
+  private sounding = 0;
 
   constructor(pattern: MarkPattern, code: MarkCode, strength = DEFAULT_STRENGTH) {
     if (code.length !== CODE_LENGTH) throw new Error("A mark's code has the wrong length");
@@ -184,6 +193,15 @@ export class MarkEmbedder {
     // A hop of silence first, so the first samples are covered by two frames as all others are.
     this.input = new Float32Array(HOP);
     this.peaks = new Float32Array(HOP);
+  }
+
+  /**
+   * How much of its strength the mark kept, on average over the frames with sound in its band:
+   * 1 where the ceiling never had to make way, 0 for a recording loud everywhere. Null when
+   * nothing in the band sounded (silence, or an LFE channel): there is nothing to mark there.
+   */
+  embedded(): number | null {
+    return this.sounding === 0 ? null : this.kept / this.sounding;
   }
 
   /** Take more sound; return the mark for every sample now settled. */
@@ -269,6 +287,10 @@ export class MarkEmbedder {
     }
     // Two frames overlap each sample: each keeps to half of what room the sound leaves.
     const scale = largest === 0 ? 0 : Math.max(0, Math.min(1, (CEILING - loudest) / (2 * largest)));
+    if (largest > 0) {
+      this.kept += scale;
+      this.sounding += 1;
+    }
     const out = new Float32Array(HOP);
     for (let i = 0; i < HOP; i++) {
       out[i] = (this.tail[i] as number) + (markRe[i] as number) * scale;

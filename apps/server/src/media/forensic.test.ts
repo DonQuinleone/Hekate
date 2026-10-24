@@ -10,6 +10,7 @@ import {
   forensicKey,
   MARK_RATE,
   MarkEmbedder,
+  MIN_EMBEDDED,
   markCode,
   markFor,
   markPattern,
@@ -83,6 +84,26 @@ describe("forensic marks: embedding", () => {
     ).toBe(true);
     expect(markFor(sound, pattern, recipient.code, 0).every((v) => v === 0)).toBe(true);
     expect(DEFAULT_STRENGTH).toBeLessThanOrEqual(0.05);
+  });
+
+  it("says how much of the mark it kept, so one erased by the ceiling is refused", () => {
+    const tone = (level: number) =>
+      Float32Array.from(
+        { length: MARK_RATE * 20 },
+        (_, i) => level * Math.sin((2 * Math.PI * 1000 * i) / MARK_RATE),
+      );
+    const kept = (sound: Float32Array) => {
+      const embedder = new MarkEmbedder(pattern, recipient.code);
+      embedder.push(sound);
+      embedder.end();
+      return embedder.embedded();
+    };
+    expect(kept(sound)).toBeGreaterThan(MIN_EMBEDDED);
+    expect(kept(tone(0.8))).toBeGreaterThan(MIN_EMBEDDED);
+    // Loud everywhere: the ceiling leaves no room, and nothing traceable would be written.
+    expect(kept(tone(0.99))).toBeLessThan(MIN_EMBEDDED);
+    // Nothing sounding in the band: nothing to mark, and nothing refused for it.
+    expect(kept(new Float32Array(MARK_RATE))).toBeNull();
   });
 
   it("gives way rather than take a loud recording past full scale", () => {

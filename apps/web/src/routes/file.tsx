@@ -746,46 +746,82 @@ export function FilePage({
 
   /** What the column beside the comments holds: the player and what goes with it, or pages. */
   let main: ReactNode;
-  if (shown !== "review") {
-    // QA: the player at the top, as it was (so switching never stops the music), and what was
-    // measured scrolling under it.
+  const qaShown = shown !== "review";
+  if (plays || qaShown) {
+    // A recording or a video, full-bleed in its column (#15): the strip, the player and its
+    // transport, then the comparison, the line of loudness and issues, the version's note and
+    // the score. More than the frame holds scrolls, the comments staying beside it. QA keeps
+    // the player at the top and scrolls what was measured under it. Both views share one tree,
+    // so switching between them never remounts the player or stops the music.
     main = (
-      <>
-        {!comparing && <PageVolume media={media} gain={gain} />}
+      <div
+        className={cn(
+          "flex flex-col lg:min-h-0 lg:flex-1",
+          !qaShown && "scroll-quiet lg:overflow-y-auto",
+        )}
+      >
+        {/* Comparison sets the volume while it is shown; otherwise, this does. */}
+        {!(comparing && (qaShown || compareOpen)) && <PageVolume media={media} gain={gain} />}
         <ListeningNotice sync={listening} />
-        <div className="flex shrink-0 flex-col border-b border-line">{playback}</div>
-        <div className="scroll-quiet p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:p-6">
-          {picture && file.mediaInfo && allows("qa") ? (
-            <VideoQa
-              fileId={file.id}
-              info={file.mediaInfo}
-              file={file}
-              media={media}
-              canChoose={!guest && can("edit_workflows")}
-              onLoop={allows("loops") ? hear : undefined}
-              onComment={canComment ? commentOn : undefined}
-              aside={metadata}
-            >
-              {loudness}
-            </VideoQa>
-          ) : (
-            <div className="flex min-w-0 flex-col gap-6">
-              {allows("qa") && (
-                <QualityChecks
-                  fileId={file.id}
-                  media={media}
-                  canChoose={!guest && can("edit_workflows")}
-                  onLoop={allows("loops") ? hear : undefined}
-                  onComment={canComment ? commentOn : undefined}
-                />
-              )}
-              {loudness}
-              <dl className="m-0 flex flex-col border-t border-hairline">{detailRows}</dl>
-              {metadata}
-            </div>
-          )}
+        <div className={qaShown ? "flex shrink-0 flex-col border-b border-line" : "contents"}>
+          {playback}
         </div>
-      </>
+        {qaShown ? (
+          <div className="scroll-quiet p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:p-6">
+            {picture && file.mediaInfo && allows("qa") ? (
+              <VideoQa
+                fileId={file.id}
+                info={file.mediaInfo}
+                file={file}
+                media={media}
+                canChoose={!guest && can("edit_workflows")}
+                onLoop={allows("loops") ? hear : undefined}
+                onComment={canComment ? commentOn : undefined}
+                aside={metadata}
+              >
+                {loudness}
+              </VideoQa>
+            ) : (
+              <div className="flex min-w-0 flex-col gap-6">
+                {allows("qa") && (
+                  <QualityChecks
+                    fileId={file.id}
+                    media={media}
+                    canChoose={!guest && can("edit_workflows")}
+                    onLoop={allows("loops") ? hear : undefined}
+                    onComment={canComment ? commentOn : undefined}
+                  />
+                )}
+                {loudness}
+                <dl className="m-0 flex flex-col border-t border-hairline">{detailRows}</dl>
+                {metadata}
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            {comparing && compareOpen && (
+              <Compare file={file} media={media} focus={focus} gain={gain} />
+            )}
+            {hasQa && allows("qa") && loudnessShown && (
+              // Nothing measured yet, nothing shown, and no line drawn for it.
+              <div className="shrink-0 border-t border-line px-3 py-2 empty:hidden lg:px-4">
+                <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
+              </div>
+            )}
+            {!guest && <VersionNote file={file} />}
+            {hasScore && layout.score && file.variation?.scoreFileId && (
+              <ScorePane
+                scoreFileId={file.variation.scoreFileId}
+                guest={guest}
+                onHide={() => setLayout({ score: false })}
+              />
+            )}
+            {/* A recording's details belong to QA; one without it keeps them here. */}
+            {!hasQa && <div className="px-3 pb-4 lg:px-4">{detailList}</div>}
+          </>
+        )}
+      </div>
     );
   } else if (pages) {
     // A document or picture fills the frame, its pages scrolling inside it; its details
@@ -799,7 +835,7 @@ export function FilePage({
         <div className="px-3 pb-4 lg:px-4">{detailList}</div>
       </div>
     );
-  } else if (!plays) {
+  } else {
     // Nothing to show: what it is, in the middle of the frame, and its details.
     main = (
       <div className="scroll-quiet flex flex-col lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
@@ -812,37 +848,6 @@ export function FilePage({
           {playback}
         </div>
         <div className="px-3 pb-4 lg:px-4">{detailList}</div>
-      </div>
-    );
-  } else {
-    // A recording or a video, full-bleed in its column (#15): the strip, the player and its
-    // transport, then the comparison, the line of loudness and issues, the version's note and
-    // the score. More than the frame holds scrolls, the comments staying beside it.
-    main = (
-      <div className="scroll-quiet flex flex-col lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-        {/* Comparison sets the volume while it is shown; otherwise, this does. */}
-        {!(comparing && compareOpen) && <PageVolume media={media} gain={gain} />}
-        <ListeningNotice sync={listening} />
-        {playback}
-        {comparing && compareOpen && (
-          <Compare file={file} media={media} focus={focus} gain={gain} />
-        )}
-        {hasQa && allows("qa") && loudnessShown && (
-          // Nothing measured yet, nothing shown, and no line drawn for it.
-          <div className="shrink-0 border-t border-line px-3 py-2 empty:hidden lg:px-4">
-            <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
-          </div>
-        )}
-        {!guest && <VersionNote file={file} />}
-        {hasScore && layout.score && file.variation?.scoreFileId && (
-          <ScorePane
-            scoreFileId={file.variation.scoreFileId}
-            guest={guest}
-            onHide={() => setLayout({ score: false })}
-          />
-        )}
-        {/* A recording's details belong to QA; one without it keeps them here. */}
-        {!hasQa && <div className="px-3 pb-4 lg:px-4">{detailList}</div>}
       </div>
     );
   }

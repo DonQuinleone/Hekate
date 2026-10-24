@@ -10,6 +10,7 @@ import {
   detectMarks,
   MARK_RATE,
   MarkEmbedder,
+  MIN_EMBEDDED,
   markCode,
   markPattern,
 } from "./forensic.ts";
@@ -331,6 +332,9 @@ export async function writeMark(
       },
     });
     write(embedders.map((e) => e.end()));
+    // A recording too loud (or too quiet) to carry the mark is refused, never sent unmarked.
+    if (embedders.some((e) => (e.embedded() ?? 1) < MIN_EMBEDDED))
+      throw new Error("The recording is too loud to carry a mark it could be traced by");
     writeSync(fd, floatWavHeader(frames, width), 0, 44, 0);
     return { samples: frames };
   } finally {
