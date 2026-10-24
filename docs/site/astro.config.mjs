@@ -64,6 +64,7 @@ export default defineConfig({
             "use/integrations",
             "use/api-tokens",
             "use/oauth",
+            "use/mcp",
             "use/export-and-delete",
             "use/support",
             "use/api",

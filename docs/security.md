@@ -196,6 +196,14 @@ Applications that act for many people connect with OAuth 2.1 (#447, decision 225
 - **Ending a connection ends its tokens.** Disconnecting, leaving the workspace, deleting the account, deleting the client, or a client losing a scope (which every connection and live token loses at once) revokes the tokens at once. Registering, changing, rotating and deleting a client, and connecting and disconnecting an app, are in the access log.
 - **Limits.** The token and revocation endpoints take 120 requests a minute from one address, answer any origin (a browser application is a public client) without credentials, and are never cached.
 
+## The MCP endpoint
+
+Assistants reach Hekate over the Model Context Protocol at `/api/mcp` (#199, decision 231).
+
+- **A token alone.** It takes an API token or an OAuth access token in `Authorization`, never a session cookie, and refuses a browser request from another origin (403). Without a working token it answers 401, naming its protected resource metadata (RFC 9728) so an OAuth client can find Hekate's authorisation server.
+- **No more than the token.** Every tool is made of public API calls (`/api/v1`) made in-process with the same token, through the same middleware and routes: its scopes, its workspace, its member's role, the rate limit and the API log apply to each call, and `tools/list` shows only what its scopes allow. Nothing is queried beside the routes.
+- **No media.** No tool plays, downloads or renders anything, whatever the token holds; answers are reshaped field by field, so no playback, download or storage address can leave, and a last pass drops any key that names an address or a secret.
+
 ## Headers and limits
 
 - **Headers:** the app sets them on every response, so they hold behind any proxy. The Content Security Policy allows this origin alone: no inline or evaluated script, no style, font, image or request from elsewhere, `blob:` only where hls.js feeds MediaSource and runs its worker, and `frame-ancestors 'none'` (with `X-Frame-Options: DENY`), so no page can be framed. Also `nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, a `Permissions-Policy` that grants passkeys, full screen and autoplay to this origin and nothing else, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy: same-origin` (a workspace's logo alone keeps a stricter policy of its own and may be shown across origins, as above), and HSTS when the public address is HTTPS (Caddy, terminating TLS, adds it too). The visual suite loads every screen under the policy and fails on any violation.
