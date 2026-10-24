@@ -96,7 +96,7 @@ Tools for engineers and producers, all working on the protected streams (`docs/s
 - **Built-in QA:** see below
 - Compare versions at the same musical position, using the version alignment below
 - Solo and mute channels for multichannel files and takes
-- **Captions and transcripts:** a video's or a recording's caption tracks in the player's Captions menu (over the picture, or under the waveform), and the transcript beside the comments, which follows playback, seeks on a click, searches and exports (decision 224)
+- **Captions and transcripts:** a video's or a recording's caption tracks in the player's Captions menu (over the picture, or under the waveform), and the transcript beside the comments, which follows playback, seeks on a click, searches and exports (decision 235)
 
 Analysis data (peaks, spectrogram tiles, loudness) is computed by the media worker, so the browser never needs the full-quality audio to draw it.
 

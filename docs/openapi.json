@@ -16842,6 +16842,27 @@
             }
           },
           {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 35
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "subtitles",
+                "captions"
+              ]
+            }
+          },
+          {
             "name": "X-File-Name",
             "in": "header",
             "required": true,
@@ -16894,6 +16915,108 @@
       }
     },
     "/files/{id}/captions/{captionId}": {
+      "patch": {
+        "operationId": "patchFilesIdCaptionsCaptionId",
+        "tags": [
+          "Files"
+        ],
+        "summary": "PATCH /files/{id}/captions/{captionId}",
+        "description": "Needs the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "captionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "language": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 35
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "subtitles",
+                      "captions"
+                    ]
+                  }
+                }
+              },
+              "example": {
+                "label": "Masters"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      },
       "delete": {
         "operationId": "deleteFilesIdCaptionsCaptionId",
         "tags": [
@@ -16932,6 +17055,85 @@
         "responses": {
           "204": {
             "description": "Done; nothing to answer."
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/files/{id}/captions/{captionId}/export": {
+      "get": {
+        "operationId": "getFilesIdCaptionsCaptionIdExport",
+        "tags": [
+          "Files"
+        ],
+        "summary": "GET /files/{id}/captions/{captionId}/export",
+        "description": "Needs the `downloads` scope.",
+        "security": [
+          {
+            "token": [
+              "downloads"
+            ]
+          }
+        ],
+        "x-hekate-scope": "downloads",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "captionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "srt",
+                "vtt",
+                "ttml"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
           },
           "400": {
             "$ref": "#/components/responses/InvalidRequest"

@@ -2445,13 +2445,14 @@ export function InstancePage({ section }: { section: string }) {
               hint="A passkey, a hardware security key or a code app. People without one are asked at their next sign-in."
               checked={false}
             />
-            <SwitchRow name="Hardware security key required for operators" checked />
-            <Row name="Sessions end after">
-              <Select defaultValue="30" className="w-36">
-                <option value="1">1 day</option>
-                <option value="7">7 days</option>
-                <option value="30">30 days</option>
-              </Select>
+            <Row
+              name="Operators sign in with a passkey or security key"
+              hint="OPERATOR_SECURITY_KEY in the environment."
+            >
+              <span className="text-[13px] text-ink-2">On</span>
+            </Row>
+            <Row name="Sessions end after" hint="Unused for that long, a session signs out.">
+              <span className="tabular text-[13px] text-ink-2">30 days</span>
             </Row>
             <Row
               name="Password rules"

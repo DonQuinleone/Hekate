@@ -3,7 +3,7 @@ import { type ListeningRoom, roomOpen, stillThere } from "@hekate/shared";
 import { asc, eq, sql } from "drizzle-orm";
 
 /**
- * Listening rooms (#200, decision 224): one member leads, and everyone in the room hears what
+ * Listening rooms (#200, decision 234): one member leads, and everyone in the room hears what
  * they play. A room's state lives in the database, which every replica shares; each page in a
  * room holds one server-sent event stream, on whichever replica it reached. When the leader
  * changes something, the replica that took the change wakes its own streams at once and

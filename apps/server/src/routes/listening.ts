@@ -20,7 +20,7 @@ import { announceRoom, type ListeningHub, markPresent, readRoom } from "../liste
 import type { TenantVariables } from "../tenancy.ts";
 
 /**
- * Listening rooms (#200, decision 224). Members of a project start one on a file they can
+ * Listening rooms (#200, decision 234). Members of a project start one on a file they can
  * play, and anyone who may see the project joins it. Only the leader moves it: which file,
  * playing or paused, where, how fast. What reaches a listener is only that; their page then
  * plays the file through their own playback request, so their own permissions and the

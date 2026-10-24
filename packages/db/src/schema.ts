@@ -3842,7 +3842,7 @@ export const oauthRefreshTokens = pgTable(
 );
 
 /**
- * A listening room (#200, decision 224): one member leads, and everyone who joins hears what
+ * A listening room (#200, decision 234): one member leads, and everyone who joins hears what
  * they play. It holds only where the leader is (the file, playing or paused, the position at a
  * moment, the speed); each listener plays that file through their own protected stream. It is
  * open until its leader ends it or has not been heard from for a while (`roomOpen` in

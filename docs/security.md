@@ -67,7 +67,7 @@ This is not DRM: a determined person can capture the key from a live session. Th
 
 ### Caption tracks
 
-- A caption track's sidecar (#146, #201, decisions 144 and 224) is an encrypted blob like any other, kept as it came and never sent back. Its cues (the words and their times) are in the database, scoped by workspace, and reach whoever may view the file, as its comments do.
+- A caption track's sidecar (#146, #201, decisions 144 and 235) is an encrypted blob like any other, kept as it came and never sent back. Its cues (the words and their times) are in the database, scoped by workspace, and reach whoever may view the file, as its comments do.
 - An export is written afresh from the cues as SubRip, WebVTT or TTML, for whoever may download from the file at either level (or through a review that allows downloads), in their session; an API token needs the `downloads` scope. It is in the access log (`file.captions_export`, with the format) before it is sent, as an attachment, `no-store`. Not watermarked: text carries no mark. Adding, changing and removing a track are logged too.
 - Hekate transcribes nothing: no media is sent to a speech service.
 
@@ -90,7 +90,7 @@ A workspace's owners, and the instance's operators, can take away everything it 
 
 ### Listening rooms
 
-- A listening room (#200, decision 224) carries only where its leader is: a file's id, playing or paused, a position and a speed. No playback token, segment address or key passes from the leader to a listener; each listener's page asks for its own playback of that file, on its own session, so their permissions, watermark and access log apply as they would to the file opened by hand.
+- A listening room (#200, decision 234) carries only where its leader is: a file's id, playing or paused, a position and a speed. No playback token, segment address or key passes from the leader to a listener; each listener's page asks for its own playback of that file, on its own session, so their permissions, watermark and access log apply as they would to the file opened by hand.
 - A room is reached on a member's session alone (never an API token or a guest link), only by members who can see its project in its workspace; someone taken off the project is let go within fifteen seconds. Only the leader moves or ends it, and only to files of the room's project that they can see.
 
 ## Watermarking
