@@ -64,6 +64,45 @@ curl -X POST "https://review.endlesshall.example/api/v1/tracks/$TRACK/versions" 
 
 `GET /api/v1/uploads/{id}` says which chunks have arrived, so an interrupted upload sends only the rest. The upload and the version need `files:write`.
 
+### Send a bounce with its edit decision list
+
+A DAW's bounce and the list it was edited from go up together: upload the `.edl` into the same project as any other file, then name it with the version. Where the project asks for a list with every version, the version waits for its files to be measured: until then the call answers `409` with the code `version_measuring`, so wait a few seconds and send it again.
+
+```sh
+# Upload "Maple Leaf Rag v3.wav" and "Maple Leaf Rag v3.edl" as above, giving $FILE and $EDL.
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  status=$(curl -s -o version.json -w '%{http_code}' \
+    -X POST "https://review.endlesshall.example/api/v1/tracks/$TRACK/versions" \
+    -H "Authorization: Bearer $HEKATE_TOKEN" -H "Content-Type: application/json" \
+    -d '{"variations":[{"fileId":"'"$FILE"'","name":"Main","primary":true}],"edlFileId":"'"$EDL"'"}')
+  if [ "$status" = 409 ] && grep -q version_measuring version.json; then sleep 5; else break; fi
+done
+```
+
+The list is read as CMX 3600, the form editors and DAWs export (Sequoia's *Export project as EDL*, for one). A list Hekate cannot read, or one that runs past the end of the version, is refused with `422` and the code `version_refused`, saying why. A list can also be given, changed or taken off later with `PUT /api/v1/versions/{id}/edl`. Both need `files:write`.
+
+### Log a take from your own tool
+
+A script beside the recorder or the DAW can keep the take log, and everyone with the session's take log open sees each take within a couple of seconds. Start the next take as recording starts, and stop it as recording stops:
+
+```sh
+TAKE=$(curl -s -X POST "https://review.endlesshall.example/api/v1/sessions/$SESSION/takes" \
+  -H "Authorization: Bearer $HEKATE_TOKEN" -H "Content-Type: application/json" \
+  -d '{"trackId":"'"$TRACK"'","timecodeIn":"10:02:13:05"}' | jq -r .take.id)
+# It answers 201 with the take, numbered as the session numbers takes.
+
+curl -X PATCH "https://review.endlesshall.example/api/v1/takes/$TAKE" \
+  -H "Authorization: Bearer $HEKATE_TOKEN" -H "Content-Type: application/json" \
+  -d '{"lifecycle":"recorded","timecodeOut":"10:04:51:12","falseStarts":1}'
+```
+
+- **The recorder's number.** A session numbered by the recorder needs `number` with each start; a number already logged for the track is refused (`409`).
+- **One take at a time.** Starting a take while another in the session is still recording is refused (`409`), naming the take that is rolling.
+- **Sent again safely.** Give the start an `id` of your own (a UUIDv7) and sending it again, because you could not tell whether it arrived, returns the same take rather than a second one. Give `at` (the moment it happened, by your clock) with a start or a change written while the connection was down.
+- **Aborted.** `{"lifecycle":"aborted"}` stops a take that should not count.
+
+Both need `files:write`, and the take's history (`GET /api/v1/takes/{id}/history`) shows each change the script made.
+
 ### Comment at a bar
 
 ```sh
