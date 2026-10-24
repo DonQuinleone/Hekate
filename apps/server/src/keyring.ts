@@ -22,7 +22,8 @@ export interface Keyring {
   version(organisationId: string, version: number): Promise<Buffer>;
   /**
    * A new version of the organisation's key, which everything wraps with from now on. The
-   * earlier versions stay, so what they wrap still opens until it is rewrapped (#174).
+   * earlier versions stay, so what they wrap still opens until it is rewrapped (#174), and the
+   * forensic marks made under them stay traceable (decision 236): never delete one.
    */
   rotate(organisationId: string, tx?: Writer): Promise<number>;
   /**
