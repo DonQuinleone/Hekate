@@ -16756,7 +16756,7 @@
         "tags": [
           "Files"
         ],
-        "summary": "List a video's caption files",
+        "summary": "List a file's caption tracks",
         "description": "Needs the `files:read` scope.",
         "security": [
           {
@@ -16811,8 +16811,8 @@
         "tags": [
           "Files"
         ],
-        "summary": "Add a caption file to a video",
-        "description": "WebVTT or SubRip, at most 2 MB, sent as the body.\n\nNeeds the `files:write` scope.",
+        "summary": "Add a caption track to a video or a recording",
+        "description": "WebVTT, SubRip or TTML, at most 2 MB, sent as the body. Its language and kind are read from the file where it says, unless the query sets them.\n\nNeeds the `files:write` scope.",
         "security": [
           {
             "token": [
@@ -16920,7 +16920,7 @@
         "tags": [
           "Files"
         ],
-        "summary": "PATCH /files/{id}/captions/{captionId}",
+        "summary": "Rename a caption track, or change its language or kind",
         "description": "Needs the `files:write` scope.",
         "security": [
           {
@@ -17022,7 +17022,7 @@
         "tags": [
           "Files"
         ],
-        "summary": "Remove a caption file",
+        "summary": "Remove a caption track",
         "description": "Needs the `files:write` scope.",
         "security": [
           {
@@ -17083,8 +17083,8 @@
         "tags": [
           "Files"
         ],
-        "summary": "GET /files/{id}/captions/{captionId}/export",
-        "description": "Needs the `downloads` scope.",
+        "summary": "Export a caption track",
+        "description": "Written afresh from its cues as SubRip, WebVTT or TTML, whichever it came in. Needs the download permission and the `downloads` scope, and is logged.\n\nNeeds the `downloads` scope.",
         "security": [
           {
             "token": [

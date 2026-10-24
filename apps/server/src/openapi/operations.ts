@@ -347,10 +347,11 @@ export const apiOperations: Record<string, ApiOperation> = {
     summary: "Prepare a file again",
     description: "After its preparation failed. For those who may upload to its project.",
   },
-  "GET /files/{id}/captions": { summary: "List a video's caption files" },
+  "GET /files/{id}/captions": { summary: "List a file's caption tracks" },
   "POST /files/{id}/captions": {
-    summary: "Add a caption file to a video",
-    description: "WebVTT or SubRip, at most 2 MB, sent as the body.",
+    summary: "Add a caption track to a video or a recording",
+    description:
+      "WebVTT, SubRip or TTML, at most 2 MB, sent as the body. Its language and kind are read from the file where it says, unless the query sets them.",
     body: {
       type: "text/vtt",
       description: "The caption file (WebVTT, or SubRip as `application/x-subrip`).",
@@ -359,7 +360,15 @@ export const apiOperations: Record<string, ApiOperation> = {
       { name: "X-File-Name", description: "The file's name, URI-encoded.", required: true },
     ],
   },
-  "DELETE /files/{id}/captions/{captionId}": { summary: "Remove a caption file" },
+  "PATCH /files/{id}/captions/{captionId}": {
+    summary: "Rename a caption track, or change its language or kind",
+  },
+  "GET /files/{id}/captions/{captionId}/export": {
+    summary: "Export a caption track",
+    description:
+      "Written afresh from its cues as SubRip, WebVTT or TTML, whichever it came in. Needs the download permission and the `downloads` scope, and is logged.",
+  },
+  "DELETE /files/{id}/captions/{captionId}": { summary: "Remove a caption track" },
 
   // Tracks.
   "GET /projects/{id}/tracks": {
