@@ -3236,6 +3236,37 @@ describe.runIf(url)("api", () => {
         await send("PUT", "/api/instance/settings", current.settings, operator);
       });
 
+      it("shows where telemetry goes, read-only and without its credentials, to operators alone (#160, #162)", async () => {
+        const operator = cookieOf(await setup());
+        type Answer = { environment: InstanceEnvironment };
+        const telemetry = async (via: typeof asOperator) =>
+          ((await (await get("/api/instance/settings", operator, via)).json()) as Answer)
+            .environment.telemetry;
+        // Unset, nothing leaves the server, and Settings says so.
+        expect(await telemetry(asOperator)).toBeNull();
+        const tracing = createApp({
+          db,
+          auth,
+          mailer,
+          storage,
+          audit,
+          jobs,
+          keyring,
+          playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+          publicUrl: "http://localhost:3000",
+          log: false,
+          operatorSecurityKey: false,
+          telemetry: "https://hekate:hidden-word@otel.example:4318/?token=abc",
+        });
+        expect(await telemetry(tracing)).toBe("https://otel.example:4318");
+        const raw = await (await get("/api/instance/settings", operator, tracing)).text();
+        expect(raw).not.toContain("hidden-word");
+        expect(raw).not.toContain("token=abc");
+        // A workspace's owner is no operator: the instance's settings are not theirs to read.
+        const theirOwner = await join(operator, "label@example.test", "owner");
+        expect((await get("/api/instance/settings", theirOwner, tracing)).status).toBe(403);
+      });
+
       it("reads the audit and mail logs as tables, and records their export (#157)", async () => {
         const operator = cookieOf(await setup());
         const [workspace] = await db

@@ -404,6 +404,7 @@ export async function boot(
     operatorSecurityKey: config.OPERATOR_SECURITY_KEY,
     workDir: config.WORK_DIR,
     metricsToken: config.METRICS_TOKEN,
+    telemetry: config.OTEL_EXPORTER_OTLP_ENDPOINT,
   });
   if (config.WEB_DIST && role !== "worker")
     serveWeb(app, config.WEB_DIST, { docsUrl: config.HEKATE_DOCS_URL });

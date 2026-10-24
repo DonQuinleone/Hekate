@@ -84,7 +84,7 @@ OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20…
 OTEL_SERVICE_NAME=hekate-endless-hall
 ```
 
-Hekate adds `/v1/traces` and `/v1/logs` to the address itself, so give the collector's base address. Any backend that takes OTLP works behind it: Grafana Tempo and Loki, Jaeger, Honeycomb, SigNoz and others.
+Hekate adds `/v1/traces` and `/v1/logs` to the address itself, so give the collector's base address. The instance's **Settings**, under Address and mail, shows the address in use (without any user, password or query string in it), or Off. Any backend that takes OTLP works behind it: Grafana Tempo and Loki, Jaeger, Honeycomb, SigNoz and others.
 
 | Span | Named | Carries |
 | --- | --- | --- |

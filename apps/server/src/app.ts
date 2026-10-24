@@ -136,7 +136,7 @@ import type { SetupGate } from "./setup-code.ts";
 import { createStatus } from "./status.ts";
 import type { Storage } from "./storage.ts";
 import { supportModuleOf } from "./support.ts";
-import { traced } from "./telemetry.ts";
+import { collectorShown, traced } from "./telemetry.ts";
 import { requireOrganisation, requireSession } from "./tenancy.ts";
 import { type RunnerDeps, reviewSettled } from "./workflow-runner.ts";
 
@@ -204,6 +204,8 @@ export interface AppDeps {
   storageDescribed?: { name: string; driver: "local" | "s3"; where: string }[];
   /** Earlier master keys still configured (MASTER_KEYS_PREVIOUS). */
   previousMasterKeys?: number;
+  /** Where traces and logs go (OTEL_EXPORTER_OTLP_ENDPOINT, #162), shown in Settings. */
+  telemetry?: string;
   /** The modules switched on at start, shown in the instance's Settings (#160). */
   modules?: InstanceModules;
   /** The billing gateway (#178), with HEKATE_BILLING=stripe; none otherwise. */
@@ -394,6 +396,7 @@ export function createApi(given: AppDeps) {
               : null,
             passwordLeakCheck: deps.passwordLeakCheck ?? false,
             sessionDays: SESSION_DAYS,
+            telemetry: collectorShown(deps.telemetry),
             modules,
           },
         }),

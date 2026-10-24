@@ -2509,12 +2509,12 @@ export function InstancePage({ section }: { section: string }) {
               </Row>
             ))}
           </Section>
-          <Section title="Address and mail">
-            <Row name="Address">
-              <Input
-                defaultValue="https://review.endlesshall.example"
-                className="w-full @3xl/app:w-96"
-              />
+          {/* #160: set in the environment at start, so shown read-only (decisions 178, 184). */}
+          <Section title="Address and mail" intro="Set in the environment at start.">
+            <Row name="Address" hint="PUBLIC_URL">
+              <span className="tabular text-[13px] text-ink-2">
+                https://review.endlesshall.example
+              </span>
             </Row>
             <Row
               name="Workspace subdomains"
@@ -2530,9 +2530,9 @@ export function InstancePage({ section }: { section: string }) {
             </Row>
             <Row
               name="Telemetry"
-              hint="OpenTelemetry traces and logs to a collector of yours; nothing leaves otherwise."
+              hint="OTEL_EXPORTER_OTLP_ENDPOINT · names a collector of yours for traces and logs; nothing leaves otherwise."
             >
-              <Input placeholder="https://otel.example:4318" className="w-64" />
+              <span className="text-[13px] text-ink-2">Off</span>
             </Row>
           </Section>
           <Danger>
