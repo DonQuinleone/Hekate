@@ -75,7 +75,7 @@ export async function boot(
   // Before anything else runs, so its spans and log lines reach the collector (#162).
   const telemetry = await startTelemetry(config);
   await migrateOrExit(config);
-  // The fonts PDFs set text outside WinAnsi in (decision 236); Helvetica alone without them.
+  // The fonts PDFs set text outside WinAnsi in (decision 238); Helvetica alone without them.
   const pdfFonts = usePdfFonts({
     regular: config.PDF_FONT,
     bold: config.PDF_FONT_BOLD,

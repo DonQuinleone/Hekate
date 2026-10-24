@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # One image: the Hono server, the built web app, ffmpeg, Poppler (PDF pages), fonts for
-# watermarks and for the PDFs Hekate writes (decision 236), and the EBU ADM Renderer for an ADM
+# watermarks and for the PDFs Hekate writes (decision 238), and the EBU ADM Renderer for an ADM
 # master's objects (decision 140).
 
 # Pinned by digest; Dependabot moves the pin when the image is rebuilt.

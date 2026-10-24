@@ -1,5 +1,5 @@
 /**
- * Right-to-left text for the PDF writers (decision 236): Arabic letters joined into the forms
+ * Right-to-left text for the PDF writers (decision 238): Arabic letters joined into the forms
  * they take beside each other, and a line put in the order it is drawn, left to right, by the
  * Unicode bidirectional algorithm without explicit embeddings (enough for a name, a note or a
  * table cell; a PDF writer has no paragraphs that nest). Pure functions, no fonts.

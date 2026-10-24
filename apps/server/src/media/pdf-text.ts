@@ -5,7 +5,7 @@ import { widthOf as helveticaWidth, inWinAnsi, pdfString } from "./helvetica.ts"
 import { compressed, readTrueType, type TrueType } from "./truetype.ts";
 
 /**
- * The one text writer the PDF writers share (decision 236): the score overlay, the patch list,
+ * The one text writer the PDF writers share (decision 238): the score overlay, the patch list,
  * the stage plan, the schedule and the plain-text PDFs. Text Helvetica can print (WinAnsi) is
  * set in Helvetica exactly as it always was, so nothing is embedded and Latin output is
  * unchanged. Anything else (Greek, Cyrillic, Hebrew, Arabic, Japanese, a Czech ř) is set in the

@@ -14,7 +14,7 @@ import {
  * PDF reader has, so nothing is embedded. Lines wrap at the page's width and run on to new
  * pages. What Latin-1 can say is kept; the few typographic marks outside it are written
  * plainly (a minus sign as a hyphen). A line with anything else (Greek, Japanese) is set in the
- * embedded Unicode fonts where there are any (decision 236), and otherwise with question marks.
+ * embedded Unicode fonts where there are any (decision 238), and otherwise with question marks.
  */
 
 export interface TextLine {

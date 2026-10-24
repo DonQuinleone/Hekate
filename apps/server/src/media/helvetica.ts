@@ -1,7 +1,7 @@
 /**
  * The standard Helvetica the PDF writers set text in (score overlays, the patch list): its
  * advance widths, from Adobe's metrics, and the text as WinAnsi can hold it. Text WinAnsi
- * cannot hold goes to the embedded Unicode fonts where there are any (pdf-text.ts, decision 236).
+ * cannot hold goes to the embedded Unicode fonts where there are any (pdf-text.ts, decision 238).
  */
 
 const ASCII = 32;

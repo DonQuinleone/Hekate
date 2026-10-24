@@ -36,7 +36,7 @@ try {
 } catch (error) {
   fail(`the ADM renderer does not run: ${error.stderr || error.message}`);
 }
-// The fonts the PDFs set text outside WinAnsi in (decision 236) are where the image says.
+// The fonts the PDFs set text outside WinAnsi in (decision 238) are where the image says.
 for (const name of ["PDF_FONT", "PDF_FONT_BOLD", "PDF_FONT_FALLBACK"]) {
   for (const font of (process.env[name] ?? "").split(",").filter(Boolean)) {
     if (!existsSync(font)) fail(`${name} names ${font}, which is missing`);

@@ -25,7 +25,7 @@ export interface PdfPage {
 
 /**
  * The standard fonts an overlay may use: every PDF reader has them, so none is embedded. The
- * Unicode fonts text outside WinAnsi needs (decision 236) follow, embedded, where a page uses them.
+ * Unicode fonts text outside WinAnsi needs (decision 238) follow, embedded, where a page uses them.
  */
 const font = (key: string, name: string) =>
   `/${key} << /Type /Font /Subtype /Type1 /BaseFont /${name} /Encoding /WinAnsiEncoding >>`;

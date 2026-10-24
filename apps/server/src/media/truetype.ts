@@ -1,5 +1,5 @@
 /**
- * A TrueType font as the PDF writers need it (decision 236): which glyph draws a character, how
+ * A TrueType font as the PDF writers need it (decision 238): which glyph draws a character, how
  * wide each glyph is, and a subset holding only the glyphs a PDF uses, so a document embeds a
  * few kilobytes of the font rather than all of it. Only outlines in `glyf` are read (a font with
  * PostScript outlines, OTTO, is refused); a collection (.ttc) gives its first face.
