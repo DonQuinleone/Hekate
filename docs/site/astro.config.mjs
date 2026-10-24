@@ -57,6 +57,7 @@ export default defineConfig({
           items: [
             "use/reviews",
             "use/takes",
+            "use/recorders",
             "use/captions",
             "use/guests",
             "use/leak-tracing",
