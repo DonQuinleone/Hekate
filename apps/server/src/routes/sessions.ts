@@ -2,7 +2,10 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import {
   loggedNumber,
   nextTakeNumber,
+  recorderClaimInput,
+  recorderHeld,
   type SessionDetail,
+  type SessionRecorder,
   type SessionSummary,
   sessionChangeInput,
   sessionInput,
@@ -23,7 +26,7 @@ import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { takeRowsFor } from "./takes.ts";
 
-const { files, sessions, sessionTodos, sessionTracks, takes, tracks, variations } = schema;
+const { files, sessions, sessionTodos, sessionTracks, takes, tracks, users, variations } = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
@@ -143,6 +146,24 @@ async function nextNumbersOf(
       }),
     ]),
   );
+}
+
+/**
+ * Who drives a session's takes from a recorder (decision 240), while their browser still says
+ * so; null once it has gone quiet.
+ */
+async function recorderOf(
+  db: Database,
+  row: typeof sessions.$inferSelect,
+): Promise<SessionRecorder | null> {
+  if (!row.recorderKind || !row.recorderBy || !recorderHeld(row.recorderSeenAt, new Date()))
+    return null;
+  const [by] = await db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(eq(users.id, row.recorderBy));
+  if (!by || !row.recorderSeenAt) return null;
+  return { kind: row.recorderKind, by, seenAt: row.recorderSeenAt.toISOString() };
 }
 
 /** A session of this workspace, with its project; not found otherwise. */
@@ -414,8 +435,46 @@ export const sessionRoutes = (db: Database) =>
           .from(sessionTodos)
           .where(inOrg(sessionTodos, organisationId, eq(sessionTodos.sessionId, row.id)))
           .orderBy(asc(sessionTodos.createdAt), asc(sessionTodos.id)),
+        recorder: await recorderOf(db, row),
       };
       return c.json({ session });
+    })
+    // Driving the take log's takes from a recorder connected in this browser (decision 240):
+    // claimed, and said again every few seconds while it drives. Whoever claims it last drives;
+    // the browser that drove before sees so and stops.
+    .put("/:id/recorder", idParam, zValidator("json", recorderClaimInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const row = await sessionOf(db, organisationId, c.req.valid("param").id);
+      await can(db, actorOf(c.var), "edit_takes", row.projectId);
+      const [held] = await db
+        .update(sessions)
+        .set({
+          recorderKind: c.req.valid("json").kind,
+          recorderBy: c.var.userId,
+          recorderSeenAt: new Date(),
+        })
+        .where(inOrg(sessions, organisationId, eq(sessions.id, row.id)))
+        .returning();
+      const recorder = held ? await recorderOf(db, held) : null;
+      return c.json({ recorder });
+    })
+    // Letting go of it: only the browser's own claim, so a late goodbye never ends another's.
+    .delete("/:id/recorder", idParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const row = await sessionOf(db, organisationId, c.req.valid("param").id);
+      await can(db, actorOf(c.var), "view_takes", row.projectId);
+      await db
+        .update(sessions)
+        .set({ recorderKind: null, recorderBy: null, recorderSeenAt: null })
+        .where(
+          inOrg(
+            sessions,
+            organisationId,
+            eq(sessions.id, row.id),
+            eq(sessions.recorderBy, c.var.userId),
+          ),
+        );
+      return c.body(null, 204);
     })
     .patch("/:id", idParam, zValidator("json", sessionChangeInput), async (c) => {
       const organisationId = c.var.organisationId;

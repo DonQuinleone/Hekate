@@ -755,6 +755,12 @@ export const apiOperations: Record<string, ApiOperation> = {
     summary: "Log the next take",
     description: "Numbered as the session numbers them, rolling or armed.",
   },
+  "PUT /sessions/{id}/recorder": {
+    summary: "Drive a session's takes from a recorder",
+    description:
+      "Says that this member's browser or tool reads the recorder and starts and stops the takes; sent again every ten seconds while it does. The last to claim it drives.",
+  },
+  "DELETE /sessions/{id}/recorder": { summary: "Stop driving a session's takes from a recorder" },
   "POST /sessions/{id}/todos": { summary: "Add to a session's to-do list" },
   "PATCH /sessions/{id}/todos/{todoId}": { summary: "Change a session's to-do" },
   "DELETE /sessions/{id}/todos/{todoId}": { summary: "Remove a session's to-do" },

@@ -84,6 +84,8 @@ export const columnsLeftOut = new Set([
 /** Columns left out of one table: where a blob is kept, and an identity provider's secrets. */
 export const tableColumnsLeftOut: Record<string, readonly string[]> = {
   blobs: ["key", "backend"],
+  // Whose browser drives a session's takes from a recorder this minute (decision 240).
+  sessions: ["recorder_kind", "recorder_by", "recorder_seen_at"],
   sso_providers: ["oidc_config", "saml_config"],
   billing_accounts: ["checkout_url"],
   // A client's secret, hashed, and its first characters (#447).

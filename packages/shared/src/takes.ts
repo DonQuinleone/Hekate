@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { SessionRecorder } from "./recorders.ts";
 import { timecodePattern } from "./video-time.ts";
 
 /**
@@ -263,6 +264,8 @@ export interface SessionDetail extends SessionSummary {
   nextNumbers: Record<string, number>;
   /** The take log's to-do list, oldest first. */
   todos: SessionTodo[];
+  /** Who drives its takes from a recorder now (decision 240); null when no one does. */
+  recorder: SessionRecorder | null;
 }
 
 /** One thing to do in a session (#51). */

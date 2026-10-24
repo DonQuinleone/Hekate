@@ -9,11 +9,11 @@ import {
   recorderClaimInput,
   recorderHeld,
   sameFrame,
+  secondsOfTimecode,
   takeActionFor,
   timecodeAtFrame,
   timecodeLabel,
   timecodeNow,
-  secondsOfTimecode,
 } from "./recorders.ts";
 
 const tc = (label: string, rate: RecorderTimecode["rate"] = "25") =>
