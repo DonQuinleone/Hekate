@@ -19,6 +19,7 @@ import { createInstanceSettings } from "./instance-settings.ts";
 import { createJobs, inLanes, jobDefinitions } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
 import { type Role, roleOf } from "./lanes.ts";
+import { createListeningHub, listenForRooms } from "./listening.ts";
 import { purgeLogs } from "./log-retention.ts";
 import { createMailer, loggedMailer, mailTransportOf } from "./mail.ts";
 import { bounceProviderOf, instanceBouncesOf } from "./mail-bounces.ts";
@@ -206,6 +207,9 @@ export async function boot(
     settings.forget();
     void holdJobs();
   });
+  // A listening room moved on another replica (#200) wakes this one's streams of it.
+  const rooms = createListeningHub();
+  const unlistenRooms = await listenForRooms(listening?.sql ?? client, rooms);
 
   // An event written is dispatched a moment later, once its transaction has committed (#161).
   onEventWritten(() => {
@@ -404,6 +408,8 @@ export async function boot(
     operatorSecurityKey: config.OPERATOR_SECURITY_KEY,
     workDir: config.WORK_DIR,
     metricsToken: config.METRICS_TOKEN,
+    telemetry: config.OTEL_EXPORTER_OTLP_ENDPOINT,
+    listening: rooms,
   });
   if (config.WEB_DIST && role !== "worker")
     serveWeb(app, config.WEB_DIST, { docsUrl: config.HEKATE_DOCS_URL });
@@ -424,6 +430,7 @@ export async function boot(
     stop: (timeoutMs?: number) =>
       Promise.resolve(clearInterval(holding))
         .then(unlisten)
+        .then(unlistenRooms)
         .then(() => listening?.close())
         .then(stopSampling)
         .then(() => jobs.stop(timeoutMs))

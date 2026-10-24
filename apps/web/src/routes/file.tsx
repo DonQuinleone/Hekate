@@ -1,6 +1,7 @@
 import {
   admHeading,
   admLine,
+  type CaptionTrack,
   formatBytes,
   formatChannels,
   formatDuration,
@@ -8,6 +9,7 @@ import {
   metadataRows,
   type QaFinding,
   type ReviewerTool,
+  videoClock,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -31,6 +33,7 @@ import { FileDetailsSheet } from "~/components/file-details";
 import { FileChain, NewVersionDialog, takesVersions } from "~/components/file-versions";
 import { fileSummary, mediaSummary } from "~/components/files";
 import { Icon } from "~/components/icons";
+import { ListeningNotice, ListenTogether, useListeningSync } from "~/components/listening";
 import { Loudness } from "~/components/loudness";
 import { ImportMarkersDialog } from "~/components/marker-import";
 import { type Crumb, PageHeader } from "~/components/page-header";
@@ -40,6 +43,7 @@ import { checkNames, findingMarks, QaSummary, QualityChecks } from "~/components
 import { VideoQa } from "~/components/qa-video";
 import { ScorePane } from "~/components/score";
 import { FileContext } from "~/components/tracks";
+import { PanelTabs, type SidePanel, Transcript } from "~/components/transcript";
 import { TriageView } from "~/components/triage";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
@@ -126,10 +130,17 @@ function Playback({
   draft,
   onDraft,
   compact = false,
+  captions,
+  caption,
+  onCaption,
 }: {
   file: FileDetail;
   /** A video's picture small, beside its lanes, for QA (#42). */
   compact?: boolean;
+  /** The file's caption tracks (#201), and the one the player shows. */
+  captions: readonly CaptionTrack[] | undefined;
+  caption: string | null;
+  onCaption: (id: string | null) => void;
   /** Whether the viewer may open the comparison of two cuts' comments and findings (#147). */
   comparePage: boolean;
   /** The drawing waiting to join the next comment on a video (#146). */
@@ -193,11 +204,6 @@ function Playback({
   // Only a recording plays: asking for a document's playback would log a session for nothing.
   const plays = file.kind === "audio" || file.kind === "video";
   const { data, error } = useQuery({ ...playbackQuery(file.id), enabled: ready && plays });
-  // A video's captions from sidecar files (#146), offered in the player's Frame menu.
-  const { data: captions } = useQuery({
-    ...captionsQuery(file.id),
-    enabled: file.kind === "video",
-  });
   if (pages) {
     // Seen only as pages the server draws: never the file itself.
     if (file.streamStatus === "ready")
@@ -242,6 +248,8 @@ function Playback({
       tools={file.grant?.tools ?? file.tools ?? null}
       mark={file.watermark}
       captions={captions}
+      caption={caption}
+      onCaption={onCaption}
       normalisation={file.normalisation}
       normalised={normalised}
       onNormalised={onNormalised}
@@ -344,6 +352,8 @@ export function FilePage({
   const [chosenNormal, setChosenNormal] = useNormalisedChoice();
   // Arriving from another version or variation: start where that one was (#15).
   const { media, onMedia } = useFileMedia(fileId, startAt, onStarted);
+  // Leading or following a listening room (#200) with this page's player; members only.
+  const listening = useListeningSync(fileId, file?.projectId ?? "", guest ? null : media);
   // Where the comments sit on a wide screen, this viewer's choice (#15).
   const [layout, setLayout] = usePanelLayout();
   // Counted only while they are put away, for the button that brings them back.
@@ -356,6 +366,21 @@ export function FilePage({
   useEffect(() => setPageFocus(initialFocus), [fileId]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a drawing belongs to its file.
   useEffect(() => setFrameDraft(null), [fileId]);
+  // A video's or a recording's caption tracks (#146, #201): the player's Captions menu shows
+  // one, and the transcript beside the comments lists one (the same, unless chosen there).
+  const { data: captions } = useQuery({
+    ...captionsQuery(fileId),
+    enabled: file?.kind === "audio" || file?.kind === "video",
+  });
+  const [captionId, setCaptionId] = useState<string | null>(null);
+  const [transcriptId, setTranscriptId] = useState<string | null>(null);
+  const [panel, setPanel] = useState<SidePanel>("comments");
+  // A track belongs to its file; the panel stays as it was where the next file has tracks too.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset whenever the file changes.
+  useEffect(() => {
+    setCaptionId(null);
+    setTranscriptId(null);
+  }, [fileId]);
   const can = useProjectCan(guest || !file ? undefined : file.projectId);
   // Guests see the files of their reviews, never the project around them.
   const { data: project } = useQuery({
@@ -534,8 +559,14 @@ export function FilePage({
       draft={frameDraft}
       onDraft={setFrameDraft}
       compact={picture && shown === "qa"}
+      captions={captions}
+      caption={captionId}
+      onCaption={setCaptionId}
     />
   );
+  /** The transcript is offered beside the comments wherever there is a track to read. */
+  const transcribed = (captions?.length ?? 0) > 0;
+  const tabs = transcribed ? <PanelTabs panel={panel} onPanel={setPanel} /> : undefined;
   if (shown === "triage")
     return (
       <>
@@ -621,6 +652,9 @@ export function FilePage({
           ) : (
             <>
               {commentsButton}
+              {(file.kind === "audio" || file.kind === "video") && (
+                <ListenTogether fileId={file.id} projectId={file.projectId} />
+              )}
               {downloadButton}
               <Button
                 variant="ghost"
@@ -712,6 +746,7 @@ export function FilePage({
           <div className="flex min-w-0 flex-col gap-6">
             {/* Comparison sets the volume while it is shown; otherwise, this does. */}
             {!comparing && <PageVolume media={media} gain={gain} />}
+            <ListeningNotice sync={listening} />
             {playback}
             {shown === "review" && hasQa && allows("qa") && loudnessShown && (
               <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
@@ -743,23 +778,38 @@ export function FilePage({
                       <DecisionStrip reviewId={reviewId} />
                     </div>
                   )}
-                  <Comments
-                    fileId={file.id}
-                    projectId={file.projectId}
-                    media={media}
-                    loop={passage}
-                    pages={file.streamStatus === "ready" ? pages : undefined}
-                    frame={
-                      file.kind === "video"
-                        ? { draft: frameDraft, onClear: () => setFrameDraft(null) }
-                        : undefined
-                    }
-                    onBeforeAfter={comparable ? beforeAfter : undefined}
-                    seed={seed}
-                    onLoop={allows("loops") ? hear : undefined}
-                    tools={<PanelPlacement layout={layout} onChange={setLayout} />}
-                    focus={focusComment}
-                  />
+                  {transcribed && captions && panel === "transcript" ? (
+                    <Transcript
+                      fileId={file.id}
+                      tracks={captions}
+                      trackId={transcriptId ?? captionId}
+                      onTrack={setTranscriptId}
+                      media={media}
+                      clock={file.mediaInfo?.video ? videoClock(file.mediaInfo.video) : null}
+                      canExport={downloads !== undefined && downloads.level !== "none"}
+                      heading={tabs}
+                      tools={<PanelPlacement layout={layout} onChange={setLayout} />}
+                    />
+                  ) : (
+                    <Comments
+                      fileId={file.id}
+                      projectId={file.projectId}
+                      media={media}
+                      loop={passage}
+                      pages={file.streamStatus === "ready" ? pages : undefined}
+                      frame={
+                        file.kind === "video"
+                          ? { draft: frameDraft, onClear: () => setFrameDraft(null) }
+                          : undefined
+                      }
+                      onBeforeAfter={comparable ? beforeAfter : undefined}
+                      seed={seed}
+                      onLoop={allows("loops") ? hear : undefined}
+                      heading={tabs}
+                      tools={<PanelPlacement layout={layout} onChange={setLayout} />}
+                      focus={focusComment}
+                    />
+                  )}
                 </div>
               )}
               {file.variation?.scoreFileId &&

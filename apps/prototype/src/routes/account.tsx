@@ -514,6 +514,7 @@ export function AccountPage({ section }: { section: string }) {
               ["A stage starts in a project you are in", false, false],
               ["Processing fails on your upload", true, true],
               ["A guest opens a review you asked for", false, false],
+              ["The people who run this instance answer your ticket", true, true],
             ].map(([e, app, mail]) => (
               <Row key={String(e)} name={String(e)}>
                 <label className="flex items-center gap-1.5 text-[12px] text-ink-3">

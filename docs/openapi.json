@@ -16756,7 +16756,7 @@
         "tags": [
           "Files"
         ],
-        "summary": "List a video's caption files",
+        "summary": "List a file's caption tracks",
         "description": "Needs the `files:read` scope.",
         "security": [
           {
@@ -16811,8 +16811,8 @@
         "tags": [
           "Files"
         ],
-        "summary": "Add a caption file to a video",
-        "description": "WebVTT or SubRip, at most 2 MB, sent as the body.\n\nNeeds the `files:write` scope.",
+        "summary": "Add a caption track to a video or a recording",
+        "description": "WebVTT, SubRip or TTML, at most 2 MB, sent as the body. Its language and kind are read from the file where it says, unless the query sets them.\n\nNeeds the `files:write` scope.",
         "security": [
           {
             "token": [
@@ -16839,6 +16839,27 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 60
+            }
+          },
+          {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 35
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "subtitles",
+                "captions"
+              ]
             }
           },
           {
@@ -16894,12 +16915,114 @@
       }
     },
     "/files/{id}/captions/{captionId}": {
+      "patch": {
+        "operationId": "patchFilesIdCaptionsCaptionId",
+        "tags": [
+          "Files"
+        ],
+        "summary": "Rename a caption track, or change its language or kind",
+        "description": "Needs the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "captionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "language": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "maxLength": 35
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "subtitles",
+                      "captions"
+                    ]
+                  }
+                }
+              },
+              "example": {
+                "label": "Masters"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      },
       "delete": {
         "operationId": "deleteFilesIdCaptionsCaptionId",
         "tags": [
           "Files"
         ],
-        "summary": "Remove a caption file",
+        "summary": "Remove a caption track",
         "description": "Needs the `files:write` scope.",
         "security": [
           {
@@ -16932,6 +17055,85 @@
         "responses": {
           "204": {
             "description": "Done; nothing to answer."
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/files/{id}/captions/{captionId}/export": {
+      "get": {
+        "operationId": "getFilesIdCaptionsCaptionIdExport",
+        "tags": [
+          "Files"
+        ],
+        "summary": "Export a caption track",
+        "description": "Written afresh from its cues as SubRip, WebVTT or TTML, whichever it came in. Needs the download permission and the `downloads` scope, and is logged.\n\nNeeds the `downloads` scope.",
+        "security": [
+          {
+            "token": [
+              "downloads"
+            ]
+          }
+        ],
+        "x-hekate-scope": "downloads",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "captionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "srt",
+                "vtt",
+                "ttml"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
           },
           "400": {
             "$ref": "#/components/responses/InvalidRequest"

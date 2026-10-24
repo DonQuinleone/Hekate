@@ -144,13 +144,14 @@ const reviews = { read: "reviews:read", write: "reviews:write" } as const;
 /**
  * Paths a token never reaches, whatever it holds: playback and pages (session-bound, and media
  * never leaves except as a logged download), deleting and moving projects, calendar feed links,
- * project roles and members, and archiving.
+ * project roles and members, archiving, and listening rooms (#200), which are people's own.
  */
 const refused: readonly RegExp[] = [
   new RegExp(`^/files/${id}/(playback|view|spectrograms)(/|$)`),
   /^\/play(\/|$)/,
+  /^\/listening-rooms(\/|$)/,
   new RegExp(
-    `^/projects/${id}/(deletion|transfer|calendar/feed|roles|members|archive|unarchive)(/|$)`,
+    `^/projects/${id}/(deletion|transfer|calendar/feed|roles|members|archive|unarchive|listening-rooms)(/|$)`,
   ),
   /^\/transfers(\/|$)/,
 ];
@@ -162,6 +163,8 @@ const rules: readonly Rule[] = [
   [/^\/downloads\/[^/]+$/, "downloads"],
   [new RegExp(`^/projects/${id}/score-downloads$`), "downloads"],
   [new RegExp(`^/files/${id}/attachments/${id}/download$`), "downloads"],
+  // A caption track exported as a sidecar (#201) leaves Hekate as a download does.
+  [new RegExp(`^/files/${id}/captions/${id}/export$`), "downloads"],
   // Comments, wherever they are reached from.
   [new RegExp(`^/files/${id}/(comments|mentionable|attachments)(/|$)`), "comments"],
   [/^\/(comments|comment-carries)(\/|$)/, "comments"],

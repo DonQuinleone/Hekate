@@ -61,6 +61,8 @@ describe("tenancy", () => {
       "guests",
       "invitations",
       "invoices",
+      "listening_room_people",
+      "listening_rooms",
       "loudness",
       "marks",
       "members",

@@ -35,6 +35,20 @@ export function headersOf(text: string | undefined): Record<string, string> {
   return headers;
 }
 
+/**
+ * The collector's address as Settings shows it (#160): scheme, host, port and path, never a
+ * user, password or query a credential might hide in. Null when none is named.
+ */
+export function collectorShown(endpoint: string | undefined | null): string | null {
+  if (!endpoint) return null;
+  try {
+    const url = new URL(endpoint);
+    return `${url.origin}${url.pathname}`.replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
 export interface Telemetry {
   /** Send what is waiting, then stop: called as the server shuts down. */
   shutdown(): Promise<void>;

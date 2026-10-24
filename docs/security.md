@@ -65,6 +65,12 @@ This is not DRM: a determined person can capture the key from a live session. Th
 - It reaches a browser only as a download: a one-time link made for the person asking, in their session, for five minutes, as for a file's downloads (decision 056). The comment is checked again as the link is made and as it is used: it must be among the threads the file shows that person, within a guest's scope. The download is in the access log (`comment.attachment_download`) before the first byte leaves, and is sent as an attachment, `no-store`, `nosniff`, never shown in the page.
 - Only a comment's author attaches to it (up to five files of 25 MB each), and only they remove them; adding one is logged (`comment.attachment_add`). Attachments are not watermarked: they are the reviewers' own material, not the media under review.
 
+### Caption tracks
+
+- A caption track's sidecar (#146, #201, decisions 144 and 235) is an encrypted blob like any other, kept as it came and never sent back. Its cues (the words and their times) are in the database, scoped by workspace, and reach whoever may view the file, as its comments do.
+- An export is written afresh from the cues as SubRip, WebVTT or TTML, for whoever may download from the file at either level (or through a review that allows downloads), in their session; an API token needs the `downloads` scope. It is in the access log (`file.captions_export`, with the format) before it is sent, as an attachment, `no-store`. Not watermarked: text carries no mark. Adding, changing and removing a track are logged too.
+- Hekate transcribes nothing: no media is sent to a speech service.
+
 ### Workspace export and deletion
 
 A workspace's owners, and the instance's operators, can take away everything it holds (#186, decision 220). It is the one way originals leave unwatermarked, so it is held to the rest of this page in every other way.
@@ -81,6 +87,11 @@ A workspace's owners, and the instance's operators, can take away everything it 
 - A take shared on a thread (#133, decision 072) is heard by everyone who sees the thread, a guest reviewer included, and is otherwise no different from any file: the same encrypted segments, short-lived signed URLs and session-bound keys, with every key in the access log.
 - A guest reaches a shared take only through a thread their review shows them: on a file of their review, or carried to one, and within their comment scope. They reach it as they reach that file, within the same window and play limit, but to listen only: no comment, no download, and none of the take's own comments, their own from an earlier review included, while a share is all that reaches it.
 - Only those who triage the thread's file and may see the project's takes share or unshare one, from takes of the same project. Both are in the access log (`comment.takes_share`, `comment.takes_unshare`), and unsharing closes the take to the guest at once.
+
+### Listening rooms
+
+- A listening room (#200, decision 234) carries only where its leader is: a file's id, playing or paused, a position and a speed. No playback token, segment address or key passes from the leader to a listener; each listener's page asks for its own playback of that file, on its own session, so their permissions, watermark and access log apply as they would to the file opened by hand.
+- A room is reached on a member's session alone (never an API token or a guest link), only by members who can see its project in its workspace; someone taken off the project is let go within fifteen seconds. Only the leader moves or ends it, and only to files of the room's project that they can see.
 
 ## Watermarking
 
@@ -195,6 +206,14 @@ Applications that act for many people connect with OAuth 2.1 (#447, decision 225
 - **Refresh tokens once each.** A refresh token lasts 30 days and works once, the answer carrying the next; it can narrow the scopes of an access token, never widen them. Revocation (RFC 7009) answers the same whatever the token, and a client can revoke only its own.
 - **Ending a connection ends its tokens.** Disconnecting, leaving the workspace, deleting the account, deleting the client, or a client losing a scope (which every connection and live token loses at once) revokes the tokens at once. Registering, changing, rotating and deleting a client, and connecting and disconnecting an app, are in the access log.
 - **Limits.** The token and revocation endpoints take 120 requests a minute from one address, answer any origin (a browser application is a public client) without credentials, and are never cached.
+
+## The MCP endpoint
+
+Assistants reach Hekate over the Model Context Protocol at `/api/mcp` (#199, decision 231).
+
+- **A token alone.** It takes an API token or an OAuth access token in `Authorization`, never a session cookie, and refuses a browser request from another origin (403). Without a working token it answers 401, naming its protected resource metadata (RFC 9728) so an OAuth client can find Hekate's authorisation server.
+- **No more than the token.** Every tool is made of public API calls (`/api/v1`) made in-process with the same token, through the same middleware and routes: its scopes, its workspace, its member's role, the rate limit and the API log apply to each call, and `tools/list` shows only what its scopes allow. Nothing is queried beside the routes.
+- **No media.** No tool plays, downloads or renders anything, whatever the token holds; answers are reshaped field by field, so no playback, download or storage address can leave, and a last pass drops any key that names an address or a secret.
 
 ## Headers and limits
 

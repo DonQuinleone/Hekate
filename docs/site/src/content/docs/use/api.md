@@ -5,6 +5,8 @@ description: "Hekate's public API, version 1, at /api/v1: authentication, versio
 
 Scripts, pipelines and other tools reach Hekate through its public API: the calls an [API token](../api-tokens/) may make, under a versioned address that only grows. Every call is listed, with its scope, parameters, body and an example, in the **API reference** (in the sidebar), written from the same routes the server runs.
 
+An AI assistant that speaks the Model Context Protocol connects to the same API through Hekate's MCP endpoint instead: see [Assistants (MCP)](../mcp/).
+
 ## The address and versions
 
 Each instance answers at its own address, under `/api/v1`:

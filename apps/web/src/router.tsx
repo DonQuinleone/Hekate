@@ -15,13 +15,16 @@ import {
   lazyRouteComponent,
   Outlet,
   redirect,
+  useLocation,
 } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { z } from "zod";
+import { ListeningPill, ListeningRoomPage } from "~/components/listening";
 import { MaintenanceNotice } from "~/components/maintenance-notice";
 import { Shell } from "~/components/shell";
 import { type BrowserFilters, filtersFrom, filtersTo } from "~/lib/browser";
 import { addressFor } from "~/lib/hosts";
+import { ListeningProvider } from "~/lib/listening-room";
 import { formatLoop, parseLoop } from "~/lib/loop";
 import { projectShows, projectSorts, projectViews } from "~/lib/projects";
 import {
@@ -428,11 +431,22 @@ const app = createRoute({
     return { me };
   },
   component: () => (
-    <Shell>
-      <Outlet />
-    </Shell>
+    // A listening room (#200) lasts across pages, so it lives around them all.
+    <ListeningProvider>
+      <Shell>
+        <Outlet />
+      </Shell>
+      <PillHere />
+    </ListeningProvider>
   ),
 });
+
+/** The file page open, if any: a listening room's pill gives way to the page's own strip. */
+const FILE_PAGE = /^\/files\/([^/]+)/;
+function PillHere() {
+  const { pathname } = useLocation();
+  return <ListeningPill onFile={FILE_PAGE.exec(pathname)?.[1] ?? null} />;
+}
 
 const home = createRoute({
   getParentRoute: () => app,
@@ -794,6 +808,15 @@ const file = createRoute({
     );
   },
 });
+/** A listening room's link (#200): who leads it, and the way in. */
+const listen = createRoute({
+  getParentRoute: () => app,
+  path: "/listen/$roomId",
+  component: function ListenRoute() {
+    const { roomId } = listen.useParams();
+    return <ListeningRoomPage roomId={roomId} />;
+  },
+});
 const review = createRoute({
   getParentRoute: () => app,
   path: "/reviews/$reviewId",
@@ -993,6 +1016,7 @@ export const router = createRouter({
       track,
       trackCompare,
       file,
+      listen,
       myReviews,
       inbox,
       instanceHome,

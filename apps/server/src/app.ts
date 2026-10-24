@@ -8,6 +8,7 @@ import {
   type InstanceModules,
   type InstanceNotice,
   type MailStepInput,
+  MCP_PATH,
   OPENAPI_PATH,
   scopeFor,
   TICKET_ATTACHMENT_MAX_BYTES,
@@ -31,7 +32,9 @@ import { type Subdomains, workspaceFromHost } from "./hosts.ts";
 import { createInstanceSettings, type InstanceSettingsStore } from "./instance-settings.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
+import { createListeningHub, type ListeningHub } from "./listening.ts";
 import type { Mailer } from "./mail.ts";
+import { mcpRoutes, protectedResourceMetadata } from "./mcp.ts";
 import { countRequests, metricsHandler } from "./metrics/index.ts";
 import type { Sampler } from "./metrics/sampler.ts";
 import { type OpenApiDocument, openapiDocument } from "./openapi/document.ts";
@@ -63,6 +66,7 @@ import { homeRoutes } from "./routes/home.ts";
 import { installRoutes } from "./routes/install.ts";
 import { instanceRoutes } from "./routes/instance.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
+import { listeningRoutes, projectListeningRoutes } from "./routes/listening.ts";
 import { mailHookRoutes } from "./routes/mail-hooks.ts";
 import { projectMarkRoutes } from "./routes/marks.ts";
 import { accountRoutes, meRoutes } from "./routes/me.ts";
@@ -134,7 +138,7 @@ import type { SetupGate } from "./setup-code.ts";
 import { createStatus } from "./status.ts";
 import type { Storage } from "./storage.ts";
 import { supportModuleOf } from "./support.ts";
-import { traced } from "./telemetry.ts";
+import { collectorShown, traced } from "./telemetry.ts";
 import { requireOrganisation, requireSession } from "./tenancy.ts";
 import { type RunnerDeps, reviewSettled } from "./workflow-runner.ts";
 
@@ -202,10 +206,14 @@ export interface AppDeps {
   storageDescribed?: { name: string; driver: "local" | "s3"; where: string }[];
   /** Earlier master keys still configured (MASTER_KEYS_PREVIOUS). */
   previousMasterKeys?: number;
+  /** Where traces and logs go (OTEL_EXPORTER_OTLP_ENDPOINT, #162), shown in Settings. */
+  telemetry?: string;
   /** The modules switched on at start, shown in the instance's Settings (#160). */
   modules?: InstanceModules;
   /** The billing gateway (#178), with HEKATE_BILLING=stripe; none otherwise. */
   gateway?: Gateway | null;
+  /** This process's listening room streams (#200), woken by the replicas' channel. */
+  listening?: ListeningHub;
 }
 
 export function createApi(given: AppDeps) {
@@ -217,6 +225,7 @@ export function createApi(given: AppDeps) {
       : brandedMailer(given.mailer, given.db, given.publicUrl),
   };
   const settings = deps.settings ?? createInstanceSettings(deps.db);
+  const listening = { db: deps.db, hub: deps.listening ?? createListeningHub() };
   // What links sent out are made from: each workspace's own address with subdomains on (#437).
   const links = { publicUrl: deps.publicUrl, subdomains: deps.subdomains ?? null };
   const modules: InstanceModules = deps.modules ?? {
@@ -235,6 +244,7 @@ export function createApi(given: AppDeps) {
     trustProxy: deps.trustProxy ?? false,
     modules,
     settings,
+    workspaceHosts: links.subdomains,
   };
   const billing = {
     db: deps.db,
@@ -392,6 +402,7 @@ export function createApi(given: AppDeps) {
               : null,
             passwordLeakCheck: deps.passwordLeakCheck ?? false,
             sessionDays: SESSION_DAYS,
+            telemetry: collectorShown(deps.telemetry),
             modules,
           },
         }),
@@ -595,6 +606,10 @@ export function createApi(given: AppDeps) {
       .route("/projects", projectTaskRoutes(taskMail))
       .route("/projects", projectBoardRoutes(deps.db))
       .route("/projects", projectCalendarRoutes(deps.db, deps.publicUrl))
+      .route("/projects", projectListeningRoutes(listening))
+      // Listening rooms (#200): a member's own session, never a token or a guest.
+      .use("/listening-rooms/*", ...member)
+      .route("/listening-rooms", listeningRoutes(listening))
       .use("/tags/*", ...member)
       .use("/tags", ...member)
       .route("/tags", tagRoutes(deps.db))
@@ -795,7 +810,11 @@ const routedPath = (request: Request) => {
 };
 
 export function createApp(given: AppDeps) {
-  const deps = { ...given, settings: given.settings ?? createInstanceSettings(given.db) };
+  const deps = {
+    ...given,
+    settings: given.settings ?? createInstanceSettings(given.db),
+    listening: given.listening ?? createListeningHub(),
+  };
   const settings = deps.settings;
   const app = new Hono({ getPath: routedPath });
   const api = createApi(deps);
@@ -807,6 +826,16 @@ export function createApp(given: AppDeps) {
     c.header("Access-Control-Allow-Origin", "*");
     return c.json(oauthMetadata(deps.publicUrl));
   });
+  // The MCP endpoint's protected resource metadata (#199, RFC 9728): where an assistant gets a
+  // token for it. At the endpoint's own path, and at the root for the API as a whole.
+  for (const [path, resource] of [
+    [`/.well-known/oauth-protected-resource${MCP_PATH}`, "mcp"],
+    ["/.well-known/oauth-protected-resource", "api"],
+  ] as const)
+    app.get(path, (c) => {
+      c.header("Access-Control-Allow-Origin", "*");
+      return c.json(protectedResourceMetadata(deps.publicUrl, resource, deps.modules?.docsUrl));
+    });
   // A span for each request (#162), around everything else so the rest happens inside it.
   app.use("/api/*", traced);
   app.use("/api/*", countRequests);
@@ -870,6 +899,17 @@ export function createApp(given: AppDeps) {
     });
     return c.json(described, 200, { "cache-control": "public, max-age=300" });
   });
+  // The MCP endpoint (#199): before the token middleware, which would refuse a path no scope
+  // names. It checks the token itself, and each tool's calls go through the whole app, that
+  // middleware included, as `/api/v1` calls made with the same token.
+  app.route(
+    MCP_PATH,
+    mcpRoutes({
+      db: deps.db,
+      publicUrl: deps.publicUrl,
+      fetch: (request, env) => app.fetch(request, env),
+    }),
+  );
   // A version (`/api/v1`) answers the calls a token may make, and nothing else: whatever else
   // the unversioned API does is the web app's own, and may change in any release.
   app.use("/api/*", async (c, next) => {

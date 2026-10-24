@@ -50,8 +50,11 @@ export function CommentsColumn({
   onPost,
   tools,
   banner,
+  heading,
   className,
 }: {
+  /** In place of the panel's name, given how many threads are open: the transcript switch. */
+  heading?: (open: number) => ReactNode;
   file: File;
   all: Comment[];
   access: FileAccess;
@@ -127,8 +130,14 @@ export function CommentsColumn({
     <aside aria-label="Comments" className={cn("flex min-h-0 flex-col", className)}>
       {banner}
       <div className="flex h-11 shrink-0 items-center gap-1 pr-2 pl-3">
-        <h2 className="text-[14px] font-medium text-ink">Comments</h2>
-        <span className="tabular text-[13px] text-ink-3">{open.length}</span>
+        {heading ? (
+          heading(open.length)
+        ) : (
+          <>
+            <h2 className="text-[14px] font-medium text-ink">Comments</h2>
+            <span className="tabular text-[13px] text-ink-3">{open.length}</span>
+          </>
+        )}
         <span className="ml-auto flex items-center gap-0.5">
           <Dropdown
             size="sm"

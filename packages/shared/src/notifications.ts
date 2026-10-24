@@ -34,6 +34,8 @@ export const notificationKinds = [
   "transfer",
   /** Files arrived through an upload request you made (#139). */
   "upload_arrived",
+  /** The people who run the instance answered a ticket you sent them (#181). */
+  "ticket",
 ] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 
@@ -65,6 +67,7 @@ export const notificationDefaults: Record<NotificationKind, NotificationChannels
   task: { app: true, mail: true },
   transfer: { app: true, mail: true },
   upload_arrived: { app: true, mail: true },
+  ticket: { app: true, mail: true },
 };
 
 /** Reviews asked of you and mentions always reach you in the app, whatever you choose. */

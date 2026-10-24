@@ -9,7 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { errorHandler, requestId } from "./errors.ts";
 import { runJob } from "./jobs.ts";
 import { run } from "./media/ffmpeg.ts";
-import { headersOf, startTelemetry, type Telemetry, traced } from "./telemetry.ts";
+import { collectorShown, headersOf, startTelemetry, type Telemetry, traced } from "./telemetry.ts";
 import { currentTraceId, inSpan } from "./tracing.ts";
 
 const job = { id: "j-1", data: {}, signal: new AbortController().signal, retryCount: 0 };
@@ -21,6 +21,16 @@ describe("telemetry without a collector (#162)", () => {
       "x-team": "endless-hall",
     });
     expect(headersOf(undefined)).toEqual({});
+  });
+
+  it("shows the collector's address in Settings without any credential it carries (#160)", () => {
+    expect(collectorShown("http://otel-collector:4318")).toBe("http://otel-collector:4318");
+    expect(collectorShown("https://hekate:hidden-word@otel.example:4318/ingest/?token=abc#x")).toBe(
+      "https://otel.example:4318/ingest",
+    );
+    expect(collectorShown(undefined)).toBeNull();
+    expect(collectorShown("")).toBeNull();
+    expect(collectorShown("not an address")).toBeNull();
   });
 
   it("records nothing and costs nothing while no collector is named", async () => {

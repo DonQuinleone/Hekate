@@ -2,14 +2,152 @@ import { useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
+import { Seg } from "~/components/player/transport";
 import { Property } from "~/components/property";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
-import { accessLog, type File, personById } from "~/data";
+import { Input, Select } from "~/components/ui/input";
+import { ActionMenu } from "~/components/ui/menu";
+import {
+  accessLog,
+  captionFormatNames,
+  captionKindNames,
+  captionTracksFor,
+  type File,
+  personById,
+} from "~/data";
 import { cn } from "~/lib/cn";
 import { fileDetails } from "~/lib/files";
 import { formatBytes, formatDateTime } from "~/lib/format";
+
+/**
+ * A video's or a recording's caption tracks (#146, #201): each named for the Captions menu,
+ * with what it is for, its language and the format it came as; renamed, exported or removed
+ * from its row's menu, and added from a sidecar by whoever may upload.
+ */
+function CaptionTracks({ file }: { file: File }) {
+  const tracks = captionTracksFor(file.id);
+  const [adding, setAdding] = useState(false);
+  return (
+    <section className="flex flex-col gap-1.5">
+      <Label>Captions</Label>
+      {tracks.length === 0 && (
+        <span className="text-[12px] text-ink-3">
+          None yet. Add SubRip, WebVTT or TTML files: each is a track in the player's Captions menu
+          and a transcript beside the comments.
+        </span>
+      )}
+      <ul className="flex flex-col">
+        {tracks.map((t) => (
+          <li key={t.id} className="group flex h-8 items-center gap-2 text-[13px]">
+            <span className="shrink-0 text-ink">{t.label}</span>
+            <span className="min-w-0 flex-1 truncate text-ink-3">
+              {captionKindNames[t.kind]} · {captionFormatNames[t.format]} · {t.cues.length} captions
+            </span>
+            <ActionMenu
+              label={t.label}
+              actions={[
+                { label: "Rename…", onSelect: () => {} },
+                { label: "Export as SubRip (.srt)", onSelect: () => {} },
+                { label: "Export as WebVTT (.vtt)", onSelect: () => {} },
+                { label: "Export as TTML (.ttml)", onSelect: () => {} },
+                "divider",
+                { label: "Remove", danger: true, onSelect: () => {} },
+              ]}
+            />
+          </li>
+        ))}
+      </ul>
+      {adding ? (
+        <AddCaptionsForm onClose={() => setAdding(false)} />
+      ) : (
+        <div>
+          <Button variant="secondary" size="sm" onClick={() => setAdding(true)}>
+            Add captions…
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Adding a caption track, in the sheet itself once the file is chosen: what the menu calls
+ * it, its language and what it is for. The language and kind are read from the file where it
+ * says (`.fr.`, `.sdh.`, WebVTT's header, TTML's `xml:lang`); the name follows them until it
+ * is typed over. Renaming a track opens the same form in its row.
+ */
+function AddCaptionsForm({ onClose }: { onClose: () => void }) {
+  const [language, setLanguage] = useState("fr");
+  const [kind, setKind] = useState<"subtitles" | "captions">("subtitles");
+  const [label, setLabel] = useState("French");
+  return (
+    <form
+      aria-label="Add captions"
+      className="flex flex-col gap-3 rounded-panel border border-line p-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+    >
+      <span className="flex min-w-0 items-center gap-2 text-[13px]">
+        <Icon name="file" size={14} className="shrink-0 text-ink-3" />
+        <span className="min-w-0 truncate text-ink">Opening titles.fr.vtt</span>
+      </span>
+      <label className="flex flex-col gap-1.5">
+        <span className="text-[13px] text-ink-2">Language</span>
+        <Select
+          className="h-8 text-[13px]"
+          value={language}
+          onChange={(e) => setLanguage(e.target.value)}
+        >
+          <option value="">Not said</option>
+          <option value="en">English</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+          <option value="es">Spanish</option>
+        </Select>
+      </label>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[13px] text-ink-2">For</span>
+        <div className="self-start">
+          <Seg
+            label="What the track is for"
+            value={kind}
+            onChange={setKind}
+            options={[
+              { id: "subtitles", label: "Subtitles" },
+              { id: "captions", label: "Captions (SDH)" },
+            ]}
+          />
+        </div>
+        <span className="text-[12px] text-ink-3">
+          {kind === "subtitles"
+            ? "The words, for viewers who hear them."
+            : "The words and the sounds, for viewers who are deaf or hard of hearing."}
+        </span>
+      </div>
+      <label className="flex flex-col gap-1.5">
+        <span className="text-[13px] text-ink-2">Name in the Captions menu</span>
+        <Input
+          className="h-8 text-[13px]"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          maxLength={60}
+        />
+      </label>
+      <div className="flex items-center justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button type="submit" size="sm">
+          Add captions
+        </Button>
+      </div>
+    </form>
+  );
+}
 
 /** What the server knows about a file, and who has touched it. */
 export function FileDetailsSheet({ file, onClose }: { file: File; onClose: () => void }) {
@@ -93,21 +231,7 @@ export function FileDetailsSheet({ file, onClose }: { file: File; onClose: () =>
             The original never leaves storage except through a permitted, watermarked download.
           </span>
         </section>
-        {file.kind === "video" && (
-          <section className="flex flex-col gap-1.5">
-            <Label>Captions</Label>
-            {/* Sidecar files (#146), named for the Frame menu, which lays them over the picture. */}
-            <span className="flex items-center gap-2 text-[13px]">
-              <span className="text-ink">English</span>
-              <span className="truncate text-ink-3">TTML · 48 captions</span>
-            </span>
-            <div>
-              <Button variant="secondary" size="sm">
-                Add captions…
-              </Button>
-            </div>
-          </section>
-        )}
+        {(file.kind === "video" || file.kind === "audio") && <CaptionTracks file={file} />}
         <section className="flex flex-col gap-1.5">
           <Label>Access · {log.length}</Label>
           {log.map((e) => (

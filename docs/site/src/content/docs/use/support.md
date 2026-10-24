@@ -34,7 +34,7 @@ With tickets on, your workspace's settings have a **Support** section, also reac
 - **Severity** says how much is stopped: Low and Normal on every plan; High, Urgent and Emergency by plan, where the instance charges. The form says which plan unlocks the rest.
 - **Error references.** If something failed for you in the last day, the form offers to attach its reference, and any reference you quote in the message is attached too. The operators then see the whole story; you see only that it was attached.
 - **The file or review in question.** Contact support from a file or review, and you can let the operators open it to look.
-- **The reference**, such as `T-7F3A-2C`, is made when you send. You hear back by email, and the thread lives in Support: reply there, or mark it resolved. A reply to a resolved ticket opens it again.
+- **The reference**, such as `T-7F3A-2C`, is made when you send. You hear of an answer in your inbox and by email (at once or in your digest, as your notification settings say), and the thread lives in Support: reply there, or mark it resolved. A reply to a resolved ticket opens it again.
 
 Where the instance answers somewhere else, its desk or mailbox is linked from the help menu and from Support instead.
 

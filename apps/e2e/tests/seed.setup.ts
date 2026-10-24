@@ -228,31 +228,60 @@ setup("seed", async ({ page, browser }) => {
   const score = named("Score");
   const dry = named("Dry v2");
   if (!cutFile) throw new Error("The cut did not upload");
-  // Its captions, from a sidecar file (#146).
-  const captioned = await page.request.fetch(
-    `/api/files/${cutFile.id}/captions?label=${encodeURIComponent("English")}`,
-    {
+  // Its caption tracks, from sidecar files (#146, #201): English subtitles, and French
+  // captions for the deaf and hard of hearing, whose language and kind its name and header say.
+  const caption = async (name: string, query: string, text: string) => {
+    const added = await page.request.fetch(`/api/files/${cutFile.id}/captions?${query}`, {
       method: "POST",
       headers: {
         "content-type": "application/octet-stream",
-        "x-file-name": encodeURIComponent("Opening titles - Cut 3 - English.srt"),
+        "x-file-name": encodeURIComponent(name),
       },
-      data: Buffer.from(
-        [
-          "1",
-          "00:00:00,000 --> 00:00:04,000",
-          "ENDLESS HALL RECORDS",
-          "PRESENTS",
-          "",
-          "2",
-          "00:00:06,000 --> 00:00:10,000",
-          "OPENING TITLES",
-          "",
-        ].join("\n"),
-      ),
-    },
+      data: Buffer.from(text),
+    });
+    expect(added.ok(), await added.text()).toBe(true);
+  };
+  await caption(
+    "Opening titles - Cut 3 - English.srt",
+    "label=English&language=en&kind=subtitles",
+    [
+      "1",
+      "00:00:00,000 --> 00:00:02,500",
+      "ENDLESS HALL RECORDS",
+      "PRESENTS",
+      "",
+      "2",
+      "00:00:03,000 --> 00:00:05,500",
+      "Every hall has a sound of its own.",
+      "",
+      "3",
+      "00:00:06,000 --> 00:00:08,000",
+      "OPENING TITLES",
+      "",
+      "4",
+      "00:00:08,500 --> 00:00:11,500",
+      "We recorded at night,",
+      "when the city was quiet.",
+      "",
+    ].join("\n"),
   );
-  expect(captioned.ok(), await captioned.text()).toBe(true);
+  await caption(
+    "Opening titles - Cut 3.fr.sdh.vtt",
+    `label=${encodeURIComponent("French (SDH)")}`,
+    [
+      "WEBVTT",
+      "",
+      "00:00.000 --> 00:02.500",
+      "ENDLESS HALL RECORDS PRÉSENTE",
+      "",
+      "00:03.000 --> 00:05.500",
+      "NARRATEUR : Chaque salle a son propre son.",
+      "",
+      "00:06.000 --> 00:08.000",
+      "[Piano doux]",
+      "",
+    ].join("\n"),
+  );
 
   // A deliverable (#16): a track in the video project, its first cut in two renditions, one
   // said to be clean and graded.

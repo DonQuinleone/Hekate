@@ -5,6 +5,7 @@ import { CommentsColumn, orderThreads } from "~/components/comments/column";
 import { DownloadDialog, FileDetailsSheet } from "~/components/details";
 import { ExportCommentsDialog, ImportCommentsDialog } from "~/components/exports";
 import { Icon } from "~/components/icons";
+import { ListeningNotice, ListenTogether } from "~/components/listen-together";
 import { usePageHeader } from "~/components/page-header";
 import { markersFrom, PageViewer } from "~/components/pages";
 import { CompareBar, type Source } from "~/components/player/compare";
@@ -28,12 +29,18 @@ import {
 import { QaView } from "~/components/qa";
 import { VideoQaView } from "~/components/qa-video";
 import { Dot } from "~/components/status";
+import {
+  CaptionLine,
+  CaptionsMenu,
+  PanelTabs,
+  type SidePanel,
+  TranscriptColumn,
+} from "~/components/transcript";
 import { Button } from "~/components/ui/button";
 import { ActionMenu, Dropdown, MenuList, usePopover } from "~/components/ui/menu";
 import { Filmstrip, Frame } from "~/components/video";
 import {
   AudioLayoutMenu,
-  Captions,
   CompareCuts,
   type DrawTool,
   DrawToolbar,
@@ -44,6 +51,7 @@ import {
   comments as allComments,
   takes as allTakes,
   type Comment,
+  captionTracksFor,
   fileById,
   findingsFor,
   personById,
@@ -315,7 +323,10 @@ export function FilePage({
   const [colour, setColour] = useState("var(--hk-signal)");
   const [matte, setMatte] = useState<"none" | "2.39" | "1.85">("none");
   const [safe, setSafe] = useState(false);
-  const [captions, setCaptions] = useState(false);
+  // A caption track shown over the picture (or under the waveform), and the panel beside it.
+  const [captionId, setCaptionId] = useState<string | null>(null);
+  const [panel, setPanel] = useState<SidePanel>("comments");
+  const [transcriptId, setTranscriptId] = useState<string | null>(null);
   const [cuts, setCuts] = useState<"wipe" | "side" | null>(null);
   const duration = file?.media.duration ?? 1;
   const playback = usePlayback(duration, 14.3);
@@ -345,6 +356,9 @@ export function FilePage({
   const isVideo = file?.kind === "video";
   const isAudio = file?.kind === "audio";
   const isPages = file?.kind === "document" || file?.kind === "image";
+  // Caption tracks (#201): a video's or a recording's, in the Captions menu and the transcript.
+  const captionTracks = file && (isVideo || isAudio) ? captionTracksFor(file.id) : [];
+  const caption = captionTracks.find((t) => t.id === captionId) ?? null;
   const tools = access?.tools ?? new Set();
   const qaAllowed = (isAudio || isVideo) && (tools.has("qa") || tools.has("meters"));
   const all = useMemo(
@@ -460,6 +474,8 @@ export function FilePage({
               {openThreads.length}
             </Button>
           )}
+          {/* Listening together (#200): members, on a recording or a video. */}
+          {!viewer.isGuest && (isAudio || isVideo) && <ListenTogether fileId={fileId} />}
           {access.download !== "none" && (
             <Button
               variant="ghost"
@@ -710,96 +726,104 @@ export function FilePage({
   );
 
   const strip = (isAudio || isVideo) && (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2 @3xl/app:px-4">
-      {versionMenu}
-      {variationSeg}
-      {!access.history && inTrack && (
-        <span className="text-[13px] text-ink-3">V{inTrack.version.number} is under review</span>
-      )}
-      <div className="ml-auto flex items-center gap-1">
-        {score && isAudio && tools.has("score") && (
-          <button
-            type="button"
-            aria-pressed={layout.score}
-            onClick={() => setLayout({ score: !layout.score })}
-            className={cn(
-              "flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] transition-colors",
-              layout.score
-                ? "bg-raised text-ink shadow-1"
-                : "text-ink-2 hover:bg-raised hover:text-ink",
-            )}
-          >
-            <Icon name="score" size={14} />
-            Score
-          </button>
+    <>
+      <ListeningNotice fileId={fileId} />
+      <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2 @3xl/app:px-4">
+        {versionMenu}
+        {variationSeg}
+        {!access.history && inTrack && (
+          <span className="text-[13px] text-ink-3">V{inTrack.version.number} is under review</span>
         )}
-        {isVideo && !pending && !failed && (
-          <>
+        <div className="ml-auto flex items-center gap-1">
+          {score && isAudio && tools.has("score") && (
             <button
               type="button"
-              aria-pressed={drawing !== null}
-              onClick={() => setDrawing(drawing ? null : "arrow")}
+              aria-pressed={layout.score}
+              onClick={() => setLayout({ score: !layout.score })}
               className={cn(
                 "flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] transition-colors",
-                drawing
+                layout.score
                   ? "bg-raised text-ink shadow-1"
                   : "text-ink-2 hover:bg-raised hover:text-ink",
               )}
             >
-              <Icon name="edit" size={14} />
-              Draw
+              <Icon name="score" size={14} />
+              Score
             </button>
-            <Dropdown
-              value={
-                <span className="flex items-center gap-1.5">
-                  <Icon name="grid" size={14} />
-                  Frame
-                </span>
-              }
-              align="right"
-              actions={[
-                { label: "Safe areas", checked: safe, onSelect: () => setSafe((v) => !v) },
-                {
-                  label: "Matte 2.39:1",
-                  checked: matte === "2.39",
-                  onSelect: () => setMatte(matte === "2.39" ? "none" : "2.39"),
-                },
-                {
-                  label: "Matte 1.85:1",
-                  checked: matte === "1.85",
-                  onSelect: () => setMatte(matte === "1.85" ? "none" : "1.85"),
-                },
-                { label: "Captions", checked: captions, onSelect: () => setCaptions((v) => !v) },
-                "divider",
-                {
-                  label: "Compare cuts: wipe",
-                  checked: cuts === "wipe",
-                  onSelect: () => setCuts("wipe"),
-                },
-                {
-                  label: "Compare cuts: side by side",
-                  checked: cuts === "side",
-                  onSelect: () => setCuts("side"),
-                },
-              ]}
-            />
-            <GoTo onGo={(t) => playback.seek(t)} />
+          )}
+          {isVideo && !pending && !failed && (
+            <>
+              <button
+                type="button"
+                aria-pressed={drawing !== null}
+                onClick={() => setDrawing(drawing ? null : "arrow")}
+                className={cn(
+                  "flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] transition-colors",
+                  drawing
+                    ? "bg-raised text-ink shadow-1"
+                    : "text-ink-2 hover:bg-raised hover:text-ink",
+                )}
+              >
+                <Icon name="edit" size={14} />
+                Draw
+              </button>
+              <Dropdown
+                value={
+                  <span className="flex items-center gap-1.5">
+                    <Icon name="grid" size={14} />
+                    Frame
+                  </span>
+                }
+                align="right"
+                actions={[
+                  { label: "Safe areas", checked: safe, onSelect: () => setSafe((v) => !v) },
+                  {
+                    label: "Matte 2.39:1",
+                    checked: matte === "2.39",
+                    onSelect: () => setMatte(matte === "2.39" ? "none" : "2.39"),
+                  },
+                  {
+                    label: "Matte 1.85:1",
+                    checked: matte === "1.85",
+                    onSelect: () => setMatte(matte === "1.85" ? "none" : "1.85"),
+                  },
+                  "divider",
+                  {
+                    label: "Compare cuts: wipe",
+                    checked: cuts === "wipe",
+                    onSelect: () => setCuts("wipe"),
+                  },
+                  {
+                    label: "Compare cuts: side by side",
+                    checked: cuts === "side",
+                    onSelect: () => setCuts("side"),
+                  },
+                ]}
+              />
+              {captionTracks.length > 0 && (
+                <CaptionsMenu tracks={captionTracks} current={captionId} onChange={setCaptionId} />
+              )}
+              <GoTo onGo={(t) => playback.seek(t)} />
+              <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
+            </>
+          )}
+          {isAudio && !pending && !failed && captionTracks.length > 0 && (
+            <CaptionsMenu tracks={captionTracks} current={captionId} onChange={setCaptionId} />
+          )}
+          {isAudio && !pending && !failed && channels >= 2 && (
             <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
-          </>
-        )}
-        {isAudio && !pending && !failed && channels >= 2 && (
-          <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
-        )}
-        {isAudio && !pending && !failed && (
-          <ViewMenu
-            view={view}
-            onView={setView}
-            spectrogramAllowed={tools.has("spectrogram")}
-            normaliseAllowed={tools.has("normalise") && project.normalisation === "optional"}
-          />
-        )}
+          )}
+          {isAudio && !pending && !failed && (
+            <ViewMenu
+              view={view}
+              onView={setView}
+              spectrogramAllowed={tools.has("spectrogram")}
+              normaliseAllowed={tools.has("normalise") && project.normalisation === "optional"}
+            />
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 
   const waveHeight = Math.max(
@@ -887,7 +911,7 @@ export function FilePage({
             }
           />
           <SafeAreas matte={matte} safe={safe} />
-          {captions && <Captions time={playback.time} />}
+          {caption && <CaptionLine cues={caption.cues} time={playback.time} over />}
           {drawing && (
             <>
               <svg
@@ -985,6 +1009,7 @@ export function FilePage({
           <Ruler duration={duration} className="mt-1" />
         </div>
       </div>
+      {caption && <CaptionLine cues={caption.cues} time={playback.time} over={false} />}
     </div>
   );
 
@@ -1085,6 +1110,11 @@ export function FilePage({
       kind={isPages ? "document" : "media"}
       banner={decisionStrip}
       tools={<PanelPlacement layout={layout} set={setLayout} />}
+      heading={
+        captionTracks.length > 0
+          ? (open) => <PanelTabs panel="comments" onPanel={setPanel} count={open} />
+          : undefined
+      }
       className="@3xl/app:h-full"
       onPost={(body) =>
         setPosted((p) => [
@@ -1102,6 +1132,23 @@ export function FilePage({
           },
         ])
       }
+    />
+  );
+
+  // The transcript in the comments' place (#201): the track shown in the player, unless
+  // another is chosen here.
+  const transcriptColumn = captionTracks.length > 0 && (
+    <TranscriptColumn
+      tracks={captionTracks}
+      trackId={transcriptId ?? captionId}
+      onTrack={setTranscriptId}
+      playback={playback}
+      heading={<PanelTabs panel="transcript" onPanel={setPanel} count={openThreads.length} />}
+      tools={<PanelPlacement layout={layout} set={setLayout} />}
+      video={isVideo}
+      fps={file.media.fps}
+      canExport={access.download !== "none"}
+      className="@3xl/app:h-full"
     />
   );
 
@@ -1271,7 +1318,7 @@ export function FilePage({
             )}
             style={{ ["--w" as string]: `${layout.width}px` }}
           >
-            {commentsColumn}
+            {panel === "transcript" && transcriptColumn ? transcriptColumn : commentsColumn}
           </div>
         </>
       )}

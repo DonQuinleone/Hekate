@@ -76,6 +76,7 @@ import { LoopControls, LoopSurface } from "./loop";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
 import { SpectrogramLook, SpectrogramSettings } from "./spectrogram-settings";
 import { nativeSource, StreamPart, wholeRendition } from "./stream-part";
+import { CaptionLine, CaptionsMenu } from "./transcript";
 import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
 import { Dropdown } from "./ui/menu";
@@ -250,6 +251,8 @@ export function Player({
   onDraft,
   cuts = null,
   captions = [],
+  caption: captionChosen,
+  onCaption,
   compact = false,
 }: {
   fileId: string;
@@ -286,8 +289,14 @@ export function Player({
    * measured (QA, #42). The same element plays on, so switching views never stops it.
    */
   compact?: boolean;
-  /** A video's captions from sidecar files (#146), offered in the Frame menu. */
+  /** A video's or a recording's caption tracks (#146, #201), offered in the Captions menu. */
   captions?: readonly CaptionTrack[];
+  /**
+   * The track shown, by id, where the page keeps it (for the transcript to follow); the
+   * player keeps its own otherwise. None until chosen.
+   */
+  caption?: string | null;
+  onCaption?: (id: string | null) => void;
   /** Normalised playback (#240): offered as a switch where it is each person's choice. */
   normalisation?: Normalisation | null;
   /** Whether it is heard normalised now, and the switch's choice. */
@@ -339,7 +348,9 @@ export function Player({
   /** How long a frame shows: a drawing on one shows for that long (#146). */
   const frameSeconds = clock ? frameTime(1, clock.rate) : 1 / 25;
   /** The captions shown over the picture, by id; none until chosen. */
-  const [captionId, setCaptionId] = useState<string | null>(null);
+  const [ownCaption, setOwnCaption] = useState<string | null>(null);
+  const captionId = captionChosen !== undefined ? captionChosen : ownCaption;
+  const setCaptionId = onCaption ?? setOwnCaption;
   const caption = captions.find((c) => c.id === captionId) ?? null;
   // Followed frame by frame while it plays, but only when there is a drawing or a caption to
   // show (#146).
@@ -1108,6 +1119,7 @@ export function Player({
               </div>
             </div>
           )}
+          {kind === "audio" && caption && <CaptionLine cues={caption.cues} time={time} />}
           {kind === "video" && edits.length > 0 && duration > 0 && (
             <EditLane edits={edits} duration={duration} time={time} onSeek={seek} />
           )}
@@ -1270,12 +1282,6 @@ export function Player({
                     checked: matte === m,
                     onSelect: () => setMatte((on) => (on === m ? null : m)),
                   })),
-                  // One caption file is "Captions"; several are named, one shown at a time.
-                  ...captions.map((c) => ({
-                    label: captions.length === 1 ? "Captions" : `Captions: ${c.label}`,
-                    checked: captionId === c.id,
-                    onSelect: () => setCaptionId((on) => (on === c.id ? null : c.id)),
-                  })),
                   ...(canCompareCuts && cuts
                     ? [
                         "divider" as const,
@@ -1294,6 +1300,9 @@ export function Player({
                     : []),
                 ]}
               />
+            )}
+            {captions.length > 0 && (
+              <CaptionsMenu tracks={captions} current={captionId} onChange={setCaptionId} />
             )}
             {kind === "video" && clock && (
               <GoToTimecode clock={clock} time={time} duration={duration} onGo={goToFrame} />

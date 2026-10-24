@@ -120,27 +120,6 @@ export function SafeAreas({ matte, safe }: { matte: "none" | "2.39" | "1.85"; sa
   );
 }
 
-/** Captions burned over the frame when the viewer asks. */
-export function Captions({ time }: { time: number }) {
-  const line =
-    time > 6 && time < 14
-      ? "ENDLESS HALL RECORDS PRESENTS"
-      : time > 20 && time < 30
-        ? "A FILM BY MIRA SOLBERG"
-        : null;
-  if (!line) return null;
-  return (
-    <div
-      className="pointer-events-none absolute inset-x-0 bottom-[8%] flex justify-center"
-      aria-hidden="true"
-    >
-      <span className="rounded-[3px] bg-black/70 px-2 py-0.5 text-[13px] tracking-[0.08em] text-paper">
-        {line}
-      </span>
-    </div>
-  );
-}
-
 /** Two cuts over each other with a wipe, or side by side. */
 export function CompareCuts({
   a,

@@ -1130,6 +1130,7 @@ export function Comments({
   seed,
   tools,
   focus,
+  heading,
 }: {
   /** On a video: the drawing waiting to join the next comment (#146), and letting it go. */
   frame?: { draft: FrameDraft | null; onClear: () => void };
@@ -1137,6 +1138,8 @@ export function Comments({
   focus?: string;
   /** A comment begun elsewhere (from a finding, #43): at its moment, starting with its words. */
   seed?: CommentSeed;
+  /** In place of the panel's name: the switch to the transcript (#201). */
+  heading?: ReactNode;
   /** Controls for the panel itself, in its header: where it sits (#15). */
   tools?: ReactNode;
   fileId: string;
@@ -1655,7 +1658,7 @@ export function Comments({
         <Mentionable value={mentionable}>
           <section aria-label="Comments" className="flex flex-col gap-4">
             <div className="flex items-center justify-between gap-2">
-              <h2 className="m-0 text-[15px] font-medium">Comments</h2>
+              {heading ?? <h2 className="m-0 text-[15px] font-medium">Comments</h2>}
               <div className="flex items-center gap-1">
                 <span className="tabular text-xs text-ink-3">
                   {threads.open.length} open

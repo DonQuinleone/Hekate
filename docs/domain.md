@@ -36,6 +36,7 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Deferred** | A comment set aside for a later stage of the workflow (typically noise, handled at the end). It stays open and reappears when that stage starts. |
 | **Carry-over** | Linking a comment raised on one version to the version where it was addressed, with the anchor mapped across, so the reviewer can hear or see a before and after. Whoever adds a version confirms or corrects it: each open thread is carried, carried but hidden, or settled as the version lands. |
 | **Version checks** | What a project asks of a new version before it lands: a true peak under the delivery profile's ceiling, an edit decision list. A producer can let a refused version through, on the record. |
+| **Caption track** | Timed text on a video or a recording, added from a sidecar file (SubRip, WebVTT or TTML): its language and its kind (**subtitles**, the words; or **captions** for the deaf and hard of hearing, the words and the sounds). The player shows one at a time; its **transcript** lists, follows and searches it; it exports in any of the three formats. Hekate does not transcribe speech itself. |
 | **Anchor** | Where a comment points: a time range or frame (`time`), a rectangle on a page or frame (`region`), or a bar and beat or range of bars (`bar`). A comment without an anchor is about the whole file. |
 | **Review** | One request, made by someone with the authority, for one or more people to look at one or more items (tracks, versions, files). A review is either an approval or feedback. |
 | **Approval** | A review that ends in a formal, logged decision from each reviewer: **Approved** or **Changes requested**. |
@@ -51,8 +52,9 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Role** | A named set of permissions within a project, for example Producer, Engineer, Editor, Reviewer. Roles and their permissions are configurable per project. |
 | **Ticket** | A question to the people who run the instance, from a workspace: a thread with a generated reference, a type and a severity limited by the plan. Only with the support module. |
 | **Plan** | What a workspace pays for and is given: limits, features and the support severities it unlocks. Only with the billing module. |
-| **Notification** | Something that happened, told to one member: a review asked of them, a decision on a review they asked for, a reply, a mention (`@` and their full name), a new version of a track they follow, a failed upload, a guest opening their review. Each kind reaches them in the app, by mail (at once or in a digest), or both, as they choose; reviews asked of them and mentions always reach them in the app. Guests are told by mail only. |
+| **Notification** | Something that happened, told to one member: a review asked of them, a decision on a review they asked for, a reply, a mention (`@` and their full name), a new version of a track they follow, a failed upload, a guest opening their review, an answer to a ticket they sent. Each kind reaches them in the app, by mail (at once or in a digest), or both, as they choose; reviews asked of them and mentions always reach them in the app. Guests are told by mail only. |
 | **Follow** | Being told about a track or a review beyond your own part in it. Making a track or adding a version to it follows it. |
+| **Listening room** | One member, its **leader**, playing for everyone who joins, its **listeners**: they hear what the leader plays as they play it (play, pause, seeking, which file), each through their own player and permissions. Not a session, which is a recording session; its listeners are not followers. Shown as "Listen together". |
 | **Upload request** | A link for someone outside a project, with no account, to send files into one of its folders: what is wanted, a file limit, a closing day and an optional password. What arrives is listed with who sent it. |
 | **Error reference** | A short code (`HK-7F3A-2C`) shown with an error, by which an operator finds what happened. |
 
@@ -94,6 +96,7 @@ Tools for engineers and producers, all working on the protected streams (`docs/s
 - **Built-in QA:** see below
 - Compare versions at the same musical position, using the version alignment below
 - Solo and mute channels for multichannel files and takes
+- **Captions and transcripts:** a video's or a recording's caption tracks in the player's Captions menu (over the picture, or under the waveform), and the transcript beside the comments, which follows playback, seeks on a click, searches and exports (decision 235)
 
 Analysis data (peaks, spectrogram tiles, loudness) is computed by the media worker, so the browser never needs the full-quality audio to draw it.
 

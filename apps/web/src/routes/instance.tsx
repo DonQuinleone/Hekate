@@ -1271,6 +1271,17 @@ function Settings() {
             </Button>
           </Row>
         )}
+        <Row
+          name="Telemetry"
+          hint={
+            env.telemetry
+              ? "OTEL_EXPORTER_OTLP_ENDPOINT · traces and logs go to this collector of yours, and nowhere else."
+              : "OTEL_EXPORTER_OTLP_ENDPOINT · names a collector of yours for traces and logs; nothing leaves otherwise."
+          }
+          inline
+        >
+          <span className="truncate text-[13px] text-ink-2">{env.telemetry ?? "Off"}</span>
+        </Row>
       </Section>
       {bounced && <SuppressionsDialog scope="instance" onClose={() => setBounced(false)} />}
       <Danger>

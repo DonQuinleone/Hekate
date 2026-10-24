@@ -8,6 +8,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { useEffect } from "react";
+import { ListeningRoomPage } from "~/components/listen-together";
 import { PageHeaderProvider } from "~/components/page-header";
 import { GuestShell, Shell } from "~/components/shell";
 import { appRoot } from "~/lib/dom";
@@ -326,6 +327,15 @@ const file = createRoute({
     );
   },
 });
+/** A listening room's link (#200): who leads it, and the way in. */
+const listen = createRoute({
+  getParentRoute: () => app,
+  path: "/listen/$roomId",
+  component: function ListenRoute() {
+    const { roomId } = listen.useParams();
+    return <ListeningRoomPage roomId={roomId} />;
+  },
+});
 const session = createRoute({
   getParentRoute: () => app,
   path: "/sessions/$sessionId",
@@ -469,6 +479,7 @@ export const router = createRouter({
       track,
       compare,
       file,
+      listen,
       session,
       take,
       members,

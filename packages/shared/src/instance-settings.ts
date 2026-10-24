@@ -258,6 +258,11 @@ export interface InstanceEnvironment {
   passwordLeakCheck: boolean;
   /** How long a session lasts, in days. */
   sessionDays: number;
+  /**
+   * OTEL_EXPORTER_OTLP_ENDPOINT (#162): the collector traces and logs go to, without any
+   * credentials or query it carries; null when unset, and nothing leaves the server.
+   */
+  telemetry?: string | null;
   /** What is switched on at start: HEKATE_BILLING, HEKATE_SUPPORT, HEKATE_DOCS_URL, HEKATE_STATUS_URL. */
   modules: InstanceModules;
 }

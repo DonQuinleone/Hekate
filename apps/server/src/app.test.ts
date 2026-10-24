@@ -3236,6 +3236,37 @@ describe.runIf(url)("api", () => {
         await send("PUT", "/api/instance/settings", current.settings, operator);
       });
 
+      it("shows where telemetry goes, read-only and without its credentials, to operators alone (#160, #162)", async () => {
+        const operator = cookieOf(await setup());
+        type Answer = { environment: InstanceEnvironment };
+        const telemetry = async (via: typeof asOperator) =>
+          ((await (await get("/api/instance/settings", operator, via)).json()) as Answer)
+            .environment.telemetry;
+        // Unset, nothing leaves the server, and Settings says so.
+        expect(await telemetry(asOperator)).toBeNull();
+        const tracing = createApp({
+          db,
+          auth,
+          mailer,
+          storage,
+          audit,
+          jobs,
+          keyring,
+          playbackSecret: playbackSecret("test-secret-test-secret-test-secret-0"),
+          publicUrl: "http://localhost:3000",
+          log: false,
+          operatorSecurityKey: false,
+          telemetry: "https://hekate:hidden-word@otel.example:4318/?token=abc",
+        });
+        expect(await telemetry(tracing)).toBe("https://otel.example:4318");
+        const raw = await (await get("/api/instance/settings", operator, tracing)).text();
+        expect(raw).not.toContain("hidden-word");
+        expect(raw).not.toContain("token=abc");
+        // A workspace's owner is no operator: the instance's settings are not theirs to read.
+        const theirOwner = await join(operator, "label@example.test", "owner");
+        expect((await get("/api/instance/settings", theirOwner, tracing)).status).toBe(403);
+      });
+
       it("reads the audit and mail logs as tables, and records their export (#157)", async () => {
         const operator = cookieOf(await setup());
         const [workspace] = await db
@@ -12750,7 +12781,8 @@ describe.runIf(url)("api", () => {
               body: new TextEncoder().encode(body),
             });
           const srt = "1\n00:00:06,000 --> 00:00:09,500\n<i>ENDLESS HALL RECORDS</i>\nPRESENTS\n";
-          // A recording carries none.
+          // A document carries none; a video or a recording does.
+          await db.update(schema.files).set({ kind: "document" }).where(eq(schema.files.id, s.mix));
           expect((await add(srt, "Titles.srt", "English")).status).toBe(409);
           await db.update(schema.files).set({ kind: "video" }).where(eq(schema.files.id, s.mix));
           const added = await add(srt, "Titles.srt", "English", s.engineer);
@@ -12768,6 +12800,8 @@ describe.runIf(url)("api", () => {
             {
               id: caption.id,
               label: "English",
+              language: null,
+              kind: "subtitles",
               name: "Titles.srt",
               format: "srt",
               cues: [{ start: 6, end: 9.5, text: "ENDLESS HALL RECORDS\nPRESENTS" }],
@@ -12822,6 +12856,103 @@ describe.runIf(url)("api", () => {
             .from(schema.accessEvents)
             .where(eq(schema.accessEvents.organisationId, s.organisationId));
           expect(actions.filter((a) => a.action.startsWith("file.captions_")).length).toBe(3);
+        });
+
+        it("keeps a recording's caption tracks with their language and kind, and exports each in any format (#201)", async () => {
+          const s = await studio();
+          const add = (body: string, name: string, query: string, cookie = s.owner) =>
+            app.request(`/api/files/${s.mix}/captions?${query}`, {
+              method: "POST",
+              headers: {
+                cookie,
+                origin: "http://localhost:3000",
+                "content-type": "application/octet-stream",
+                "x-file-name": encodeURIComponent(name),
+              },
+              body: new TextEncoder().encode(body),
+            });
+          type Track = { id: string; label: string; language: string | null; kind: string };
+          // The file says its language and its name what it is for, unless the uploader says.
+          const vtt =
+            "WEBVTT\nLanguage: fr-ca\n\n00:00.500 --> 00:03.250\n[Cordes]\n\n00:06.000 --> 00:09.500\nENDLESS HALL RECORDS\nPRÉSENTE\n";
+          const added = await add(vtt, "Titres.sdh.vtt", "label=Fran%C3%A7ais", s.engineer);
+          expect(added.status).toBe(201);
+          const { caption: french } = (await added.json()) as { caption: Track };
+          expect(french).toMatchObject({ label: "Français", language: "fr-CA", kind: "captions" });
+          const srt = "1\n00:00:06,000 --> 00:00:09,500\nENDLESS HALL RECORDS\n";
+          const said = await add(srt, "Titles.de.srt", "label=English&language=en&kind=subtitles");
+          expect(((await said.json()) as { caption: Track }).caption).toMatchObject({
+            language: "en",
+            kind: "subtitles",
+          });
+          expect((await add(srt, "Titles.srt", "label=English&language=English")).status).toBe(400);
+          expect((await add(srt, "Titles.srt", "label=English&kind=forced")).status).toBe(400);
+
+          // Renamed, or said again, by whoever may upload; on its own file only.
+          const patch = (body: unknown, cookie = s.owner, fileId = s.mix) =>
+            app.request(`/api/files/${fileId}/captions/${french.id}`, {
+              ...json(body, cookie),
+              method: "PATCH",
+            });
+          expect((await patch({ label: "Mine" }, s.composer)).status).toBe(403);
+          expect((await patch({})).status).toBe(400);
+          expect((await patch({ language: "nowhere at all" })).status).toBe(400);
+          expect((await patch({ label: "Mine" }, s.owner, s.artwork)).status).toBe(404);
+          const renamed = await patch({ label: "Français (SDH)", language: "fr" }, s.engineer);
+          expect(renamed.status).toBe(200);
+          expect(((await renamed.json()) as { caption: Track }).caption).toMatchObject({
+            label: "Français (SDH)",
+            language: "fr",
+            kind: "captions",
+          });
+
+          // Exported afresh from its cues, in any of the three formats, for whoever may download.
+          const exported = (format: string, cookie: string) =>
+            getAs(`/api/files/${s.mix}/captions/${french.id}/export?format=${format}`, cookie);
+          const asSrt = await exported("srt", s.engineer);
+          expect(asSrt.status).toBe(200);
+          expect(asSrt.headers.get("content-type")).toBe("application/x-subrip; charset=utf-8");
+          expect(asSrt.headers.get("content-disposition")).toContain(
+            'filename="Mix v1.fr.sdh.srt"',
+          );
+          expect(asSrt.headers.get("cache-control")).toBe("no-store");
+          expect(await asSrt.text()).toBe(
+            "1\r\n00:00:00,500 --> 00:00:03,250\r\n[Cordes]\r\n\r\n" +
+              "2\r\n00:00:06,000 --> 00:00:09,500\r\nENDLESS HALL RECORDS\r\nPRÉSENTE\r\n",
+          );
+          const asTtml = await exported("ttml", s.owner);
+          expect(asTtml.headers.get("content-type")).toBe("application/ttml+xml; charset=utf-8");
+          expect(await asTtml.text()).toContain('xml:lang="fr"');
+          expect((await (await exported("vtt", s.owner)).text()).startsWith("WEBVTT\n")).toBe(true);
+          expect((await exported("scc", s.owner)).status).toBe(400);
+          // A reviewer who may not download reads the transcript but exports nothing.
+          expect((await getAs(`/api/files/${s.mix}/captions`, s.composer)).status).toBe(200);
+          expect((await exported("srt", s.composer)).status).toBe(403);
+          const outsider = await joinAs(s.owner, "outsider-export@example.test");
+          expect((await exported("srt", outsider)).status).toBe(404);
+          // Another file's track is not this one's.
+          expect(
+            (
+              await getAs(
+                `/api/files/${s.artwork}/captions/${french.id}/export?format=srt`,
+                s.owner,
+              )
+            ).status,
+          ).toBe(404);
+          const logged = await db
+            .select({ action: schema.accessEvents.action, details: schema.accessEvents.details })
+            .from(schema.accessEvents)
+            .where(eq(schema.accessEvents.organisationId, s.organisationId));
+          const exports = logged.filter((e) => e.action === "file.captions_export");
+          expect(exports).toHaveLength(3);
+          expect(exports.map((e) => e.details)).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ format: "srt", filename: "Mix v1.fr.sdh.srt" }),
+              expect.objectContaining({ format: "ttml" }),
+              expect.objectContaining({ format: "vtt" }),
+            ]),
+          );
+          expect(logged.filter((e) => e.action === "file.captions_update")).toHaveLength(1);
         });
 
         it("gives each role its player tools, and refuses a tool a role has off (#240)", async () => {

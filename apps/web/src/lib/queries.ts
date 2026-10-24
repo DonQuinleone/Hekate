@@ -10,7 +10,10 @@ import {
   type BillingReports,
   type Board,
   type CalendarEvent,
+  type CaptionFormat,
+  type CaptionKind,
   type CaptionTrack,
+  type CaptionUpdate,
   type CarryStatus,
   type CategoryHandling,
   type CategoryInput,
@@ -4279,7 +4282,7 @@ export const fileDetailsQuery = (fileId: string) =>
       json<FileDetails>(await api.files[":id"].details.$get({ param: { id: fileId } })),
   });
 
-/** A video's captions from sidecar files (#146), cues and all. */
+/** A video's or a recording's caption tracks (#146, #201), cues and all. */
 export const captionsQuery = (fileId: string) =>
   queryOptions({
     queryKey: ["files", fileId, "captions"],
@@ -4291,15 +4294,47 @@ export const captionsQuery = (fileId: string) =>
       ).captions,
   });
 
-/** Adding a caption file to a video, under a name for the player's menu, or removing one. */
+/**
+ * Where a track exports from (#201): written afresh in the format asked for, as an
+ * attachment, logged. Opened by a link, so the browser saves it as it arrives.
+ */
+export const captionExportHref = (fileId: string, captionId: string, format: CaptionFormat) =>
+  `/api/files/${fileId}/captions/${captionId}/export?format=${format}`;
+
+/** Saves a track as a sidecar file, from a menu where there is no link to follow. */
+export function exportCaptions(fileId: string, captionId: string, format: CaptionFormat) {
+  const link = document.createElement("a");
+  link.href = captionExportHref(fileId, captionId, format);
+  link.download = "";
+  link.rel = "noopener";
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
+/**
+ * Adding a caption track to a video or a recording, named for the player's menu with its
+ * language and kind; renaming one or saying them again; removing one.
+ */
 export function useCaptionMutations(fileId: string) {
   const client = useQueryClient();
   const refresh = () => client.invalidateQueries({ queryKey: ["files", fileId, "captions"] });
   return {
     add: useMutation({
-      mutationFn: async ({ file, label }: { file: File; label: string }) =>
-        json<{ caption: CaptionTrack }>(
-          await fetch(`/api/files/${fileId}/captions?label=${encodeURIComponent(label)}`, {
+      mutationFn: async ({
+        file,
+        label,
+        language,
+        kind,
+      }: {
+        file: File;
+        label: string;
+        language: string | null;
+        kind: CaptionKind;
+      }) => {
+        const query = new URLSearchParams({ label, kind, ...(language ? { language } : {}) });
+        return json<{ caption: CaptionTrack }>(
+          await fetch(`/api/files/${fileId}/captions?${query}`, {
             method: "POST",
             credentials: "same-origin",
             headers: {
@@ -4307,6 +4342,17 @@ export function useCaptionMutations(fileId: string) {
               "x-file-name": encodeURIComponent(file.name),
             },
             body: file,
+          }),
+        );
+      },
+      onSuccess: refresh,
+    }),
+    update: useMutation({
+      mutationFn: async ({ captionId, ...change }: CaptionUpdate & { captionId: string }) =>
+        json<{ caption: CaptionTrack }>(
+          await api.files[":id"].captions[":captionId"].$patch({
+            param: { id: fileId, captionId },
+            json: change,
           }),
         ),
       onSuccess: refresh,
