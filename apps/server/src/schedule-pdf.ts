@@ -7,7 +7,7 @@ import {
   scheduleKindWords,
   timesOf,
 } from "@hekate/shared";
-import { pdfString, widthOf } from "./media/helvetica.ts";
+import { showText, widthOf } from "./media/pdf-text.ts";
 import { fitted } from "./patch-pdf.ts";
 import type { Sheet } from "./xlsx.ts";
 
@@ -78,7 +78,7 @@ function span(days: ScheduleDay[]): string {
 
 const num = (n: number) => String(Math.round(n * 100) / 100);
 const text = (font: "H" | "HB", size: number, x: number, y: number, words: string, grey = 0) =>
-  `BT /${font} ${num(size)} Tf ${grey} g ${num(x)} ${num(y)} Td ${pdfString(words)} Tj ET`;
+  showText(font === "HB" ? "bold" : "regular", size, x, y, words, `${grey} g`);
 
 /** The pages' drawings, A4 portrait, for a project's schedule. */
 export function schedulePages(s: ScheduleExport): string[] {

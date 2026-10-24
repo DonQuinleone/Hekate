@@ -1,6 +1,7 @@
 /**
  * The standard Helvetica the PDF writers set text in (score overlays, the patch list): its
- * advance widths, from Adobe's metrics, and the text as WinAnsi can hold it.
+ * advance widths, from Adobe's metrics, and the text as WinAnsi can hold it. Text WinAnsi
+ * cannot hold goes to the embedded Unicode fonts where there are any (pdf-text.ts, decision 236).
  */
 
 const ASCII = 32;
@@ -69,6 +70,9 @@ const held = (ch: string) => {
   const code = ch.codePointAt(0) ?? 0;
   return (code >= 32 && code < 127) || (code >= 0xa0 && code <= 0xff) || ch in WIN_ANSI;
 };
+
+/** Whether WinAnsi holds every character of the words, so Helvetica prints them as they are. */
+export const inWinAnsi = (words: string) => [...words].every(held);
 
 /**
  * Text as WinAnsi can hold it: a Latin letter it lacks (Dvořák's ř, Łódź's Ł) as its plain

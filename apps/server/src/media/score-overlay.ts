@@ -1,5 +1,5 @@
 import type { DrawingColour, ScoreMark } from "@hekate/shared";
-import { pdfString, widthOf } from "./helvetica.ts";
+import { showText, widthOf } from "./pdf-text.ts";
 
 /**
  * The score marks drawn over a page of the score (#52), for the annotated score PDF: PDF
@@ -77,7 +77,7 @@ function pill(x: number, y: number, w: number, r: number): string {
 }
 
 const text = (font: "H" | "HO", size: number, x: number, y: number, words: string, c: Rgb) =>
-  `BT /${font} ${num(size)} Tf ${fill(c)} ${num(x)} ${num(y)} Td ${pdfString(words)} Tj ET`;
+  showText(font === "HO" ? "oblique" : "regular", size, x, y, words, fill(c));
 
 /** A pill's label, as the score marking page puts it on the mark. */
 function labelOf(m: OverlayMark): string {
