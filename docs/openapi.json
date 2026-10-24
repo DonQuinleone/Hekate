@@ -11888,7 +11888,7 @@
                 ]
               },
               "example": {
-                "kind": "Masters"
+                "kind": "daw-midi"
               }
             }
           }

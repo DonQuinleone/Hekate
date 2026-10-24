@@ -759,6 +759,7 @@ export const apiOperations: Record<string, ApiOperation> = {
     summary: "Drive a session's takes from a recorder",
     description:
       "Says that this member's browser or tool reads the recorder and starts and stops the takes; sent again with `renew` every ten seconds while it does, which answers 409 once someone else has claimed it. The last to claim it drives.",
+    request: { kind: "daw-midi" },
   },
   "DELETE /sessions/{id}/recorder": { summary: "Stop driving a session's takes from a recorder" },
   "POST /sessions/{id}/todos": { summary: "Add to a session's to-do list" },
