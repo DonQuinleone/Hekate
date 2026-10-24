@@ -26,8 +26,10 @@ import { and, asc, count, desc, eq, gte, inArray, isNull, or } from "drizzle-orm
 import type { Context } from "hono";
 import { type Actor, type Audit, requestInfo } from "./audit.ts";
 import { CodedException, NotFound } from "./errors.ts";
+import type { Subdomains } from "./hosts.ts";
 import type { InstanceSettingsStore } from "./instance-settings.ts";
 import { type Mailer, sendEmail } from "./mail.ts";
+import { notifyNow } from "./notifications.ts";
 import { workspacePlanOf } from "./plans.ts";
 import { attachment } from "./routes/comments.ts";
 import type { Storage } from "./storage.ts";
@@ -48,6 +50,8 @@ export interface SupportDeps {
   trustProxy: boolean;
   modules: InstanceModules;
   settings: InstanceSettingsStore;
+  /** Each workspace's own address for the links its people are sent, with subdomains on (#437). */
+  workspaceHosts?: Subdomains | null;
 }
 
 /** What the help menu and the Support page are told about the module. */
@@ -427,7 +431,7 @@ export async function replyTo(
   });
   const tell =
     from.author === "operator"
-      ? tellRequester(deps, ticket, person?.name ?? "The operators", body)
+      ? tellRequester(deps, ticket, from.userId, body)
       : tellOperators(deps, ticket, { name: person?.name ?? "Someone", body }, "reply");
   await tell.catch((error: unknown) =>
     console.error(`Could not send the reply to ticket ${ticket.reference} on:`, error),
@@ -510,32 +514,34 @@ async function tellOperators(
     });
 }
 
-/** The person who asked hears of an operator's reply. */
+/**
+ * The person who asked hears of an operator's reply as a notification (#110): in their inbox
+ * and by mail, at once or in their digest, as they choose for the `ticket` kind.
+ */
 async function tellRequester(
   deps: SupportDeps,
   ticket: TicketRecord,
-  operator: string,
+  operatorId: string,
   body: string,
 ) {
   if (!ticket.requesterId) return;
-  const [person] = await deps.db
-    .select({ email: users.email })
-    .from(users)
-    .where(eq(users.id, ticket.requesterId));
-  if (!person) return;
-  const [place] = await deps.db
-    .select({ name: organisations.name })
-    .from(organisations)
-    .where(eq(organisations.id, ticket.organisationId));
-  const url = new URL(`/settings/support?ticket=${ticket.id}`, deps.publicUrl).toString();
-  await sendEmail(deps.mailer, person.email, {
-    ...(place ? { workspace: place.name } : {}),
-    subject: `[${ticket.reference}] ${ticket.subject}`,
-    heading: `${operator} answered your ticket`,
-    body: [`“${excerpt(body)}”`, "Reply in the thread, or mark it resolved if that settles it."],
-    action: { label: "Open the ticket", url },
-    foot: "You get this because you asked the people who run this instance for help.",
-  });
+  await notifyNow(
+    {
+      db: deps.db,
+      mailer: deps.mailer,
+      publicUrl: deps.publicUrl,
+      subdomains: deps.workspaceHosts ?? null,
+    },
+    {
+      organisationId: ticket.organisationId,
+      kind: "ticket",
+      recipients: [ticket.requesterId],
+      actor: { userId: operatorId },
+      text: `answered your ticket ${ticket.reference}: ${ticket.subject}`,
+      detail: `“${excerpt(body)}”\n\nReply in the thread, or mark it resolved if that settles it.`,
+      link: `/settings/support?ticket=${ticket.id}`,
+    },
+  );
 }
 
 /**

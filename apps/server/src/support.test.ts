@@ -11,7 +11,7 @@ import type {
   WorkspaceSupport,
 } from "@hekate/shared";
 import { createBackends, storageConfigFromEnv } from "@hekate/storage";
-import { eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
 import { createAudit } from "./audit.ts";
@@ -145,6 +145,18 @@ describe.runIf(url)("support (#181, #182)", () => {
         .from(schema.organisations)
         .where(eq(schema.organisations.name, name))
     )[0]?.id ?? "";
+
+  /** What someone's inbox holds in the workspace they are signed in to, newest first. */
+  const inbox = async (cookie: string) =>
+    (
+      (await (await get("/api/notifications", cookie)).json()) as {
+        notifications: { kind: string; actorName: string | null; text: string; link: string }[];
+      }
+    ).notifications.map((n) => ({
+      kind: n.kind,
+      line: `${n.actorName} ${n.text}`,
+      link: n.link,
+    }));
 
   beforeAll(async () => {
     await runMigrations(url ?? "");
@@ -320,9 +332,21 @@ describe.runIf(url)("support (#181, #182)", () => {
     expect(detail.who.lastSeenAt).not.toBeNull();
     expect(detail.place).toMatchObject({ name: "Endless Hall Records", openReviews: 0 });
     const told = mailer.sent.find((m) => m.to === "tomas@endlesshall.example");
-    expect(told?.subject).toBe(`[${asked.reference}] ${asked.subject}`);
+    expect(told?.subject).toBe(
+      `Alex Rivera answered your ticket ${asked.reference}: ${asked.subject}`,
+    );
     expect(told?.text).toContain(`/settings/support?ticket=${asked.id}`);
+    expect(told?.text).toContain("damaged cross-reference table");
     expect(mailer.sent.some((m) => m.to === "mira@endlesshall.example")).toBe(false);
+    // It waits in their inbox too (#110), and in no one else's.
+    expect(await inbox(member)).toEqual([
+      {
+        kind: "ticket",
+        line: `Alex Rivera answered your ticket ${asked.reference}: ${asked.subject}`,
+        link: `/settings/support?ticket=${asked.id}`,
+      },
+    ]);
+    expect(await inbox(other)).toEqual([]);
 
     // The requester replies: back with support, and the operator who answered hears.
     mailer.sent.length = 0;
@@ -365,6 +389,63 @@ describe.runIf(url)("support (#181, #182)", () => {
         )
       ).status,
     ).toBe(404);
+  });
+
+  it("tells the requester of an answer in their own workspace only, as they choose (#110)", async () => {
+    const operator = await setup();
+    const other = await elsewhere(operator);
+    const asked = (await ask(other)).body.ticket;
+    const answer = (body: string) =>
+      send(`/api/instance/support/tickets/${asked.id}/messages`, { body }, operator);
+    mailer.sent.length = 0;
+
+    expect((await answer("Which browser shows the blank page?")).status).toBe(201);
+    expect(await inbox(other)).toEqual([
+      {
+        kind: "ticket",
+        line: `Alex Rivera answered your ticket ${asked.reference}: ${asked.subject}`,
+        link: `/settings/support?ticket=${asked.id}`,
+      },
+    ]);
+    expect(mailer.sent.map((m) => m.to)).toEqual(["ines@saltmarsh.example"]);
+    // The operator's own workspace hears nothing of another workspace's ticket.
+    expect(await inbox(operator)).toEqual([]);
+    const rows = await db
+      .select({ organisationId: schema.notifications.organisationId })
+      .from(schema.notifications)
+      .where(eq(schema.notifications.kind, "ticket"));
+    expect(rows).toEqual([{ organisationId: await workspaceId("Saltmarsh Films") }]);
+
+    // Mail turned off for tickets: the inbox still has it, and no mail goes.
+    const prefs = (body: object) => send("/api/notifications/preferences", body, other, "PUT");
+    expect(
+      (
+        await prefs({
+          mailMode: "instant",
+          digest: "daily",
+          kinds: { ticket: { app: true, mail: false } },
+        })
+      ).status,
+    ).toBe(200);
+    mailer.sent.length = 0;
+    await answer("Could you attach the PDF?");
+    expect(await inbox(other)).toHaveLength(2);
+    expect(mailer.sent).toEqual([]);
+
+    // In a digest: nothing at once; the answer waits for the digest.
+    await prefs({ mailMode: "digest", digest: "daily", kinds: {} });
+    await answer("Found it: a damaged cross-reference table.");
+    expect(mailer.sent).toEqual([]);
+    const [latest] = await db
+      .select({
+        mailMode: schema.notifications.mailMode,
+        emailedAt: schema.notifications.emailedAt,
+      })
+      .from(schema.notifications)
+      .where(eq(schema.notifications.kind, "ticket"))
+      .orderBy(desc(schema.notifications.id))
+      .limit(1);
+    expect(latest).toEqual({ mailMode: "digest", emailedAt: null });
   });
 
   it("is the operators' alone on the instance side, filtered as asked", async () => {

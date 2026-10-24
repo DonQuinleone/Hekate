@@ -1438,6 +1438,7 @@ export function instanceRoutes(options: InstanceOptions) {
           modules: options.environment.modules,
           settings: options.settings,
           subdomains: options.environment.subdomains ?? null,
+          workspaceHosts: options.subdomains ?? null,
         }),
       )
       // Apply a promo code to a workspace's subscription (#445), as its owners could.

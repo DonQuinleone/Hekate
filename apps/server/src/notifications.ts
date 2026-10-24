@@ -188,6 +188,7 @@ const actionLabel: Record<NotificationKind, string> = {
   task: "Open the task",
   transfer: "Open the transfer",
   upload_arrived: "See what arrived",
+  ticket: "Open the ticket",
 };
 
 /** Why each kind of mail came. */
@@ -209,6 +210,7 @@ const whyFoot: Record<NotificationKind, string> = {
   transfer:
     "You get this because moving a project between workspaces needs, or has had, your workspace's sign-off.",
   upload_arrived: "You get this because you asked for the files.",
+  ticket: "You get this because you asked the people who run this instance for help.",
 };
 
 /** The workspace a mail comes from: its name, and its own subject lines. */

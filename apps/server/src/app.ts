@@ -239,6 +239,7 @@ export function createApi(given: AppDeps) {
     trustProxy: deps.trustProxy ?? false,
     modules,
     settings,
+    workspaceHosts: links.subdomains,
   };
   const billing = {
     db: deps.db,
