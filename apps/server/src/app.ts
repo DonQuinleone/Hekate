@@ -8,6 +8,7 @@ import {
   type InstanceModules,
   type InstanceNotice,
   type MailStepInput,
+  MCP_PATH,
   OPENAPI_PATH,
   scopeFor,
   TICKET_ATTACHMENT_MAX_BYTES,
@@ -32,6 +33,7 @@ import { createInstanceSettings, type InstanceSettingsStore } from "./instance-s
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import type { Mailer } from "./mail.ts";
+import { mcpRoutes, protectedResourceMetadata } from "./mcp.ts";
 import { countRequests, metricsHandler } from "./metrics/index.ts";
 import type { Sampler } from "./metrics/sampler.ts";
 import { type OpenApiDocument, openapiDocument } from "./openapi/document.ts";
@@ -807,6 +809,16 @@ export function createApp(given: AppDeps) {
     c.header("Access-Control-Allow-Origin", "*");
     return c.json(oauthMetadata(deps.publicUrl));
   });
+  // The MCP endpoint's protected resource metadata (#199, RFC 9728): where an assistant gets a
+  // token for it. At the endpoint's own path, and at the root for the API as a whole.
+  for (const [path, resource] of [
+    [`/.well-known/oauth-protected-resource${MCP_PATH}`, "mcp"],
+    ["/.well-known/oauth-protected-resource", "api"],
+  ] as const)
+    app.get(path, (c) => {
+      c.header("Access-Control-Allow-Origin", "*");
+      return c.json(protectedResourceMetadata(deps.publicUrl, resource, deps.modules?.docsUrl));
+    });
   // A span for each request (#162), around everything else so the rest happens inside it.
   app.use("/api/*", traced);
   app.use("/api/*", countRequests);
@@ -870,6 +882,17 @@ export function createApp(given: AppDeps) {
     });
     return c.json(described, 200, { "cache-control": "public, max-age=300" });
   });
+  // The MCP endpoint (#199): before the token middleware, which would refuse a path no scope
+  // names. It checks the token itself, and each tool's calls go through the whole app, that
+  // middleware included, as `/api/v1` calls made with the same token.
+  app.route(
+    MCP_PATH,
+    mcpRoutes({
+      db: deps.db,
+      publicUrl: deps.publicUrl,
+      fetch: (request, env) => app.fetch(request, env),
+    }),
+  );
   // A version (`/api/v1`) answers the calls a token may make, and nothing else: whatever else
   // the unversioned API does is the web app's own, and may change in any release.
   app.use("/api/*", async (c, next) => {
