@@ -14,8 +14,8 @@ const checkedFormat = formatDates({ hour: "2-digit", minute: "2-digit" });
 export function StatusPage() {
   const { data, error } = useQuery(statusPageQuery);
   return (
-    <div className="h-full overflow-y-auto">
-      <main className="mx-auto flex w-full max-w-[760px] flex-col gap-10 px-4 py-10 @3xl/app:py-16">
+    <main className="h-full overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-[760px] flex-col gap-10 px-4 py-10 @3xl/app:py-16">
         <header className="flex items-center gap-3">
           <span className="flex items-center gap-2 text-ink">
             <Mark size={22} aria-hidden="true" />
@@ -92,7 +92,7 @@ export function StatusPage() {
           </>
         )}
         <footer className="text-[12px] text-ink-3">Times are shown in your time zone.</footer>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }

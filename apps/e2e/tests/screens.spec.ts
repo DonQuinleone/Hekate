@@ -1496,7 +1496,7 @@ test("settings-oauth-clients", async ({ page }) => {
   await page.getByRole("button", { name: "Cancel" }).click();
   await page.getByRole("button", { name: "Actions for Hekate for Slack" }).click();
   await page.getByRole("menuitem", { name: "Who has connected" }).click();
-  await settle(page, "[role=dialog] [data-connections] >> text=Mira Solberg");
+  await settle(page, "[role=dialog] [data-connections] >> text=Alex Rivera");
   await saveScreen(page, "settings-oauth-connections");
   await checkScreen(page);
 });
