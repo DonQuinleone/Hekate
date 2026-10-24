@@ -4,6 +4,7 @@ import { Avatar } from "~/components/avatar";
 import { Icon, type IconName } from "~/components/icons";
 import { Kbd, Label } from "~/components/label";
 import { Page } from "~/components/pages";
+import { RecorderControl } from "~/components/recorder";
 import { SideNav, Split } from "~/components/settings";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
@@ -551,7 +552,6 @@ function TakeLog() {
   const [large, setLarge] = useState(false);
   const state = useScreenState();
   const offline = state === "failed";
-  const synced = state !== "processing";
   useEffect(() => {
     if (!recording) return;
     const id = setInterval(() => setClock((c) => c + 1), 1000);
@@ -651,10 +651,7 @@ function TakeLog() {
             <Dot state={offline ? "changes_requested" : "approved"} />
             {offline ? "Offline: written here, synced when back" : "Live for everyone in the room"}
           </span>
-          <span className="flex items-center gap-1.5">
-            <Dot state={synced ? "approved" : "invited"} />
-            {synced ? "Synced to the recorder" : "Recorder not connected"}
-          </span>
+          <RecorderControl />
           <button
             type="button"
             onClick={() => setLarge(true)}
