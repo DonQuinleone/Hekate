@@ -23,6 +23,7 @@ export * from "./file-columns.ts";
 export * from "./files.ts";
 export * from "./flags.ts";
 export * from "./folders.ts";
+export * from "./forensic.ts";
 export * from "./format.ts";
 export * from "./health.ts";
 export * from "./inspect.ts";

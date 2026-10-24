@@ -54,6 +54,7 @@ describe("tenancy", () => {
       "files",
       "folders",
       "follows",
+      "forensic_marks",
       "group_members",
       "groups",
       "guest_links",

@@ -32,6 +32,7 @@ import { type Actor, actorOf, can, fileAccess, guestReach } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import { emitEvent } from "../events.ts";
+import { issueMark, marksAudio } from "../forensic.ts";
 import type { ViewerVariables } from "../guests.ts";
 import type { Keyring } from "../keyring.ts";
 import {
@@ -41,6 +42,8 @@ import {
   burnFormat,
   streamFfmpeg,
 } from "../media/burn.ts";
+import { probe, run } from "../media/ffmpeg.ts";
+import { ffmpegLayout, markedAudioFormat, markInThread, mixArgs } from "../media/forensic-audio.ts";
 import {
   IMAGE_DEMUXERS,
   MAX_PAGES,
@@ -106,6 +109,8 @@ export interface DownloadDeps {
   trustProxy: boolean;
   /** Scratch space for decrypted originals while a download is made (WORK_DIR). */
   workDir?: string;
+  /** The billing module is on: the workspace's plan decides whether marking is included. */
+  billing?: boolean;
 }
 
 /** A download is for one person: nothing in between may keep or share it. */
@@ -224,15 +229,28 @@ async function firstPage(db: Database, organisationId: string, fileId: string) {
 }
 
 /**
- * What can be made of a file now, and in what form. A recording: its original (audio carries
- * no mark until #32) and its stream's AAC encode. A picture: as reviewed, or at full size, with
- * the recipient's name drawn across it. A document: its pages as reviewed, or drawn again from
- * the original PDF at print resolution, each marked, as a PDF. A video: the stream's largest
- * encode, or the original at its own size, with the mark burned into the picture.
+ * What can be made of a file now, and in what form. A recording: its original and an AAC
+ * encode like its stream's, each with an inaudible mark for its recipient where the workspace
+ * marks them (#32, `marking`), or as they are otherwise. A picture: as reviewed, or at full
+ * size, with the recipient's name drawn across it. A document: its pages as reviewed, or drawn
+ * again from the original PDF at print resolution, each marked, as a PDF. A video: the
+ * stream's largest encode, or the original at its own size, with the mark burned into the
+ * picture.
  */
-async function choices(db: Database, organisationId: string, file: FileRow) {
+async function choices(db: Database, organisationId: string, file: FileRow, marking = false) {
   if (file.kind === "audio") {
     const rendition = await audioRendition(db, organisationId, file.id);
+    if (marking)
+      return {
+        proxy: rendition
+          ? { available: true, detail: markedAudioFormat(file.mediaInfo, "proxy").detail }
+          : { available: false, detail: "Not prepared yet" },
+        original: file.mediaInfo?.audio
+          ? { available: true, detail: markedAudioFormat(file.mediaInfo, "original").detail }
+          : { available: false, detail: "Not prepared yet" },
+        marked: true,
+        inaudible: true,
+      };
     return {
       proxy: rendition
         ? { available: true, detail: `AAC ${Math.round(rendition.bandwidth / 1000)} kb/s` }
@@ -597,6 +615,64 @@ function markedVideo(
   });
 }
 
+/** Whether a file's downloads carry an inaudible mark now: a recording, where the workspace marks them. */
+const marksFile = async (deps: DownloadDeps, organisationId: string, file: FileRow) =>
+  file.kind === "audio" && (await marksAudio(deps.db, organisationId, deps.billing ?? false));
+
+/**
+ * A recording with an inaudible mark for its recipient (#32): made from the original, the
+ * mark first, then the recording again with it, in the form `markedAudioFormat` gives. Made
+ * whole in the private workspace before it is sent, so the file's header is right, and gone
+ * when the download ends.
+ */
+function markedAudio(
+  deps: DownloadDeps,
+  organisationId: string,
+  file: FileRow,
+  kind: DownloadKind,
+  mark: { id: string; key: Buffer },
+  signal: AbortSignal,
+): AsyncGenerator<Buffer> {
+  return streamInWorkspace(deps.workDir, async function* (dir) {
+    const input = join(dir, "original");
+    await originalInto(deps, organisationId, file, input, signal);
+    const info = file.mediaInfo?.audio ? file.mediaInfo : await probe(input, { signal });
+    const audio = info.audio;
+    if (!audio) throw new HTTPException(422, { message: "That recording has no sound to mark" });
+    const timeoutMs = burnDeadlineMs(info.duration);
+    const markPath = join(dir, "mark.wav");
+    await markInThread(
+      {
+        input,
+        output: markPath,
+        key: mark.key,
+        markId: mark.id,
+        channels: audio.channels,
+        timeoutMs,
+      },
+      signal,
+    );
+    const format = markedAudioFormat(info, kind);
+    const output = join(dir, `marked.${format.extension}`);
+    await run(
+      "ffmpeg",
+      mixArgs(
+        input,
+        markPath,
+        {
+          sampleRate: audio.sampleRate,
+          channels: audio.channels,
+          layout: ffmpegLayout(audio.channelLayout, audio.channels),
+          format,
+        },
+        output,
+      ),
+      { signal, timeoutMs },
+    );
+    for await (const chunk of createReadStream(output)) yield chunk as Buffer;
+  });
+}
+
 /**
  * A download as a stream that has made its first piece already, so that a file that cannot
  * be marked is an error, not a broken download. Stopping it early, as a browser that goes
@@ -629,7 +705,8 @@ export const fileDownloadRoutes = (deps: DownloadDeps) =>
       const fileId = c.req.valid("param").id;
       const { level } = await levelFor(deps.db, c.var.actor, fileId);
       const file = await fileOf(deps.db, c.var.organisationId, fileId);
-      return c.json({ level, ...(await choices(deps.db, c.var.organisationId, file)) });
+      const marking = await marksFile(deps, c.var.organisationId, file);
+      return c.json({ level, ...(await choices(deps.db, c.var.organisationId, file, marking)) });
     })
     .post("/:id/downloads", fileParam, zValidator("json", downloadInput), async (c) => {
       const fileId = c.req.valid("param").id;
@@ -639,7 +716,8 @@ export const fileDownloadRoutes = (deps: DownloadDeps) =>
       if (!allowsDownload(level, kind))
         throw new HTTPException(403, { message: "Your access to this file does not allow that" });
       const file = await fileOf(deps.db, c.var.organisationId, fileId);
-      if (!(await choices(deps.db, c.var.organisationId, file))[kind].available)
+      const marking = await marksFile(deps, c.var.organisationId, file);
+      if (!(await choices(deps.db, c.var.organisationId, file, marking))[kind].available)
         throw new HTTPException(422, { message: "That download is not offered for this file" });
       if (marks !== undefined) await markedTrack(deps.db, actor, fileId, marks);
       const who = actor.kind === "guest" ? `guest:${actor.guestId}` : `member:${actor.userId}`;
@@ -806,7 +884,7 @@ export const downloadRoutes = (deps: DownloadDeps) =>
         ? await markedTrack(deps.db, actor, file.id, ticket.trackId)
         : null;
       // No record, no download.
-      await deps.audit.record(
+      const record = await deps.audit.record(
         organisationId,
         await deps.audit.actor(actor),
         {
@@ -819,6 +897,32 @@ export const downloadRoutes = (deps: DownloadDeps) =>
         requestInfo(c, deps.trustProxy),
       );
       await emitEvent(deps.db, downloaded(organisationId, actor, file.projectId, file.id, kind));
+      // A recording, marked for whoever asked (#32), the mark written down before it is made.
+      if (file.kind === "audio" && (await marksFile(deps, organisationId, file))) {
+        const mark = await issueMark(deps.db, deps.keyring, {
+          organisationId,
+          accessEventId: record.id,
+          file,
+          kind,
+          recipient: {
+            userId: actor.kind === "guest" ? undefined : actor.userId,
+            guestId: actor.kind === "guest" ? actor.guestId : undefined,
+            label: record.actorLabel,
+          },
+          reviewId: record.reviewId,
+        });
+        const format = markedAudioFormat(file.mediaInfo, kind);
+        const stream = await primed(
+          markedAudio(deps, organisationId, file, kind, mark, c.req.raw.signal),
+        );
+        return new Response(stream as unknown as ReadableStream, {
+          headers: {
+            ...PRIVATE,
+            "content-type": format.contentType,
+            "content-disposition": attachment(`${stem(file.name)}.${format.extension}`),
+          },
+        });
+      }
       if (file.kind === "audio" && kind === "original") {
         const { stream } = await deps.storage.open(organisationId, file.blobId);
         return new Response(stream as unknown as ReadableStream, {

@@ -16388,7 +16388,7 @@
           "Downloads"
         ],
         "summary": "List what you may download of a file",
-        "description": "The token's member's download level here, and the originals and proxies on offer.\n\nNeeds the `downloads` scope.",
+        "description": "The token's member's download level here, and the originals and proxies on offer. `marked` says whether a download carries the member's mark; `inaudible`, that a recording's mark is in its sound (#32).\n\nNeeds the `downloads` scope.",
         "security": [
           {
             "token": [
@@ -16417,12 +16417,15 @@
                 "example": {
                   "level": "original",
                   "proxy": {
-                    "available": true
+                    "available": true,
+                    "detail": "AAC 256 kb/s, with an inaudible mark"
                   },
                   "original": {
-                    "available": true
+                    "available": true,
+                    "detail": "WAV, 24-bit, 48 kHz, as uploaded but for an inaudible mark"
                   },
-                  "marked": true
+                  "marked": true,
+                  "inaudible": true
                 }
               }
             }
@@ -17186,7 +17189,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The file, watermarked for the token's member.",
+            "description": "The file, marked for the token's member: drawn on pictures, pages and video, and inaudibly in a recording where the workspace marks them.",
             "content": {
               "application/octet-stream": {
                 "schema": {

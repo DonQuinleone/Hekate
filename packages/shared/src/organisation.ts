@@ -147,6 +147,11 @@ export const workspaceSettingsSchema = z.object({
   secondFactor: secondFactorPolicy,
   /** Whether owners and admins must sign in with a passkey or hardware security key. */
   securityKeyForAdmins: z.boolean(),
+  /**
+   * Whether recordings' downloads carry an inaudible mark for their recipient (#32). Owners
+   * change it, through its own route, never with the other settings.
+   */
+  forensicAudio: z.boolean(),
   /** The player tools each default role starts with in a new project (#55); projects override. */
   roleTools: z.object(
     Object.fromEntries(
@@ -177,6 +182,7 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   emailSubjects: {},
   secondFactor: "off",
   securityKeyForAdmins: false,
+  forensicAudio: true,
   roleTools: startingRoleTools,
   reviewer: {
     comment: true,
@@ -258,6 +264,7 @@ export function workspaceSettingsOf(stored: unknown): WorkspaceSettings {
       read(stored, "securityKeyForAdmins"),
       d.securityKeyForAdmins,
     ),
+    forensicAudio: pick(shape.forensicAudio, read(stored, "forensicAudio"), d.forensicAudio),
     roleTools: Object.fromEntries(
       defaultRoleNames.map((name) => [
         name,
@@ -299,6 +306,7 @@ export function applyWorkspaceSettings(
     ) as EmailSubjects,
     secondFactor: change.secondFactor ?? current.secondFactor,
     securityKeyForAdmins: change.securityKeyForAdmins ?? current.securityKeyForAdmins,
+    forensicAudio: current.forensicAudio,
     roleTools: { ...current.roleTools, ...change.roleTools },
     reviewer: { ...current.reviewer, ...change.reviewer },
   };

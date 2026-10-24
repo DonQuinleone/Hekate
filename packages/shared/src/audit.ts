@@ -16,6 +16,11 @@ export const auditActions = [
   "page.render",
   /** A file left Hekate as a download. */
   "download",
+  /**
+   * An owner traced a suspected leak (#32): the file's name and size, and the mark it carried
+   * if one was found. The file itself is never kept.
+   */
+  "forensic.trace",
   "file.upload",
   /** A member asked someone outside for files, with a link (#139). */
   "upload_request.create",
