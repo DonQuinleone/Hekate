@@ -4,22 +4,31 @@ import {
   CAPTION_FILE_MAX_BYTES,
   CAPTION_TRACKS_MAX,
   CaptionError,
-  type CaptionFormat,
   type CaptionTrack,
+  captionContentTypes,
+  captionExportQuery,
+  captionedKinds,
+  captionFileName,
   captionFormatOf,
-  captionLabel,
+  captionKindOf,
+  captionLanguageOf,
+  captionUpdate,
+  captionUploadQuery,
+  downloadLevelOf,
   parseCaptions,
+  writeCaptions,
 } from "@hekate/shared";
 import { asc, count, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { canOnFile } from "../access.ts";
+import { canOnFile, fileAccess } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
 import { zValidator } from "../openapi/validator.ts";
 import type { Storage } from "../storage.ts";
+import { attachment } from "./comments.ts";
 
 const { captionTracks, files } = schema;
 
@@ -29,13 +38,6 @@ export interface CaptionDeps {
   audit: Audit;
   trustProxy: boolean;
 }
-
-/** The type each format is stored as. */
-const CONTENT_TYPES: Record<CaptionFormat, string> = {
-  srt: "application/x-subrip",
-  vtt: "text/vtt",
-  ttml: "application/ttml+xml",
-};
 
 /** A caption file's text: UTF-8, or UTF-16 where it begins by saying so. */
 export function captionText(bytes: Buffer): string {
@@ -47,27 +49,34 @@ export function captionText(bytes: Buffer): string {
 const shown = (row: typeof captionTracks.$inferSelect): CaptionTrack => ({
   id: row.id,
   label: row.label,
+  language: row.language,
+  kind: row.kind,
   name: row.name,
   format: row.format,
   cues: row.cues,
   createdAt: row.createdAt.toISOString(),
 });
 
-/** Refuses unless the file is a video. */
-async function videoOf(db: Pick<Database, "select">, organisationId: string, fileId: string) {
+/** The file, refused unless it plays: a video or a recording carries captions, nothing else. */
+async function playableOf(db: Pick<Database, "select">, organisationId: string, fileId: string) {
   const [file] = await db
-    .select({ kind: files.kind })
+    .select({ kind: files.kind, name: files.name })
     .from(files)
     .where(inOrg(files, organisationId, eq(files.id, fileId)));
   if (!file) throw new NotFound("File");
-  if (file.kind !== "video")
-    throw new HTTPException(409, { message: "Only a video carries captions" });
+  if (!captionedKinds.includes(file.kind))
+    throw new HTTPException(409, { message: "Only a video or a recording carries captions" });
+  return file;
 }
 
+const params = zValidator("param", z.object({ id: z.uuid(), captionId: z.uuid() }));
+
 /**
- * A video's captions from sidecar files (#146), under `/api/files/:id`: read by whoever may
- * view the video, as cues the player lays over the picture; added and removed by whoever may
- * upload. The sidecar itself is stored encrypted, as it came, and never sent back.
+ * A file's caption tracks (#146, #201), under `/api/files/:id`: read by whoever may view the
+ * video or recording, as cues the player shows and the transcript lists; added, renamed and
+ * removed by whoever may upload; exported, as SubRip, WebVTT or TTML, by whoever may download
+ * from the file, each export in the access log. The sidecar itself is stored encrypted, as it
+ * came, and never sent back: an export is written afresh from the cues.
  */
 export const captionRoutes = (deps: CaptionDeps) =>
   new Hono<{ Variables: ViewerVariables }>()
@@ -85,15 +94,15 @@ export const captionRoutes = (deps: CaptionDeps) =>
     .post(
       "/:id/captions",
       zValidator("param", z.object({ id: z.uuid() })),
-      zValidator("query", z.object({ label: captionLabel })),
+      zValidator("query", captionUploadQuery),
       async (c) => {
         const { db, storage, audit } = deps;
         const organisationId = c.var.organisationId;
         const actor = c.var.actor;
         const { id: fileId } = c.req.valid("param");
-        const { label } = c.req.valid("query");
+        const query = c.req.valid("query");
         const access = await canOnFile(db, actor, "upload", fileId);
-        await videoOf(db, organisationId, fileId);
+        await playableOf(db, organisationId, fileId);
         const named = attachmentName.safeParse(
           decodeURIComponent(c.req.header("x-file-name") ?? ""),
         );
@@ -117,14 +126,17 @@ export const captionRoutes = (deps: CaptionDeps) =>
             throw new HTTPException(422, { message: error.message });
           throw error;
         }
+        // What the uploader said, else what the file says of itself.
+        const language = query.language ?? captionLanguageOf(named.data, text, format);
+        const kind = query.kind ?? captionKindOf(named.data) ?? "subtitles";
         const blob = await storage.put(organisationId, bytes, {
-          contentType: CONTENT_TYPES[format],
+          contentType: captionContentTypes[format],
           projectId: access.projectId,
         });
         try {
           const row = await db.transaction(async (tx) => {
-            // One addition at a time per video, so two at once cannot pass the limit together;
-            // and a video moved to another workspace meanwhile (a project transfer rewrites its
+            // One addition at a time per file, so two at once cannot pass the limit together;
+            // and a file moved to another workspace meanwhile (a project transfer rewrites its
             // row) is no longer here to caption.
             const [locked] = await tx
               .select({ id: files.id })
@@ -138,7 +150,7 @@ export const captionRoutes = (deps: CaptionDeps) =>
               .where(inOrg(captionTracks, organisationId, eq(captionTracks.fileId, fileId)));
             if ((held?.n ?? 0) >= CAPTION_TRACKS_MAX)
               throw new HTTPException(409, {
-                message: `A video can carry at most ${CAPTION_TRACKS_MAX} caption files`,
+                message: `A file can carry at most ${CAPTION_TRACKS_MAX} caption tracks`,
               });
             const [made] = await tx
               .insert(captionTracks)
@@ -146,7 +158,9 @@ export const captionRoutes = (deps: CaptionDeps) =>
                 organisationId,
                 fileId,
                 blobId: blob.id,
-                label,
+                label: query.label,
+                language,
+                kind,
                 name: named.data,
                 format,
                 byteSize: bytes.length,
@@ -162,7 +176,14 @@ export const captionRoutes = (deps: CaptionDeps) =>
                 action: "file.captions_add",
                 projectId: access.projectId,
                 fileId,
-                details: { captionId: made.id, name: named.data, label, cues: cues.length },
+                details: {
+                  captionId: made.id,
+                  name: named.data,
+                  label: query.label,
+                  language,
+                  kind,
+                  cues: cues.length,
+                },
               },
               requestInfo(c, deps.trustProxy),
               tx,
@@ -177,50 +198,141 @@ export const captionRoutes = (deps: CaptionDeps) =>
         }
       },
     )
-    .delete(
-      "/:id/captions/:captionId",
-      zValidator("param", z.object({ id: z.uuid(), captionId: z.uuid() })),
+    .patch("/:id/captions/:captionId", params, zValidator("json", captionUpdate), async (c) => {
+      const { db, audit } = deps;
+      const organisationId = c.var.organisationId;
+      const actor = c.var.actor;
+      const { id: fileId, captionId } = c.req.valid("param");
+      const change = c.req.valid("json");
+      const access = await canOnFile(db, actor, "upload", fileId);
+      const who = await audit.actor(actor);
+      const row = await db.transaction(async (tx) => {
+        const [updated] = await tx
+          .update(captionTracks)
+          .set({
+            ...(change.label !== undefined ? { label: change.label } : {}),
+            ...(change.language !== undefined ? { language: change.language } : {}),
+            ...(change.kind !== undefined ? { kind: change.kind } : {}),
+          })
+          .where(
+            inOrg(
+              captionTracks,
+              organisationId,
+              eq(captionTracks.id, captionId),
+              eq(captionTracks.fileId, fileId),
+            ),
+          )
+          .returning();
+        if (!updated) throw new NotFound("Captions");
+        await audit.record(
+          organisationId,
+          who,
+          {
+            action: "file.captions_update",
+            projectId: access.projectId,
+            fileId,
+            details: { captionId, ...change },
+          },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
+        return updated;
+      });
+      return c.json({ caption: shown(row) });
+    })
+    /**
+     * A track written out as SubRip, WebVTT or TTML (#201), whichever it came as, for whoever
+     * may download from the file in any form: a sidecar for an edit suite or a deliverable.
+     * In the access log before it is sent.
+     */
+    .get(
+      "/:id/captions/:captionId/export",
+      params,
+      zValidator("query", captionExportQuery),
       async (c) => {
-        const { db, storage, audit } = deps;
+        const { db, audit } = deps;
         const organisationId = c.var.organisationId;
         const actor = c.var.actor;
         const { id: fileId, captionId } = c.req.valid("param");
-        const access = await canOnFile(db, actor, "upload", fileId);
-        const who = await audit.actor(actor);
-        // Gone and logged together, or neither.
-        const row = await db.transaction(async (tx) => {
-          const [removed] = await tx
-            .delete(captionTracks)
-            .where(
-              inOrg(
-                captionTracks,
-                organisationId,
-                eq(captionTracks.id, captionId),
-                eq(captionTracks.fileId, fileId),
-              ),
-            )
-            .returning();
-          if (!removed) throw new NotFound("Captions");
-          await audit.record(
-            organisationId,
-            who,
-            {
-              action: "file.captions_remove",
-              projectId: access.projectId,
-              fileId,
-              details: { captionId, name: removed.name, label: removed.label },
-            },
-            requestInfo(c, deps.trustProxy),
-            tx,
+        const { format } = c.req.valid("query");
+        const access = await fileAccess(db, actor, fileId);
+        if (!access || !access.permissions.has("view")) throw new NotFound("File");
+        const level = access.grant ? access.grant.download : downloadLevelOf(access.permissions);
+        if (level === "none")
+          throw new HTTPException(403, { message: "You may not download from this file" });
+        const file = await playableOf(db, organisationId, fileId);
+        const [track] = await db
+          .select()
+          .from(captionTracks)
+          .where(
+            inOrg(
+              captionTracks,
+              organisationId,
+              eq(captionTracks.id, captionId),
+              eq(captionTracks.fileId, fileId),
+            ),
           );
-          return removed;
+        if (!track) throw new NotFound("Captions");
+        const body = writeCaptions(track.cues, format, track.language);
+        const filename = captionFileName(file.name, track, format);
+        await audit.record(
+          organisationId,
+          await audit.actor(actor),
+          {
+            action: "file.captions_export",
+            projectId: access.projectId,
+            fileId,
+            details: { captionId, label: track.label, format, filename },
+          },
+          requestInfo(c, deps.trustProxy),
+        );
+        return c.body(body, 200, {
+          "content-type": `${captionContentTypes[format]}; charset=utf-8`,
+          "content-disposition": attachment(filename),
+          "cache-control": "no-store",
         });
-        // Bytes left behind if this fails are found and removed by storage reconciliation.
-        await storage
-          .remove(organisationId, row.blobId)
-          .catch((error: unknown) =>
-            console.warn(`Could not remove the bytes of captions ${row.id}: ${String(error)}`),
-          );
-        return c.body(null, 204);
       },
-    );
+    )
+    .delete("/:id/captions/:captionId", params, async (c) => {
+      const { db, storage, audit } = deps;
+      const organisationId = c.var.organisationId;
+      const actor = c.var.actor;
+      const { id: fileId, captionId } = c.req.valid("param");
+      const access = await canOnFile(db, actor, "upload", fileId);
+      const who = await audit.actor(actor);
+      // Gone and logged together, or neither.
+      const row = await db.transaction(async (tx) => {
+        const [removed] = await tx
+          .delete(captionTracks)
+          .where(
+            inOrg(
+              captionTracks,
+              organisationId,
+              eq(captionTracks.id, captionId),
+              eq(captionTracks.fileId, fileId),
+            ),
+          )
+          .returning();
+        if (!removed) throw new NotFound("Captions");
+        await audit.record(
+          organisationId,
+          who,
+          {
+            action: "file.captions_remove",
+            projectId: access.projectId,
+            fileId,
+            details: { captionId, name: removed.name, label: removed.label },
+          },
+          requestInfo(c, deps.trustProxy),
+          tx,
+        );
+        return removed;
+      });
+      // Bytes left behind if this fails are found and removed by storage reconciliation.
+      await storage
+        .remove(organisationId, row.blobId)
+        .catch((error: unknown) =>
+          console.warn(`Could not remove the bytes of captions ${row.id}: ${String(error)}`),
+        );
+      return c.body(null, 204);
+    });

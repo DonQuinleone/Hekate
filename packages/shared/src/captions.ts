@@ -197,7 +197,8 @@ export const captionLabel = z
 export const captionUploadQuery = z.object({
   label: captionLabel,
   language: captionLanguage.optional(),
-  kind: captionKind.default("subtitles"),
+  /** Unless given, read from the file's name (`.sdh.`), else subtitles. */
+  kind: captionKind.optional(),
 });
 
 /** Renaming a track, or saying again what language it is in and what it is for. */

@@ -43,6 +43,9 @@ describe("API token scopes (#198)", () => {
     expect(scopeFor("GET", "/api/downloads/abc_DEF-123")).toBe("downloads");
     expect(scopeFor("POST", `/api/files/${id}/attachments/${id}/download`)).toBe("downloads");
     expect(scopeFor("DELETE", `/api/files/${id}/attachments/${id}`)).toBe("comments");
+    expect(scopeFor("GET", `/api/files/${id}/captions/${id}/export`)).toBe("downloads");
+    expect(scopeFor("GET", `/api/files/${id}/captions`)).toBe("files:read");
+    expect(scopeFor("PATCH", `/api/files/${id}/captions/${id}`)).toBe("files:write");
     expect(scopeFor("GET", `/api/projects/${id}/workflows`)).toBe("workflows");
     expect(scopeFor("PATCH", `/api/workflows/${id}`)).toBe("workflows");
     expect(scopeFor("GET", "/api/organisation/members")).toBe("org:read");

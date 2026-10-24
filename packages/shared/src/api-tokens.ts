@@ -163,6 +163,8 @@ const rules: readonly Rule[] = [
   [/^\/downloads\/[^/]+$/, "downloads"],
   [new RegExp(`^/projects/${id}/score-downloads$`), "downloads"],
   [new RegExp(`^/files/${id}/attachments/${id}/download$`), "downloads"],
+  // A caption track exported as a sidecar (#201) leaves Hekate as a download does.
+  [new RegExp(`^/files/${id}/captions/${id}/export$`), "downloads"],
   // Comments, wherever they are reached from.
   [new RegExp(`^/files/${id}/(comments|mentionable|attachments)(/|$)`), "comments"],
   [/^\/(comments|comment-carries)(\/|$)/, "comments"],

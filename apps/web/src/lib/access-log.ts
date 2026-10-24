@@ -28,6 +28,8 @@ const actionWords = {
   "comment.takes_unshare": "Takes unshared",
   "file.captions_add": "Captions added",
   "file.captions_remove": "Captions removed",
+  "file.captions_update": "Captions renamed",
+  "file.captions_export": "Captions exported",
   "guest.link": "Guest link sent",
   "guest.sign_in": "Guest signed in",
   "guest.code_sent": "Guest sent a code",
