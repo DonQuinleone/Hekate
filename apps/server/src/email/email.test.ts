@@ -87,7 +87,8 @@ describe("templates", () => {
       expect(text).toContain(email.heading);
       expect(text).toContain("\n-- \n");
       expect(html.match(/<a /g)?.length).toBe(email.settingsUrl ? 2 : 1);
-      expect([...html.matchAll(/href="([^"]+)"/g)].every((m) => m[1]?.startsWith(base))).toBe(true);
+      const origins = [...html.matchAll(/href="([^"]+)"/g)].map((m) => new URL(m[1] ?? "").origin);
+      expect(origins.every((origin) => origin === base)).toBe(true);
     });
   }
 

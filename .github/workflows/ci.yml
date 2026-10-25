@@ -125,7 +125,9 @@ jobs:
           scan-type: fs
           scan-ref: .
           scanners: vuln,secret,misconfig
-          format: table
+          # One line per finding: severity, package, version, ID, fixed version and status.
+          format: template
+          template: '{{- range . }}{{- $t := .Target }}{{- range .Vulnerabilities }}{{ .Severity }} {{ .PkgName }} {{ .InstalledVersion }} {{ .VulnerabilityID }} fixed={{ .FixedVersion }} {{ .Status }}{{ "\n" }}{{- end }}{{- range .Misconfigurations }}{{ .Severity }} {{ $t }} {{ .ID }} {{ .Title }}{{ "\n" }}{{- end }}{{- range .Secrets }}{{ .Severity }} {{ $t }} {{ .RuleID }}{{ "\n" }}{{- end }}{{- end }}'
           trivyignores: .trivyignore
           exit-code: "0"
           skip-setup-trivy: true
@@ -333,7 +335,9 @@ jobs:
         with:
           image-ref: hekate:ci
           scanners: vuln,secret
-          format: table
+          # One line per finding: severity, package, version, ID, fixed version and status.
+          format: template
+          template: '{{- range . }}{{- $t := .Target }}{{- range .Vulnerabilities }}{{ .Severity }} {{ .PkgName }} {{ .InstalledVersion }} {{ .VulnerabilityID }} fixed={{ .FixedVersion }} {{ .Status }}{{ "\n" }}{{- end }}{{- range .Misconfigurations }}{{ .Severity }} {{ $t }} {{ .ID }} {{ .Title }}{{ "\n" }}{{- end }}{{- range .Secrets }}{{ .Severity }} {{ $t }} {{ .RuleID }}{{ "\n" }}{{- end }}{{- end }}'
           trivyignores: .trivyignore
           exit-code: "0"
           skip-setup-trivy: true
