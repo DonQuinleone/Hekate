@@ -1774,13 +1774,28 @@ function ImportView() {
           ) : (
             <p className="flex items-start gap-2 text-[13px] text-ink-2">
               <Icon name="warning" size={14} className="mt-0.5 shrink-0 text-ink-3" />
-              Conflict: a work named Rags already exists. Merge into it, or import as a second work.
+              Already in this project: work Rags, venue Endless Hall. Merge into them, or import
+              beside them.
             </p>
           )}
+          {/* What the file held that is not brought over (decision 242), counted. */}
+          <details className="text-[13px]">
+            <summary className="cursor-pointer text-ink-2 hover:text-ink">
+              Not brought over · 3
+            </summary>
+            <ul className="mt-2 flex flex-col gap-1">
+              <li className="flex items-baseline gap-3 text-ink-3">
+                <span className="flex-1">
+                  add_view: The desktop app's own view, not part of the project
+                </span>
+                <span className="tabular">3</span>
+              </li>
+            </ul>
+          </details>
           <div className="flex items-center gap-2">
-            <Select defaultValue="merge" className="w-48">
-              <option value="merge">Merge into Rags</option>
-              <option value="new">Import as a new work</option>
+            <Select defaultValue="merge" className="w-56">
+              <option value="merge">Merge into what is there</option>
+              <option value="new">Import beside it</option>
             </Select>
             <Button
               variant="primary"
