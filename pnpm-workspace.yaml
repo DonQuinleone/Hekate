@@ -15,3 +15,6 @@ overrides:
   # The documentation site's code blocks (Expressive Code) pin postcss-nested 6, whose
   # postcss-selector-parser 6 has CVE-2026-104844; 7 is the same plugin on the fixed parser.
   "postcss-nested@^6": ^7.0.2
+  # drizzle-kit loads its config through @esbuild-kit, which pins esbuild 0.18 (GHSA-67mh-4wv8-2f99,
+  # the development server answering any website). It uses only transform, unchanged in 0.25.
+  "@esbuild-kit/core-utils>esbuild": ^0.25.12

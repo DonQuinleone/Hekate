@@ -41,3 +41,10 @@ jobs:
       - uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           category: /language:${{ matrix.language }}
+          output: ${{ runner.temp }}/codeql
+      # Every finding in the job log too, where anyone who can read CI can see it (#170).
+      - name: Findings
+        run: |
+          jq -r '.runs[].results[] | "\(.level // "warning") \(.ruleId) \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) \(.message.text | split("\n")[0])"' \
+            "$RUNNER_TEMP"/codeql/*.sarif | tee findings.txt
+          echo "$(wc -l < findings.txt) findings"
