@@ -168,6 +168,8 @@ export const auditActions = [
   "project.transfer_refuse",
   "project.transfer_cancel",
   "project.transfer",
+  /** A ControlRoom project file was imported into a project (#57), with what it created. */
+  "project.croom_import",
   /** Someone in the workspace, or an operator, downloaded a file attached to a ticket (#181). */
   "support.attachment_download",
 ] as const;
