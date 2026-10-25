@@ -5,7 +5,10 @@ A clickable prototype of the whole application on fictional sample data: no back
 ```sh
 pnpm --filter @hekate/prototype dev      # http://localhost:5174
 pnpm --filter @hekate/prototype build    # dist/, then artifact/index.html folded into one file
+pnpm --filter @hekate/prototype screens  # docs/screens/*.png, every screen at 1440 by 900
 ```
+
+`docs/screens` holds a capture of every screen and major state, named in the inventory's last column. `scripts/screens.mjs` keeps the one list of them (the address, the role, the switcher's state and any clicks), builds the prototype into a temporary folder, serves it on a free port and captures each with Playwright, which it takes from wherever Node finds it rather than as a dependency. Name screens to take only those (`screens review files`); `-- --list` names them all; `-- --dev` serves the sources instead of a build. Take them again when a screen changes.
 
 The build folds everything into `artifact/index.html` so it can be published as a single page; the app mounts in a shadow root so a host page's stylesheet cannot reach it.
 

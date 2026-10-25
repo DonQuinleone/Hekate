@@ -11,9 +11,11 @@
  * It builds the prototype into a temporary folder and serves it with vite preview on a free port,
  * opens each screen in a fresh browser context with the switcher's choices (who you are, the
  * width, the state) already remembered, follows the screen's steps, and stops the server it
- * started. A screen fails if the page throws or answers "Not found". Playwright is not a dependency of the
- * prototype: the script uses whichever `playwright` Node resolves (NODE_PATH, or a global
- * install), and Chromium as Playwright ships it.
+ * started. A screen fails if a step finds nothing, the page throws or it answers "Not found";
+ * the rest are still taken. Look at what it wrote before committing it.
+ *
+ * Playwright is not a dependency of the prototype: the script uses whichever `playwright` Node
+ * resolves (NODE_PATH, or a global install), and Chromium as Playwright ships it.
  */
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -121,7 +123,7 @@ const screens = [
     name: "recording-spectrogram",
     route: "/files/file-maple-v2-dry",
     steps: [
-      { click: 'role=button[name=/^View/]' },
+      { click: "role=button[name=/^View/]" },
       { click: 'role=radio[name="Below"]' },
       { click: "text=Window, FFT size and overlap…" },
     ],
@@ -163,7 +165,7 @@ const screens = [
     name: "video-captions",
     route: "/files/file-titles-c3",
     steps: [
-      { click: 'role=button[name=/^Captions/]' },
+      { click: "role=button[name=/^Captions/]" },
       { click: "role=menuitemradio >> nth=1" },
       { click: 'role=tab[name="Transcript"]' },
     ],
@@ -186,7 +188,7 @@ const screens = [
   {
     name: "take-log-recorder",
     route: "/projects/proj-joplin/production?section=takelog",
-    steps: [{ click: 'role=button[name=/Recorder/]' }],
+    steps: [{ click: "role=button[name=/Recorder/]" }],
   },
   { name: "score-marking", route: "/projects/proj-joplin/production?section=marking" },
   { name: "stage-plan", route: "/projects/proj-joplin/production?section=stage" },
@@ -286,7 +288,6 @@ const screens = [
   { name: "instance-operations", route: "/instance/operations", persona: "instance" },
 ];
 
-
 const args = process.argv.slice(2).filter((a) => a !== "--");
 const dev = args.includes("--dev");
 const names = args.filter((a) => !a.startsWith("--"));
@@ -303,7 +304,11 @@ const chosen = names.length ? screens.filter((s) => names.includes(s.name)) : sc
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
-const viteBin = join(dirname(require.resolve("vite/package.json", { paths: [root] })), "bin", "vite.js");
+const viteBin = join(
+  dirname(require.resolve("vite/package.json", { paths: [root] })),
+  "bin",
+  "vite.js",
+);
 
 /** A port nobody holds now, from the system. */
 function freePort() {
@@ -342,7 +347,10 @@ async function waitFor(url, child) {
 // vite preview: one bundle loads quickly in every fresh context. --dev serves the sources instead.
 const build = dev ? null : mkdtempSync(join(tmpdir(), "hekate-screens-"));
 if (build) {
-  const built = vite(["build", "--outDir", build, "--emptyOutDir", "--logLevel", "warn"], "inherit");
+  const built = vite(
+    ["build", "--outDir", build, "--emptyOutDir", "--logLevel", "warn"],
+    "inherit",
+  );
   const code = await new Promise((resolve) => built.on("exit", resolve));
   if (code !== 0) {
     rmSync(build, { recursive: true, force: true });
@@ -475,7 +483,13 @@ async function scrollTo(page, text) {
     .first();
   await heading.evaluate((el) => {
     let pane = el.parentElement;
-    while (pane && !(pane.scrollHeight > pane.clientHeight && /auto|scroll/.test(getComputedStyle(pane).overflowY)))
+    while (
+      pane &&
+      !(
+        pane.scrollHeight > pane.clientHeight &&
+        /auto|scroll/.test(getComputedStyle(pane).overflowY)
+      )
+    )
       pane = pane.parentElement;
     if (!pane) return el.scrollIntoView({ block: "start" });
     pane.scrollTop += el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 32;
