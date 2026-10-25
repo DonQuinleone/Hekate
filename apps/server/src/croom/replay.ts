@@ -120,6 +120,14 @@ export interface ReplayOptions {
   firstId?: number;
 }
 
+/** The counter after an add_* event that is not read: past its own id if it has one, else on by one. */
+export function skipId(payload: unknown, counter: number): number {
+  const own =
+    payload && typeof payload === "object" ? Number((payload as { id?: unknown }).id) : Number.NaN;
+  if (Number.isInteger(own)) return own >= counter ? own + 1 : counter;
+  return counter + 1;
+}
+
 /** Replays events, already filtered to branch 0 and in order, into the model. Pure. */
 export function replay(events: readonly CroomEvent[], options: ReplayOptions = {}): ReplayResult {
   const model = emptyModel();
@@ -134,13 +142,14 @@ export function replay(events: readonly CroomEvent[], options: ReplayOptions = {
       );
       continue;
     }
-    const found = route(normalType(event.type));
-    if (found.ignored) {
-      report.ignore(event.type, found.ignored);
-      continue;
-    }
-    if (!found.handler) {
-      report.unknownEvent(event.type || "(no type)");
+    const normal = normalType(event.type);
+    const found = route(normal);
+    if (found.ignored || !found.handler) {
+      // Every add_* event takes an id from the shared counter, read or not, or the entries
+      // after it would be numbered differently from the file's own references to them.
+      if (verbAndNoun(normal)?.verb === "add") counter = skipId(event.payload, counter);
+      if (found.ignored) report.ignore(event.type, found.ignored);
+      else report.unknownEvent(event.type || "(no type)");
       continue;
     }
     const f = fieldsOf(event.payload, event.type, report);

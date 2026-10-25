@@ -201,16 +201,16 @@ export function fixtureEvents(): FixtureEvent[] {
         channel: 1,
       },
     },
-    // View state, set aside
+    // View state, set aside: it still takes 43 from the counter
     { type: "add_view", payload: { name: "Desk", zoom: 1.5 } },
     // Undone: never replayed, and it draws no id
     { type: "add_venue", payload: { name: "St John's" }, branch: 1 },
-    // 43: after the elements; a field no family reads
+    // 44: after the elements and the view; a field no family reads
     {
       type: "add_take",
       payload: { movement_id: 7, session_id: 9, number: 2, mystery_field: "kept out" },
     },
-    { type: "rate_take", payload: { id: 43, rating: 2 } },
+    { type: "rate_take", payload: { id: 44, rating: 2 } },
     // An event no family knows
     { type: "frobnicate_widget", payload: { level: 11 } },
   ];

@@ -168,9 +168,11 @@ function CroomImport({ projectId }: { projectId: string }) {
       )}
       {file && shown && !preview.isPending && (
         <>
-          <Counts preview={shown} />
-          {shown.conflicts.length > 0 && <Conflicts conflicts={shown.conflicts} />}
-          <Report report={shown.report} />
+          {/* Once imported, what the import itself wrote: it plans again against the project
+              as it then stands, so it can leave out more than the preview said. */}
+          <Counts preview={done ? { ...shown, counts: done.counts } : shown} />
+          {!done && shown.conflicts.length > 0 && <Conflicts conflicts={shown.conflicts} />}
+          <Report report={done ? done.report : shown.report} />
           {!done && (
             <div className="flex flex-wrap items-center gap-2">
               {shown.conflicts.length > 0 && (
@@ -205,7 +207,7 @@ function CroomImport({ projectId }: { projectId: string }) {
             <p className="m-0 flex items-center gap-2 text-[13px] text-ink-2">
               <StatusDot state="approved" />
               <span>
-                Done. Everything is in the project: start with the{" "}
+                Imported as listed above: start with the{" "}
                 <Link
                   to="/projects/$projectId/repertoire"
                   params={{ projectId }}

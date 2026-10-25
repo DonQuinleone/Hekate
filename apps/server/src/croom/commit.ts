@@ -628,6 +628,21 @@ async function writePlan(
       boxId = row?.id ?? null;
     }
     if (!boxId) continue;
+    if (b.existingId) {
+      // A merged box's own inputs, so what stands on a new plan still finds its channel.
+      const held = await tx
+        .select({ id: patchRows.id, channel: patchRows.channel })
+        .from(patchRows)
+        .where(
+          inOrg(
+            patchRows,
+            organisationId,
+            eq(patchRows.stageBoxId, boxId),
+            eq(patchRows.direction, "input"),
+          ),
+        );
+      for (const r of held) inputOf.set(`${b.key}:${r.channel}`, r.id);
+    }
     for (const [direction, rows] of [
       ["input", b.inputs],
       ["output", b.outputs],

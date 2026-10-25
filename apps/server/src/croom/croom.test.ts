@@ -123,8 +123,8 @@ describe("replaying events", () => {
 
   it("draws ids from one counter, moved on by the ids stage elements carry", () => {
     const { model } = replayFile(openCroom(fixtureAt()).file);
-    // After elements 40 to 42, the next take is 43, and the rating that names it finds it.
-    expect(model.takes.get("43")).toMatchObject({ number: 2, rating: 2 });
+    // After elements 40 to 42 and the view (43), the next take is 44, and its rating finds it.
+    expect(model.takes.get("44")).toMatchObject({ number: 2, rating: 2 });
     const { model: again } = replay(
       events([
         { type: "add_venue", payload: { name: "Endless Hall" } },
@@ -135,6 +135,20 @@ describe("replaying events", () => {
       ]),
     );
     expect([...again.venues.keys()]).toEqual(["1", "10", "4", "11"]);
+  });
+
+  it("counts an id for every add event it does not read, so later references still match", () => {
+    const { model, report } = replay(
+      events([
+        { type: "add_view", payload: { name: "Desk" } },
+        { type: "add_widget", payload: { name: "Unknown to Hekate" } },
+        { type: "add_widget", payload: { id: 7 } },
+        { type: "add_venue", payload: { name: "Endless Hall" } },
+      ]),
+    );
+    // The view takes 1, the first widget 2, the second its own 7: the venue is 8.
+    expect([...model.venues.keys()]).toEqual(["8"]);
+    expect(report.report().unknownEvents.length).toBeGreaterThan(0);
   });
 
   it("changes and removes what it added, and says what it could not find", () => {

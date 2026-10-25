@@ -384,6 +384,45 @@ describe.runIf(url)("ControlRoom import (#57)", () => {
     expect((await rowsIn(organisationId)).works).toBe(4);
   });
 
+  it("plugs a new plan's microphone into the channel a merged box already had", async () => {
+    const owner = await setup();
+    const organisationId = await organisationOf(owner);
+    const projectId = await project(owner);
+    expect(
+      (await send(`/api/projects/${projectId}/croom/import`, croomFixtureBytes(), owner)).status,
+    ).toBe(201);
+    // The first plan renamed, so the second import's plan is new while its box merges.
+    await db
+      .update(schema.stagePlans)
+      .set({ name: "Endless Hall, last year" })
+      .where(eq(schema.stagePlans.organisationId, organisationId));
+    const before = await db
+      .select({ id: schema.patchRows.id })
+      .from(schema.patchRows)
+      .where(eq(schema.patchRows.organisationId, organisationId));
+    expect(
+      (
+        await send(
+          `/api/projects/${projectId}/croom/import?conflicts=merge`,
+          croomFixtureBytes(),
+          owner,
+        )
+      ).status,
+    ).toBe(201);
+    const mics = await db
+      .select({ patchRowId: schema.stageItems.patchRowId })
+      .from(schema.stageItems)
+      .where(
+        and(
+          eq(schema.stageItems.organisationId, organisationId),
+          eq(schema.stageItems.kind, "mic"),
+        ),
+      );
+    expect(mics).toHaveLength(2);
+    const held = new Set(before.map((r) => r.id));
+    expect(mics.every((m) => m.patchRowId !== null && held.has(m.patchRowId))).toBe(true);
+  });
+
   it("refuses a lesser role, another workspace, and a file that is not a project", async () => {
     const owner = await setup();
     const organisationId = await organisationOf(owner);
