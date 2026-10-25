@@ -5,6 +5,7 @@ import { HTTPException } from "hono/http-exception";
 import type { Actor, Audit, RequestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
+import { metrics } from "../metrics/index.ts";
 import { follow } from "../notifications.ts";
 import type { Storage } from "../storage.ts";
 import { assertStorageRoom } from "../usage.ts";
@@ -213,6 +214,11 @@ export async function commitImport(
   const total = first.scores.reduce((n, s) => n + s.byteSize, 0);
   if (total > 0) await db.transaction((tx) => assertStorageRoom(tx, organisationId, total));
   const stored = new Map<string, { blobId: string; byteSize: number }>();
+  let committed: {
+    plan: ImportPlan;
+    fileIds: Map<string, string>;
+    report: CroomImported["report"];
+  };
   try {
     for (const score of first.scores) {
       const bytes = source.blob(score.blobId);
@@ -245,44 +251,59 @@ export async function commitImport(
         again.report,
       );
       const fileIds = await writePlan(tx, plan, stored, options);
-      await options.beforeCommit?.(tx);
-      return { plan, fileIds, report: again.report.report() };
-    });
-    for (const [key, fileId] of written.fileIds) {
-      const score = written.plan.scores.find((s) => s.key === key);
+      // In the access log with what it wrote, or not at all: each score as an upload, and the
+      // import itself.
+      for (const [key, fileId] of fileIds) {
+        const score = plan.scores.find((s) => s.key === key);
+        await audit.record(
+          organisationId,
+          options.actor,
+          {
+            action: "file.upload",
+            projectId,
+            fileId,
+            details: { name: score?.name, size: score?.byteSize, kind: "document", from: "croom" },
+          },
+          options.request,
+          tx,
+        );
+      }
       await audit.record(
         organisationId,
         options.actor,
         {
-          action: "file.upload",
+          action: "project.croom_import",
           projectId,
-          fileId,
-          details: { name: score?.name, size: score?.byteSize, kind: "document", from: "croom" },
+          details: {
+            counts: Object.fromEntries(plan.counts.map((c) => [c.kind, c.create + c.merge])),
+            conflicts: options.choice,
+          },
         },
         options.request,
+        tx,
       );
-      await deps.jobs.send("document-render", { organisationId, fileId }, { singletonKey: fileId });
-    }
-    await audit.record(
-      organisationId,
-      options.actor,
-      {
-        action: "project.croom_import",
-        projectId,
-        details: {
-          counts: Object.fromEntries(written.plan.counts.map((c) => [c.kind, c.create + c.merge])),
-          conflicts: options.choice,
-        },
-      },
-      options.request,
-    );
-    return { counts: written.plan.counts, report: written.report };
+      await options.beforeCommit?.(tx);
+      return { plan, fileIds, report: again.report.report() };
+    });
+    committed = written;
   } catch (error) {
     // Nothing points at the stored scores now: take them back.
     for (const { blobId } of stored.values())
       await storage.remove(organisationId, blobId).catch(() => undefined);
     throw error;
   }
+  // The scores are drawn as any document is. The import stands whatever happens here: a score
+  // whose drawing could not be queued is said in the server's log.
+  for (const [key, fileId] of committed.fileIds) {
+    const score = committed.plan.scores.find((s) => s.key === key);
+    metrics.uploadsBytes.inc({ workspace: organisationId }, score?.byteSize ?? 0);
+    await deps.jobs
+      .send("document-render", { organisationId, fileId }, { singletonKey: fileId })
+      .catch((error: unknown) =>
+        console.warn(`Could not queue drawing the imported score ${fileId}: ${String(error)}`),
+      );
+  }
+  return { counts: committed.plan.counts, report: committed.report };
 }
 
 /** Every row of the plan, in an order that lets each find what it refers to. Returns the scores' files. */
