@@ -31,7 +31,8 @@ const out = join(root, "docs", "screens");
  * Every capture, in inventory order. `route` is the address after the hash; `persona` is the
  * switcher's role (owner unless said); `state` and `width` are the switcher's settings;
  * `storage` adds remembered choices (raw localStorage values); `steps` run in order before the
- * picture: { click }, { press }, { fill: [selector, text] }, { scroll: heading text }, { wait }.
+ * picture: { click }, { press }, { type }, { fill: [selector, text] }, { select: [selector,
+ * value] }, { scroll: heading text }, { wait }.
  * Selectors are Playwright's, which reach into the prototype's shadow root.
  */
 const screens = [
@@ -43,7 +44,11 @@ const screens = [
   { name: "sign-up-workspace", route: "/sign-up?view=make" },
   { name: "installer", route: "/install?step=1" },
   { name: "installer-storage", route: "/install?step=3" },
-  { name: "installer-mail", route: "/install?step=5" },
+  {
+    name: "installer-mail",
+    route: "/install?step=5",
+    steps: [{ select: ['label:has-text("Provider") select', "Microsoft 365"] }],
+  },
   { name: "invitation", route: "/invite" },
   { name: "guest-link", route: "/guest/link" },
   { name: "guest-home", route: "/g", persona: "guest" },
@@ -72,7 +77,11 @@ const screens = [
   {
     name: "files-upload-request",
     route: "/projects/proj-joplin/files",
-    steps: [{ click: '[aria-label="Actions for new"]' }, { click: "text=Upload request…" }],
+    steps: [
+      { click: '[aria-label="Actions for new"]' },
+      { click: "text=Upload request…" },
+      { select: ['role=dialog >> label:has-text("Into") select', "t-maple"] },
+    ],
   },
   { name: "board", route: "/projects/proj-joplin/board" },
   {
@@ -109,9 +118,13 @@ const screens = [
   { name: "takes", route: "/tracks/t-maple?view=takes" },
   { name: "recording", route: "/files/file-maple-v2-dry" },
   {
-    name: "recording-view-menu",
+    name: "recording-spectrogram",
     route: "/files/file-maple-v2-dry",
-    steps: [{ click: 'role=button[name=/^View/]' }],
+    steps: [
+      { click: 'role=button[name=/^View/]' },
+      { click: 'role=radio[name="Below"]' },
+      { click: "text=Window, FFT size and overlap…" },
+    ],
   },
   { name: "recording-qa", route: "/files/file-maple-v2-dry?view=qa" },
   { name: "phone-recording", route: "/files/file-maple-v2-dry", width: "phone" },
@@ -134,6 +147,14 @@ const screens = [
       { click: 'role=dialog[name="Listen together"] >> role=button[name="Join"]' },
     ],
   },
+  {
+    name: "listen-leading",
+    route: "/files/file-maple-v2-dry",
+    steps: [
+      { click: '[title="Lead or join a listening room"]' },
+      { click: 'role=button[name="Start leading"]' },
+    ],
+  },
   { name: "listening-room", route: "/listen/room-maple" },
 
   // 3.5 Video
@@ -151,6 +172,7 @@ const screens = [
 
   // 3.6 Documents and other files
   { name: "document", route: "/files/file-score-maple" },
+  { name: "document-versions", route: "/files/file-liner" },
   { name: "other-file", route: "/files/file-stems" },
 
   // 3.8 Reviews
@@ -171,6 +193,7 @@ const screens = [
 
   // 3.11 Workspace, settings and operations
   { name: "org-general", route: "/settings/general" },
+  { name: "org-export", route: "/settings/general", steps: [{ scroll: "Export" }] },
   { name: "org-branding", route: "/settings/branding" },
   { name: "design-system", route: "/settings/brand" },
   {
@@ -191,9 +214,11 @@ const screens = [
   { name: "org-billing", route: "/settings/billing" },
   { name: "org-support", route: "/settings/support" },
   { name: "org-support-new", route: "/settings/support?new=1" },
-  { name: "org-support-ticket", route: "/settings/support?ticket=t-214" },
+  { name: "org-support-ticket", route: "/settings/support?ticket=t-216" },
   { name: "org-transfers", route: "/settings/transfers" },
   { name: "org-storage", route: "/settings/storage" },
+  { name: "org-leaks", route: "/settings/leaks" },
+  { name: "org-access-log", route: "/settings/log" },
   { name: "org-operations", route: "/settings/operations" },
   { name: "account-tokens", route: "/account/tokens" },
   { name: "account-apps", route: "/account/apps" },
@@ -206,6 +231,13 @@ const screens = [
   // The instance, as its operator
   { name: "instance", route: "/instance", persona: "instance" },
   { name: "instance-workspaces", route: "/instance/workspaces", persona: "instance" },
+  {
+    name: "instance-workspace-quota",
+    route: "/instance/workspaces",
+    persona: "instance",
+    steps: [{ click: 'role=tab[name="Storage and quota"]' }],
+  },
+  { name: "instance-operators", route: "/instance/operators", persona: "instance" },
   { name: "instance-billing", route: "/instance/billing", persona: "instance" },
   {
     name: "instance-billing-plans",
@@ -227,7 +259,14 @@ const screens = [
     state: "failed",
     steps: [{ scroll: "Status page" }],
   },
+  {
+    name: "instance-incident-new",
+    route: "/instance/support",
+    persona: "instance",
+    steps: [{ click: 'role=button[name="Post an incident"]' }],
+  },
   { name: "instance-health", route: "/instance/health", persona: "instance" },
+  { name: "instance-queues", route: "/instance/queues", persona: "instance" },
   { name: "instance-logs", route: "/instance/logs", persona: "instance" },
   {
     name: "instance-logs-gateway",
@@ -238,6 +277,12 @@ const screens = [
   { name: "instance-debug", route: "/instance/debug", persona: "instance" },
   { name: "instance-system", route: "/instance/system", persona: "instance" },
   { name: "instance-settings", route: "/instance/settings", persona: "instance" },
+  {
+    name: "instance-telemetry",
+    route: "/instance/settings",
+    persona: "instance",
+    steps: [{ scroll: "Address and mail" }],
+  },
   { name: "instance-operations", route: "/instance/operations", persona: "instance" },
 ];
 
@@ -394,10 +439,14 @@ async function capture(browser, screen) {
       else if (step.press) await page.keyboard.press(step.press);
       else if (step.type) await page.keyboard.type(step.type);
       else if (step.fill) await page.locator(step.fill[0]).first().fill(step.fill[1]);
+      else if (step.select) await page.locator(step.select[0]).first().selectOption(step.select[1]);
       else if (step.scroll) await scrollTo(page, step.scroll);
       else if (step.wait) await page.waitForTimeout(step.wait);
       await settle(page);
     }
+    // The pointer away from the page, so nothing shows a hover it would not have.
+    await page.mouse.move(1439, 899);
+    await settle(page);
     if (errors.length) throw new Error(`the page threw: ${errors.join("; ")}`);
     if (await page.getByText("There is nothing at this address").count())
       throw new Error("the page answered Not found");
@@ -417,12 +466,18 @@ async function settle(page) {
   await page.waitForTimeout(400);
 }
 
-/** Brings a heading to the top of the pane it scrolls in. */
+/** Brings a heading near the top of the pane it scrolls in, and moves nothing else. */
 async function scrollTo(page, text) {
   const escaped = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const heading = page
     .locator("h1, h2, h3, h4")
     .filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`) })
     .first();
-  await heading.evaluate((el) => el.scrollIntoView({ block: "start" }));
+  await heading.evaluate((el) => {
+    let pane = el.parentElement;
+    while (pane && !(pane.scrollHeight > pane.clientHeight && /auto|scroll/.test(getComputedStyle(pane).overflowY)))
+      pane = pane.parentElement;
+    if (!pane) return el.scrollIntoView({ block: "start" });
+    pane.scrollTop += el.getBoundingClientRect().top - pane.getBoundingClientRect().top - 32;
+  });
 }

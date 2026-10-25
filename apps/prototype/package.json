@@ -9,7 +9,8 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build && node scripts/artifact.mjs",
     "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "screens": "node scripts/screens.mjs"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.5.0",
