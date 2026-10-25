@@ -7,16 +7,15 @@ const dist = new URL("../dist/", import.meta.url);
 const html = await readFile(new URL("index.html", dist), "utf8");
 
 const out = [];
-for (const tag of html.matchAll(
-  /<title>[^<]*<\/title[^>]*>|<link[^>]*>|<script[^>]*><\/script[^>]*>/gi,
-)) {
+// Only Vite's own output is read, so opening tags are enough: a script's source is in its src.
+for (const tag of html.matchAll(/<title>[^<]*<\/title>|<link[^>]*>|<script[^>]*>/g)) {
   const text = tag[0];
   const local = text.match(/(?:href|src)="\.\/([^"]+)"/)?.[1];
-  if (/^<title/i.test(text)) out.push(text);
+  if (text.startsWith("<title")) out.push(text);
   else if (/rel="stylesheet"/.test(text) && local) {
     const css = await readFile(new URL(local, dist), "utf8");
     out.push(`<style>${css.replaceAll("</style", "<\\/style")}</style>`);
-  } else if (/^<script/i.test(text) && local) {
+  } else if (text.startsWith("<script") && local) {
     const js = await readFile(new URL(local, dist), "utf8");
     out.push(`<script type="module">${js.replaceAll("</script", "<\\/script")}</script>`);
   } else if (/rel="(preconnect|stylesheet)"/.test(text)) out.push(text.replace(/\s+/g, " "));
