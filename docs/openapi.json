@@ -4970,8 +4970,8 @@
         "tags": [
           "Projects"
         ],
-        "summary": "POST /projects/{id}/croom/preview",
-        "description": "Needs the `files:write` scope.",
+        "summary": "Preview a ControlRoom import",
+        "description": "What importing a ControlRoom project file (.croom) would create, counted by kind, with what is already in the project and what the file holds that is not brought over. Writes nothing. At most 200 MB, sent as the body; for those who may manage the project.\n\nNeeds the `files:write` scope.",
         "security": [
           {
             "token": [
@@ -5004,6 +5004,18 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "description": "The .croom file's bytes.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "The answer.",
@@ -5040,8 +5052,8 @@
         "tags": [
           "Projects"
         ],
-        "summary": "POST /projects/{id}/croom/import",
-        "description": "Needs the `files:write` scope.",
+        "summary": "Import a ControlRoom project",
+        "description": "Writes everything the preview counted into the project in one transaction, its embedded scores stored encrypted as uploads. The file is sent again, as nothing of it is kept after the preview.\n\nNeeds the `files:write` scope.",
         "security": [
           {
             "token": [
@@ -5074,6 +5086,18 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "description": "The .croom file's bytes.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Made.",
