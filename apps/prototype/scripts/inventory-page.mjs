@@ -11,6 +11,7 @@ const inline = (s) =>
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+    .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '<a href="$2">$1</a>')
     .replace(/#(\d+)/g, '<a href="https://github.com/DonQuinleone/Hekate/issues/$1">#$1</a>');
 
 const lines = src.split("\n");

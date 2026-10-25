@@ -4,6 +4,7 @@ import {
   apiBase,
   type BounceProvider,
   COMMENT_ATTACHMENT_MAX_BYTES,
+  CROOM_MAX_BYTES,
   type InstanceMail,
   type InstanceModules,
   type InstanceNotice,
@@ -50,6 +51,7 @@ import { captionRoutes } from "./routes/captions.ts";
 import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
 import { channelRoutes } from "./routes/channels.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
+import { CROOM_PATH, projectCroomRoutes } from "./routes/croom.ts";
 import { directoryRoutes } from "./routes/directory.ts";
 import {
   downloadRoutes,
@@ -613,6 +615,17 @@ export function createApi(given: AppDeps) {
       .route("/projects", projectStagePlanRoutes(deps.db))
       .route("/projects", projectPersonnelRoutes(deps.db))
       .route("/projects", projectRepertoireRoutes(deps.db))
+      .route(
+        "/projects",
+        projectCroomRoutes({
+          db: deps.db,
+          storage: deps.storage,
+          audit: deps.audit,
+          jobs: deps.jobs,
+          trustProxy: deps.trustProxy ?? false,
+          ...(deps.workDir ? { workDir: deps.workDir } : {}),
+        }),
+      )
       .route("/projects", projectScheduleRoutes(deps.db))
       .route("/projects", projectSessionRoutes(deps.db))
       .route("/projects", projectWorkflowRoutes(deps.db))
@@ -814,7 +827,8 @@ const uploading = (method: string, path: string) =>
   (method === "POST" || method === "PUT") &&
   (/^\/api\/uploads(\/|$)/.test(path) ||
     /^\/api\/upload-links\/[^/]+\/uploads/.test(path) ||
-    ATTACHMENT_PATH.test(path));
+    ATTACHMENT_PATH.test(path) ||
+    CROOM_PATH.test(path));
 
 /**
  * The path the router reads (decision 224): a version's (`/api/v1/files/…`) without its
@@ -873,23 +887,37 @@ export function createApp(given: AppDeps) {
                 413,
               ),
           })(c, next)
-        : TICKET_ATTACHMENT_PATH.test(c.req.path)
+        : CROOM_PATH.test(c.req.path)
           ? bodyLimit({
-              maxSize: TICKET_ATTACHMENT_MAX_BYTES,
+              maxSize: CROOM_MAX_BYTES,
               onError: (c) =>
                 c.json(
-                  { error: { code: "too_large", message: "An attachment can be at most 10 MB" } },
+                  {
+                    error: {
+                      code: "too_large",
+                      message: "A ControlRoom file can be at most 200 MB",
+                    },
+                  },
                   413,
                 ),
             })(c, next)
-          : bodyLimit({
-              maxSize: MAX_BODY_BYTES,
-              onError: (c) =>
-                c.json(
-                  { error: { code: "too_large", message: "That request is too large." } },
-                  413,
-                ),
-            })(c, next),
+          : TICKET_ATTACHMENT_PATH.test(c.req.path)
+            ? bodyLimit({
+                maxSize: TICKET_ATTACHMENT_MAX_BYTES,
+                onError: (c) =>
+                  c.json(
+                    { error: { code: "too_large", message: "An attachment can be at most 10 MB" } },
+                    413,
+                  ),
+              })(c, next)
+            : bodyLimit({
+                maxSize: MAX_BODY_BYTES,
+                onError: (c) =>
+                  c.json(
+                    { error: { code: "too_large", message: "That request is too large." } },
+                    413,
+                  ),
+              })(c, next),
   );
   // Maintenance mode (#154): uploads wait until it is over, the files they would send kept.
   app.use("/api/*", async (c, next) => {

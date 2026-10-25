@@ -50,6 +50,12 @@ const sections = [
     to: "/projects/$projectId/venues",
     needs: "view_production",
   },
+  {
+    id: "import",
+    label: "Import",
+    to: "/projects/$projectId/import",
+    needs: "edit_project",
+  },
 ] as const;
 
 /**

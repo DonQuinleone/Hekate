@@ -143,6 +143,8 @@ Logged takes become the take manager's takes, so import (#45) matches files to l
 
 **Stage plans and patching.** Metre-scaled plans on a snapping grid with performers, ensemble blocks sized from the real head-count, microphones, pianos, timpani, risers, walls, cable runs and labels, over an optional floor-plan underlay; multi-select, align and group operations. Microphones link to the patch list so labels follow it. Stage boxes carry input and output tables. Exports: stage plan PDF (A3 or A4, rulers and scale bar) and patch list PDF and XLSX.
 
+**Importing from ControlRoom.** A ControlRoom project file (`.croom`) can be imported into a project, previewed first: its pieces become works, their movements the works' tracks, and everything else (sessions and takes, score marks, personnel, venues, the schedule, stage plans and stage boxes, embedded scores) the matching production data (decision 242).
+
 **Everything is versioned.** Production data uses the same event history as the rest of a project, so every change can be undone and audited.
 
 ## Quality checks

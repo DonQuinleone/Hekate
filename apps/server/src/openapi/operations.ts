@@ -845,6 +845,19 @@ export const apiOperations: Record<string, ApiOperation> = {
   "POST /projects/{id}/venues": { summary: "Add a venue" },
   "PUT /venues/{id}": { summary: "Change a venue" },
   "DELETE /venues/{id}": { summary: "Remove a venue" },
+  "POST /projects/{id}/croom/preview": {
+    summary: "Preview a ControlRoom import",
+    description:
+      "What importing a ControlRoom project file (.croom) would create, counted by kind, with what is already in the project and what the file holds that is not brought over. Writes nothing. At most 200 MB, sent as the body; for those who may manage the project.",
+    body: { type: "application/octet-stream", description: "The .croom file's bytes." },
+  },
+  "POST /projects/{id}/croom/import": {
+    summary: "Import a ControlRoom project",
+    description:
+      "Writes everything the preview counted into the project in one transaction, its embedded scores stored encrypted as uploads. The file is sent again, as nothing of it is kept after the preview.",
+    status: 201,
+    body: { type: "application/octet-stream", description: "The .croom file's bytes." },
+  },
   "GET /projects/{id}/schedule": { summary: "Read a project's schedule" },
   "GET /projects/{id}/schedule/{format}": {
     summary: "Download a project's schedule",

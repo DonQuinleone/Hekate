@@ -4964,6 +4964,170 @@
         }
       }
     },
+    "/projects/{id}/croom/preview": {
+      "post": {
+        "operationId": "postProjectsIdCroomPreview",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Preview a ControlRoom import",
+        "description": "What importing a ControlRoom project file (.croom) would create, counted by kind, with what is already in the project and what the file holds that is not brought over. Writes nothing. At most 200 MB, sent as the body; for those who may manage the project.\n\nNeeds the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "conflicts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "merge",
+              "type": "string",
+              "enum": [
+                "merge",
+                "new"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The .croom file's bytes.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/projects/{id}/croom/import": {
+      "post": {
+        "operationId": "postProjectsIdCroomImport",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "Import a ControlRoom project",
+        "description": "Writes everything the preview counted into the project in one transaction, its embedded scores stored encrypted as uploads. The file is sent again, as nothing of it is kept after the preview.\n\nNeeds the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "conflicts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "merge",
+              "type": "string",
+              "enum": [
+                "merge",
+                "new"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "The .croom file's bytes.",
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Made.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
     "/projects/{id}/schedule": {
       "get": {
         "operationId": "getProjectsIdSchedule",

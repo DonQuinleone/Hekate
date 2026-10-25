@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 import postgres from "postgres";
 import { waveBytes } from "../../../packages/shared/src/fixtures/wave.ts";
+import { croomFixtureBytes } from "../../server/src/croom/fixture.ts";
 import { checkScreen } from "./checks.ts";
 import { FIXED_TIME, type Seeded, saveScreen, seeded, state } from "./fixtures.ts";
 
@@ -1059,6 +1060,26 @@ test("patch-list", async ({ page }) => {
     "Lid on the short stick",
   );
   await saveScreen(page, "patch-list-row");
+  await checkScreen(page);
+});
+
+// Importing a ControlRoom project (#57): the file to choose, then the fictional fixture's preview
+// against the seeded project (its rags and venues already there), with what is not brought over.
+// The import itself is not confirmed, so the seeded project stays as every other screen expects.
+test("croom-import", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/import`);
+  await settle(page, "main >> text=Drop the .croom file here");
+  await saveScreen(page, "croom-import");
+  await checkScreen(page);
+  await page.getByLabel("ControlRoom project file").setInputFiles({
+    name: "Joplin Rags.croom",
+    mimeType: "application/octet-stream",
+    buffer: croomFixtureBytes(),
+  });
+  await settle(page, "main >> text=Already in this project");
+  await page.getByText(/^Not brought over/).click();
+  await expect(page.getByText("Unknown event frobnicate_widget")).toBeVisible();
+  await saveScreen(page, "croom-import-preview");
   await checkScreen(page);
 });
 

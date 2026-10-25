@@ -1,0 +1,1 @@
+ALTER TYPE "public"."audit_action" ADD VALUE 'project.croom_import' BEFORE 'support.attachment_download';
