@@ -57,6 +57,7 @@ export default defineConfig({
           items: [
             "use/reviews",
             "use/takes",
+            "use/controlroom-import",
             "use/recorders",
             "use/captions",
             "use/guests",
