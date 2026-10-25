@@ -116,6 +116,19 @@ jobs:
           output: trivy-repo.sarif
           trivyignores: .trivyignore
           skip-setup-trivy: true
+      # The same findings, unfixed ones included, as a table in the job log: readable by anyone
+      # with the log, where code scanning is not (#170).
+      - name: Trivy report (repository, unfixed included)
+        if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          format: table
+          trivyignores: .trivyignore
+          exit-code: "0"
+          skip-setup-trivy: true
       - name: Upload to code scanning
         if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
         continue-on-error: true
@@ -313,6 +326,16 @@ jobs:
           format: sarif
           output: trivy-image.sarif
           trivyignores: .trivyignore
+          skip-setup-trivy: true
+      - name: Trivy report (image, unfixed included)
+        if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: hekate:ci
+          scanners: vuln,secret
+          format: table
+          trivyignores: .trivyignore
+          exit-code: "0"
           skip-setup-trivy: true
       - name: Upload to code scanning
         if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
