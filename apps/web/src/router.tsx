@@ -50,6 +50,7 @@ import {
 } from "~/routes/auth-pages";
 import { BoardPage } from "~/routes/board";
 import { ComparePage } from "~/routes/compare";
+import { CroomImportPage } from "~/routes/croom-import";
 import { FilePage } from "~/routes/file";
 import { GuestHomePage, GuestLinkPage, GuestShell, GuestSignedOutPage } from "~/routes/guest";
 import { HomePage } from "~/routes/home";
@@ -672,6 +673,15 @@ const projectVenues = createRoute({
     return <VenuesPage projectId={projectId} />;
   },
 });
+// Importing a ControlRoom project (#57), the last of Production's sections.
+const projectImport = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/import",
+  component: function ProjectImportRoute() {
+    const { projectId } = projectImport.useParams();
+    return <CroomImportPage projectId={projectId} />;
+  },
+});
 // Personnel (#49): everyone on the production, in Production.
 const projectPersonnel = createRoute({
   getParentRoute: () => app,
@@ -1010,6 +1020,7 @@ export const router = createRouter({
       projectStage,
       projectPatch,
       projectPersonnel,
+      projectImport,
       projectRepertoire,
       projectSchedule,
       projectVenues,
