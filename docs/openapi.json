@@ -4964,6 +4964,146 @@
         }
       }
     },
+    "/projects/{id}/croom/preview": {
+      "post": {
+        "operationId": "postProjectsIdCroomPreview",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "POST /projects/{id}/croom/preview",
+        "description": "Needs the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "conflicts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "merge",
+              "type": "string",
+              "enum": [
+                "merge",
+                "new"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/projects/{id}/croom/import": {
+      "post": {
+        "operationId": "postProjectsIdCroomImport",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "POST /projects/{id}/croom/import",
+        "description": "Needs the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "conflicts",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "default": "merge",
+              "type": "string",
+              "enum": [
+                "merge",
+                "new"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Made.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
     "/projects/{id}/schedule": {
       "get": {
         "operationId": "getProjectsIdSchedule",
