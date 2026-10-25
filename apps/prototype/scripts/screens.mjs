@@ -414,6 +414,9 @@ async function capture(browser, screen) {
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },
     deviceScaleFactor: 1,
+    // The lamps stand still and nothing rises in, so a screen that has not changed is taken the
+    // same each time, and only the pictures of what changed differ.
+    reducedMotion: "reduce",
   });
   context.setDefaultTimeout(10_000);
   try {
