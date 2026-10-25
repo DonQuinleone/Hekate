@@ -79,7 +79,7 @@ describe("reading a .croom file", () => {
       CroomTooLarge,
     );
     // As a stream, counted as it arrives.
-    const stream = new Blob([bytes]).stream();
+    const stream = new Blob([new Uint8Array(bytes)]).stream();
     await expect(withCroom(work, stream, 1024, async () => 0)).rejects.toThrow(CroomTooLarge);
     await expect(
       withCroom(work, new TextEncoder().encode("not a database at all"), 1024, async () => 0),

@@ -94,7 +94,7 @@ describe.runIf(url)("ControlRoom import (#57)", () => {
         origin: "http://localhost:3000",
         cookie,
       },
-      body: bytes,
+      body: new Uint8Array(bytes),
     });
 
   const setup = async () =>
