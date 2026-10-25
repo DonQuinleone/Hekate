@@ -1,5 +1,5 @@
-import { eachFields, type Fields } from "../fields.ts";
 import { aliases, crud, type Family, or, type ReplayContext } from "../family.ts";
+import { eachFields, type Fields } from "../fields.ts";
 import type { CrPerson, CrSection } from "../model.ts";
 import { keyOf } from "./values.ts";
 

@@ -64,7 +64,9 @@ export function crud<E>(
       const id = targetId(f, noun);
       const held = id ? mapOf(ctx.model).get(id) : undefined;
       if (!id || held === undefined) {
-        ctx.report.problem(`${ctx.type}: changes a ${noun} the file never added, so it was skipped`);
+        ctx.report.problem(
+          `${ctx.type}: changes a ${noun} the file never added, so it was skipped`,
+        );
         f.skipAll();
         return;
       }

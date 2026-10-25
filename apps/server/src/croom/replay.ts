@@ -129,7 +129,9 @@ export function replay(events: readonly CroomEvent[], options: ReplayOptions = {
   let replayed = 0;
   for (const event of events) {
     if (event.payloadError) {
-      report.problem(`Event ${event.seq} (${event.type}): ${event.payloadError}, so it was skipped`);
+      report.problem(
+        `Event ${event.seq} (${event.type}): ${event.payloadError}, so it was skipped`,
+      );
       continue;
     }
     const found = route(normalType(event.type));

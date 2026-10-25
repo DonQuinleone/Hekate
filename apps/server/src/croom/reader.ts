@@ -1,9 +1,9 @@
 import { createWriteStream } from "node:fs";
 import { chmod, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { DatabaseSync } from "node:sqlite";
 import { withWorkspace } from "../media/workspace.ts";
 
 /**
@@ -109,7 +109,9 @@ export function openCroom(path: string): CroomSource {
     const eventColumns = columns("events").map((c) => c.name.toLowerCase());
     const lacking = EVENT_COLUMNS.filter((c) => !eventColumns.includes(c));
     if (lacking.length > 0)
-      throw new CroomError(`The file's events have no ${lacking.join(", ")}: it cannot be replayed`);
+      throw new CroomError(
+        `The file's events have no ${lacking.join(", ")}: it cannot be replayed`,
+      );
 
     // The meta table's columns are not known for certain: a key and a value, by likely names.
     const metaColumns = columns("meta");
@@ -184,9 +186,7 @@ export function openCroom(path: string): CroomSource {
       blob(id) {
         if (!readBlob || !blobs.has(id)) return null;
         // An id read back as a number where the column is an integer.
-        const row = (readBlob.get(id) ?? readBlob.get(Number(id))) as
-          | { data: unknown }
-          | undefined;
+        const row = (readBlob.get(id) ?? readBlob.get(Number(id))) as { data: unknown } | undefined;
         const data = row?.data;
         if (data instanceof Uint8Array) return data;
         if (typeof data === "string") return Buffer.from(data, "base64");

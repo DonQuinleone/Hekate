@@ -1,5 +1,5 @@
-import type { Fields } from "../fields.ts";
 import type { ReplayContext } from "../family.ts";
+import type { Fields } from "../fields.ts";
 
 /**
  * Where a take or a mark belongs: a movement, or a piece. Ids are drawn from one counter for

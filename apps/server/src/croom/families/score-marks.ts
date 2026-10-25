@@ -1,5 +1,4 @@
 import type { ScoreMarkKind } from "@hekate/shared";
-import type { Fields } from "../fields.ts";
 import {
   aliases,
   crud,
@@ -9,6 +8,7 @@ import {
   type ReplayContext,
   targetId,
 } from "../family.ts";
+import type { Fields } from "../fields.ts";
 import type { CrMark } from "../model.ts";
 import { placeOf } from "./place.ts";
 import { keyOf, within } from "./values.ts";
@@ -100,7 +100,8 @@ function readEdit(f: Fields, mark: CrMark, ctx: ReplayContext): CrMark {
       next.to = read.to;
       next.overdub = read.overdub;
       if (read.bar !== null) next.barFrom = read.bar;
-    } else ctx.report.problem(`${ctx.type}: the edit "${notation.slice(0, 20)}" was not understood`);
+    } else
+      ctx.report.problem(`${ctx.type}: the edit "${notation.slice(0, 20)}" was not understood`);
   }
   next.from = or(f.intOrNull("from", "from_take", "take_from", "out_of"), next.from);
   next.to = or(f.intOrNull("to", "to_take", "take_to", "into"), next.to);

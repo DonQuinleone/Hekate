@@ -1,4 +1,3 @@
-import { eachFields, type Fields } from "../fields.ts";
 import {
   aliases,
   crud,
@@ -8,6 +7,7 @@ import {
   type ReplayContext,
   targetId,
 } from "../family.ts";
+import { eachFields, type Fields } from "../fields.ts";
 import type { CrPatch, CrStageBox, CrStageElement, CrStagePlan } from "../model.ts";
 import { keyOf } from "./values.ts";
 

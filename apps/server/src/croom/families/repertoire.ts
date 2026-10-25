@@ -1,6 +1,6 @@
+import { aliases, crud, type Family, or, type ReplayContext } from "../family.ts";
 import type { Fields } from "../fields.ts";
 import { eachFields } from "../fields.ts";
-import { aliases, crud, type Family, or, type ReplayContext } from "../family.ts";
 import type { CrMovement, CrWork } from "../model.ts";
 
 /**
