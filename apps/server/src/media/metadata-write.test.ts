@@ -84,7 +84,10 @@ describe("corrected metadata as a recording leaves (decision 260)", () => {
       entry("ISFT", "Recorder 2"),
       entry("ICOP", "2025"),
     ]);
-    const body = infoBody(original, corrected({ title: "Maple Leaf Rag", copyright: "", isrc: "GBABC2600001" }));
+    const body = infoBody(
+      original,
+      corrected({ title: "Maple Leaf Rag", copyright: "", isrc: "GBABC2600001" }),
+    );
     const text = body.toString("latin1");
     expect(text.startsWith("INFO")).toBe(true);
     expect(text).toContain("INAM");
@@ -122,12 +125,17 @@ describe("corrected metadata as a recording leaves (decision 260)", () => {
         note: "Ines & Tomas <after the break>",
         timecodeRate: "25/1",
       });
-      expect(info.metadata?.tags).toMatchObject({ title: "Maple Leaf Rag", isrc: "GB-ABC-26-00001" });
+      expect(info.metadata?.tags).toMatchObject({
+        title: "Maple Leaf Rag",
+        isrc: "GB-ABC-26-00001",
+      });
       // The samples are the original's, byte for byte, and the RIFF size is the file's.
       const [a, b] = [await waveData(input), await waveData(out)];
       if (!a || !b) throw new Error("no data");
       const [x, y] = [await readFile(input), await readFile(out)];
-      expect(y.subarray(b.offset, b.offset + b.size).equals(x.subarray(a.offset, a.offset + a.size))).toBe(true);
+      expect(
+        y.subarray(b.offset, b.offset + b.size).equals(x.subarray(a.offset, a.offset + a.size)),
+      ).toBe(true);
       expect(y.readUInt32LE(4)).toBe((await stat(out)).size - 8);
     });
   });
@@ -207,7 +215,12 @@ describe("corrected metadata as a recording leaves (decision 260)", () => {
             input,
             output,
             muxer,
-            corrected({ title: "Maple Leaf Rag", isrc: "GBABC2600001", copyright: "", albumArtist: "Joplin Rags" }),
+            corrected({
+              title: "Maple Leaf Rag",
+              isrc: "GBABC2600001",
+              copyright: "",
+              albumArtist: "Joplin Rags",
+            }),
           ),
         );
         const info = await probe(output);

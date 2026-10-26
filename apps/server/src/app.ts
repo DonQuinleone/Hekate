@@ -79,6 +79,7 @@ import { listeningRoutes, projectListeningRoutes } from "./routes/listening.ts";
 import { mailHookRoutes } from "./routes/mail-hooks.ts";
 import { projectMarkRoutes } from "./routes/marks.ts";
 import { accountRoutes, meRoutes } from "./routes/me.ts";
+import { fileMetadataRoutes } from "./routes/metadata.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import {
   connectedAppRoutes,
@@ -775,6 +776,7 @@ export function createApi(given: AppDeps) {
       )
       .route("/files", fileManageRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
       .route("/files", fileQaRoutes(deps.db))
+      .route("/files", fileMetadataRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
       .route("/files", fileTagRoutes(deps.db))
       .route("/files", fileRetryRoutes(deps.db, deps.jobs))
       .route("/files", fileDetailRoutes(deps.db))

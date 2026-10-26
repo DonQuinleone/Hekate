@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EmbeddedMetadata, MediaInfo } from "./media.ts";
+import { timecodeOf } from "./metadata.ts";
 import {
   applyMetadataChanges,
   correctedMetadata,
@@ -9,7 +10,6 @@ import {
   metadataValueProblem,
   samplesOfTimecode,
 } from "./metadata-edit.ts";
-import { timecodeOf } from "./metadata.ts";
 
 const read: EmbeddedMetadata = {
   bext: { description: "Maple Leaf Rag, V2 dry", originator: "Endless Hal" },
@@ -72,16 +72,18 @@ describe("correcting embedded metadata (decision 260)", () => {
   });
 
   it("checks a request's every value, and refuses one that changes nothing", () => {
-    expect(metadataChanges.safeParse({ changes: { isrc: "GB-ABC-26-00001" } }).success).toBe(
-      true,
-    );
+    expect(metadataChanges.safeParse({ changes: { isrc: "GB-ABC-26-00001" } }).success).toBe(true);
     expect(metadataChanges.safeParse({ changes: {} }).success).toBe(false);
     expect(metadataChanges.safeParse({ changes: { isrc: "nope" } }).success).toBe(false);
     expect(metadataChanges.safeParse({ changes: { umid: "x" } }).success).toBe(false);
   });
 
   it("keeps a correction with what the file says, and drops it when the two agree again", () => {
-    const first = applyMetadataChanges(read, {}, { originator: "Endless Hall", isrc: "GBABC2600001" });
+    const first = applyMetadataChanges(
+      read,
+      {},
+      { originator: "Endless Hall", isrc: "GBABC2600001" },
+    );
     expect(first.metadata.bext?.originator).toBe("Endless Hall");
     expect(first.metadata.tags.isrc).toBe("GBABC2600001");
     expect(first.corrections).toEqual({
@@ -103,7 +105,11 @@ describe("correcting embedded metadata (decision 260)", () => {
   });
 
   it("clears a field with an empty value, and records nothing for a value that stays", () => {
-    const cleared = applyMetadataChanges(read, {}, { title: "", description: read.bext?.description ?? "" });
+    const cleared = applyMetadataChanges(
+      read,
+      {},
+      { title: "", description: read.bext?.description ?? "" },
+    );
     expect(cleared.metadata.tags.title).toBeUndefined();
     expect(cleared.corrections).toEqual({ title: { value: "", read: "Maple Leaf Rag" } });
     expect(cleared.changed).toEqual([{ field: "title", from: "Maple Leaf Rag", to: null }]);
@@ -111,10 +117,14 @@ describe("correcting embedded metadata (decision 260)", () => {
 
   it("gives a recording iXML and bext it did not have, and lays corrections over a new read", () => {
     const bare: EmbeddedMetadata = { tags: {} };
-    const { metadata, corrections } = applyMetadataChanges(bare, {}, {
-      scene: "12",
-      timeReference: "1728000000",
-    });
+    const { metadata, corrections } = applyMetadataChanges(
+      bare,
+      {},
+      {
+        scene: "12",
+        timeReference: "1728000000",
+      },
+    );
     expect(metadata.ixml).toEqual({ bytes: 0, scene: "12" });
     expect(metadata.bext).toEqual({ timeReference: 1_728_000_000 });
     // Probed again, the file says what it always said; the corrections go back over it.

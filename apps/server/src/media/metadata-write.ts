@@ -142,10 +142,7 @@ export function infoBody(original: Uint8Array | null, corrections: MetadataCorre
     } else if (at >= 0) entries[at] = [id, text];
     else entries.push([id, text]);
   }
-  return Buffer.concat([
-    latin1("INFO"),
-    ...entries.map(([id, body]) => chunkBytes(id, body)),
-  ]);
+  return Buffer.concat([latin1("INFO"), ...entries.map(([id, body]) => chunkBytes(id, body))]);
 }
 
 /** A chunk as written: its id, its length, its body and a pad byte to an even length. */
@@ -162,7 +159,11 @@ type Piece = Buffer | { path: string; start: number; end: number };
 /** Whether corrections touch a group a wave file holds in a chunk of its own. */
 const touches = (corrections: MetadataCorrections, group: "bext" | "ixml" | "tags") =>
   of(corrections, group).some(([field]) =>
-    group === "tags" ? Boolean(infoIds[field]) : group === "ixml" ? Boolean(ixmlNames[field]) : true,
+    group === "tags"
+      ? Boolean(infoIds[field])
+      : group === "ixml"
+        ? Boolean(ixmlNames[field])
+        : true,
   );
 
 /** One chunk of a wave file, as walked: where it starts, its id and its real length. */
@@ -270,7 +271,9 @@ export async function correctedWave(
         done.ixml = true;
         // One too large to take in hand, or with no end to add to, is left as it was.
         const xml =
-          chunk.length <= MAX_REWRITTEN ? ixmlText((await body()).toString("utf8"), corrections) : null;
+          chunk.length <= MAX_REWRITTEN
+            ? ixmlText((await body()).toString("utf8"), corrections)
+            : null;
         pieces.push(xml === null ? asItIs(chunk) : chunkBytes("iXML", Buffer.from(xml, "utf8")));
       } else if (isInfo(chunk) && wanted.info && !done.info && chunk.length <= MAX_REWRITTEN) {
         pieces.push(chunkBytes("LIST", infoBody(await body(), corrections)));
@@ -368,6 +371,8 @@ export function carriesCorrections(
 ): boolean {
   if (!corrections || !format || format === "aiff") return false;
   if (format === "wave")
-    return touches(corrections, "bext") || touches(corrections, "ixml") || touches(corrections, "tags");
+    return (
+      touches(corrections, "bext") || touches(corrections, "ixml") || touches(corrections, "tags")
+    );
   return tagArgs(format, corrections).length > 0;
 }
