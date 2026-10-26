@@ -292,6 +292,9 @@ const refusal = (error: z.ZodError) => error.issues[0]?.message ?? "it is not va
 
 const within = (n: number, min: number, max: number) => Math.min(max, Math.max(min, n));
 
+/** A length to a tenth of a millimetre: ControlRoom keeps the stage in single-precision floats. */
+const metres = (n: number) => Math.round(n * 10_000) / 10_000;
+
 /**
  * A category's colour in Hekate's few: ControlRoom packs red in the lowest byte. Reds, oranges,
  * pinks and purples are the signal; greens green; blues and cyans blue; yellows, greys and
@@ -552,14 +555,17 @@ export function planImport(
       return `s${a.pdfId}`;
     }
     const inRange = covering.find(
-      (s) => (s.from === null || s.from <= page) && (s.to === null || page <= s.to),
+      (s) => s.from !== null && s.to !== null && s.from <= page && page <= s.to,
     );
     if (inRange) return inRange.key;
-    // Past the last printed page of a movement with no end: it runs to the next.
+    // A movement with no last page runs on to the next one that starts.
     const before = covering
-      .filter((s) => s.from !== null && s.from <= page && s.to === null)
+      .filter((s) => s.from !== null && s.from <= page)
       .sort((x, y) => (y.from ?? 0) - (x.from ?? 0))[0];
-    if (before) return before.key;
+    if (before && before.to === null) return before.key;
+    // A piece whose score is the whole PDF.
+    const whole = covering.find((s) => s.from === null);
+    if (whole) return whole.key;
     report.problem(
       "Marks lie on pages of a score that no movement covers, so they are on the nearest movement",
     );
@@ -569,9 +575,7 @@ export function planImport(
     return nearest?.key ?? null;
   };
 
-  const takePlaces = new Map(
-    [...model.takes.values()].map((t) => [t.id, placeTake(t)] as const),
-  );
+  const takePlaces = new Map([...model.takes.values()].map((t) => [t.id, placeTake(t)] as const));
   const markPlaces = new Map(
     [...model.annotations.values()].map((a) => [a.id, placeMark(a)] as const),
   );
@@ -645,7 +649,10 @@ export function planImport(
   for (const work of model.logWorks.values()) {
     const title = work.name.trim() || `Work ${work.id}`;
     if (work.numbering !== "continuous")
-      notBrought("add_work numbering", "How the desktop app's first take log numbered a work's takes");
+      notBrought(
+        "add_work numbering",
+        "How the desktop app's first take log numbered a work's takes",
+      );
     const movements = [...model.logMovements.values()].filter((m) => m.workId === work.id);
     sources.push({
       key: `w${work.id}`,
@@ -691,7 +698,9 @@ export function planImport(
       abbreviation: "",
       notes: "",
       pdfId,
-      tracks: [{ key: `s${pdfId}`, name: title, number: "", pageFrom: null, pageTo: null, pdfId: null }],
+      tracks: [
+        { key: `s${pdfId}`, name: title, number: "", pageFrom: null, pageTo: null, pdfId: null },
+      ],
     });
   }
   if (unplacedTakes > 0)
@@ -703,7 +712,16 @@ export function planImport(
       abbreviation: "",
       notes: "",
       pdfId: null,
-      tracks: [{ key: "session", name: sessionName, number: "", pageFrom: null, pageTo: null, pdfId: null }],
+      tracks: [
+        {
+          key: "session",
+          name: sessionName,
+          number: "",
+          pageFrom: null,
+          pageTo: null,
+          pdfId: null,
+        },
+      ],
     });
 
   for (const source of sources) {
@@ -711,9 +729,17 @@ export function planImport(
       title: cut(source.title, 160, `The work "${source.title.slice(0, 40)}"`),
       composer: cut(source.composer, 120, `The composer of "${source.title.slice(0, 40)}"`),
       forces: cut(source.forces, 160, `The forces of "${source.title.slice(0, 40)}"`),
-      abbreviation: cut(source.abbreviation, 16, `The abbreviation of "${source.title.slice(0, 40)}"`),
+      abbreviation: cut(
+        source.abbreviation,
+        16,
+        `The abbreviation of "${source.title.slice(0, 40)}"`,
+      ),
       notes: cut(source.notes, 2000, `The notes on "${source.title.slice(0, 40)}"`),
-      pageOffset: within(source.pdfId ? (model.pdfs.get(source.pdfId)?.pageOffset ?? 0) : 0, -999, 999),
+      pageOffset: within(
+        source.pdfId ? (model.pdfs.get(source.pdfId)?.pageOffset ?? 0) : 0,
+        -999,
+        999,
+      ),
     });
     if (!checked.success) {
       report.problem(
@@ -816,7 +842,8 @@ export function planImport(
     });
   };
   for (const p of model.personnel.values())
-    p.observers.forEach((o, i) => guest(`${p.id}:observer:${i}`, o, "other", "Observer"));
+    for (const [i, o] of p.observers.entries())
+      guest(`${p.id}:observer:${i}`, o, "other", "Observer");
   guest("meta:conductor", meta.conductor, "artist", "Conductor");
   guest("meta:producer", meta.producer, "staff", "Producer");
   guest("meta:engineer", meta.engineer, "staff", "Engineer");
@@ -841,14 +868,20 @@ export function planImport(
               }));
             return {
               name: cut(s.name, 60, `A section of ${what}`) || `Section ${i + 1}`,
-              count: within(s.members.length > 0 ? s.members.length : s.unnamed, members.length, 500),
+              count: within(
+                s.members.length > 0 ? s.members.length : s.unnamed,
+                members.length,
+                500,
+              ),
               divisi: divisiOf(s.members).slice(0, 40),
               members,
             };
           })
         : [];
     if (person.kind !== "ensemble" && person.sections.length > 0)
-      report.problem(`${what} has sections but is not an ensemble, so their sections were left out`);
+      report.problem(
+        `${what} has sections but is not an ensemble, so their sections were left out`,
+      );
     const checked = personnelInput.safeParse({
       name: cut(person.name, 120, what),
       kind: person.kind,
@@ -887,10 +920,15 @@ export function planImport(
   for (const take of model.takes.values()) {
     const trackKey = takePlaces.get(take.id) ?? null;
     if (!trackKey || !trackKeys.has(trackKey)) {
-      report.problem(`Take ${take.number} belongs to no work Hekate could make, so it was left out`);
+      report.problem(
+        `Take ${take.number} belongs to no work Hekate could make, so it was left out`,
+      );
       continue;
     }
-    const taken = takenTracks.get(trackKey) ?? { there: new Set<number>(), file: new Set<number>() };
+    const taken = takenTracks.get(trackKey) ?? {
+      there: new Set<number>(),
+      file: new Set<number>(),
+    };
     const number = take.number;
     if (number < 1) {
       report.problem(`A take of "${trackNameOf(trackKey)}" has no number, so it was left out`);
@@ -1064,7 +1102,9 @@ export function planImport(
     if (item.kind === "day") {
       const date = /^\d{4}-\d{2}-\d{2}$/.test(item.date.trim()) ? item.date.trim() : null;
       if (item.date.trim() && !date)
-        report.problem(`The day "${item.label || item.date}" has a date Hekate cannot read, so it has none`);
+        report.problem(
+          `The day "${item.label || item.date}" has a date Hekate cannot read, so it has none`,
+        );
       let venueId = item.venueId;
       if (!venueId && item.legacy.venue.trim()) {
         venueId = venueByName(item.legacy.venue);
@@ -1073,13 +1113,16 @@ export function planImport(
             `The day "${item.label || item.date}" is at "${item.legacy.venue.slice(0, 40)}", which is not among the venues, so it has none`,
           );
       }
-      if (item.notes.trim()) notBrought("update_schedule_item notes", "Hekate's schedule days have no notes");
+      if (item.notes.trim())
+        notBrought("update_schedule_item notes", "Hekate's schedule days have no notes");
       const checked = scheduleDayInput.safeParse({
         label: cut(item.label, 60, "A day's label") || date || `Day ${daysPlanned.length + 1}`,
         date,
       });
       if (!checked.success) {
-        report.problem(`The day "${item.label}": ${refusal(checked.error)}, so its rows are on the day before`);
+        report.problem(
+          `The day "${item.label}": ${refusal(checked.error)}, so its rows are on the day before`,
+        );
         continue;
       }
       day = {
@@ -1095,8 +1138,17 @@ export function planImport(
       continue;
     }
     if (!day) {
-      report.problem("The schedule has rows before its first day, so they are on a day of their own");
-      day = { label: "Day 1", date: null, venueKey: null, start: "10:00", rows: [], started: false };
+      report.problem(
+        "The schedule has rows before its first day, so they are on a day of their own",
+      );
+      day = {
+        label: "Day 1",
+        date: null,
+        venueKey: null,
+        start: "10:00",
+        rows: [],
+        started: false,
+      };
       daysPlanned.push(day);
       count("schedule-day", false, day.label);
     }
@@ -1111,7 +1163,9 @@ export function planImport(
         ? `${(clock[1] as string).padStart(2, "0")}:${clock[2]}`
         : null;
     if (item.start.trim() && !start)
-      report.problem(`A schedule row starts at "${item.start.slice(0, 10)}", which is not a time, so it follows the row before`);
+      report.problem(
+        `A schedule row starts at "${item.start.slice(0, 10)}", which is not a time, so it follows the row before`,
+      );
     let kind: ScheduleRowKind = "slot";
     let label = item.title;
     if (item.kind === "break")
@@ -1136,7 +1190,10 @@ export function planImport(
         else if (ref.movement !== 0 && trackKeys.has(key)) rowTracks.push(key);
         else missing = true;
       }
-    if (missing) report.problem("A schedule slot names repertoire the file no longer has, which was left off it");
+    if (missing)
+      report.problem(
+        "A schedule slot names repertoire the file no longer has, which was left off it",
+      );
     const checked = scheduleRowInput.safeParse({
       kind,
       start,
@@ -1201,7 +1258,9 @@ export function planImport(
         if (!says && !(direction === "input" && plugged.get(box.id)?.has(channel))) return;
         if (seen.has(channel)) {
           if (says)
-            report.problem(`${name} ${direction} ${channel}: the channel is taken, so it was left out`);
+            report.problem(
+              `${name} ${direction} ${channel}: the channel is taken, so it was left out`,
+            );
           return;
         }
         const row = patchRowInput.safeParse({
@@ -1213,7 +1272,9 @@ export function planImport(
           notes: r.notes.trim().slice(0, 200),
         });
         if (!row.success) {
-          report.problem(`${name} ${direction} ${channel}: ${refusal(row.error)}, so it was left out`);
+          report.problem(
+            `${name} ${direction} ${channel}: ${refusal(row.error)}, so it was left out`,
+          );
           return;
         }
         seen.add(channel);
@@ -1236,7 +1297,10 @@ export function planImport(
       outputs: channels(box.outputs, "output", there?.outputs ?? []),
     };
     stageBoxes.push(planned);
-    boxInputs.set(box.id, new Set([...(there?.inputs ?? []), ...planned.inputs.map((i) => i.channel)]));
+    boxInputs.set(
+      box.id,
+      new Set([...(there?.inputs ?? []), ...planned.inputs.map((i) => i.channel)]),
+    );
     count("stage-box", there !== null, name);
   }
 
@@ -1257,17 +1321,21 @@ export function planImport(
         "update_stage_plan lmask",
         "Which label groups ControlRoom draws: Hekate shows or hides a group in the plan's own view",
       );
-    const width = within(plan.width, 1, 200);
-    const depth = within(plan.depth, 1, 200);
-    if (width !== plan.width || depth !== plan.depth)
-      report.problem(`The stage plan "${plan.name}" is a size Hekate cannot draw, so it was held to 1 to 200 metres`);
+    const width = metres(within(plan.width, 1, 200));
+    const depth = metres(within(plan.depth, 1, 200));
+    if (width !== metres(plan.width) || depth !== metres(plan.depth))
+      report.problem(
+        `The stage plan "${plan.name}" is a size Hekate cannot draw, so it was held to 1 to 200 metres`,
+      );
     const checked = stagePlanInput.safeParse({
       name: cut(plan.name, 80, "A stage plan's name") || venue?.name.slice(0, 80) || "Stage",
       width,
       depth,
     });
     if (!checked.success) {
-      report.problem(`The stage plan "${plan.name || plan.id}": ${refusal(checked.error)}, so it was left out`);
+      report.problem(
+        `The stage plan "${plan.name || plan.id}": ${refusal(checked.error)}, so it was left out`,
+      );
       continue;
     }
     const there = meet("stage-plan", checked.data.name, existing.stagePlans);
@@ -1294,19 +1362,24 @@ export function planImport(
           id: "00000000-0000-7000-8000-000000000000",
           kind: item.kind,
           label: item.label.trim().slice(0, 60),
-          x: item.x,
-          y: item.y,
-          w: item.w,
-          h: item.h,
-          rotation: item.rotation,
+          x: metres(item.x),
+          y: metres(item.y),
+          w: metres(item.w),
+          h: metres(item.h),
+          rotation: metres(item.rotation),
           group: item.group,
         });
         if (!checkedItem.success) {
-          report.problem(`A ${item.kind} on "${name}": ${refusal(checkedItem.error)}, so it was left out`);
+          report.problem(
+            `A ${item.kind} on "${name}": ${refusal(checkedItem.error)}, so it was left out`,
+          );
           continue;
         }
         if (e.colour !== 0)
-          notBrought("upsert_stage_element c", "An element's own colour: Hekate draws each kind in its own");
+          notBrought(
+            "upsert_stage_element c",
+            "An element's own colour: Hekate draws each kind in its own",
+          );
         items.push({
           kind: checkedItem.data.kind,
           label: checkedItem.data.label,
@@ -1374,7 +1447,9 @@ export function marksOf(a: CrAnnotation, report: ReportCollector): MarkInput[] {
   const x = within(a.x, 0, 1);
   const y = within(a.y, 0, 1);
   const region =
-    a.rect && a.w > 0 && a.h > 0 ? { width: Math.min(a.w, 1 - x), height: Math.min(a.h, 1 - y) } : {};
+    a.rect && a.w > 0 && a.h > 0
+      ? { width: Math.min(a.w, 1 - x), height: Math.min(a.h, 1 - y) }
+      : {};
   const text = a.note.trim() ? a.note.trim().slice(0, 500) : null;
   const takes = [...new Set(a.takesAffected.filter((n) => n >= 1))].slice(0, 50);
   const fixedBy = a.takeResolved !== null && a.takeResolved >= 1 ? a.takeResolved : null;
@@ -1417,7 +1492,13 @@ export function marksOf(a: CrAnnotation, report: ReportCollector): MarkInput[] {
       }
       // An overdub lays each take it names over; a lead-in starts the chain with its first take.
       if (a.tedit.overdub)
-        return chain.map((to, i) => ({ ...base, kind: "edit", to, overdub: true, text: i === 0 ? text : null }));
+        return chain.map((to, i) => ({
+          ...base,
+          kind: "edit",
+          to,
+          overdub: true,
+          text: i === 0 ? text : null,
+        }));
       const edits: MarkInput[] = [];
       if (a.tedit.lead || chain.length === 1)
         edits.push({ ...base, kind: "edit", from: null, to: chain[0] as number });
@@ -1427,7 +1508,8 @@ export function marksOf(a: CrAnnotation, report: ReportCollector): MarkInput[] {
       return edits;
     }
     default: {
-      const kind = a.kind === "take_begin" ? "take-start" : a.kind === "take_end" ? "take-end" : "punch-in";
+      const kind =
+        a.kind === "take_begin" ? "take-start" : a.kind === "take_end" ? "take-end" : "punch-in";
       const to = a.takesAffected[0] ?? a.tedit.takes[0];
       if (to !== undefined && to >= 1) return [{ ...base, kind, to, text }];
       const words = takeless[a.kind] ?? "Mark";
@@ -1440,7 +1522,10 @@ export function marksOf(a: CrAnnotation, report: ReportCollector): MarkInput[] {
 /** One ControlRoom element as Hekate's stage items: a run or a wall for each stretch of its line. */
 export function itemsOf(e: CrElement, model: CroomModel, report: ReportCollector) {
   const known = stageKindOf[e.kind];
-  const written = e.kind.toLowerCase().replace(/[^a-z]+/g, "-").replace(/^-+|-+$/g, "");
+  const written = e.kind
+    .toLowerCase()
+    .replace(/[^a-z]+/g, "-")
+    .replace(/^-+|-+$/g, "");
   const kind = known ?? (/^[a-z][a-z-]{0,30}$/.test(written) ? written : "rect");
   const turned = (((e.rot % 360) + 360) % 360) as number;
   const rotation = turned > 180 ? turned - 360 : turned;
@@ -1488,7 +1573,7 @@ export function itemsOf(e: CrElement, model: CroomModel, report: ReportCollector
   }
   if (e.kind === "block") {
     if (!label && section) label = section.name;
-    h = blockDepth(section ? (section.members.length || section.unnamed) : 0, e.w);
+    h = blockDepth(section ? section.members.length || section.unnamed : 0, e.w);
   }
   if (e.kind === "stagebox" && !label) {
     const box = e.boxId ? model.stageBoxes.get(e.boxId) : undefined;
@@ -1520,7 +1605,12 @@ function underlayOf(
   plan: CrStagePlan,
   width: number,
   blobs: BlobFacts,
-  addFile: (key: string, blobId: string | null, name: string, purpose: PlannedFile["purpose"]) => boolean,
+  addFile: (
+    key: string,
+    blobId: string | null,
+    name: string,
+    purpose: PlannedFile["purpose"],
+  ) => boolean,
   report: ReportCollector,
 ): PlannedStagePlan["underlay"] {
   if (!plan.underlayBlobId) return null;
@@ -1538,9 +1628,9 @@ function underlayOf(
   }
   return {
     fileKey: key,
-    x: within(plan.underlayX, -100, 300),
-    y: within(plan.underlayY, -100, 300),
-    width: within(across, 0.01, 500),
-    opacity: within(plan.underlayOpacity, 0.05, 1),
+    x: metres(within(plan.underlayX, -100, 300)),
+    y: metres(within(plan.underlayY, -100, 300)),
+    width: metres(within(across, 0.01, 500)),
+    opacity: metres(within(plan.underlayOpacity, 0.05, 1)),
   };
 }

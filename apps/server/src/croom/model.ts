@@ -296,7 +296,13 @@ export interface CrScheduleItem {
   date: string;
   venueId: string | null;
   /** Older files' fields, written on the row before the registries. */
-  legacy: { composer: string; arranger: string; forces: string; venue: string; pdfId: string | null };
+  legacy: {
+    composer: string;
+    arranger: string;
+    forces: string;
+    venue: string;
+    pdfId: string | null;
+  };
 }
 
 export interface CroomModel {

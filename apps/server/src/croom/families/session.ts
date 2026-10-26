@@ -40,7 +40,8 @@ export const session: Family = {
           );
       } else if (field === "lifecycle_enabled") meta.lifecycleEnabled = yes(value);
       else if (field === "per_score_takes") meta.perScoreTakes = yes(value);
-      else if (field === "score_order") meta.scoreOrder = value === "schedule" ? "schedule" : "alpha";
+      else if (field === "score_order")
+        meta.scoreOrder = value === "schedule" ? "schedule" : "alpha";
       else ctx.report.unknownField("set_meta", field || "(no field)");
     },
     set_notes(ctx, f) {

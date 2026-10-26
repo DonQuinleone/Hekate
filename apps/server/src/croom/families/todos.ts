@@ -1,5 +1,5 @@
-import { idOf } from "../fields.ts";
 import { absent, type Family, removeFrom } from "../family.ts";
+import { idOf } from "../fields.ts";
 import type { CrTodo } from "../model.ts";
 
 /**

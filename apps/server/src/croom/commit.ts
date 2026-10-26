@@ -194,7 +194,9 @@ export interface CommitOptions {
 
 /** Whether a file is drawn or probed by the media worker once it is in: as an upload is. */
 const workedOn = (file: { name: string; contentType: string; kind: string }) =>
-  file.kind === "audio" || file.kind === "video" || pageSourceOf(file.name, file.contentType) !== null;
+  file.kind === "audio" ||
+  file.kind === "video" ||
+  pageSourceOf(file.name, file.contentType) !== null;
 
 /**
  * Writes a replayed `.croom` file into a project in one transaction (#57, decision 242). The

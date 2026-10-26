@@ -1,5 +1,5 @@
-import { eachOf } from "../fields.ts";
 import { absent, type Family, removeFrom } from "../family.ts";
+import { eachOf } from "../fields.ts";
 import { type CrPersonnelKind, moveTo, personnelKinds } from "../model.ts";
 
 /**
@@ -44,17 +44,12 @@ export const personnel: Family = {
         sections: eachOf(f.list("sections"), `${ctx.type}.sections`, ctx.report, (s) => ({
           name: s.str("name"),
           unnamed: Math.max(0, s.int("unnamed", 0)),
-          members: eachOf(
-            s.list("members"),
-            `${ctx.type}.sections.members`,
-            ctx.report,
-            (m) => ({
-              name: m.str("name"),
-              divisi: m.str("div"),
-              rights: m.bool("rights", false),
-              cans: m.bool("cans", false),
-            }),
-          ),
+          members: eachOf(s.list("members"), `${ctx.type}.sections.members`, ctx.report, (m) => ({
+            name: m.str("name"),
+            divisi: m.str("div"),
+            rights: m.bool("rights", false),
+            cans: m.bool("cans", false),
+          })),
         })),
         observers: (f.list("observers") ?? []).filter((o): o is string => typeof o === "string"),
       };

@@ -1,6 +1,6 @@
-import type { Fields } from "../fields.ts";
 import { absent, type Family, type ReplayContext, removeFrom } from "../family.ts";
-import { type CrAnnotation, type CrAnnotationKind, annotationKinds } from "../model.ts";
+import type { Fields } from "../fields.ts";
+import { annotationKinds, type CrAnnotation, type CrAnnotationKind } from "../model.ts";
 
 /**
  * Marks on a score (decision 242). `add_annotation` has `kind` (issue, tedit, take_begin,
@@ -20,7 +20,10 @@ function pairsOf(values: unknown[] | undefined, ctx: ReplayContext): [number, nu
   for (const v of values ?? []) {
     if (Array.isArray(v) && typeof v[0] === "number" && typeof v[1] === "number")
       points.push([v[0], v[1]]);
-    else ctx.report.problem(`${ctx.type}: ink holds a point that is not two numbers, so it was left out`);
+    else
+      ctx.report.problem(
+        `${ctx.type}: ink holds a point that is not two numbers, so it was left out`,
+      );
   }
   return points;
 }

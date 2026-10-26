@@ -1,5 +1,5 @@
-import { idOf, wholeOf } from "../fields.ts";
 import { absent, type Family, type ReplayContext } from "../family.ts";
+import { idOf, wholeOf } from "../fields.ts";
 import { type CrScheduleItem, type CrScheduleKind, scheduleKinds } from "../model.ts";
 
 /**

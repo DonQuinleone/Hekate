@@ -8,7 +8,10 @@ export function imageSize(head: Uint8Array): { width: number; height: number } |
   const b = Buffer.from(head.buffer, head.byteOffset, head.byteLength);
   if (b.length >= 24 && b.readUInt32BE(0) === 0x89504e47 && b.toString("latin1", 12, 16) === "IHDR")
     return positive(b.readUInt32BE(16), b.readUInt32BE(20));
-  if (b.length >= 10 && (b.toString("latin1", 0, 6) === "GIF87a" || b.toString("latin1", 0, 6) === "GIF89a"))
+  if (
+    b.length >= 10 &&
+    (b.toString("latin1", 0, 6) === "GIF87a" || b.toString("latin1", 0, 6) === "GIF89a")
+  )
     return positive(b.readUInt16LE(6), b.readUInt16LE(8));
   if (b.length >= 26 && b.toString("latin1", 0, 2) === "BM")
     return positive(Math.abs(b.readInt32LE(18)), Math.abs(b.readInt32LE(22)));

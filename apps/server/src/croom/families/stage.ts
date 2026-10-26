@@ -1,5 +1,5 @@
-import { type Fields, fieldsOf, isRecord } from "../fields.ts";
 import { absent, type Family, type ReplayContext, removeFrom } from "../family.ts";
+import { type Fields, fieldsOf, isRecord } from "../fields.ts";
 import type { CrElement, CrPatchRow, CrStagePlan } from "../model.ts";
 
 /**
@@ -32,7 +32,9 @@ function rowsOf(values: unknown[] | undefined, ctx: ReplayContext): CrPatchRow[]
       const v = cells[i];
       if (v === undefined) return "";
       if (typeof v === "string") return v;
-      ctx.report.problem(`${ctx.type}: a patch row holds a cell that is not text, so it was left out`);
+      ctx.report.problem(
+        `${ctx.type}: a patch row holds a cell that is not text, so it was left out`,
+      );
       return "";
     };
     return { source: cell(0), device: cell(1), cable: cell(2), notes: cell(3) };

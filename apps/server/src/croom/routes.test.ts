@@ -159,6 +159,7 @@ describe.runIf(url)("ControlRoom import (#57)", () => {
       stageItems: schema.stageItems,
       stageBoxes: schema.stageBoxes,
       patchRows: schema.patchRows,
+      sessionTodos: schema.sessionTodos,
     };
     const out: Record<string, number> = {};
     for (const [name, table] of Object.entries(tables)) {
@@ -198,13 +199,15 @@ describe.runIf(url)("ControlRoom import (#57)", () => {
     const res = await send(`/api/projects/${projectId}/croom/preview`, croomFixtureBytes(), owner);
     expect(res.status).toBe(200);
     const { preview } = (await res.json()) as { preview: CroomPreview };
-    expect(preview).toMatchObject({ schemaVersion: 1, events: { undone: 1 } });
+    expect(preview).toMatchObject({ schemaVersion: 1, events: { undone: 3 } });
     expect(Object.fromEntries(preview.counts.map((c) => [c.kind, c.create]))).toMatchObject({
       work: 2,
       track: 3,
-      take: 5,
-      "score-mark": 3,
-      "stage-item": 3,
+      file: 2,
+      take: 4,
+      todo: 2,
+      "score-mark": 9,
+      "stage-item": 8,
     });
     expect(preview.report.unknownEvents).toEqual([{ type: "frobnicate_widget", count: 1 }]);
     expect(preview.names.find((n) => n.kind === "work")?.names).toEqual(["Rags", "Opening titles"]);
@@ -221,24 +224,26 @@ describe.runIf(url)("ControlRoom import (#57)", () => {
     expect(res.status).toBe(201);
     const { imported } = (await res.json()) as { imported: CroomImported };
     expect(imported.report.unknownFields).toEqual([
-      { type: "add_take", field: "mystery_field", count: 1 },
+      { type: "update_venue", field: "postcode", count: 1 },
     ]);
+    // Two scores, an attached photo and the stage plan's underlay.
     expect(await rowsIn(organisationId)).toEqual({
       works: 2,
       tracks: 3,
-      files: 1,
-      blobs: 1,
+      files: 4,
+      blobs: 4,
       venues: 2,
-      personnel: 3,
+      personnel: 5,
       sessions: 1,
-      takes: 5,
-      scoreMarks: 3,
+      takes: 4,
+      scoreMarks: 9,
       scheduleDays: 1,
-      scheduleRows: 3,
+      scheduleRows: 5,
       stagePlans: 1,
-      stageItems: 3,
+      stageItems: 8,
       stageBoxes: 1,
       patchRows: 3,
+      sessionTodos: 2,
     });
     expect(readdirSync(workDir)).toEqual([]);
 
@@ -257,15 +262,18 @@ describe.runIf(url)("ControlRoom import (#57)", () => {
       ["Maple Leaf Rag", "1"],
       ["The Entertainer", "2"],
     ]);
-    const [score] = await db
+    const importedFiles = await db
       .select()
       .from(schema.files)
       .where(inOrg(schema.files, organisationId, eq(schema.files.projectId, projectId)));
-    expect(score).toMatchObject({
-      name: "Rags - Score.pdf",
-      kind: "document",
-      streamStatus: "pending",
-    });
+    expect(importedFiles.map((f) => [f.name, f.kind, f.contentType]).sort()).toEqual([
+      ["Endless Hall floor plan.png", "image", "image/png"],
+      ["Joplin Rags - Score.pdf", "document", "application/pdf"],
+      ["Opening titles.pdf", "document", "application/pdf"],
+      ["mic-setup.png", "image", "image/png"],
+    ]);
+    const score = importedFiles.find((f) => f.name === "Joplin Rags - Score.pdf");
+    expect(score).toMatchObject({ kind: "document", streamStatus: "pending" });
     expect(rags?.scoreFileId).toBe(score?.id);
     const { stream } = await storage.open(organisationId, score?.blobId ?? "");
     const chunks: Buffer[] = [];
@@ -279,7 +287,13 @@ describe.runIf(url)("ControlRoom import (#57)", () => {
     const { readFileSync } = await import("node:fs");
     const onDisk = readFileSync(join(storageRoot, blob?.key ?? ""));
     expect(onDisk.includes(Buffer.from("%PDF-"))).toBe(false);
-    expect(sent.map((s) => s.name)).toEqual(["document-render"]);
+    // Each is drawn as any document or picture is.
+    expect(sent.map((s) => s.name)).toEqual([
+      "document-render",
+      "document-render",
+      "document-render",
+      "document-render",
+    ]);
 
     // Takes on their tracks, numbered, rated and in their session.
     const takes = await db
@@ -298,20 +312,46 @@ describe.runIf(url)("ControlRoom import (#57)", () => {
       ["Maple Leaf Rag", 1, 3, 0],
       ["Maple Leaf Rag", 2, 5, 1],
       ["Opening titles", 1, 0, 0],
-      ["The Entertainer", 1, 4, 0],
-      ["The Entertainer", 2, 2, 0],
+      ["The Entertainer", 1, 0, 0],
     ]);
+    // All in the one session the file is, with its to-dos in the file's order.
+    expect(new Set(takes.map((t) => t.sessionId)).size).toBe(1);
     expect(takes.every((t) => t.sessionId !== null)).toBe(true);
-    // The take edit, and the issue in its category.
+    const [session] = await db
+      .select()
+      .from(schema.sessions)
+      .where(eq(schema.sessions.organisationId, organisationId));
+    expect(session).toMatchObject({
+      name: "Joplin Rags",
+      numbering: "per-track",
+      recordedOn: "2026-09-12",
+    });
+    const todos = await db
+      .select({ text: schema.sessionTodos.text, done: schema.sessionTodos.done })
+      .from(schema.sessionTodos)
+      .where(eq(schema.sessionTodos.organisationId, organisationId))
+      .orderBy(asc(schema.sessionTodos.createdAt));
+    expect(todos).toEqual([
+      { text: "Send the edit list to Tomas", done: false },
+      { text: "Check the piano's tuning", done: true },
+    ]);
+    // The T-edit, and the issue in its category, marked when ControlRoom marked it.
     const marks = await db
       .select()
       .from(schema.scoreMarks)
       .where(eq(schema.scoreMarks.organisationId, organisationId));
-    expect(marks.find((m) => m.kind === "edit" && m.fromTake === 1)).toMatchObject({
-      toTake: 2,
-      barFrom: 17,
-    });
-    expect(marks.find((m) => m.kind === "issue")?.categoryId).not.toBeNull();
+    expect(marks.find((m) => m.kind === "edit" && m.fromTake === 1)).toMatchObject({ toTake: 2 });
+    const issue = marks.find((m) => m.kind === "issue");
+    expect(issue?.categoryId).not.toBeNull();
+    expect(issue?.createdAt.toISOString().slice(0, 10)).toBe("2026-09-12");
+    expect(issue?.resolvedAt).not.toBeNull();
+    // The floor plan under the stage, 400 pixels at 3 cm a pixel.
+    const [plan] = await db
+      .select()
+      .from(schema.stagePlans)
+      .where(eq(schema.stagePlans.organisationId, organisationId));
+    expect(plan?.underlayFileId).toBe(importedFiles.find((f) => f.name.includes("floor plan"))?.id);
+    expect(plan?.underlayWidth).toBe(12);
     // The microphone plugged into Box A's first input, the performer standing for the pianist.
     const items = await db
       .select()
@@ -365,7 +405,7 @@ describe.runIf(url)("ControlRoom import (#57)", () => {
       ).status,
     ).toBe(201);
     const merged = await rowsIn(organisationId);
-    expect(merged).toMatchObject({ works: 2, tracks: 3, venues: 2, takes: 5, stagePlans: 1 });
+    expect(merged).toMatchObject({ works: 2, tracks: 3, venues: 2, takes: 4, stagePlans: 1 });
     expect(
       (
         await send(
@@ -508,7 +548,7 @@ describe.runIf(url)("ControlRoom import (#57)", () => {
               .select({ n: count() })
               .from(schema.takes)
               .where(eq(schema.takes.organisationId, organisationId));
-            expect(made?.n).toBe(5);
+            expect(made?.n).toBe(4);
             throw new Error("the disk filled up");
           },
         }),

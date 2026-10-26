@@ -137,7 +137,8 @@ export function openCroom(path: string): CroomSource {
     const version = Number(schemaVersion);
     if (!schemaVersion || !Number.isInteger(version) || version < 1)
       throw new CroomError("The file does not say which ControlRoom schema it was written in");
-    const head = headWritten !== undefined && /^\d+$/.test(headWritten) ? Number(headWritten) : null;
+    const head =
+      headWritten !== undefined && /^\d+$/.test(headWritten) ? Number(headWritten) : null;
 
     const events: CroomEvent[] = [];
     let undone = 0;

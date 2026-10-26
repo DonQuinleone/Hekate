@@ -1,5 +1,5 @@
-import { eachOf } from "../fields.ts";
 import { absent, type Family, removeFrom } from "../family.ts";
+import { eachOf } from "../fields.ts";
 import type { CrPiece } from "../model.ts";
 
 /**

@@ -1,5 +1,5 @@
-import type { Fields } from "../fields.ts";
 import { absent, type Family, type ReplayContext, removeFrom } from "../family.ts";
+import type { Fields } from "../fields.ts";
 import {
   type CrLifecycle,
   type CrTake,
