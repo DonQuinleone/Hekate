@@ -116,7 +116,8 @@ function CroomImport({ projectId }: { projectId: string }) {
     >
       <p className="m-0 text-[14px] text-ink-2">
         Bring a ControlRoom project (.croom) into this one. Everything it holds becomes the
-        project's: works, schedule, personnel, takes, marks, the stage plan and the patch list.
+        project's: works and scores, the schedule, personnel, takes and to-dos, marks, stage plans,
+        the patch list and attached files.
       </p>
       <FileInput
         ref={chooser}

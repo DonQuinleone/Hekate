@@ -1731,6 +1731,7 @@ function ImportView() {
     ["Personnel", 6],
     ["Schedule days", 2],
     ["Takes", 26],
+    ["To-dos", 3],
     ["Score marks", 7],
     ["Stage items", 13],
     ["Patch rows", 8],
@@ -1739,7 +1740,8 @@ function ImportView() {
     <div className="mx-auto flex w-full max-w-[640px] flex-col gap-4">
       <p className="text-[14px] text-ink-2">
         Bring a ControlRoom project (.croom) into this one. Everything it holds becomes the
-        project's: works, schedule, personnel, takes, marks, the stage plan and the patch list.
+        project's: works and scores, the schedule, personnel, takes and to-dos, marks, stage plans,
+        the patch list and attached files.
       </p>
       {step === 0 && (
         <button
@@ -1768,8 +1770,9 @@ function ImportView() {
           {state === "failed" ? (
             <p className="flex items-start gap-2 text-[13px] text-signal">
               <Icon name="warning" size={14} className="mt-0.5 shrink-0" />
-              The schedule refers to a venue that is not in the file; 2 takes have no session. They
-              will be imported without a venue and as unplaced.
+              The schedule names a venue that is not among the file's venues, so its day has none; 2
+              takes were recorded under no work and no score, so they go on a track named after the
+              session.
             </p>
           ) : (
             <p className="flex items-start gap-2 text-[13px] text-ink-2">
@@ -1809,8 +1812,7 @@ function ImportView() {
           {step === 2 && (
             <p className="flex items-center gap-2 text-[13px] text-ink-2">
               <Dot state="approved" />
-              Done. 26 takes matched to their sessions; the score marks sit on Maple Leaf Rag -
-              Score.pdf.
+              Done. 26 takes in the file's session; the score marks sit on their tracks.
             </p>
           )}
         </>
