@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type BillingRules, billingRules, defaultBillingRules } from "./billing.ts";
 import type { BounceProvider } from "./mail-bounces.ts";
 import { defaultWorkspaceSettings, guestLinkDays } from "./organisation.ts";
+import { pausedQueues } from "./queues.ts";
 import { registrationModes } from "./registration.ts";
 import { updateChannels } from "./releases.ts";
 import { workspaceLimits } from "./usage.ts";
@@ -60,6 +61,11 @@ const instanceSettingsSchema = z.object({
     statusUrl: z.url().max(500).nullable(),
     onCall: z.string().min(1).max(64).nullable(),
   }),
+  /**
+   * The queues an operator paused (decision 250): every worker stops taking their jobs until
+   * they are resumed, restarts included. Saved from Queues alone, never from Settings.
+   */
+  queues: z.object({ paused: pausedQueues }),
 });
 export type InstanceSettings = z.infer<typeof instanceSettingsSchema>;
 
@@ -84,6 +90,8 @@ export const instanceSettingsInput = instanceSettingsSchema.extend({
   registration: instanceSettingsSchema.shape.registration.optional(),
   // Saved from the Support page's desk, never from Settings.
   support: instanceSettingsSchema.shape.support.optional(),
+  // Saved from Queues, never from Settings.
+  queues: instanceSettingsSchema.shape.queues.optional(),
 });
 export type InstanceSettingsInput = z.infer<typeof instanceSettingsInput>;
 
@@ -116,6 +124,7 @@ export const withStored = (
   billing: input.billing ?? stored.billing,
   registration: input.registration ?? stored.registration,
   support: input.support ?? stored.support,
+  queues: input.queues ?? stored.queues,
 });
 
 export const defaultInstanceSettings: InstanceSettings = {
@@ -135,6 +144,7 @@ export const defaultInstanceSettings: InstanceSettings = {
   // As before registration was a setting: operators make the workspaces.
   registration: { mode: "closed" },
   support: { statusUrl: null, onCall: null },
+  queues: { paused: [] },
 };
 
 /** Stored settings over the defaults, so one written before a setting existed still reads. */
@@ -156,6 +166,7 @@ export function instanceSettingsOf(stored: unknown): InstanceSettings {
     },
     registration: { ...defaultInstanceSettings.registration, ...value.registration },
     support: { ...defaultInstanceSettings.support, ...value.support },
+    queues: { ...defaultInstanceSettings.queues, ...value.queues },
   };
   const parsed = instanceSettingsSchema.safeParse(merged);
   return parsed.success ? parsed.data : defaultInstanceSettings;

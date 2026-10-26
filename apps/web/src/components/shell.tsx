@@ -52,10 +52,12 @@ const instanceIcons: Record<InstanceSection, IconName> = {
   billing: "chart",
   support: "comment",
   health: "pulse",
+  queues: "clock",
   logs: "list",
   settings: "settings",
   system: "server",
   debug: "sliders",
+  operations: "database",
 };
 
 /** The lamps in the room: slow, warm and cool, behind the chrome. */

@@ -3307,6 +3307,9 @@ export const errorReports = pgTable(
     }),
     userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    /** An operator marked it known (decision 252): seen, understood, nothing more to look into. */
+    knownAt: timestamp("known_at", { withTimezone: true }),
+    knownBy: text("known_by").references(() => users.id, { onDelete: "set null" }),
   },
   (t) => [index("error_reports_occurred_idx").on(t.occurredAt)],
 );

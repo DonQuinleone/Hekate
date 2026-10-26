@@ -60,6 +60,8 @@ export interface ErrorReportRow {
   location: string;
   message: string;
   workspace: string | null;
+  /** When an operator marked it known (decision 252); null while it is not. */
+  knownAt: string | null;
 }
 
 /** The whole story behind a reference. */
@@ -75,7 +77,12 @@ export interface ErrorReport extends ErrorReportRow {
   workspaceId: string | null;
   /** Who it happened to, when it happened in a request; nothing else about them. */
   who: { name: string; email: string } | null;
+  /** The operator who marked it known, by name. */
+  knownBy: string | null;
 }
+
+/** Marking a report known, or not known after all (decision 252). */
+export const errorKnownInput = z.object({ known: z.boolean() });
 
 /** The report as plain text, for pasting into a ticket or an issue. */
 export function errorReportText(report: ErrorReport): string {

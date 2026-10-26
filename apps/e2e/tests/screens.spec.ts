@@ -483,6 +483,23 @@ const screens: Screen[] = [
     path: () => "/instance/debug",
     ready: "main >> text=HK-7F3A-2C",
   },
+  // An error report open (decision 252): its file to inspect, and Mark as known.
+  {
+    name: "instance-debug-report",
+    path: () => "/instance/debug?reference=HK-7F3A-2C",
+    ready: "main >> text=Mark as known",
+  },
+  // The queues (decision 250) and Operations (decision 251).
+  {
+    name: "instance-queues",
+    path: () => "/instance/queues",
+    ready: "main >> text=Recent jobs",
+  },
+  {
+    name: "instance-operations",
+    path: () => "/instance/operations",
+    ready: "main >> text=Verify a restore",
+  },
   {
     name: "instance-billing",
     path: () => "/instance/billing",
@@ -1494,6 +1511,22 @@ for (const [name, role, open, ready] of [
     await checkScreen(page);
   });
 }
+
+// A workspace's rendition cache cleared (decision 255): asked first.
+test("instance-workspace-rendition-cache", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/instance/workspaces");
+  await settle(page, "main >> text=Recently in this workspace");
+  await page
+    .getByRole("tab", { name: /^Storage/ })
+    .first()
+    .click();
+  await settle(page, "main >> text=Rendition cache");
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await settle(page, "[role=dialog] >> text=Clear the rendition cache");
+  await saveScreen(page, "instance-workspace-rendition-cache");
+  await checkScreen(page);
+});
 
 // The instance's Billing (#180): its plans and promo codes, a plan open to edit, and a
 // workspace's plan being changed.

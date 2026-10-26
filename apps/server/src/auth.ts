@@ -5,6 +5,7 @@ import {
   entitled,
   methodsFor,
   notEntitledMessage,
+  rateLimits,
   type SessionFactor,
   type SignInMethod,
   signInMethodWords,
@@ -570,7 +571,11 @@ export function createAuth(options: AuthOptions) {
       window: 60,
       max: 100,
       customRules: {
-        "/sign-in/email": { window: 60, max: 10 },
+        // Shown in the instance's Operations from the same rule (decision 251).
+        "/sign-in/email": {
+          window: rateLimits.signIn.windowMs / 1000,
+          max: rateLimits.signIn.max,
+        },
         // A reset code is a key to the account: few to ask for, fewer to try.
         "/email-otp/request-password-reset": { window: 15 * 60, max: 5 },
         "/email-otp/reset-password": { window: 15 * 60, max: 10 },

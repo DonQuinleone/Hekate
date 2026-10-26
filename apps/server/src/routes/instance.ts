@@ -4,6 +4,7 @@ import {
   type ErrorReport,
   type ErrorReportRow,
   type ErrorSource,
+  errorKnownInput,
   errorReferenceParam,
   errorReportsQuery,
   exportPeriod,
@@ -15,6 +16,7 @@ import {
   type InstanceAccess,
   type InstanceEnvironment,
   type InstanceMemberRow,
+  type InstanceOperations,
   type InstanceOverview,
   type InstanceProjectRow,
   type InstanceWorkspace,
@@ -25,6 +27,7 @@ import {
   type InstanceWorkspaceStorage,
   inspectFileParam,
   inspectReviewParam,
+  inspectRunParam,
   inspectSessionParam,
   instanceFlags,
   instanceSettingsInput,
@@ -45,6 +48,8 @@ import {
   operatorParam as operatorParamSchema,
   planInput,
   promoCodeInput,
+  type RateLimitName,
+  rateLimits,
   SERVICE_ACCOUNT_DOMAIN,
   settingsChanges,
   signUpInvitationInput,
@@ -58,7 +63,7 @@ import {
   workspaceSettingsOf,
   workspaceStateOf,
 } from "@hekate/shared";
-import type { Backends } from "@hekate/storage";
+import { type Backends, CHUNK_SIZE, MAX_PARTS } from "@hekate/storage";
 import {
   and,
   count,
@@ -106,27 +111,37 @@ import {
 } from "../export/workspace-export.ts";
 import { createFlags } from "../flags.ts";
 import { linkBase, type Subdomains } from "../hosts.ts";
-import { inspectFile, inspectReview, inspectSession } from "../inspect.ts";
+import { inspectFile, inspectReview, inspectRun, inspectSession } from "../inspect.ts";
 import { recordInstanceEvent } from "../instance-events.ts";
 import type { InstanceSettingsStore } from "../instance-settings.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
-import { type JobName, type Jobs, jobDefinitions } from "../jobs.ts";
+import { type JobName, type Jobs, jobDefinitions, type QueueAdmin } from "../jobs.ts";
 import type { Keyring } from "../keyring.ts";
 import { escapeLike, logCsv, readLog } from "../logs.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { zValidator } from "../openapi/validator.ts";
 import { listPlans, savePlan, workspacePlanOf } from "../plans.ts";
+import { queueRows } from "../queues.ts";
 import { admit } from "../rate-limit.ts";
 import { listSignUpInvitations, newSignUpLink, revokeSignUpInvitation } from "../sign-up.ts";
 import { signal } from "../signals.ts";
 import { createStatus, type Status } from "../status.ts";
 import type { Storage } from "../storage.ts";
-import { type SystemHealthDeps, systemHealth } from "../system-health.ts";
+import {
+  bundleCounts,
+  bundleEnvironment,
+  bundleErrors,
+  bundleHealth,
+  bundleSettings,
+  type SupportBundle,
+} from "../support-bundle.ts";
+import { lanesNow, type SystemHealthDeps, systemHealth } from "../system-health.ts";
 import { HEKATE_VERSION, systemInformation } from "../system-info.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
 import { nearQuota, workspaceUsageOf } from "../usage.ts";
 import { pendingRewrap } from "../workspace-keys.ts";
 import { incidentRoutes } from "./incidents.ts";
+import { queueRoutes } from "./instance-queues.ts";
 import { operatorMove } from "./project-transfers.ts";
 import { retryFile } from "./retry.ts";
 import { supportDeskRoutes } from "./support-desk.ts";
@@ -150,6 +165,8 @@ export interface InstanceOptions {
   subdomains?: Subdomains | null;
   keyring: Keyring;
   jobs: Pick<Jobs, "send">;
+  /** The queue itself, for Queues (decision 250); without it Queues refuses to act. */
+  queues?: QueueAdmin;
   backends: Backends;
   /** Where a workspace's export (#186) and tickets' attachments (#182) are read from. */
   storage: Storage;
@@ -166,6 +183,8 @@ export interface InstanceOptions {
   environment: InstanceEnvironment;
   /** Billing (#178): the gateway, for taking its events again; none with billing off. */
   billing?: BillingDeps;
+  /** What this process runs, for Operations (decision 251); every lane, two at once, if unset. */
+  capacity?: InstanceOperations["capacity"]["process"];
 }
 
 interface InstanceVariables {
@@ -323,6 +342,7 @@ const reportRow = {
   source: schema.errorReports.source,
   location: schema.errorReports.location,
   message: schema.errorReports.message,
+  knownAt: schema.errorReports.knownAt,
 };
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Enough for a bad day; the lookup reaches any reference still kept. */
@@ -439,6 +459,16 @@ export function instanceRoutes(options: InstanceOptions) {
       ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
     });
   const { db } = options;
+  /** What Operations and the support bundle say of capacity (decision 251). */
+  const capacity = async (): Promise<InstanceOperations["capacity"]> => ({
+    lanes: await lanesNow(db, options.health),
+    process: options.capacity ?? { role: "all", lanes: null, concurrency: 2 },
+    uploadLimitBytes: CHUNK_SIZE * MAX_PARTS,
+    rateLimits: (Object.keys(rateLimits) as RateLimitName[]).map((name) => ({
+      name,
+      rule: rateLimits[name],
+    })),
+  });
   const billingOff = () => (options.environment.modules?.billing ?? "off") === "off";
   const billingOffRefusal = () =>
     new CodedException(
@@ -940,6 +970,40 @@ export function instanceRoutes(options: InstanceOptions) {
           .catch((error) => console.error("The rewrap could not be queued:", error));
         return c.json({ version });
       })
+      // Its rendition cache cleared (decision 255): every recording's streaming renditions made
+      // again from its original, each replacing the old ones once made; originals only read.
+      .post("/workspaces/:id/renditions/rebuild", idParam, async (c) => {
+        const { id } = c.req.valid("param");
+        const name = await workspaceName(db, id);
+        const { allowed } = await admit(db, `renditions:${id}`, { max: 2, windowMs: 60 * 60_000 });
+        if (!allowed)
+          throw new HTTPException(429, {
+            message: "Its renditions are being made again already. Try again in an hour.",
+          });
+        const made = await db
+          .selectDistinct({ fileId: schema.renditions.fileId })
+          .from(schema.renditions)
+          .where(inOrg(schema.renditions, id));
+        let queued = 0;
+        for (const { fileId } of made) {
+          const job = await options.jobs
+            .send(
+              "media-reproxy",
+              { organisationId: id, fileId },
+              { singletonKey: `reproxy:${fileId}` },
+            )
+            .catch(() => null);
+          if (job) queued += 1;
+        }
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "storage.renditions_rebuilt",
+          target: name,
+          details: { organisationId: id, files: made.length, queued },
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        return c.json({ files: made.length, queued }, 202);
+      })
       // Its exports (#186): an operator's, as an owner's, encrypted to a key shown once (or to
       // their own), made in the background, and downloaded through a one-time link for this
       // session. Each request and download is in the workspace's access log and the instance's.
@@ -1423,6 +1487,19 @@ export function instanceRoutes(options: InstanceOptions) {
           trustProxy: options.trustProxy,
         }),
       )
+      // The queues (decision 250): what waits, runs and failed, and what an operator does.
+      .use("/queues", operatorsOnly)
+      .use("/queues/*", operatorsOnly)
+      .route(
+        "/queues",
+        queueRoutes({
+          db,
+          ...(options.queues ? { admin: options.queues } : {}),
+          jobs: options.jobs,
+          settings: options.settings,
+          trustProxy: options.trustProxy,
+        }),
+      )
       // The support desk (#182): every workspace's tickets, with tickets in the app.
       .use("/support", operatorsOnly)
       .use("/support/*", operatorsOnly)
@@ -1848,6 +1925,7 @@ export function instanceRoutes(options: InstanceOptions) {
           ...r,
           source: r.source as ErrorSource,
           occurredAt: r.occurredAt.toISOString(),
+          knownAt: r.knownAt?.toISOString() ?? null,
         }));
         return c.json({ errors });
       })
@@ -1867,6 +1945,7 @@ export function instanceRoutes(options: InstanceOptions) {
             workspace: schema.organisations.name,
             whoName: schema.users.name,
             whoEmail: schema.users.email,
+            knownById: schema.errorReports.knownBy,
           })
           .from(schema.errorReports)
           .leftJoin(
@@ -1876,16 +1955,52 @@ export function instanceRoutes(options: InstanceOptions) {
           .leftJoin(schema.users, eq(schema.users.id, schema.errorReports.userId))
           .where(eq(schema.errorReports.reference, reference));
         if (!r) throw new NotFound("Error report");
-        const { whoName, whoEmail, ...rest } = r;
+        const { whoName, whoEmail, knownById, ...rest } = r;
+        const [knower] = knownById
+          ? await db
+              .select({ name: schema.users.name })
+              .from(schema.users)
+              .where(eq(schema.users.id, knownById))
+          : [];
         const report: ErrorReport = {
           ...rest,
           source: r.source as ErrorSource,
           occurredAt: r.occurredAt.toISOString(),
+          knownAt: r.knownAt?.toISOString() ?? null,
+          knownBy: knower?.name ?? null,
           context: (r.context as Record<string, unknown> | null) ?? null,
           who: whoName !== null && whoEmail !== null ? { name: whoName, email: whoEmail } : null,
         };
         return c.json(report);
       })
+      // Marked known (decision 252): seen and understood, so the list says so; or not after all.
+      .post(
+        "/errors/:reference/known",
+        zValidator("param", errorReferenceParam),
+        zValidator("json", errorKnownInput),
+        async (c) => {
+          const { reference } = c.req.valid("param");
+          const { known } = c.req.valid("json");
+          const [updated] = await db
+            .update(schema.errorReports)
+            .set(
+              known
+                ? { knownAt: new Date(), knownBy: c.var.userId }
+                : { knownAt: null, knownBy: null },
+            )
+            .where(eq(schema.errorReports.reference, reference))
+            .returning({ organisationId: schema.errorReports.organisationId });
+          if (!updated) throw new NotFound("Error report");
+          await recordInstanceEvent(db, {
+            actorId: c.var.userId,
+            action: known ? "debug.error_known" : "debug.error_unknown",
+            target: reference,
+            details: { organisationId: updated.organisationId },
+            ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+          });
+          return c.body(null, 204);
+        },
+      )
       // Read-only inspectors (#159). Each look into a workspace is an instance event.
       .use("/inspect/*", operatorsOnly)
       .get("/inspect/file/:id", zValidator("param", inspectFileParam), async (c) => {
@@ -1893,6 +2008,13 @@ export function instanceRoutes(options: InstanceOptions) {
         const found = await inspectFile(db, id);
         if (!found) throw new NotFound("File");
         await inspected(c, "file", id, found.workspace, found.name);
+        return c.json(found);
+      })
+      .get("/inspect/run/:id", zValidator("param", inspectRunParam), async (c) => {
+        const { id } = c.req.valid("param");
+        const found = await inspectRun(db, id);
+        if (!found) throw new NotFound("Workflow run");
+        await inspected(c, "run", found.id, found.workspace, found.track.name);
         return c.json(found);
       })
       .get("/inspect/review/:id", zValidator("param", inspectReviewParam), async (c) => {
@@ -2013,6 +2135,61 @@ export function instanceRoutes(options: InstanceOptions) {
           return c.json({ result: taken.result });
         },
       )
+      // Operations (decision 251): capacity as the environment and the code set it. Backups are
+      // taken outside Hekate, so the page says how, from the docs, and nothing here knows when.
+      .use("/operations", operatorsOnly)
+      .get("/operations", async (c) =>
+        c.json({ capacity: await capacity() } satisfies InstanceOperations),
+      )
+      // The support bundle (decision 254): the machine described, for whoever helps an operator,
+      // with nothing of its content or its people. Each download is an instance event.
+      .use("/support-bundle", operatorsOnly)
+      .get("/support-bundle", async (c) => {
+        const settings = await options.settings.get();
+        const [system, health, queues, flagList, counts, errors, caps] = await Promise.all([
+          systemInformation(db, {
+            backends: options.backends,
+            build: options.system.build,
+            checkOn: options.system.checkOn,
+            channel: settings.updates.channel,
+          }),
+          systemHealth(db, "1h", options.health),
+          options.queues ? queueRows(db, options.queues, settings.queues.paused) : null,
+          flags.list(),
+          bundleCounts(db),
+          bundleErrors(db, new Date(Date.now() - DAY_MS)),
+          capacity(),
+        ]);
+        const { available: _available, ...running } = system;
+        const generatedAt = new Date();
+        const bundle: SupportBundle = {
+          kind: "hekate-support-bundle",
+          format: 1,
+          generatedAt: generatedAt.toISOString(),
+          system: running,
+          environment: bundleEnvironment(options.environment),
+          settings: bundleSettings(settings),
+          capacity: caps,
+          health: bundleHealth(health),
+          queues,
+          flags: flagList.map((f) => ({ key: f.key, on: f.on })),
+          counts,
+          errors,
+        };
+        await recordInstanceEvent(db, {
+          actorId: c.var.userId,
+          action: "debug.support_bundle",
+          target: "The support bundle",
+          details: { errors: errors.length },
+          ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
+        });
+        c.header("cache-control", "no-store");
+        c.header(
+          "content-disposition",
+          `attachment; filename="hekate-support-${generatedAt.toISOString().slice(0, 10)}.json"`,
+        );
+        return c.json(bundle);
+      })
       // System information (#158): what runs, what is newer, and what it runs on.
       .use("/system", operatorsOnly)
       .use("/system/*", operatorsOnly)
@@ -2189,7 +2366,8 @@ export function instanceRoutes(options: InstanceOptions) {
       .put("/settings", zValidator("json", instanceSettingsInput), async (c) => {
         // The support desk's part is saved from the desk alone (#182), so a Settings page
         // loaded before a change there never undoes it.
-        const { support: _desk, ...input } = c.req.valid("json");
+        // So are the paused queues, from Queues alone (decision 250).
+        const { support: _desk, queues: _queues, ...input } = c.req.valid("json");
         await db.transaction(async (tx) => {
           const { before, after } = await options.settings.write(tx, input, c.var.userId);
           // Every other replica reads them again when this commits (#188).

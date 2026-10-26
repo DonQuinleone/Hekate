@@ -47,6 +47,7 @@ describe("instance settings", () => {
         },
         registration: { mode: "closed" },
         support: { statusUrl: "https://status.example", onCall: "user-1" },
+        queues: { paused: ["media-proxy"] },
       }),
     ).toEqual([
       { action: "settings.second_factor_on", details: {} },
@@ -109,6 +110,12 @@ describe("instance settings", () => {
     const { support: ___, ...fromSettings } = older;
     expect(withStored(fromSettings, desk).support).toEqual({ statusUrl: null, onCall: "user-1" });
     expect(instanceSettingsOf({ logs: {} }).support).toEqual({ statusUrl: null, onCall: null });
+    // Nor the paused queues (decision 250): they stay as Queues saved them, and read as none
+    // from settings written before them.
+    const paused = { ...defaultInstanceSettings, queues: { paused: ["media-proxy"] } };
+    const { queues: ____, ...beforeQueues } = older;
+    expect(withStored(beforeQueues, paused).queues).toEqual({ paused: ["media-proxy"] });
+    expect(instanceSettingsOf({ logs: {} }).queues).toEqual({ paused: [] });
   });
 
   it("reads billing's rules over the defaults, and keeps them through an older client's save (#180)", () => {

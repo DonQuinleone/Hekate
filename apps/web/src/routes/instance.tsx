@@ -71,6 +71,8 @@ import { Icon } from "~/components/icons";
 import { StatusSection } from "~/components/incidents";
 import { Code, Fact, Inspect } from "~/components/inspect";
 import { InstanceBilling } from "~/components/instance-billing";
+import { Operations } from "~/components/instance-operations";
+import { Queues } from "~/components/instance-queues";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { ConfirmStep } from "~/components/project-transfer";
@@ -133,7 +135,7 @@ export function InstancePage({
 }: {
   section: InstanceSection;
   /** A ticket open on the desk (#182), or a workspace (and its tab) opened from one. */
-  search?: { ticket?: string; workspace?: string; tab?: "members" };
+  search?: { ticket?: string; workspace?: string; tab?: "members"; reference?: string };
 }) {
   const navigate = useNavigate();
   const { data: access, isPending } = useQuery(instanceAccessQuery);
@@ -171,6 +173,17 @@ export function InstancePage({
           },
         ]}
         title={meta.label}
+        actions={
+          current === "debug" && operatorView ? (
+            // The machine described for whoever helps (decision 254); each download is logged.
+            <Button variant="secondary" size="sm" asChild>
+              <a href="/api/instance/support-bundle" download>
+                <Icon name="download" size={14} />
+                Support bundle
+              </a>
+            </Button>
+          ) : undefined
+        }
       />
       <p className="m-0 max-w-[620px] text-[14px] text-ink-2">
         {current === "support" && !access.support
@@ -202,7 +215,9 @@ export function InstancePage({
           {current === "health" && operatorView && <SystemHealthPage />}
           {current === "logs" && operatorView && <Logs />}
           {current === "system" && operatorView && <SystemInformation />}
-          {current === "debug" && operatorView && <Debug />}
+          {current === "debug" && operatorView && <Debug initial={search.reference} />}
+          {current === "queues" && operatorView && <Queues />}
+          {current === "operations" && operatorView && <Operations />}
         </>
       )}
     </Page>
@@ -358,9 +373,11 @@ const failedAt = (at: string) => {
 };
 
 /** Debug tools (#159): the story behind an error reference, and what failed in the last day. */
-function Debug() {
-  const [entered, setEntered] = useState("");
-  const [reference, setReference] = useState<string | null>(null);
+function Debug({ initial }: { initial?: string | undefined }) {
+  const [entered, setEntered] = useState(() => parseErrorReference(initial ?? "") ?? "");
+  const [reference, setReference] = useState<string | null>(() =>
+    parseErrorReference(initial ?? ""),
+  );
   const [invalid, setInvalid] = useState(false);
   const [copied, setCopied] = useState(false);
   const found = useRef<HTMLDivElement>(null);
@@ -368,6 +385,22 @@ function Debug() {
   const [since] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
   const { data: errors } = useQuery(instanceErrorsQuery(since));
   const report = useQuery({ ...instanceErrorQuery(reference ?? ""), enabled: !!reference });
+  const client = useQueryClient();
+  // Opens an inspector from the report: the file its job or request was about.
+  const [inspecting, setInspecting] = useState<{ kind: "file"; id: string; n: number } | null>(
+    null,
+  );
+  // Seen and understood (decision 252): the list says so, and the next look starts there.
+  const known = useMutation({
+    mutationFn: async ({ reference, known }: { reference: string; known: boolean }) => {
+      const res = await api.instance.errors[":reference"].known.$post({
+        param: { reference },
+        json: { known },
+      });
+      if (!res.ok) await json(res);
+    },
+    onSuccess: () => client.invalidateQueries({ queryKey: ["instance", "errors"] }),
+  });
   // Running a job's failure again (#159): its file's preparation, or the job with its data.
   const retry = useMutation({
     mutationFn: async (reference: string) =>
@@ -469,6 +502,11 @@ function Debug() {
                     {r.status}
                   </Fact>
                 )}
+                {r.knownAt && (
+                  <Fact term="Known">
+                    {`${failedAt(r.knownAt)}${r.knownBy ? `, by ${r.knownBy}` : ""}`}
+                  </Fact>
+                )}
               </dl>
               {r.context && (
                 <Code label="The job's data">{JSON.stringify(r.context, null, 2)}</Code>
@@ -496,7 +534,33 @@ function Debug() {
                     {retry.isSuccess ? "Running again" : "Retry the job"}
                   </Button>
                 )}
+                {typeof r.context?.fileId === "string" && (
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    onClick={() =>
+                      setInspecting((i) => ({
+                        kind: "file",
+                        id: String(r.context?.fileId),
+                        n: (i?.n ?? 0) + 1,
+                      }))
+                    }
+                  >
+                    Inspect the file
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="md"
+                  disabled={known.isPending}
+                  onClick={() => known.mutate({ reference: r.reference, known: !r.knownAt })}
+                >
+                  {r.knownAt ? "Not known after all" : "Mark as known"}
+                </Button>
               </div>
+              {known.isError && (
+                <p className="m-0 text-[13px] text-signal">{known.error.message}</p>
+              )}
               {retry.isError && (
                 <p className="m-0 text-[13px] text-signal">{retry.error.message}</p>
               )}
@@ -513,12 +577,12 @@ function Debug() {
               key={e.reference}
               name={
                 <span className="flex min-w-0 items-center gap-2">
-                  <StatusDot state="changes_requested" />
+                  <StatusDot state={e.knownAt ? "submitted" : "changes_requested"} />
                   <span className="tabular shrink-0">{e.reference}</span>
                   <span className="truncate text-ink-2">{e.message}</span>
                 </span>
               }
-              hint={`${clock.format(new Date(e.occurredAt))} · ${e.workspace ?? "No workspace"} · ${e.source} · ${e.location}`}
+              hint={`${clock.format(new Date(e.occurredAt))} · ${e.workspace ?? "No workspace"} · ${e.source} · ${e.location}${e.knownAt ? " · known" : ""}`}
               inline
             >
               <Button
@@ -537,6 +601,7 @@ function Debug() {
         )}
       </Section>
       <Inspect
+        request={inspecting}
         onReference={(reference) => {
           fromList.current = true;
           lookUp(reference);
@@ -2629,6 +2694,8 @@ function WorkspaceProjects({ id, operator }: { id: string; operator: boolean }) 
 function WorkspaceStorage({ id, operator }: { id: string; operator: boolean }) {
   const { data: s } = useQuery(instanceStorageQuery(id));
   const setLimits = useWorkspaceLimits(id);
+  const [clearing, setClearing] = useState(false);
+  const [rebuilt, setRebuilt] = useState<{ files: number; queued: number } | null>(null);
   if (!s) return null;
   const { limits } = s.usage;
   return (
@@ -2713,8 +2780,77 @@ function WorkspaceStorage({ id, operator }: { id: string; operator: boolean }) {
         <Row name="Orphans" hint="Bytes in storage that no record accounts for." inline>
           <span className="tabular text-[13px] text-ink-2">{s.findings.orphans}</span>
         </Row>
+        {operator && (
+          <Row
+            name="Rendition cache"
+            hint={
+              rebuilt
+                ? `${rebuilt.queued} of ${rebuilt.files} ${rebuilt.files === 1 ? "recording" : "recordings"} queued to be made again.`
+                : "Made again from the originals, which are only read; each file plays its old renditions until its new ones are made."
+            }
+          >
+            <Button variant="secondary" size="md" onClick={() => setClearing(true)}>
+              Clear
+            </Button>
+          </Row>
+        )}
       </Section>
+      {clearing && (
+        <ClearRenditions
+          id={id}
+          onClose={() => setClearing(false)}
+          onDone={(done) => {
+            setRebuilt(done);
+            setClearing(false);
+          }}
+        />
+      )}
     </>
+  );
+}
+
+/**
+ * Clearing a workspace's rendition cache (decision 255): every recording's streaming renditions
+ * made again from its original. Heavy, so it is asked first.
+ */
+function ClearRenditions({
+  id,
+  onClose,
+  onDone,
+}: {
+  id: string;
+  onClose: () => void;
+  onDone: (done: { files: number; queued: number }) => void;
+}) {
+  const clear = useMutation({
+    mutationFn: async () =>
+      json<{ files: number; queued: number }>(
+        await api.instance.workspaces[":id"].renditions.rebuild.$post({ param: { id } }),
+      ),
+    onSuccess: onDone,
+  });
+  return (
+    <Dialog
+      title="Clear the rendition cache"
+      description="Every recording in this workspace is packaged again from its original, as the instance's ladder now says, taking about as long as its first preparation. Each keeps playing its old renditions until its new ones replace them. Originals are only read, never changed."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" disabled={clear.isPending} onClick={() => clear.mutate()}>
+            Clear and make again
+          </Button>
+        </>
+      }
+    >
+      {clear.error && (
+        <p role="alert" className="m-0 text-[13px] text-signal">
+          {clear.error.message}
+        </p>
+      )}
+    </Dialog>
   );
 }
 

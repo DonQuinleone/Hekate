@@ -13,10 +13,12 @@ export const instanceSectionIds = [
   "billing",
   "support",
   "health",
+  "queues",
   "logs",
   "debug",
   "system",
   "settings",
+  "operations",
 ] as const;
 export type InstanceSection = (typeof instanceSectionIds)[number];
 
@@ -29,6 +31,10 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
   operators: { label: "Operators", hint: "The accounts that may manage the instance" },
   billing: { label: "Billing", hint: "Plans, trials, invoices and what each workspace pays" },
   support: { label: "Support", hint: "What workspaces have asked, and the answers" },
+  queues: {
+    label: "Queues",
+    hint: "The jobs: measuring, renditions, analysis, pages, mail and webhooks",
+  },
   logs: {
     label: "Logs",
     hint: "What people and operators did, every sign-in, the mail the instance sent and every webhook",
@@ -48,6 +54,10 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
   debug: {
     label: "Debug tools",
     hint: "Look up an error reference, see what failed, inspect what is not working",
+  },
+  operations: {
+    label: "Operations",
+    hint: "Backups, restore, capacity and limits",
   },
 };
 
@@ -302,6 +312,18 @@ export const instanceActions: Record<string, string> = {
   "debug.job_retried": "run again from Debug tools",
   "debug.webhook_replayed": "sent again from Debug tools",
   "debug.gateway_replayed": "taken again from Debug tools",
+  "debug.support_bundle": "downloaded from Debug tools",
+  "debug.error_known": "marked as known in Debug tools",
+  "debug.error_unknown": "no longer marked as known",
+  "queue.retried": "had its failed jobs run again",
+  "queue.job_retried": "had a failed job run again",
+  "queue.paused": "paused",
+  "queue.resumed": "resumed",
+  "queue.drained": "drained of its waiting jobs",
+  "queues.retried": "had every failure run again",
+  "queues.paused": "paused, every one",
+  "queues.resumed": "resumed, every one",
+  "storage.renditions_rebuilt": "had its streaming renditions made again",
   "mail.sends_again": "sent mail again, after a bounce report",
   "flag.on": "turned on",
   "flag.off": "turned off",

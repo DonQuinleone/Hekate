@@ -866,11 +866,16 @@ const instanceHome = createRoute({
   path: "/instance",
   component: () => <InstancePage section="overview" />,
 });
-/** A ticket open on the desk (#182), or a workspace and its tab opened from one. */
+/**
+ * A ticket open on the desk (#182), or a workspace and its tab opened from one; an error
+ * reference for Debug tools.
+ */
 const instanceSearch = z.object({
   ticket: z.uuid().optional().catch(undefined),
   workspace: z.uuid().optional().catch(undefined),
   tab: z.enum(["members"]).optional().catch(undefined),
+  /** An error reference to look up in Debug tools, from a job's Details (decision 250). */
+  reference: z.string().max(32).optional().catch(undefined),
 });
 const instanceSection = createRoute({
   getParentRoute: () => app,

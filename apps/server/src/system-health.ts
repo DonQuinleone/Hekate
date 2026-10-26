@@ -214,6 +214,27 @@ async function othersOf(
   }));
 }
 
+/**
+ * Every replica's worker lanes now (#188), for Operations (decision 251): this one as it is, the
+ * others as each last measured a minute; and how many replicas that is.
+ */
+export async function lanesNow(
+  db: Database,
+  deps: Pick<SystemHealthDeps, "sampler" | "now">,
+): Promise<{ used: number; total: number; replicas: number }> {
+  const at = deps.now?.() ?? new Date();
+  const others = await othersOf(db, deps.sampler?.replica, at);
+  const { lanes } = combineReplicas([
+    {
+      cpu: null,
+      memory: { used: 0, total: 0 },
+      lanes: { used: metrics.workerLanesBusy.total(), total: metrics.workerLanes.total() },
+    },
+    ...others,
+  ]);
+  return { used: lanes.used, total: lanes.total, replicas: others.length + 1 };
+}
+
 /** The System health page (#156): the machine now, a range's minutes, services and metrics. */
 export async function systemHealth(
   db: Database,

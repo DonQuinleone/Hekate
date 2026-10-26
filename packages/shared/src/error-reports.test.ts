@@ -44,6 +44,8 @@ describe("error references", () => {
       traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
       context: { fileId: "f-1" },
       who: null,
+      knownAt: null,
+      knownBy: null,
     };
     expect(errorReportText(report).split("\n")).toEqual([
       "HK-7F3A-2C · 2026-10-17T20:41:09.000Z · worker · document-render",

@@ -8,9 +8,11 @@ import {
   type InstanceMail,
   type InstanceModules,
   type InstanceNotice,
+  type InstanceOperations,
   type MailStepInput,
   MCP_PATH,
   OPENAPI_PATH,
+  rateLimits,
   scopeFor,
   TICKET_ATTACHMENT_MAX_BYTES,
   unversioned,
@@ -31,7 +33,7 @@ import { requirePlaySession, requireViewer } from "./guests.ts";
 import { createHealthChecks } from "./health-checks.ts";
 import { type Subdomains, workspaceFromHost } from "./hosts.ts";
 import { createInstanceSettings, type InstanceSettingsStore } from "./instance-settings.ts";
-import type { Jobs } from "./jobs.ts";
+import type { Jobs, QueueAdmin } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import { createListeningHub, type ListeningHub } from "./listening.ts";
 import type { Mailer } from "./mail.ts";
@@ -160,6 +162,10 @@ export interface AppDeps {
   playbackSecret: Buffer;
   /** Only queueing is needed here; workers run separately. */
   jobs: Pick<Jobs, "send">;
+  /** The queue itself, for the instance's Queues (decision 250); none in most tests. */
+  queues?: QueueAdmin;
+  /** What this process runs, for the instance's Operations (decision 251). */
+  capacity?: InstanceOperations["capacity"]["process"];
   /** Read the client address from X-Forwarded-For (behind Caddy). */
   trustProxy?: boolean;
   publicUrl: string;
@@ -383,6 +389,8 @@ export function createApi(given: AppDeps) {
           ...links,
           keyring: deps.keyring,
           jobs: deps.jobs,
+          ...(deps.queues ? { queues: deps.queues } : {}),
+          ...(deps.capacity ? { capacity: deps.capacity } : {}),
           backends: deps.storage.backends,
           storage: deps.storage,
           audit: deps.audit,
@@ -730,15 +738,10 @@ export function createApi(given: AppDeps) {
       // Starting uploads, per member: a client in a loop is stopped before storage is.
       .post(
         "/uploads",
-        rateLimit(
-          deps.db,
-          "uploads",
-          { max: 120, windowMs: 60_000 },
-          {
-            trustProxy: deps.trustProxy ?? false,
-            by: (c) => (c.var as { userId?: string }).userId,
-          },
-        ),
+        rateLimit(deps.db, "uploads", rateLimits.uploads, {
+          trustProxy: deps.trustProxy ?? false,
+          by: (c) => (c.var as { userId?: string }).userId,
+        }),
       )
       .route(
         "/uploads",
@@ -789,14 +792,9 @@ export function createApi(given: AppDeps) {
       // Opening links and trying codes, per address: few people need many in ten minutes.
       .use(
         "/guest/sessions/*",
-        rateLimit(
-          deps.db,
-          "guest",
-          { max: 30, windowMs: 10 * 60_000 },
-          {
-            trustProxy: deps.trustProxy ?? false,
-          },
-        ),
+        rateLimit(deps.db, "guest", rateLimits.guestLinks, {
+          trustProxy: deps.trustProxy ?? false,
+        }),
       )
       .route("/guest", guestRoutes(reviewDeps))
       .use("/comments/*", ...member)

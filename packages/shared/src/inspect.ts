@@ -8,7 +8,7 @@ import type { ReviewerPermissions } from "./reviewer-permissions.ts";
  * link someone pasted from the address bar.
  */
 
-export const inspectKinds = ["file", "review", "session"] as const;
+export const inspectKinds = ["file", "run", "review", "session"] as const;
 export type InspectKind = (typeof inspectKinds)[number];
 
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
@@ -17,8 +17,9 @@ const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /**
  * What to inspect, from what was pasted: an id, or a link. A link names the file after
- * `/files/` and the review after `/reviews/` or `item=`; otherwise its last id is taken. A
- * session is a member's sign-in id or a guest's session id. Null when nothing fits.
+ * `/files/`, the review after `/reviews/` or `item=`, and a workflow run's track after
+ * `/tracks/` (decision 253); otherwise its last id is taken. A session is a member's sign-in id
+ * or a guest's session id. Null when nothing fits.
  */
 export function inspectTarget(kind: InspectKind, input: string): string | null {
   const text = input.trim();
@@ -28,7 +29,8 @@ export function inspectTarget(kind: InspectKind, input: string): string | null {
     if (uuid?.length === 1 && uuid[0].length === text.length) return uuid[0].toLowerCase();
     return SESSION_ID.test(text) ? text : null;
   }
-  const marker = kind === "file" ? ["/files/"] : ["/reviews/", "item="];
+  const marker =
+    kind === "file" ? ["/files/"] : kind === "run" ? ["/tracks/"] : ["/reviews/", "item="];
   for (const m of marker) {
     const at = text.lastIndexOf(m);
     if (at === -1) continue;
@@ -41,6 +43,8 @@ export function inspectTarget(kind: InspectKind, input: string): string | null {
 
 export const inspectFileParam = z.object({ id: z.uuid() });
 export const inspectReviewParam = z.object({ id: z.uuid() });
+/** A workflow run's id, or a track's, whose latest run is meant (decision 253). */
+export const inspectRunParam = z.object({ id: z.uuid() });
 export const inspectSessionParam = z.object({ id: z.string().regex(SESSION_ID) });
 
 /** What the access log holds for it, by action: how many, and the latest. */
@@ -98,6 +102,39 @@ export interface FileInspection extends Placed {
   jobs: InspectedJob[] | null;
   errors: ErrorReportRow[];
   access: AccessTally[];
+}
+
+/**
+ * A workflow run (decision 253): which node its track is at, what it waits for, and every
+ * transition it made, with the clocks the queue holds for it.
+ */
+export interface WorkflowRunInspection extends Placed {
+  id: string;
+  workflowName: string;
+  workflowVersion: number;
+  track: { id: string; name: string };
+  state: string;
+  /** The track's status, as the run last set it. */
+  status: string | null;
+  startedAt: string;
+  startedBy: string | null;
+  endedAt: string | null;
+  /** Nodes started and waited on: an approval, a task, an event, a clock. */
+  waiting: { nodeId: string; name: string; type: string }[];
+  /** Nodes one branch reached, waiting for the others. */
+  joining: { nodeId: string; name: string }[];
+  /** Every move, oldest first: the node that ended, how, by whom, and what followed. */
+  steps: {
+    at: string;
+    node: string | null;
+    outcome: string | null;
+    by: string | null;
+    effects: string[];
+  }[];
+  /** The track's other runs, newest first. */
+  others: { id: string; workflowName: string; state: string; startedAt: string }[];
+  /** The queue's jobs for it (its clocks); null when the queue could not be read. */
+  jobs: InspectedJob[] | null;
 }
 
 export interface InspectedReviewer {

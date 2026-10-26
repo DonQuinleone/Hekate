@@ -24,6 +24,15 @@ export const jobDefinitions = {
     data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
     options: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 4 * 60 * 60 },
   },
+  /**
+   * Make a file's streaming renditions again from its original (decision 255), after an operator
+   * cleared a workspace's rendition cache: the old ones play until the new ones replace them.
+   */
+  "media-reproxy": {
+    lane: "transcode",
+    data: z.object({ organisationId: z.uuid(), fileId: z.uuid() }),
+    options: { retryLimit: 3, retryDelay: 60, retryBackoff: true, expireInSeconds: 4 * 60 * 60 },
+  },
   /** Analyse a file's audio: waveform peaks, loudness and spectrograms, per channel. */
   "media-analysis": {
     lane: "analyse",
@@ -272,7 +281,19 @@ export interface Jobs {
    * Stop taking jobs, letting those under way finish, or take them up again (maintenance mode,
    * #154). Queued jobs wait in the queue meanwhile: none is lost or failed.
    */
-  hold(held: boolean): Promise<void>;
+  hold(held: boolean, paused?: ReadonlySet<string>): Promise<void>;
+}
+
+/** What Queues does to the queue itself (decision 250), beside reading its tables. */
+export interface QueueAdmin {
+  /** The schema the queue's tables are in. */
+  readonly schema: string;
+  /** Run failed jobs again, with the same id and data. */
+  retry(name: JobName, ids: string[]): Promise<void>;
+  /** Remove every job still waiting in a queue, none of them run; how many were. */
+  drain(name: JobName): Promise<number>;
+  /** Remove one job, such as a failure whose file was prepared again by other jobs. */
+  remove(name: JobName, id: string): Promise<void>;
 }
 
 /** A job that failed for the last time: no retry follows. */
@@ -359,10 +380,11 @@ export function createJobs(options: {
   onFailure?: (failure: JobFailure) => Promise<void>;
   /** Whether to log each job's start, end and time, asked as each job starts. */
   verbose?: () => Promise<boolean>;
-}): Jobs {
+}): Jobs & QueueAdmin {
+  const schema = options.schema ?? "pgboss";
   const boss = new PgBoss({
     connectionString: options.connectionString,
-    schema: options.schema ?? "pgboss",
+    schema,
     application_name: "hekate-jobs",
     max: 4,
   });
@@ -372,11 +394,15 @@ export function createJobs(options: {
   // Every kind of job's lanes, whether or not it is held: a held lane is idle, not gone.
   let lanes = 0;
   let held = false;
+  // The queues paused from Queues (decision 250), which a worker registered later leaves alone.
+  let pausedNow: ReadonlySet<string> = new Set();
   // The kinds of job this process is taking now.
   const taking = new Set<string>();
   let holding = Promise.resolve();
 
   return {
+    schema,
+
     async start() {
       await boss.start();
       for (const [name, definition] of Object.entries(jobDefinitions)) {
@@ -412,31 +438,46 @@ export function createJobs(options: {
       workers.set(name, take);
       lanes += workOptions?.concurrency ?? 1;
       metrics.workerLanes.set({}, lanes);
-      if (!held) {
+      if (!held && !pausedNow.has(name)) {
         await take();
         taking.add(name);
       }
     },
 
-    hold(next) {
+    hold(next, paused = new Set<string>()) {
       // One after another: turned on and off again quickly, each change finishes first.
       holding = holding
         .catch(() => {})
         .then(async () => {
           // Queue by queue, each only if not already so: one that failed is tried again next
-          // time, and the state is the new one only once every queue has followed.
+          // time, and the state is the new one only once every queue has followed. Held, every
+          // queue stops; otherwise only the paused ones do.
           for (const [name, take] of workers) {
-            if (next && taking.has(name)) {
+            const stop = next || paused.has(name);
+            if (stop && taking.has(name)) {
               await boss.offWork(name, { wait: true });
               taking.delete(name);
-            } else if (!next && !taking.has(name)) {
+            } else if (!stop && !taking.has(name)) {
               await take();
               taking.add(name);
             }
           }
           held = next;
+          pausedNow = paused;
         });
       return holding;
+    },
+
+    async retry(name, ids) {
+      if (ids.length > 0) await boss.retry(name, ids);
+    },
+
+    async drain(name) {
+      return boss.deleteQueuedJobs(name);
+    },
+
+    async remove(name, id) {
+      await boss.deleteJob(name, id);
     },
 
     async state(name, id) {

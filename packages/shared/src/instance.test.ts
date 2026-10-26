@@ -23,10 +23,12 @@ describe("the instance side", () => {
       "operators",
       "support",
       "health",
+      "queues",
       "logs",
       "debug",
       "system",
       "settings",
+      "operations",
     ]);
     expect(instanceSectionsFor({ operator: false, billing: true })).toEqual(["workspaces"]);
     // Billing, for operators, only where the instance charges (#180).
@@ -42,10 +44,12 @@ describe("the instance side", () => {
       "billing",
       "support",
       "health",
+      "queues",
       "logs",
       "debug",
       "system",
       "settings",
+      "operations",
     ]);
     expect(instanceSectionsFor({ operator: false, billing: true, support: true })).toEqual([
       "workspaces",

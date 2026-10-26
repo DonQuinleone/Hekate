@@ -113,6 +113,8 @@ import {
   permissionsOfLevels,
   type QaFinding,
   type QaSettings,
+  type QueueJobDetail,
+  type QueuesView,
   type ReviewDecision,
   type ReviewerPermissions,
   type ReviewerPermissionsChange,
@@ -182,6 +184,7 @@ import {
   type Work,
   type WorkflowChange,
   type WorkflowInput,
+  type WorkflowRunInspection,
   type WorkflowStanding,
   type WorkflowStatus,
   type WorkflowSummary,
@@ -4932,6 +4935,23 @@ export const instanceHealthQuery = (range: HealthRange) =>
     refetchInterval: 15_000,
   });
 
+/** The instance's queues (decision 250), read every five seconds while the page is open. */
+export const instanceQueuesQuery = queryOptions({
+  queryKey: ["instance", "queues"],
+  queryFn: async () => json<QueuesView>(await api.instance.queues.$get()),
+  refetchInterval: 5_000,
+});
+
+/** One job in full, for its Details. */
+export const instanceQueueJobQuery = (name: string, id: string) =>
+  queryOptions({
+    queryKey: ["instance", "queues", name, "jobs", id],
+    queryFn: async () =>
+      json<QueueJobDetail>(
+        await api.instance.queues[":name"].jobs[":id"].$get({ param: { name, id } }),
+      ),
+  });
+
 /** What everyone is told about the instance: maintenance mode's notice (#154). */
 export const noticeQuery = queryOptions({
   queryKey: ["notice"],
@@ -4955,6 +4975,7 @@ export const instanceFlagsQuery = queryOptions({
  */
 export type Inspection =
   | { kind: "file"; found: FileInspection }
+  | { kind: "run"; found: WorkflowRunInspection }
   | { kind: "review"; found: ReviewInspection }
   | { kind: "session"; found: SessionInspection };
 
@@ -4969,9 +4990,11 @@ export const instanceInspectQuery = (kind: InspectKind, id: string, look: number
       const res =
         kind === "file"
           ? await inspect.file[":id"].$get(param)
-          : kind === "review"
-            ? await inspect.review[":id"].$get(param)
-            : await inspect.session[":id"].$get(param);
+          : kind === "run"
+            ? await inspect.run[":id"].$get(param)
+            : kind === "review"
+              ? await inspect.review[":id"].$get(param)
+              : await inspect.session[":id"].$get(param);
       if (res.status === 404) return null;
       return { kind, found: await json(res) } as Inspection;
     },

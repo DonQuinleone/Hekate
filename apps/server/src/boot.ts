@@ -18,7 +18,7 @@ import { subdomainsOf } from "./hosts.ts";
 import { createInstanceSettings } from "./instance-settings.ts";
 import { createJobs, inLanes, jobDefinitions } from "./jobs.ts";
 import { createKeyring, UnknownMasterKeyError } from "./keyring.ts";
-import { type Role, roleOf } from "./lanes.ts";
+import { planText, type Role, roleOf } from "./lanes.ts";
 import { createListeningHub, listenForRooms } from "./listening.ts";
 import { purgeLogs } from "./log-retention.ts";
 import { createMailer, loggedMailer, mailTransportOf } from "./mail.ts";
@@ -192,11 +192,13 @@ export async function boot(
   });
   await jobs.start();
   // Maintenance mode (#154): this process's workers stop taking jobs while it is on, and take
-  // them up again when it is over; the queue keeps every job meanwhile.
+  // them up again when it is over; the queue keeps every job meanwhile. A queue an operator
+  // paused from Queues stays stopped until resumed, restarts included (decision 250).
   const settings = createInstanceSettings(db);
   const holdJobs = async () => {
     try {
-      await jobs.hold((await settings.get()).maintenance.on);
+      const { maintenance, queues } = await settings.get();
+      await jobs.hold(maintenance.on, new Set(queues.paused));
     } catch (error) {
       console.error("Could not hold or resume the job workers:", error);
     }
@@ -400,6 +402,12 @@ export async function boot(
     storage,
     audit,
     jobs,
+    queues: jobs,
+    capacity: {
+      role,
+      lanes: planText(config.WORKER_LANES),
+      concurrency: config.WORKER_CONCURRENCY,
+    },
     keyring,
     playbackSecret: playbackSecret(config.AUTH_SECRET),
     publicUrl: config.PUBLIC_URL,

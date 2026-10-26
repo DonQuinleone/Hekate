@@ -7,6 +7,7 @@ import {
   isFollowingPart,
   marks,
   type PlayerTool,
+  rateLimits,
   spectrumAnalysisSchema,
   watermarkOf,
 } from "@hekate/shared";
@@ -1098,10 +1099,11 @@ export const playRoutes = (deps: PlaybackDeps) => {
     .get("/:token/r/:rid/key", ridParam, async (c) => {
       const claims = c.var.playback;
       // Thirty a minute per session, counted where every replica sees it.
-      const { allowed, retryAfter } = await admit(deps.db, `key:${c.var.sessionId}`, {
-        max: 30,
-        windowMs: 60_000,
-      });
+      const { allowed, retryAfter } = await admit(
+        deps.db,
+        `key:${c.var.sessionId}`,
+        rateLimits.contentKeys,
+      );
       if (!allowed) return tooMany(c, retryAfter, "Too many key requests; wait a minute");
       const rendition = await renditionOf(claims, c.req.valid("param").rid);
       const [file] = await deps.db

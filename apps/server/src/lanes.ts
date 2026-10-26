@@ -40,6 +40,10 @@ export function parseLanes(text: string): { plan: LanePlan } | { error: string }
   return { plan };
 }
 
+/** A plan as WORKER_LANES writes it, `transcode:4,analyse`; null for every lane. */
+export const planText = (plan: LanePlan): string | null =>
+  plan ? [...plan].map(([lane, n]) => (n === null ? lane : `${lane}:${n}`)).join(",") : null;
+
 /** How many of one kind of a lane's jobs to run at once, or none when the plan leaves the lane out. */
 export function concurrencyIn(plan: LanePlan, lane: Lane, asked: number): number | null {
   if (!plan) return asked;
