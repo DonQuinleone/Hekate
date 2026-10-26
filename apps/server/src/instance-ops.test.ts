@@ -216,6 +216,12 @@ describe.runIf(url)("the instance's queues and operations (decisions 250 and 251
     await jobs.send("release-check", {});
     const failed = await jobs.send("media-proxy", { organisationId: org, fileId });
     await failJob(failed);
+    // pg-boss's own queue, which fires the schedules, is nobody's work and never listed.
+    await db.execute(
+      sql`select pgboss_ops_test.create_queue('__pgboss_send-it', '{"policy":"standard"}'::jsonb)`,
+    );
+    await db.execute(sql`insert into pgboss_ops_test.job (id, name, data, state, completed_on)
+      values (gen_random_uuid(), '__pgboss_send-it', '{}', 'completed', now())`);
     const view = await queues(operator);
     expect(view.queues.map((q) => q.name)).toEqual(Object.keys(jobDefinitions));
     expect(view.queues.find((q) => q.name === "release-check")).toMatchObject({

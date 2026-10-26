@@ -227,16 +227,21 @@ export async function recentJobs(
   db: Database,
   admin: Pick<QueueAdmin, "schema">,
 ): Promise<QueueJobRow[]> {
-  const scheduled = queueNames.filter((n) => "schedule" in jobDefinitions[n]);
+  // Only Hekate's own queues: pg-boss keeps its own beside them (`__pgboss_send-it`, which
+  // fires the schedules every minute), and they are nobody's work.
+  const listOf = (names: readonly JobName[]) =>
+    sql.join(
+      names.map((n) => sql`${n}`),
+      sql`, `,
+    );
+  const work = queueNames.filter((n) => !("schedule" in jobDefinitions[n]));
   let rows: JobRecord[];
   try {
     rows = await db.execute<JobRecord>(sql`
       select ${jobColumns} from ${jobTable(admin)}
       where created_on > now() - interval '1 day'
-        and (state = 'failed' or name not in (${sql.join(
-          scheduled.map((n) => sql`${n}`),
-          sql`, `,
-        )}))
+        and name in (${listOf(queueNames)})
+        and (state = 'failed' or name in (${listOf(work)}))
       order by coalesce(completed_on, started_on, created_on) desc
       limit ${RECENT}`);
   } catch (error) {
