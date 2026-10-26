@@ -25,10 +25,12 @@ export const croomKinds = [
   "work",
   "track",
   "score",
+  "file",
   "venue",
   "personnel",
   "session",
   "take",
+  "todo",
   "category",
   "score-mark",
   "schedule-day",
@@ -45,10 +47,12 @@ export const croomKindWords: Record<CroomKind, readonly [string, string]> = {
   work: ["Work", "Works"],
   track: ["Track", "Tracks"],
   score: ["Score PDF", "Score PDFs"],
+  file: ["Attached file", "Attached files"],
   venue: ["Venue", "Venues"],
   personnel: ["Person on the personnel", "Personnel"],
   session: ["Session", "Sessions"],
   take: ["Take", "Takes"],
+  todo: ["To-do", "To-dos"],
   category: ["Issue category", "Issue categories"],
   "score-mark": ["Score mark", "Score marks"],
   "schedule-day": ["Schedule day", "Schedule days"],
@@ -74,8 +78,9 @@ export interface CroomConflict {
 
 /**
  * What the file held that the import does not bring over: event types it does not know, fields
- * it did not read, events it reads and sets aside (view state), and problems with particular
- * entries (a take of no track, a mark off the page), each counted.
+ * it did not read, what it reads and sets aside with why (view state, settings of the desktop
+ * app's exports, anything Hekate has no place for), and problems with particular entries (a
+ * take number already used, a mark with nothing to say), each counted.
  */
 export interface CroomReport {
   unknownEvents: { type: string; count: number }[];

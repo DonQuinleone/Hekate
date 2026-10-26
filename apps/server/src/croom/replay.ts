@@ -1,113 +1,52 @@
+import { attachments } from "./families/attachments.ts";
 import { categories } from "./families/categories.ts";
 import { pdfs } from "./families/pdfs.ts";
 import { personnel } from "./families/personnel.ts";
 import { repertoire } from "./families/repertoire.ts";
 import { schedule } from "./families/schedule.ts";
 import { scoreMarks } from "./families/score-marks.ts";
-import { sessions } from "./families/sessions.ts";
+import { session } from "./families/session.ts";
 import { stage } from "./families/stage.ts";
 import { takes } from "./families/takes.ts";
+import { todos } from "./families/todos.ts";
 import { venues } from "./families/venues.ts";
 import { views } from "./families/views.ts";
 import type { Family, Handler, ReplayContext } from "./family.ts";
-import { fieldsOf } from "./fields.ts";
+import { fieldsOf, isRecord } from "./fields.ts";
 import { type CroomModel, emptyModel, ReportCollector } from "./model.ts";
 import type { CroomEvent, CroomFile } from "./reader.ts";
 import { KNOWN_SCHEMA_VERSIONS } from "./reader.ts";
 
 /**
- * Replaying a `.croom` file's events into the neutral model (#57, decision 242). Branch 0 is
- * replayed in `seq` order; undone events (branch 1) never are. Each event goes to the family
- * that reads it (`families/`); an event no family knows, or a field none read, is counted in
- * the report and the replay carries on.
+ * Replaying a `.croom` file's events into the model, as ControlRoom rebuilds a session when it
+ * opens one (`Session::rebuild` in its `session.cpp`; #57, decision 242). The events replayed
+ * are the reader's: the project's branch up to its head, in `seq` order. Each event's type is
+ * the one its payload names, as ControlRoom reads it, and it goes to the family that reads it
+ * (`families/`). An event no family knows is counted in the report and changes nothing, as in
+ * ControlRoom: it draws no id.
  */
 export const families: readonly Family[] = [
-  sessions,
+  session,
   categories,
   views,
-  repertoire,
   pdfs,
+  repertoire,
   takes,
   scoreMarks,
   personnel,
   venues,
   schedule,
   stage,
+  todos,
+  attachments,
 ];
 
-type Verb = "add" | "update" | "remove";
+const handlers = new Map<string, Handler>(
+  families.flatMap((family) => Object.entries(family.events)),
+);
 
-const verbs: Record<string, Verb> = {
-  add: "add",
-  added: "add",
-  create: "add",
-  created: "add",
-  new: "add",
-  insert: "add",
-  inserted: "add",
-  update: "update",
-  updated: "update",
-  edit: "update",
-  edited: "update",
-  set: "update",
-  change: "update",
-  changed: "update",
-  rename: "update",
-  renamed: "update",
-  modify: "update",
-  modified: "update",
-  remove: "remove",
-  removed: "remove",
-  delete: "remove",
-  deleted: "remove",
-};
-
-/** An event type in one form: lower case, words joined by underscores ("Take.Add" is "take_add"). */
-export const normalType = (type: string) =>
-  type
-    .trim()
-    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_|_$/g, "");
-
-/** A type as a verb and a noun: `add_take`, `take_add` and `take_added` all read as add take. */
-export function verbAndNoun(normal: string): { verb: Verb; noun: string } | null {
-  const parts = normal.split("_");
-  if (parts.length < 2) return null;
-  const first = verbs[parts[0] as string];
-  if (first) return { verb: first, noun: parts.slice(1).join("_") };
-  const last = verbs[parts.at(-1) as string];
-  if (last) return { verb: last, noun: parts.slice(0, -1).join("_") };
-  return null;
-}
-
-interface Route {
-  handler?: Handler;
-  ignored?: string;
-}
-
-function routes() {
-  const exact = new Map<string, Handler>();
-  const nouns = new Map<string, Record<string, Handler | undefined>>();
-  const ignored = new Map<string, string>();
-  for (const family of families) {
-    for (const [type, handler] of Object.entries(family.exact ?? {})) exact.set(type, handler);
-    for (const [noun, handlers] of Object.entries(family.nouns))
-      nouns.set(noun, { add: handlers.add, update: handlers.update, remove: handlers.remove });
-    for (const [noun, reason] of Object.entries(family.ignoredNouns ?? {}))
-      ignored.set(noun, reason);
-  }
-  return (normal: string): Route => {
-    const outright = exact.get(normal);
-    if (outright) return { handler: outright };
-    const parsed = verbAndNoun(normal);
-    if (!parsed) return ignored.has(normal) ? { ignored: ignored.get(normal) } : {};
-    const reason = ignored.get(parsed.noun);
-    if (reason) return { ignored: reason };
-    return { handler: nouns.get(parsed.noun)?.[parsed.verb] };
-  };
-}
+/** Every event type the replay reads, by the name ControlRoom writes. */
+export const knownEventTypes: readonly string[] = [...handlers.keys()];
 
 export interface ReplayResult {
   model: CroomModel;
@@ -115,62 +54,58 @@ export interface ReplayResult {
   replayed: number;
 }
 
-export interface ReplayOptions {
-  /** Where the shared id counter starts; ControlRoom's first entry is provisionally 1. */
-  firstId?: number;
-}
-
-/** The counter after an add_* event that is not read: past its own id if it has one, else on by one. */
-export function skipId(payload: unknown, counter: number): number {
-  const own =
-    payload && typeof payload === "object" ? Number((payload as { id?: unknown }).id) : Number.NaN;
-  if (Number.isInteger(own)) return own >= counter ? own + 1 : counter;
-  return counter + 1;
-}
-
-/** Replays events, already filtered to branch 0 and in order, into the model. Pure. */
-export function replay(events: readonly CroomEvent[], options: ReplayOptions = {}): ReplayResult {
+/** Replays events, already the project's branch to its head and in order, into the model. Pure. */
+export function replay(events: readonly CroomEvent[]): ReplayResult {
   const model = emptyModel();
   const report = new ReportCollector();
-  const route = routes();
-  let counter = options.firstId ?? 1;
+  // ControlRoom's one counter: the first entry is 1, and each entry made takes the next.
+  let counter = 1;
   let replayed = 0;
+  let unknownMaker: string | null = null;
   for (const event of events) {
-    if (event.payloadError) {
+    if (event.payloadError || !isRecord(event.payload)) {
       report.problem(
-        `Event ${event.seq} (${event.type}): ${event.payloadError}, so it was skipped`,
+        `Event ${event.seq} (${event.type}): ${event.payloadError ?? "its payload is not a set of fields"}, so it was skipped, as ControlRoom skips it`,
       );
       continue;
     }
-    const normal = normalType(event.type);
-    const found = route(normal);
-    if (found.ignored || !found.handler) {
-      // Every add_* event takes an id from the shared counter, read or not, or the entries
-      // after it would be numbered differently from the file's own references to them.
-      if (verbAndNoun(normal)?.verb === "add") counter = skipId(event.payload, counter);
-      if (found.ignored) report.ignore(event.type, found.ignored);
-      else report.unknownEvent(event.type || "(no type)");
+    // ControlRoom reads the type from the payload, not from the events table's column.
+    const written = event.payload.type;
+    if (typeof written !== "string") {
+      report.problem(
+        `Event ${event.seq} (${event.type}): its payload names no type, so it was skipped, as ControlRoom skips it`,
+      );
       continue;
     }
-    const f = fieldsOf(event.payload, event.type, report);
+    if (written !== event.type)
+      report.problem(
+        `Event ${event.seq} is ${event.type} in the events table and ${written} in its payload: it was read as ControlRoom reads it, as ${written}`,
+      );
+    const handler = handlers.get(written);
+    if (!handler) {
+      report.unknownEvent(written || "(no type)");
+      if (/^(add|upsert)_/.test(written)) unknownMaker = written;
+      continue;
+    }
+    if (unknownMaker) {
+      // An unknown event that makes something may have drawn an id in the ControlRoom that
+      // wrote it; this one does not know it, so every id after it may be one out.
+      report.problem(
+        `The file was written by a newer ControlRoom (it has ${unknownMaker}): what comes after it may be linked to the wrong entries, so look it over before importing`,
+      );
+      unknownMaker = null;
+    }
+    const f = fieldsOf(event.payload, written, report);
+    f.skip("type");
     const ctx: ReplayContext = {
       model,
       report,
-      type: event.type,
-      newId(fields) {
-        const own = fields.id("id");
-        if (own) {
-          ctx.bump(own);
-          return own;
-        }
-        return String(counter++);
-      },
-      bump(id) {
-        const n = Number(id);
-        if (Number.isInteger(n) && n >= counter) counter = n + 1;
-      },
+      type: written,
+      ts: event.ts,
+      nextId: () => String(counter++),
+      frameRate: () => model.meta.frameRate,
     };
-    found.handler(ctx, f);
+    handler(ctx, f);
     f.done();
     replayed += 1;
   }
@@ -178,23 +113,23 @@ export function replay(events: readonly CroomEvent[], options: ReplayOptions = {
 }
 
 /** A whole file replayed, with what the reader itself found for the report. */
-export function replayFile(file: CroomFile, options?: ReplayOptions): ReplayResult {
-  const result = replay(file.events, options);
+export function replayFile(file: CroomFile): ReplayResult {
+  const result = replay(file.events);
+  const { report } = result;
   if (!KNOWN_SCHEMA_VERSIONS.includes(file.schemaVersion))
-    result.report.problem(
+    report.problem(
       `The file is in ControlRoom schema ${file.schemaVersion}, which this import has not been checked against: look over what it brings before importing`,
     );
-  if (file.viewState > 0)
-    for (let i = 0; i < file.viewState; i += 1)
-      result.report.ignore("meta ui.*", "The desktop app's own view, not part of the project");
-  if (file.otherBranches > 0)
-    result.report.problem(
-      `${file.otherBranches} events are on a branch other than the project and its undone events, so they were not replayed`,
+  for (let i = 0; i < file.viewState; i += 1)
+    report.ignore("meta ui.*", "The desktop app's own view of the score, not part of the project");
+  for (const key of file.unknownMeta) report.unknownField("meta", key);
+  if (file.head === null)
+    report.problem(
+      "The file says no head, as ControlRoom always writes one: every event on the project's branch was replayed",
     );
-  const last = file.events.at(-1)?.seq;
-  if (file.head !== null && last !== undefined && Number(file.head) !== last)
-    result.report.problem(
-      `The file's head (${file.head}) is not its last event (${last}): every event on the project's branch was replayed`,
+  if (file.otherBranches > 0)
+    report.problem(
+      `${file.otherBranches} events are on a branch ControlRoom never writes, so they were not replayed`,
     );
   return result;
 }

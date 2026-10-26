@@ -1,128 +1,116 @@
-import { aliases, crud, type Family, or } from "../family.ts";
-import type { CrDay, CrRow } from "../model.ts";
-import { clockOf, dateOf, keyOf, within } from "./values.ts";
+import { idOf, wholeOf } from "../fields.ts";
+import { absent, type Family, type ReplayContext } from "../family.ts";
+import { type CrScheduleItem, type CrScheduleKind, scheduleKinds } from "../model.ts";
 
 /**
- * The schedule (provisional, decision 242). `add_schedule_day` has `label`, `date`, `venue_id`
- * and `start`; `add_schedule_entry` has `day_id` (or a `date`, which finds or makes its day),
- * `kind`, `start`, `minutes` (or `duration`), `label`, `all_repertoire`, `piece_ids`,
- * `movement_ids`, `personnel` (text, or a list of people), `notes` and `done`.
+ * The schedule (decision 242): one ordered list, in which a day row starts each day.
+ * `add_schedule_item` has `kind` (day, slot, break or venue; any other word ControlRoom reads as
+ * a slot) and `index`, where it goes (-1 or past the end appends). `update_schedule_item` then
+ * writes the whole row but its kind: `id`, `start` ("HH:MM", or empty to follow the row before),
+ * `dur` (minutes), `done`, `title`, `notes`, `personnel` (text), `refs` (a slot's works and
+ * movements as [piece, movement] pairs, movement 0 for the whole work and the largest id there
+ * is for the whole repertoire), and for a day `label`, `date` ("YYYY-MM-DD") and `venue_id`
+ * (also a venue row's venue). Older files write a single `piece` and `movement` instead of
+ * `refs`, and `composer`, `arranger`, `forces`, `venue` and `pdf` on the row itself.
+ * `delete_schedule_item` and `move_schedule_item` (`id`, `to`) remove and move a row.
  */
-const rowKinds: Record<string, CrRow["kind"]> = {
-  slot: "slot",
-  session: "slot",
-  recording: "slot",
-  repertoire: "slot",
-  rehearsal: "slot",
-  break: "break",
-  lunch: "break",
-  tea: "break",
-  dinner: "break",
-  pause: "break",
-  "get-in": "get-in",
-  getin: "get-in",
-  setup: "get-in",
-  "set-up": "get-in",
-  rig: "get-in",
-  venue: "venue",
-  "venue-change": "venue",
-  move: "venue",
-  travel: "venue",
-  custom: "custom",
-  other: "custom",
-};
 
-const day = crud<CrDay>(
-  "schedule_day",
-  (m) => m.days,
-  (id) => ({ id, label: "", date: null, venueId: null, start: null }),
-  (f, base, ctx) => {
-    const date = f.strOrNull("date", "day");
-    const start = f.strOrNull("start", "start_time", "starts");
-    return {
-      ...base,
-      label: or(f.str("label", "name", "title"), base.label),
-      date: date === undefined ? base.date : dateOf(date, ctx),
-      venueId: or(f.id("venue_id", "venue"), base.venueId),
-      start: start === undefined ? base.start : clockOf(start, ctx),
-    };
-  },
-);
+/** ControlRoom's id for the whole repertoire: the largest unsigned 64-bit number. */
+const isAll = (value: unknown) => typeof value === "number" && value > Number.MAX_SAFE_INTEGER;
 
-const entry = crud<CrRow>(
-  "schedule_entry",
-  (m) => m.rows,
-  (id) => ({
-    id,
-    dayId: null,
-    date: null,
-    kind: "custom",
-    start: null,
-    minutes: 0,
-    label: "",
-    allRepertoire: false,
-    workIds: [],
-    movementIds: [],
-    personnel: "",
-    notes: "",
-    done: false,
-  }),
-  (f, base, ctx) => {
-    const kindWritten = f.str("kind", "type", "category");
-    let kind = base.kind;
-    if (kindWritten !== undefined) {
-      const found = rowKinds[keyOf(kindWritten)];
-      if (!found)
-        ctx.report.problem(
-          `${ctx.type}: a "${kindWritten.slice(0, 30)}" row is not a kind Hekate has, so it is an other row`,
-        );
-      kind = found ?? "custom";
-    }
-    const date = f.strOrNull("date", "day_date");
-    const start = f.strOrNull("start", "start_time", "time", "starts");
-    const minutes = f.num("minutes", "duration_minutes", "duration", "length");
-    // People named on a row: written out, or a list of names or ids on the personnel.
-    const who = f.raw("personnel", "people", "who");
-    const personnel =
-      who === undefined || who === null
-        ? undefined
-        : Array.isArray(who)
-          ? who
-              .map((p) =>
-                typeof p === "string" || typeof p === "number"
-                  ? (ctx.model.personnel.get(String(p))?.name ?? String(p))
-                  : "",
-              )
-              .filter(Boolean)
-              .join(", ")
-          : String(who);
-    const pieces = f.ids("piece_ids", "pieces", "works", "work_ids");
-    const movements = f.ids("movement_ids", "movements", "tracks");
-    return {
-      ...base,
-      kind: kind === "custom" && (pieces?.length || movements?.length) ? "slot" : kind,
-      dayId: or(f.id("day_id", "schedule_day_id", "day"), base.dayId),
-      date: date === undefined ? base.date : dateOf(date, ctx),
-      start: start === undefined ? base.start : clockOf(start, ctx),
-      minutes: minutes === undefined ? base.minutes : (within(Math.round(minutes), 0, 1440) ?? 0),
-      label: or(f.str("label", "title", "name", "text"), base.label),
-      allRepertoire: or(f.bool("all_repertoire", "tutti", "everything"), base.allRepertoire),
-      workIds: or(pieces, base.workIds),
-      movementIds: or(movements, base.movementIds),
-      personnel: or(personnel, base.personnel),
-      notes: or(f.str("notes", "note"), base.notes),
-      done: or(f.bool("done", "completed", "ticked", "checked"), base.done),
-    };
-  },
-);
+/** A piece a slot names: an id, the whole repertoire, or null for none. */
+function pieceOf(value: unknown, ctx: ReplayContext): string | "all" | null {
+  if (isAll(value)) return "all";
+  const id = idOf(value);
+  if (id === undefined) {
+    ctx.report.problem(`${ctx.type}: a slot names a work that is not an id, so it was left off`);
+    return null;
+  }
+  return id;
+}
+
+const kindOf = (value: string): CrScheduleKind =>
+  (scheduleKinds as readonly string[]).includes(value) ? (value as CrScheduleKind) : "slot";
 
 export const schedule: Family = {
   name: "schedule",
-  nouns: {
-    ...aliases(["schedule_day", "day"], day),
-    ...aliases(
-      ["schedule_entry", "schedule_row", "schedule_item", "schedule_slot", "schedule", "slot"],
-      entry,
-    ),
+  events: {
+    add_schedule_item(ctx, f) {
+      const id = ctx.nextId();
+      const kind = kindOf(f.str("kind", "slot"));
+      const index = f.int("index", -1);
+      const item: CrScheduleItem = {
+        id,
+        kind,
+        start: "",
+        minutes: 0,
+        done: false,
+        title: "",
+        notes: "",
+        personnel: "",
+        refs: [],
+        label: "",
+        date: "",
+        venueId: null,
+        legacy: { composer: "", arranger: "", forces: "", venue: "", pdfId: null },
+      };
+      const list = ctx.model.schedule;
+      list.splice(index < 0 || index > list.length ? list.length : index, 0, item);
+    },
+    update_schedule_item(ctx, f) {
+      const id = f.id("id");
+      f.skip("kind");
+      const refs: CrScheduleItem["refs"] = [];
+      for (const r of f.list("refs") ?? []) {
+        if (!Array.isArray(r) || r.length < 2) continue;
+        const piece = pieceOf(r[0], ctx);
+        const movement = wholeOf(r[1]);
+        if (piece && movement !== undefined) refs.push({ piece, movement });
+      }
+      // Files from before a slot could hold several works name one.
+      const single = f.raw("piece");
+      const movement = f.int("movement", 0);
+      if (refs.length === 0 && single !== null && single !== undefined && single !== 0) {
+        const piece = pieceOf(single, ctx);
+        if (piece) refs.push({ piece, movement });
+      }
+      const next = {
+        start: f.str("start"),
+        minutes: f.int("dur", 0),
+        done: f.bool("done", false),
+        title: f.str("title"),
+        notes: f.str("notes"),
+        personnel: f.str("personnel"),
+        refs,
+        label: f.str("label"),
+        date: f.str("date"),
+        venueId: f.id("venue_id"),
+        legacy: {
+          composer: f.str("composer"),
+          arranger: f.str("arranger"),
+          forces: f.str("forces"),
+          venue: f.str("venue"),
+          pdfId: f.id("pdf"),
+        },
+      };
+      const held = ctx.model.schedule.find((item) => item.id === id);
+      if (!held) return absent(ctx, "a schedule row");
+      Object.assign(held, next);
+    },
+    delete_schedule_item(ctx, f) {
+      const id = f.id("id");
+      const at = ctx.model.schedule.findIndex((item) => item.id === id);
+      if (at < 0) return absent(ctx, "a schedule row");
+      ctx.model.schedule.splice(at, 1);
+    },
+    move_schedule_item(ctx, f) {
+      const id = f.id("id");
+      const to = f.int("to", 0);
+      const list = ctx.model.schedule;
+      const at = list.findIndex((item) => item.id === id);
+      if (at < 0) return absent(ctx, "a schedule row");
+      const [item] = list.splice(at, 1) as [CrScheduleItem];
+      list.splice(Math.min(Math.max(0, to), list.length), 0, item);
+    },
   },
 };

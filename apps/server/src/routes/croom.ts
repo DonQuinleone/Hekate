@@ -65,7 +65,7 @@ export const projectCroomRoutes = (deps: CroomDeps) =>
           const { model, report, replayed } = replayFile(source.file);
           const plan = planImport(
             model,
-            source.file.blobs,
+            source.file,
             await existingIn(deps.db, organisationId, projectId),
             c.req.valid("query").conflicts,
             report,
