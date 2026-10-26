@@ -11,7 +11,8 @@
       "!**/dist",
       "!**/migrations/meta",
       "!**/routeTree.gen.ts",
-      "!docs/openapi.json"
+      "!docs/openapi.json",
+      "!deploy/helm/*/templates"
     ]
   },
   "formatter": {
@@ -27,7 +28,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "a11y": {
         "noLabelWithoutControl": {
           "level": "error",
@@ -58,6 +59,14 @@
     "parser": {
       "tailwindDirectives": true
     }
+  },
+  "markdown": {
+    "formatter": { "enabled": false },
+    "linter": { "enabled": false }
+  },
+  "yaml": {
+    "formatter": { "enabled": false },
+    "linter": { "enabled": false }
   },
   "overrides": [
     {

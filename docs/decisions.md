@@ -1906,3 +1906,11 @@ This supersedes "Dependabot moves the pins" in decision 140: Renovate moves them
 - **What stays the same.** The non-root `node` user, the exec-form `HEALTHCHECK`, `ENTRYPOINT` and `CMD`, the read-only, capability-free way Compose and the chart run it, and the smoke test, which now also runs `pdfinfo` and `pdftotext`, checks that no other program is left and that the package records are there.
 - **What changes for operators.** Nothing to set: the image's font settings move with it. A setting that named Debian's font paths by hand must name Alpine's. Without a shell or busybox, `docker exec app node -e '...'` remains the way into a running container. Node publishes its musl builds as an experimental platform, built by the Node Docker team for the `-alpine` images; the server and its dependencies are pure JavaScript, so nothing native is at stake.
 - **Not done:** a smaller ffmpeg built from source (issue #170's second option) or a Wolfi runtime (its third). Alpine's own `ffmpeg` still links libraries Hekate never uses (X11, PulseAudio, Vulkan), but Alpine follows their fixes closely; if its findings stay above zero, a narrower ffmpeg is the next step.
+
+## 245. Biome checks the code, JSON and CSS, and leaves Markdown and YAML alone
+
+Biome 2.6 formats and lints Markdown and YAML by default. Hekate keeps it to what it checked before.
+
+- **Markdown is written by hand, or generated.** Formatting it would rewrite every page of `docs/` and of the documentation site at once, and the generated pages (`docs/configuration.md`, the upgrade notes, the API reference) would have to come out of their generators already formatted, or fail the check after every regeneration.
+- **The YAML is not all Hekate's.** pnpm writes `pnpm-lock.yaml` its own way, and the Helm chart's templates are Go templates that no YAML parser reads, so they are left out of Biome altogether (Helm's own lint checks them in CI).
+- **Revisited** when Biome's Markdown formatter can be run by the generators, or the docs want a formatter of their own.

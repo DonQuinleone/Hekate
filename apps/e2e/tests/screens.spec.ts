@@ -25,7 +25,11 @@ test.beforeEach(({ page }) => {
     if (/Content Security Policy/i.test(message.text())) seen.push(message.text());
   });
 });
-test.afterEach(({ page }) => {
+test.afterEach(async ({ page }) => {
+  // A live page can still be fetching through a screen's mocked route as the screen ends; its
+  // handler's fetch then fails with "Test ended", reported against whichever screen runs next.
+  // Routes stop here, and a handler still in flight ends quietly.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
   expect(violations.get(page) ?? [], "Content Security Policy violations").toEqual([]);
 });
 

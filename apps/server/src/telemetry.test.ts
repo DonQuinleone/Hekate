@@ -1,8 +1,7 @@
 import { createDb, runMigrations, schema } from "@hekate/db";
-import { context, propagation, SpanStatusCode, trace } from "@opentelemetry/api";
-import { logs } from "@opentelemetry/api-logs";
+import { context, logs, propagation, SpanStatusCode, trace } from "@opentelemetry/api";
 import { InMemoryLogRecordExporter, SimpleLogRecordProcessor } from "@opentelemetry/sdk-logs";
-import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
+import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,7 +49,7 @@ describe("telemetry to a collector (#162)", () => {
     telemetry = await startTelemetry(
       { OTEL_SERVICE_NAME: "hekate-test" },
       {
-        spans: new SimpleSpanProcessor(spans),
+        spans: new SimpleSpanProcessor({ exporter: spans }),
         logs: new SimpleLogRecordProcessor({ exporter: records }),
       },
     );

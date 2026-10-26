@@ -25,7 +25,7 @@ export interface LayoutProblem {
 export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
   return page.evaluate((minTarget) => {
     const problems: { check: string; what: string }[] = [];
-    const describe = (el: Element) => {
+    const nameOf = (el: Element) => {
       const label =
         el.getAttribute("aria-label") ??
         (el.textContent ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
@@ -122,7 +122,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
         if (a.rects.some((ra) => b.rects.some((rb) => intersect(ra, rb, 2)))) {
           problems.push({
             check: "text-overlap",
-            what: `${describe(a.el)} runs into ${describe(b.el)}`,
+            what: `${nameOf(a.el)} runs into ${nameOf(b.el)}`,
           });
         }
       }
@@ -153,7 +153,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       if (crossed) {
         problems.push({
           check: "line-through-text",
-          what: `${describe(el)} crosses ${describe(crossed.el)}`,
+          what: `${nameOf(el)} crosses ${nameOf(crossed.el)}`,
         });
       }
     }
@@ -168,7 +168,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
         style.textOverflow !== "ellipsis" &&
         !style.webkitLineClamp?.match(/\d/)
       ) {
-        problems.push({ check: "clipped-text", what: `${describe(el)} is cut off` });
+        problems.push({ check: "clipped-text", what: `${nameOf(el)} is cut off` });
       }
     }
 
@@ -236,7 +236,7 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       if (crowded) {
         problems.push({
           check: "small-target",
-          what: `${describe(t.el)} is ${Math.round(t.box.width)}×${Math.round(t.box.height)}, too close to ${describe(crowded.el)}`,
+          what: `${nameOf(t.el)} is ${Math.round(t.box.width)}×${Math.round(t.box.height)}, too close to ${nameOf(crowded.el)}`,
         });
       }
     }
