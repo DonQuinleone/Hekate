@@ -43,7 +43,7 @@ const fixes = corrected({
   isrc: "GB-ABC-26-00001",
 });
 
-describe("corrected metadata as a recording leaves (decision 260)", () => {
+describe("corrected metadata as a recording leaves (decision 264)", () => {
   it("writes bext fields into their slots and keeps the rest of the chunk", () => {
     const original = Buffer.alloc(640);
     original.write("Old", 0, "latin1");

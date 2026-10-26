@@ -37,7 +37,7 @@ const groupNames: Record<MetadataGroup, string> = {
 
 /**
  * A recording's embedded metadata on the QA view (#41), as the prototype's panel lists it, and
- * for those who may, its editor (decision 260): opened by Edit beside the heading where the
+ * for those who may, its editor (decision 264): opened by Edit beside the heading where the
  * person has turned it on (Appearance, Metadata editor in QA).
  */
 export function EmbeddedMetadataPanel({

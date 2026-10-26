@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { EmbeddedMetadata, MediaInfo } from "./media.ts";
 
 /**
- * Correcting what a recording says about itself (decision 260): the fields of its embedded
+ * Correcting what a recording says about itself (decision 264): the fields of its embedded
  * metadata a person may correct, how each is checked, and how a correction is kept. The
  * original's bytes are never changed; a correction is Hekate's own record, shown wherever the
  * file's metadata is read and written into the file only as it leaves, downloaded.
@@ -247,7 +247,7 @@ export function applyMetadataChanges(
   return { metadata: next, corrections: kept, changed };
 }
 
-/** A file's metadata as just read from it, with Hekate's corrections over it (decision 260). */
+/** A file's metadata as just read from it, with Hekate's corrections over it (decision 264). */
 export function correctedMetadata(
   metadata: EmbeddedMetadata,
   corrections: MetadataCorrections | null | undefined,

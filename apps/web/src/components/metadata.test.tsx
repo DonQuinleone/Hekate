@@ -26,7 +26,7 @@ const form = (onSave = vi.fn(), onCancel = vi.fn()) => ({
   ),
 });
 
-describe("the metadata editor (decision 260)", () => {
+describe("the metadata editor (decision 264)", () => {
   afterEach(cleanup);
 
   it("sends only what changed, a timecode as samples since midnight", () => {

@@ -384,7 +384,7 @@ export function VideoQaView({
           </Card>
           <Card className="p-4">
             <div className="flex items-center justify-between">
-              {/* Not edited: a video's downloads leave its metadata out (decision 260). */}
+              {/* Not edited: a video's downloads leave its metadata out (decision 264). */}
               <Label>Embedded metadata</Label>
             </div>
             <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">

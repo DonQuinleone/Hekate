@@ -2551,7 +2551,7 @@ test("file-qa-atmos", async ({ page }) => {
   await checkScreen(page);
 });
 
-// The metadata editor open on a recording's QA view (decision 260), for someone who turned it
+// The metadata editor open on a recording's QA view (decision 264), for someone who turned it
 // on (Appearance) and may organise the project's files. The file's answers are amended in this
 // page alone, to a Broadcast Wave file with one field already corrected; nothing is saved.
 test("file-qa-metadata-editor", async ({ page }) => {

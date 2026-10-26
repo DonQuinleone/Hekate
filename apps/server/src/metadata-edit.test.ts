@@ -22,7 +22,7 @@ const url = process.env.DATABASE_URL;
 const hasFfmpeg = spawnSync("ffmpeg", ["-version"]).status === 0;
 
 /**
- * Correcting a recording's embedded metadata (decision 260): for those who organise its files
+ * Correcting a recording's embedded metadata (decision 264): for those who organise its files
  * and have the QA tool, in their own workspace; kept as Hekate's record, read by the checks,
  * logged, and written into the original only as it leaves.
  */

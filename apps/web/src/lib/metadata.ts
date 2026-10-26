@@ -25,7 +25,7 @@ export const metadataQuery = (fileId: string) =>
   });
 
 /**
- * Correct a recording's embedded metadata (decision 260). The file, its checks and its report
+ * Correct a recording's embedded metadata (decision 264). The file, its checks and its report
  * read the corrected values, so everything about the file is asked for again.
  */
 export function useMetadataEdit(fileId: string) {

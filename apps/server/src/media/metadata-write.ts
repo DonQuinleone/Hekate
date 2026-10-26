@@ -1,5 +1,5 @@
 /**
- * Corrected metadata written into a recording as it leaves (decision 260). The stored original
+ * Corrected metadata written into a recording as it leaves (decision 264). The stored original
  * is never rewritten: a download is made from a decrypted copy in the private workspace.
  *
  * A wave file (RIFF, RF64, BW64) is written by Hekate itself, chunk by chunk: its bext chunk,

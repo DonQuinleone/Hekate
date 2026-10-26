@@ -149,7 +149,7 @@ type FileRow = {
   projectId: string;
   pageCount: number | null;
   mediaInfo: MediaInfo | null;
-  /** Corrections to its embedded metadata, written in as it leaves (decision 260). */
+  /** Corrections to its embedded metadata, written in as it leaves (decision 264). */
   metadataCorrections: MetadataCorrections | null;
 };
 
@@ -682,7 +682,7 @@ function markedAudio(
     );
     const format = markedAudioFormat(info, kind);
     const output = join(dir, `marked.${format.extension}`);
-    // An original carries its corrected metadata (decision 260); a proxy carries none.
+    // An original carries its corrected metadata (decision 264); a proxy carries none.
     const corrections = kind === "original" ? file.metadataCorrections : null;
     await run(
       "ffmpeg",
@@ -717,7 +717,7 @@ function markedAudio(
   });
 }
 
-/** Whether a recording's original leaves with corrected metadata written in (decision 260). */
+/** Whether a recording's original leaves with corrected metadata written in (decision 264). */
 function corrected(file: FileRow) {
   return (
     file.kind === "audio" &&
@@ -726,7 +726,7 @@ function corrected(file: FileRow) {
 }
 
 /**
- * An unmarked original with its corrected metadata (decision 260), made from a decrypted copy
+ * An unmarked original with its corrected metadata (decision 264), made from a decrypted copy
  * in the private workspace, as the stored original is never rewritten: a wave file chunk by
  * chunk, its audio copied as it is; FLAC and MP3 with their tags written by ffmpeg, the sound
  * copied without decoding it.

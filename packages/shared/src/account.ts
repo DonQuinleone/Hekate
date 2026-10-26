@@ -75,7 +75,7 @@ export const preferencesSchema = z.object({
   /** Each channel in its own lane, rather than combined; the View menu changes it too. */
   splitChannels: z.boolean(),
   /**
-   * The metadata editor on the QA view (decision 260): Edit beside a recording's embedded
+   * The metadata editor on the QA view (decision 264): Edit beside a recording's embedded
    * metadata, for those whose role may correct it. Off, the metadata is only listed.
    */
   showMetadataEditor: z.boolean(),

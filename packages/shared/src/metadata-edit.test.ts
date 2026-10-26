@@ -16,7 +16,7 @@ const read: EmbeddedMetadata = {
   tags: { title: "Maple Leaf Rag" },
 };
 
-describe("correcting embedded metadata (decision 260)", () => {
+describe("correcting embedded metadata (decision 264)", () => {
   it("offers the editor only where Hekate can write the file as it leaves", () => {
     const info = (format: string): MediaInfo => ({
       format,

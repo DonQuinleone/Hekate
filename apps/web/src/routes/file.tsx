@@ -602,7 +602,7 @@ export function FilePage({
       fileId={file.id}
       metadata={file.mediaInfo.metadata}
       sampleRate={file.mediaInfo.audio?.sampleRate}
-      // A recording's metadata can be corrected (decision 260), by whoever organises its files
+      // A recording's metadata can be corrected (decision 264), by whoever organises its files
       // and has QA, where they have turned the editor on.
       editor={
         !guest &&

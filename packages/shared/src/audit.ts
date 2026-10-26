@@ -175,7 +175,7 @@ export const auditActions = [
   /** A project's downloads and deletion changed (decision 257): who may download, originals, deleting, marking. */
   "project.asset_security",
   /**
-   * Someone corrected a recording's embedded metadata (decision 260): each field changed, what
+   * Someone corrected a recording's embedded metadata (decision 264): each field changed, what
    * it said and now says. The original is untouched; downloads carry the corrections.
    */
   "file.metadata_edit",

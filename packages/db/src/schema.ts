@@ -1390,7 +1390,7 @@ export const files = pgTable(
     /** Measured by the media worker; null until the file has been probed. */
     mediaInfo: jsonb("media_info").$type<MediaInfo>(),
     /**
-     * Corrections to a recording's embedded metadata (decision 260): each field's value and
+     * Corrections to a recording's embedded metadata (decision 264): each field's value and
      * what the file itself says. `mediaInfo.metadata` already reads with them; the stored
      * original is never rewritten, and a download writes them into the file as it leaves.
      * Null where nothing was corrected.

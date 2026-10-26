@@ -217,7 +217,7 @@ export function mixArgs(
   markPath: string,
   options: { sampleRate: number; channels: number; layout?: string; format: MarkedAudioFormat },
   output: string,
-  /** `-metadata` arguments over the source's tags: an original's corrections (decision 260). */
+  /** `-metadata` arguments over the source's tags: an original's corrections (decision 264). */
   tags: string[] = [],
 ): string[] {
   const { sampleRate, channels, format } = options;

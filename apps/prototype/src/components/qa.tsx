@@ -377,7 +377,7 @@ export function QaView({
   playback: Playback;
   previous?: File;
   canChooseProfile: boolean;
-  /** Whoever organises the project's files, with QA, and the editor on (decision 260). */
+  /** Whoever organises the project's files, with QA, and the editor on (decision 264). */
   canEditMetadata: boolean;
   canComment: boolean;
   onComment: (finding: QaFinding) => void;
@@ -670,7 +670,7 @@ export function QaView({
           </div>
           {editingMetadata ? (
             // Corrections are Hekate's own record: the stored original is never rewritten, and
-            // a download writes them into the file as it leaves (decision 260).
+            // a download writes them into the file as it leaves (decision 264).
             <form
               className="mt-3 flex flex-col gap-3"
               onSubmit={(e) => {

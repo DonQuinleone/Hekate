@@ -26,7 +26,7 @@ const guestsRefused = () =>
   new HTTPException(403, { message: "Guests cannot correct a file's metadata" });
 
 /**
- * `/api/files/:id/metadata`: a recording's corrections to its embedded metadata (decision 260).
+ * `/api/files/:id/metadata`: a recording's corrections to its embedded metadata (decision 264).
  * Reading them is for whoever has the QA tool on the file; correcting them, for whoever may
  * also organise its files (`organise`, as for a file's name and its tags). The original's
  * bytes are never touched: the corrections are Hekate's record, `mediaInfo.metadata` reads
