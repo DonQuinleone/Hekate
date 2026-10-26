@@ -199,12 +199,18 @@ describe("corrected metadata as a recording leaves (decision 260)", () => {
     });
   });
 
-  it("writes FLAC and MP3 tags with ffmpeg, copying the sound as it is", async () => {
+  it("writes FLAC and MP3 tags with ffmpeg, copying the sound and the artwork as they are", async () => {
     await withWorkspace(undefined, async (dir) => {
+      const cover = join(dir, "cover.jpg");
+      await run("ffmpeg", [
+        ...["-v", "error", "-f", "lavfi", "-i", "color=c=red:s=64x64", "-frames:v", "1"],
+        ...["-y", cover],
+      ]);
       for (const muxer of ["flac", "mp3"] as const) {
         const input = join(dir, `in.${muxer}`);
         await run("ffmpeg", [
           ...["-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:duration=0.5"],
+          ...["-i", cover, "-map", "0", "-map", "1", "-disposition:v", "attached_pic"],
           ...["-metadata", "title=Old title", "-metadata", "artist=Endless Hall Records"],
           ...["-metadata", "copyright=2025", "-y", input],
         ]);
@@ -231,6 +237,7 @@ describe("corrected metadata as a recording leaves (decision 260)", () => {
           isrc: "GBABC2600001",
         });
         expect(info.audio?.codec).toBe(muxer);
+        expect(info.metadata?.artwork).toMatchObject({ width: 64, height: 64 });
       }
     });
   });

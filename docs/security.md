@@ -119,6 +119,7 @@ Envelope encryption: every stored object (an original or a derivative) has its o
 - **Workspace keys** (`organisation_keys`) are created on first use, versioned for later rotation, wrapped by the master key and bound to the workspace and version. Unwrapped keys exist only in the server's memory.
 - **The master key** comes from `MASTER_KEY` (or `MASTER_KEY_FILE`). Each wrapped workspace key records a one-way fingerprint of the master key that wraps it. At start-up Hekate checks every workspace key against the configured master keys and refuses to start if one cannot be opened, rather than failing on the first read.
 - **Rotation:** move the current key to `MASTER_KEYS_PREVIOUS`, set a new `MASTER_KEY` and restart. Hekate re-wraps every workspace key with the new key at start-up; the old key can then be removed. Stored objects are never rewritten.
+- **Corrected metadata** (decision 260): a recording's embedded metadata corrected in QA is a record of Hekate's own, never written back into the stored original. A download of the original writes the corrections in as it leaves, from a decrypted copy in the private workspace that is gone when the download ends, under the same one-time link, mark and access log entry as any download; every correction is in the access log (`file.metadata_edit`).
 - **Key management services** (AWS KMS, Vault and so on) can replace the configured master key later behind the same interface.
 
 ## Storage reconciliation
