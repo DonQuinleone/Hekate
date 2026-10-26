@@ -12,7 +12,7 @@ WORKDIR /app
 
 # Build the web app with the full workspace.
 FROM base AS build
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .pnpmfile.cjs ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
@@ -24,7 +24,7 @@ RUN pnpm --filter @hekate/web build
 
 # Production dependencies for the server only.
 FROM base AS deps
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .pnpmfile.cjs ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/server apps/server
 COPY packages packages
 COPY apps/web/package.json apps/web/

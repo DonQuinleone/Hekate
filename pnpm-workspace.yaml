@@ -18,3 +18,54 @@ overrides:
   # drizzle-kit loads its config through @esbuild-kit, which pins esbuild 0.18 (GHSA-67mh-4wv8-2f99,
   # the development server answering any website). It uses only transform, unchanged in 0.25.
   "@esbuild-kit/core-utils>esbuild": ^0.25.12
+  # Optional peers Hekate does not use, removed ("-"): pnpm satisfies optional peers from
+  # anywhere in the workspace, which drags unrelated packages into production graphs and gives
+  # one library several copies with different peer sets, breaking type identity across
+  # workspace packages. better-auth keeps only drizzle-orm (otherwise drizzle-kit, vitest and
+  # React reach the server image); drizzle-orm keeps only postgres and kysely (otherwise pg,
+  # from pg-boss, and OpenTelemetry make a second drizzle-orm in the server). Declared here
+  # rather than in a pnpmfile hook so every pnpm, Renovate's included, resolves the same graph.
+  "better-auth>@lynx-js/react": "-"
+  "better-auth>@prisma/client": "-"
+  "better-auth>@sveltejs/kit": "-"
+  "better-auth>@tanstack/react-start": "-"
+  "better-auth>@tanstack/solid-start": "-"
+  "better-auth>drizzle-kit": "-"
+  "better-auth>mongodb": "-"
+  "better-auth>mysql2": "-"
+  "better-auth>next": "-"
+  "better-auth>pg": "-"
+  "better-auth>prisma": "-"
+  "better-auth>react": "-"
+  "better-auth>react-dom": "-"
+  "better-auth>solid-js": "-"
+  "better-auth>svelte": "-"
+  "better-auth>vitest": "-"
+  "better-auth>vue": "-"
+  "drizzle-orm>@aws-sdk/client-rds-data": "-"
+  "drizzle-orm>@cloudflare/workers-types": "-"
+  "drizzle-orm>@electric-sql/pglite": "-"
+  "drizzle-orm>@libsql/client": "-"
+  "drizzle-orm>@libsql/client-wasm": "-"
+  "drizzle-orm>@neondatabase/serverless": "-"
+  "drizzle-orm>@op-engineering/op-sqlite": "-"
+  "drizzle-orm>@opentelemetry/api": "-"
+  "drizzle-orm>@planetscale/database": "-"
+  "drizzle-orm>@prisma/client": "-"
+  "drizzle-orm>@tidbcloud/serverless": "-"
+  "drizzle-orm>@types/better-sqlite3": "-"
+  "drizzle-orm>@types/pg": "-"
+  "drizzle-orm>@types/sql.js": "-"
+  "drizzle-orm>@upstash/redis": "-"
+  "drizzle-orm>@vercel/postgres": "-"
+  "drizzle-orm>@xata.io/client": "-"
+  "drizzle-orm>better-sqlite3": "-"
+  "drizzle-orm>bun-types": "-"
+  "drizzle-orm>expo-sqlite": "-"
+  "drizzle-orm>gel": "-"
+  "drizzle-orm>knex": "-"
+  "drizzle-orm>mysql2": "-"
+  "drizzle-orm>@netlify/db": "-"
+  "drizzle-orm>pg": "-"
+  "drizzle-orm>sql.js": "-"
+  "drizzle-orm>sqlite3": "-"
