@@ -35,6 +35,7 @@ import {
   type MailMode,
   type MailProvider,
   type MediaInfo,
+  type MetadataCorrections,
   mailResults,
   type NormalisationMode,
   type NotificationChannels,
@@ -1388,6 +1389,13 @@ export const files = pgTable(
     analysisStatus: streamStatusEnum("analysis_status").notNull().default("none"),
     /** Measured by the media worker; null until the file has been probed. */
     mediaInfo: jsonb("media_info").$type<MediaInfo>(),
+    /**
+     * Corrections to a recording's embedded metadata (decision 260): each field's value and
+     * what the file itself says. `mediaInfo.metadata` already reads with them; the stored
+     * original is never rewritten, and a download writes them into the file as it leaves.
+     * Null where nothing was corrected.
+     */
+    metadataCorrections: jsonb("metadata_corrections").$type<MetadataCorrections>(),
     /**
      * A video's filmstrip (#16): its frames at even steps along it, side by side in one
      * encrypted picture; null for anything else, or a video packaged before there was one.

@@ -91,6 +91,7 @@ const actionWords = {
   "project.croom_import": "ControlRoom project imported",
   "support.attachment_download": "Ticket attachment downloaded",
   "project.asset_security": "Project downloads and deletion changed",
+  "file.metadata_edit": "Embedded metadata corrected",
 } satisfies Record<AuditAction, string>;
 
 /** Plain words for what each entry records; every action has some, or this does not compile. */
