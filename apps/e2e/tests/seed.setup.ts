@@ -1343,6 +1343,41 @@ setup("seed", async ({ page, browser }) => {
       ],
     },
   });
+  // One started by hand on the track and moved on, so its page has a history of transitions
+  // (#25): the run's start, which set a status, and a step ended by hand.
+  const { workflow: mastering } = await api<{ workflow: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${music.id}/workflows`,
+    {
+      name: "Mastering",
+      definition: {
+        groups: [],
+        nodes: [
+          step("start", "manual", "Started by hand", 0),
+          step("status", "status", "Mastering", 1, 0, { status: "Mastering" }),
+          step("settle", "wait", "Let it settle", 2, 0, { days: "2" }),
+          step("done", "finish", "Mastered", 3, 0, { status: "Mastered" }),
+        ],
+        connectors: [
+          { id: "c1", from: "start", outcome: "happened", to: "status" },
+          { id: "c2", from: "status", outcome: "set", to: "settle" },
+          { id: "c3", from: "settle", outcome: "elapsed", to: "done" },
+        ],
+      },
+    },
+  );
+  await api(page, "PATCH", `/api/workflows/${mastering.id}`, { active: true });
+  const { run: masteringRun } = await api<{ run: { id: string } }>(
+    page,
+    "POST",
+    `/api/tracks/${track.id}/workflow-runs`,
+    { workflowId: mastering.id },
+  );
+  await api(page, "POST", `/api/workflow-runs/${masteringRun.id}/steps`, {
+    nodeId: "settle",
+    outcome: "elapsed",
+  });
 
   // API tokens (#198): two of the owner's own (one since run out) and a service token for the
   // release pipeline, whose calls, one of them refused for want of a scope, fill the API log.

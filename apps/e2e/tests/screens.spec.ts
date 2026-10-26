@@ -319,6 +319,12 @@ const screens: Screen[] = [
     path: (s) => `/tracks/${s.trackId}?view=versions`,
     ready: "text=Bars 12 to 16",
   },
+  // Its workflow's history of transitions (#25), under the versions: who moved it on, and when.
+  {
+    name: "track-history",
+    path: (s) => `/tracks/${s.trackId}?view=versions`,
+    ready: "section[aria-label='Workflow history'] >> text=Let it settle",
+  },
   // A deliverable (#16): a track in a video project, in video words, its renditions described.
   {
     name: "deliverable",

@@ -16290,6 +16290,19 @@ describe.runIf(url)("api", () => {
             ["edit", "done"],
             ["rest", "elapsed"],
           ]);
+          // The track's history of transitions: each step by its name, and who moved it on,
+          // where someone did; the wait that elapsed was Hekate's.
+          const named = (await runs())[0] as unknown as {
+            startedBy: string | null;
+            steps: { name: string | null; byName: string | null }[];
+          };
+          expect(named.startedBy).toBe("Producer");
+          expect(named.steps.map((st) => [st.name, st.byName])).toEqual([
+            [null, "Producer"],
+            ["Conductor", "Producer"],
+            ["Engineer edits", "engineer"],
+            ["Let it rest", null],
+          ]);
           expect(await statusOf()).toBe("Approved");
 
           // The next version starts it again; it is not started by hand.
@@ -16360,6 +16373,27 @@ describe.runIf(url)("api", () => {
             404,
           );
           expect((await step({ nodeId: "fb", outcome: "done" }, newcomer)).status).toBe(404);
+          // Nor does the owner of another workspace.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Saltmarsh Films", slug: "saltmarsh-workflow-runs" })
+            .returning({ id: schema.organisations.id });
+          await db.insert(schema.members).values({
+            organisationId: elsewhere?.id ?? "",
+            userId: await idOf(newcomer),
+            role: "owner",
+          });
+          expect(
+            (
+              await app.request("/api/me/organisation", {
+                ...json({ organisationId: elsewhere?.id }, newcomer),
+                method: "PUT",
+              })
+            ).status,
+          ).toBe(200);
+          expect((await getAs(`/api/tracks/${s.trackId}/workflow-runs`, newcomer)).status).toBe(
+            404,
+          );
         });
 
         it("carries a run on from a version it waits for, even once its workflow is off (#25)", async () => {

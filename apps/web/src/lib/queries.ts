@@ -190,6 +190,7 @@ import {
   type WorkflowInput,
   type WorkflowNotices,
   type WorkflowRunInspection,
+  type WorkflowRunSummary,
   type WorkflowStanding,
   type WorkflowStatus,
   type WorkflowSummary,
@@ -2517,6 +2518,18 @@ export const trackStandingQuery = (trackId: string) =>
       json<WorkflowStanding>(
         await api.tracks[":id"]["workflow-standing"].$get({ param: { id: trackId } }),
       ),
+  });
+
+/** A track's workflow runs (#25), newest first, each with its history of transitions. */
+export const trackWorkflowRunsQuery = (trackId: string) =>
+  queryOptions({
+    queryKey: ["tracks", trackId, "workflow-runs"],
+    queryFn: async () =>
+      (
+        await json<{ runs: WorkflowRunSummary[] }>(
+          await api.tracks[":id"]["workflow-runs"].$get({ param: { id: trackId } }),
+        )
+      ).runs,
   });
 
 /** A track's takes (#21, #46), in order. */

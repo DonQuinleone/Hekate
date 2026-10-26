@@ -346,3 +346,98 @@ export const accessLog: AccessEvent[] = [
     agent: "Chrome 142, macOS",
   },
 ];
+
+/** One move a track's workflow made: a step ended, how, the status it set, and by whom. */
+export interface WorkflowTransition {
+  id: string;
+  at: string;
+  /** What happened: a step's name and outcome, or the run starting or stopping. */
+  text: string;
+  /** The status the move set, if it set one. */
+  status: string | null;
+  /** Who moved it on; null where Hekate did (a wait elapsed, a check ran). */
+  personId: string | null;
+}
+
+/** A track's workflow runs, newest first, each with its transitions in order (#25). */
+export const trackHistory: {
+  id: string;
+  workflow: string;
+  state: "running" | "finished" | "stopped";
+  /** The step a run under way waits at. */
+  waitingAt: string | null;
+  transitions: WorkflowTransition[];
+}[] = [
+  {
+    id: "run-2",
+    workflow: "Album review",
+    state: "running",
+    waitingAt: "Label approval",
+    transitions: [
+      {
+        id: "t-6",
+        at: "2026-10-12T09:14:00Z",
+        text: "Started again from Conductor, round two",
+        status: "With conductor",
+        personId: "p-tomas",
+      },
+      {
+        id: "t-7",
+        at: "2026-10-13T16:40:00Z",
+        text: "Conductor, round two · submitted",
+        status: null,
+        personId: "p-mira",
+      },
+      {
+        id: "t-8",
+        at: "2026-10-14T11:05:00Z",
+        text: "Soloists · submitted",
+        status: null,
+        personId: "p-ines",
+      },
+    ],
+  },
+  {
+    id: "run-1",
+    workflow: "Album review",
+    state: "stopped",
+    waitingAt: null,
+    transitions: [
+      {
+        id: "t-1",
+        at: "2026-10-02T10:20:00Z",
+        text: "Started",
+        status: "With conductor",
+        personId: "p-tomas",
+      },
+      {
+        id: "t-2",
+        at: "2026-10-05T18:02:00Z",
+        text: "Conductor, round one · submitted",
+        status: "Triage",
+        personId: "p-mira",
+      },
+      {
+        id: "t-3",
+        at: "2026-10-06T09:30:00Z",
+        text: "Producer triages · done",
+        status: "Editing",
+        personId: "p-alex",
+      },
+      {
+        id: "t-4",
+        at: "2026-10-09T15:12:00Z",
+        text: "Engineer edits · due date passed",
+        status: null,
+        personId: null,
+      },
+      {
+        id: "t-5",
+        at: "2026-10-12T09:14:00Z",
+        text: "Stopped",
+        status: null,
+        personId: "p-tomas",
+      },
+    ],
+  },
+];

@@ -20,6 +20,7 @@ import {
   reviews,
   takes,
   trackById,
+  trackHistory,
   type Version,
   workflows,
 } from "~/data";
@@ -543,11 +544,70 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
                   />
                 ))}
               </ul>
+              {workflow && <WorkflowHistory />}
             </>
           )}
         </StateGate>
       )}
     </Page>
+  );
+}
+
+const runWords = { running: "Under way", finished: "Finished", stopped: "Stopped" } as const;
+
+/**
+ * The track's history of transitions (#25): each run of its workflow, newest first, and every
+ * move it made in order, with the status it set, who made it and when. A move nobody made (a
+ * wait that elapsed, a due date passing) is Hekate's.
+ */
+function WorkflowHistory() {
+  return (
+    <section aria-label="Workflow history" className="flex flex-col gap-2">
+      <Label className="px-1">History</Label>
+      <div className="rounded-panel-lg border border-line bg-raised/40 shadow-1">
+        {trackHistory.map((run) => (
+          <div key={run.id} className="border-t border-line first:border-t-0">
+            <div className="flex flex-wrap items-baseline gap-x-2 px-4 pt-3 pb-1 text-[13px]">
+              <span className="font-medium text-ink">{run.workflow}</span>
+              <span className="text-ink-3">
+                {runWords[run.state]}
+                {run.waitingAt && `, at ${run.waitingAt}`}
+              </span>
+            </div>
+            <ol className="m-0 list-none p-0 pb-1.5">
+              {run.transitions.map((t) => (
+                <li
+                  key={t.id}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-1.5 text-[13px] @3xl/app:grid-cols-[120px_minmax(0,1fr)_180px]"
+                >
+                  <span className="tabular col-span-2 text-[12px] text-ink-3 @3xl/app:col-span-1 @3xl/app:text-[13px]">
+                    {formatDateTime(t.at)}
+                  </span>
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-2 text-ink-2">
+                    <span className="truncate">{t.text}</span>
+                    {t.status && (
+                      <span className="rounded-chip bg-raised px-1.5 text-[12px] text-ink-2">
+                        {t.status}
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex min-w-0 items-center gap-2 justify-self-end text-ink-3 @3xl/app:justify-self-start">
+                    {t.personId ? (
+                      <>
+                        <Avatar personId={t.personId} size={18} />
+                        <span className="truncate">{personById(t.personId).name}</span>
+                      </>
+                    ) : (
+                      <span>Hekate</span>
+                    )}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
