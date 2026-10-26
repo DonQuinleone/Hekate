@@ -4,7 +4,7 @@
 # master's objects (decision 140).
 
 # Pinned by digest; Dependabot moves the pin when the image is rebuilt.
-FROM node:26-trixie-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4 AS base
+FROM node:26-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
 # Node 26 no longer ships Corepack; install the pnpm version package.json pins.
 RUN npm install -g pnpm@12.11.2 && npm cache clean --force
@@ -37,7 +37,7 @@ COPY tools/ear /tools/ear
 RUN /tools/ear/install.sh /opt/ear
 
 # Runtime: Node, ffmpeg, Poppler's tools and Python; no package managers, no shell, no setuid binaries.
-FROM node:26-trixie-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4 AS runtime
+FROM node:26-trixie-slim@sha256:36793bcbb160a6a16cede1e62b93f84e26b78a972a8a4c0b879c1c12f22761ec AS runtime
 RUN apt-get update \
   && apt-get upgrade -y --no-install-recommends \
   && apt-get install -y --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core ca-certificates \
