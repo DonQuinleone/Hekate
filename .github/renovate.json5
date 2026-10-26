@@ -1,0 +1,123 @@
+// Dependency updates (decision 243). Renovate replaced Dependabot's version updates; each
+// setting below says which part of the old behaviour it keeps, or what it adds.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
+    // Renovate's baseline: monorepo groups, crowd-sourced replacements and workarounds.
+    "config:recommended",
+    // No dashboard issue: Dependabot had none, and the pull requests are the record.
+    ":disableDependencyDashboard",
+    // Conventional Commits, `chore(deps): …` for every update, as Dependabot wrote them and as
+    // Release Please expects (a dependency update alone does not cut a release).
+    ":semanticCommits",
+    ":semanticCommitTypeAll(chore)",
+    // Weekly, early on Monday (UTC), as Dependabot's `interval: weekly, day: monday`.
+    "schedule:weekly",
+    // Every update waits for a person: no automerge.
+    ":automergeDisabled",
+    // Every action stays pinned to a commit SHA, with its full version in a comment.
+    "helpers:pinGitHubActionDigestsToSemver",
+    // Every image stays pinned by digest, and the digest moves with the tag.
+    "docker:pinDigests",
+  ],
+  // The ecosystems Dependabot watched, plus the Helm chart's values and the image's pnpm pin.
+  enabledManagers: [
+    "npm",
+    "github-actions",
+    "pip_requirements",
+    "dockerfile",
+    "docker-compose",
+    "helm-values",
+    "custom.regex",
+  ],
+  // Dependabot opened at most 10 npm pull requests at once; Renovate's limit is for all of them.
+  prConcurrentLimit: 10,
+  // Dependabot had no hourly limit; Renovate's default of 2 would spread a week over a day.
+  prHourlyLimit: 0,
+  // Dependabot's default labels, which the repository has.
+  labels: ["dependencies"],
+  // Security fixes as soon as GitHub's alerts report them, outside the schedule and the release
+  // age (Dependabot security updates did the same).
+  vulnerabilityAlerts: {
+    enabled: true,
+  },
+  "docker-compose": {
+    // The Swarm stack is a compose file too.
+    managerFilePatterns: ["/(^|/)deploy/stack\\.yml$/"],
+  },
+  customManagers: [
+    {
+      customType: "regex",
+      description: "The pnpm the image installs, kept with package.json's packageManager.",
+      managerFilePatterns: ["/(^|/)Dockerfile$/"],
+      matchStrings: ["pnpm@(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      depNameTemplate: "pnpm",
+      datasourceTemplate: "npm",
+    },
+  ],
+  packageRules: [
+    {
+      description: "Raise the range in package.json too, as Dependabot's `increase` did.",
+      matchManagers: ["npm"],
+      matchDepTypes: ["dependencies", "devDependencies", "optionalDependencies"],
+      rangeStrategy: "bump",
+    },
+    {
+      description: "A release waits a day, as pnpm's minimumReleaseAge and Dependabot's cooldown.",
+      matchDatasources: ["npm", "pypi", "github-tags", "github-releases"],
+      matchUpdateTypes: ["major", "minor", "patch"],
+      minimumReleaseAge: "1 day",
+    },
+    {
+      description: "Dependabot's ecosystem label: npm.",
+      matchDatasources: ["npm"],
+      addLabels: ["javascript"],
+    },
+    {
+      description: "Dependabot's ecosystem label: GitHub Actions.",
+      matchManagers: ["github-actions"],
+      matchDatasources: ["github-tags", "github-releases"],
+      addLabels: ["github_actions"],
+    },
+    {
+      description: "Dependabot's ecosystem label: pip.",
+      matchDatasources: ["pypi"],
+      addLabels: ["python"],
+    },
+    {
+      description: "Dependabot's ecosystem label: Docker.",
+      matchDatasources: ["docker"],
+      addLabels: ["docker"],
+    },
+    {
+      description: "Dependabot's `minor-and-patch` group: one pull request; each major on its own.",
+      matchManagers: ["npm"],
+      matchUpdateTypes: ["minor", "patch"],
+      groupName: "npm dependencies (minor and patch)",
+      groupSlug: "npm-minor-and-patch",
+    },
+    {
+      description: "Dependabot's `actions` group: every action update in one pull request.",
+      matchManagers: ["github-actions"],
+      matchDatasources: ["github-tags", "github-releases"],
+      groupName: "GitHub Actions",
+      separateMajorMinor: false,
+    },
+    {
+      description: "Dependabot's `adm-renderer` group: the renderer's pins together (decision 140).",
+      matchManagers: ["pip_requirements"],
+      groupName: "ADM renderer",
+      separateMajorMinor: false,
+    },
+    {
+      description: "pnpm in package.json and in the image move together.",
+      matchPackageNames: ["pnpm"],
+      groupName: "pnpm",
+    },
+    {
+      description: "The workspace's overrides are security pins, edited and removed by hand.",
+      matchDepTypes: ["pnpm-workspace.overrides"],
+      enabled: false,
+    },
+  ],
+}

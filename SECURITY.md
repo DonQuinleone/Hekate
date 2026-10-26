@@ -29,7 +29,7 @@ Hekate is pre-release: until 1.0, fixes land on `master` and in the next release
 - **Dependencies and the image:** Trivy scans the repository and the app image on every pull request. It fails on any finding with a fix, whatever its severity, and reports unfixed ones to code scanning. An exception goes in `.trivyignore`, with an expiry date and the issue that tracks it.
 - **Code:** CodeQL runs the `security-extended` queries over the TypeScript and the workflows, on every pull request and weekly.
 - **New dependencies:** dependency review refuses a known vulnerability in an added or updated dependency, and any licence that cannot be combined with AGPL-3.0. pnpm installs nothing published less than a day ago, and runs install scripts only for packages on an allow list.
-- **Actions:** every action is pinned to a commit. Dependabot proposes updates weekly.
+- **Actions:** every action is pinned to a commit. Renovate proposes updates weekly, as it does for every dependency and image, each at least a day after its release.
 - **The project as a whole:** OpenSSF Scorecard rates it weekly, and its results are public.
 
 A code-scanning alert is fixed, or dismissed with a written reason when it is a false positive. The zero-findings baseline began on 16 October 2026 (#170).

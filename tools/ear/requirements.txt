@@ -1,7 +1,7 @@
 # The EBU ADM Renderer's dependencies (#74, decision 140), as wheels pinned by hash.
 # A hash per platform for each compiled package: CPython 3.13 on x86-64 and on ARM64 (the
 # image), CPython 3.12 on x86-64 (CI's Ubuntu until 26.04) and CPython 3.14 on x86-64 (CI's
-# Ubuntu from 26.04). Installed by install.sh; Dependabot moves the pins.
+# Ubuntu from 26.04). Installed by install.sh; Renovate moves the pins.
 attrs==26.1.0 \
     --hash=sha256:c647aa4a12dfbad9333ca4e71fe62ddc36f4e63b2d260a37a8b83d2f043ac309
 lxml==6.1.3 \
