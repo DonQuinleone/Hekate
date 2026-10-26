@@ -64,7 +64,7 @@ k6 run -e HEKATE_URL=… -e HEKATE_MEDIA=… load/hekate.js   # the load test, a
 
 ## Toolchain and supply chain
 
-- Node.js 26, pnpm 12 (pinned in `packageManager`), PostgreSQL 18. Keep everything on its latest release; Dependabot opens weekly grouped updates.
+- Node.js 26, pnpm 12 (pinned in `packageManager`), PostgreSQL 18. Keep everything on its latest release; Renovate opens weekly grouped updates (`.github/renovate.json5`, decision 243) and never merges one itself.
 - pnpm refuses versions published less than a day ago (`minimumReleaseAge`) and runs install scripts only for packages in `allowBuilds`.
 - GitHub Actions are pinned to commit SHAs with the version in a comment.
 - Trivy scans the repository and the image in CI and fails on any fixable finding, whatever its severity; unfixed ones go to code scanning. An exception goes in `.trivyignore` with an expiry and the issue that tracks it, or CI refuses it.

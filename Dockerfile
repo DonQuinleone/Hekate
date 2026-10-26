@@ -3,7 +3,7 @@
 # watermarks and for the PDFs Hekate writes (decision 238), and the EBU ADM Renderer for an ADM
 # master's objects (decision 140).
 
-# Pinned by digest; Dependabot moves the pin when the image is rebuilt.
+# Pinned by digest; Renovate moves the pin when the image is rebuilt.
 FROM node:26-trixie-slim@sha256:0d1e33586362bb9e608c4e751e7a9e7edb55c9ac11461ed5666af696cc461dd4 AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
 # Node 26 no longer ships Corepack; install the pnpm version package.json pins.
@@ -12,7 +12,7 @@ WORKDIR /app
 
 # Build the web app with the full workspace.
 FROM base AS build
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .pnpmfile.cjs ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
@@ -24,7 +24,7 @@ RUN pnpm --filter @hekate/web build
 
 # Production dependencies for the server only.
 FROM base AS deps
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .pnpmfile.cjs ./
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/server apps/server
 COPY packages packages
 COPY apps/web/package.json apps/web/
