@@ -42,7 +42,7 @@ const intros: Record<string, string> = {
   transfers: "Projects moving in from, or out to, another workspace, and what each waits for.",
   general: "The workspace's name, how guests sign in, and what every project starts from.",
   defaults: "What a new project copies unless it says otherwise.",
-  categories: "The categories a comment can carry, and their colours.",
+  categories: "The categories a comment can carry, and how each kind is handled.",
   delivery: "The numbers the checks measure against, shared by every project that picks a profile.",
   branding:
     "The workspace's logo and accent, on its sign-in page, guest pages and email. Hekate's own mark stays in the app.",
@@ -929,23 +929,16 @@ export function SettingsPage({
             </Button>
           }
         >
-          {categories.map((c, i) => (
+          {/* No colours: a category has none anywhere in the product (decision 247). */}
+          {categories.map((c) => (
             <Row
               key={c.id}
-              name={
-                <span className="flex items-center gap-2">
-                  <span
-                    className="size-2.5 rounded-full"
-                    style={{ background: `oklch(0.7 0.12 ${(i * 70) % 360})` }}
-                  />
-                  {c.name}
-                </span>
-              }
+              name={c.name}
               hint={
                 c.handling === "deferred"
                   ? `Deferred to a stage named ${c.stage}`
                   : c.handling === "information"
-                    ? "Information only"
+                    ? "Information only: no action expected"
                     : "Handled on this version"
               }
             >
@@ -953,10 +946,9 @@ export function SettingsPage({
                 always
                 label={c.name}
                 actions={[
-                  { label: "Rename", onSelect: () => {} },
-                  { label: "Change colour", onSelect: () => {} },
+                  { label: "Rename or change handling…", onSelect: () => {} },
                   "divider",
-                  { label: "Delete", danger: true, onSelect: () => {} },
+                  { label: "Delete…", danger: true, onSelect: () => {} },
                 ]}
               />
             </Row>
@@ -1053,11 +1045,15 @@ export function SettingsPage({
               name="Passkey or hardware security key required for owners and admins"
               checked={false}
             />
-            <Row name="Sessions end after">
-              <Select defaultValue="30" className="w-40">
+            {/* Within the instance's own length (decision 248): only shorter ones are offered. */}
+            <Row
+              name="Sessions end after"
+              hint="Counted from signing in, however much it is used. The instance ends any session unused for 14 days."
+            >
+              <Select defaultValue="" className="w-48">
+                <option value="">As the instance has it</option>
                 <option value="1">1 day</option>
                 <option value="7">7 days</option>
-                <option value="30">30 days</option>
               </Select>
             </Row>
           </Section>
@@ -1258,7 +1254,7 @@ export function SettingsPage({
             {state === "processing" && (
               <Row
                 name="Log only"
-                hint="In development no mail is sent; everything is written to the log."
+                hint="No mail is sent: the instance writes everything to its log, as in development. Give the workspace its own mail, or ask the operator to set the instance's."
               />
             )}
           </Section>
@@ -1290,24 +1286,15 @@ export function SettingsPage({
             />
           </Section>
           <Section title="API and MCP">
-            <Row name="API keys" hint="Scoped to a workspace; shown once.">
+            <Row name="API keys" hint="Scoped to the workspace; shown once.">
               <Button variant="secondary" size="md">
                 New key
               </Button>
             </Row>
-            <Row name="hk_live_7f3a…" hint="Created 2 Oct · last used today · read and write">
-              <ActionMenu
-                always
-                label="key"
-                actions={[
-                  { label: "Rotate", onSelect: () => {} },
-                  { label: "Revoke", danger: true, onSelect: () => {} },
-                ]}
-              />
-            </Row>
+            {/* The keys themselves are listed once, under API and OAuth clients, Service tokens. */}
             <Row
               name="MCP endpoint"
-              hint="https://review.endlesshall.example/mcp · tools for projects, files, reviews and comments"
+              hint="https://review.endlesshall.example/api/mcp · tools for what waits on you, reviews, comments, decisions and QA reports"
             >
               <Button variant="secondary" size="md">
                 Copy

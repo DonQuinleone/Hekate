@@ -60,6 +60,7 @@ import {
   reviewStatuses,
   type SearchRequest,
   type SessionFactor,
+  type SignInMethod,
   type SsoProtocol,
   type StandingGrant,
   type StatusService,
@@ -200,6 +201,11 @@ export const organisations = pgTable("organisations", {
   memberLimit: integer("member_limit"),
   /** Projects (#177), the same way: from its plan, or an operator. */
   projectLimit: integer("project_limit"),
+  /**
+   * Its default comment categories (`workspace_categories`) have been made: from then on an
+   * empty set is the workspace's choice, not a set never made (decision 247).
+   */
+  categoriesSeeded: boolean("categories_seeded").notNull().default(false),
   ...timestamps,
 });
 
@@ -249,6 +255,12 @@ export const authSessions = pgTable(
     factor: text("factor").$type<SessionFactor>().notNull().default("password"),
     /** The single sign-on provider that signed the session in, if one did (#37). */
     ssoProviderId: text("sso_provider_id"),
+    /**
+     * The way in it was signed in with: a password, a passkey, single sign-on or a workspace's
+     * directory (decision 248), which a workspace's allowed methods are checked against. Null
+     * for a session from before it was kept, read from `factor` and `ssoProviderId` instead.
+     */
+    method: text("method").$type<SignInMethod>(),
     ...timestamps,
   },
   (t) => [index("auth_sessions_user_idx").on(t.userId)],
@@ -1501,6 +1513,26 @@ export const commentCategories = pgTable(
     index("comment_categories_project_idx").on(t.organisationId, t.projectId),
     uniqueIndex("comment_categories_name_idx").on(t.projectId, sql`lower(${t.name})`),
   ],
+);
+
+/**
+ * The comment categories every new project in a workspace starts with (decision 247): copied
+ * into the project's own `comment_categories` when it is made, never linked, so changing the
+ * set changes no project that already exists.
+ */
+export const workspaceCategories = pgTable(
+  "workspace_categories",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    name: text("name").notNull(),
+    handling: categoryHandlingEnum("handling").notNull().default("normal"),
+    /** Deferred categories only: the stage their comments wait for. */
+    stage: text("stage"),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("workspace_categories_name_idx").on(t.organisationId, sql`lower(${t.name})`)],
 );
 
 /**

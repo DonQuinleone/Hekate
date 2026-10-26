@@ -689,6 +689,18 @@ export function AppearanceSection() {
           checked={preferences.showLoudness}
           onChange={(showLoudness) => save.mutate({ showLoudness })}
         />
+        <SwitchRow
+          name="Metadata editor in QA"
+          hint="A file's tags and embedded details, edited beside its checks."
+          checked={preferences.showMetadataEditor}
+          onChange={(showMetadataEditor) => save.mutate({ showMetadataEditor })}
+        />
+        <SwitchRow
+          name="Keyboard map on ?"
+          hint="Off, open it from the Help menu instead."
+          checked={preferences.keyboardMapOnQuestion}
+          onChange={(keyboardMapOnQuestion) => save.mutate({ keyboardMapOnQuestion })}
+        />
       </Section>
       <Section title="Player">
         <Row

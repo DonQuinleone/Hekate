@@ -21,6 +21,7 @@ import { pinnedWorkspace } from "./hosts.ts";
 import {
   assertOpen,
   assertSecondFactor,
+  assertSessionAllowed,
   organisationFor,
   type SecondFactorRule,
   tokenSessionId,
@@ -390,6 +391,7 @@ export const requireViewer = (auth: Auth, db: Database, rule: SecondFactorRule) 
         pinnedWorkspace(c),
       );
       await assertOpen(db, membership.organisationId);
+      await assertSessionAllowed(db, session.session.id, membership);
       await assertSecondFactor(db, session.session.id, membership, rule);
       c.set("actor", {
         kind: "member",

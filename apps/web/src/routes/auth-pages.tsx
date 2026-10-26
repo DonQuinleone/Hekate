@@ -126,7 +126,7 @@ export interface SignInSearch {
    * Why someone is back here: their session ended while they were away, or their workspace
    * takes them only through single sign-on.
    */
-  reason?: "expired" | "sso";
+  reason?: "expired" | "sso" | "method";
   /** What an identity provider's sign-in came back with, when it failed. */
   error?: string;
 }
@@ -225,10 +225,13 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
     setPending(false);
     if (error) {
       // A wait or a lock says how long, in the server's words.
+      // A refusal of the way in itself (decision 248) says so, in the server's words too.
       setError(
         error.status === 429
           ? (error.message ?? "Too many attempts. Wait a minute and try again.")
-          : "That email and password do not match.",
+          : error.status === 403 && error.message
+            ? error.message
+            : "That email and password do not match.",
       );
       return;
     }
@@ -255,6 +258,15 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
         >
           You were signed out: the session ran out, or was ended from another device. Sign in to
           carry on where you were.
+        </p>
+      )}
+      {search.reason === "method" && (
+        <p
+          role="status"
+          className="m-0 rounded-panel border border-line bg-raised/40 px-3 py-2.5 text-[13px] text-ink-2"
+        >
+          Your workspace does not take the way you signed in. Sign in another way to carry on where
+          you were.
         </p>
       )}
       <form onSubmit={submit} className="flex flex-col gap-4">

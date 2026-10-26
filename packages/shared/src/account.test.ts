@@ -29,6 +29,16 @@ describe("preferences", () => {
   });
 });
 
+describe("tools shown", () => {
+  it("opens the keyboard map on ? and hides the metadata editor unless chosen", () => {
+    expect(defaultPreferences.keyboardMapOnQuestion).toBe(true);
+    expect(defaultPreferences.showMetadataEditor).toBe(false);
+    expect(preferencesOf({ keyboardMapOnQuestion: false }).keyboardMapOnQuestion).toBe(false);
+    expect(preferencesInput.safeParse({ showMetadataEditor: true }).success).toBe(true);
+    expect(preferencesInput.safeParse({ keyboardMapOnQuestion: "no" }).success).toBe(false);
+  });
+});
+
 describe("density", () => {
   it("is comfortable unless chosen compact", () => {
     expect(defaultPreferences.density).toBe("comfortable");

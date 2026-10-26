@@ -9,8 +9,10 @@ import {
   apiScopes,
   apiTokenExpired,
   apiTokenLifetimes,
+  MCP_PATH,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import {
   personalTokensQuery,
@@ -412,8 +414,7 @@ function RevokeDialog({
 
 /** Account's "Using the API": where calls go, how a token is sent, and the reference (#197). */
 export function UsingTheApiSection() {
-  const path = apiBase();
-  const base = typeof window === "undefined" ? path : `${window.location.origin}${path}`;
+  const base = addressOf(apiBase());
   return (
     <Section
       title="Using the API"
@@ -432,6 +433,50 @@ export function UsingTheApiSection() {
           <a href={`${docsUrl}/use/api/`} target="_blank" rel="noreferrer">
             Open the reference
           </a>
+        </Button>
+      </Row>
+    </Section>
+  );
+}
+
+/** Where this host answers a path: the address someone types into a client, as it is here. */
+const addressOf = (path: string) =>
+  typeof window === "undefined" ? path : `${window.location.origin}${path}`;
+
+/**
+ * Notifications and integrations' "API and MCP", as the prototype has it: where the workspace's
+ * keys are made, and the MCP endpoint (decision 231) at this host's own address, to copy into an
+ * assistant. The endpoint takes a token, never a session, so the address alone opens nothing.
+ */
+export function ApiAndMcpSection() {
+  const address = addressOf(MCP_PATH);
+  const [copied, setCopied] = useState<"copied" | "failed" | null>(null);
+  const copy = () => {
+    void navigator.clipboard
+      ?.writeText(address)
+      .then(() => setCopied("copied"))
+      .catch(() => setCopied("failed"));
+  };
+  return (
+    <Section title="API and MCP">
+      <Row name="API keys" hint="Scoped to the workspace; shown once.">
+        <Button variant="secondary" size="md" asChild>
+          <Link to="/settings/$section" params={{ section: "api" }}>
+            New key
+          </Link>
+        </Button>
+      </Row>
+      <Row
+        name="MCP endpoint"
+        hint={
+          <>
+            <span className="tabular break-all">{address}</span> · tools for what waits on you,
+            reviews, comments, decisions and QA reports
+          </>
+        }
+      >
+        <Button variant="secondary" size="md" onClick={copy}>
+          {copied === "copied" ? "Copied" : copied === "failed" ? "Copy it by hand" : "Copy"}
         </Button>
       </Row>
     </Section>

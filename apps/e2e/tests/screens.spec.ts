@@ -494,6 +494,12 @@ const screens: Screen[] = [
     path: () => "/settings/general",
     ready: "main >> text=Guest links last",
   },
+  // The set every new project starts with (decision 247).
+  {
+    name: "settings-categories",
+    path: () => "/settings/categories",
+    ready: "main >> text=Deferred to a stage named Noise reduction",
+  },
   {
     name: "settings-delivery",
     path: () => "/settings/delivery",
@@ -1737,7 +1743,11 @@ test("settings-notifications-bounces", async ({ page }) => {
     lastSentAt: "2026-10-14T09:12:00Z",
     lastError: null,
   };
-  await page.route("**/api/organisation/mail", (route) => route.fulfill({ json: { mail } }));
+  await page.route("**/api/organisation/mail", (route) =>
+    route.fulfill({
+      json: { mail, instance: { from: "Hekate <hekate@localhost>", logOnly: true } },
+    }),
+  );
   await page.route("**/api/organisation/mail/suppressions", (route) =>
     route.fulfill({
       json: {
@@ -1786,6 +1796,58 @@ test("settings-notifications-new", async ({ page }) => {
   await page.getByLabel("Kind").selectOption("webhook");
   await settle(page, "[role=dialog] >> text=Each event arrives as JSON");
   await saveScreen(page, "settings-notifications-new");
+  await checkScreen(page);
+});
+
+// Members with nobody else yet (the prototype's "Just you so far"): the answers are amended in
+// the page alone, so the seeded workspace keeps its people.
+test("members-empty", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  const me = (await (await page.request.get("/api/me")).json()) as {
+    user: { id: string; name: string; email: string };
+  };
+  await page.route("**/api/organisation/members", (route) =>
+    route.fulfill({
+      json: {
+        members: [
+          {
+            id: "01a24300-0000-7000-8000-000000000001",
+            userId: me.user.id,
+            name: me.user.name,
+            email: me.user.email,
+            role: "owner",
+            joinedAt: "2026-09-01T09:00:00Z",
+          },
+        ],
+      },
+    }),
+  );
+  await page.route("**/api/organisation/invitations", (route) =>
+    route.fulfill({ json: { invitations: [] } }),
+  );
+  await page.goto("/settings/members");
+  await settle(page, "main >> text=Just you so far");
+  await saveScreen(page, "members-empty");
+  await checkScreen(page);
+});
+
+// An invitation opened while signed in as someone else: who they are, and the two ways on.
+test("invite-someone-else", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.route("**/api/invitations/*", (route) =>
+    route.fulfill({
+      json: {
+        organisation: "Endless Hall Records",
+        email: "ines.arlow@example.test",
+        role: "member",
+        status: "valid",
+        hasAccount: true,
+      },
+    }),
+  );
+  await page.goto("/invite/a-token-for-someone-else");
+  await settle(page, "text=Signed in as someone else");
+  await saveScreen(page, "invite-someone-else");
   await checkScreen(page);
 });
 

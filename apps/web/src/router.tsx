@@ -34,6 +34,7 @@ import {
   meQuery,
   SecondFactorDueError,
   SignedOutError,
+  SignInMethodRefusedError,
   SsoRequiredError,
   setupQuery,
   WorkspaceSuspendedError,
@@ -127,6 +128,12 @@ function onSignedOut(error: unknown) {
     });
     return;
   }
+  // The workspace no longer takes the way they signed in (decision 248): sign in another way.
+  if (error instanceof SignInMethodRefusedError && !outside.test(window.location.pathname)) {
+    const here = window.location.pathname + window.location.search;
+    void router.navigate({ to: "/sign-in", search: { reason: "method", redirect: here } });
+    return;
+  }
   if (!(error instanceof SignedOutError) || outside.test(window.location.pathname)) return;
   if (!queryClient.getQueryData(meQuery.queryKey)) return;
   const here = window.location.pathname + window.location.search;
@@ -153,7 +160,7 @@ const signInSearch = z.object({
     .regex(/^\d{6}$/)
     .optional()
     .catch(undefined),
-  reason: z.enum(["expired", "sso"]).optional().catch(undefined),
+  reason: z.enum(["expired", "sso", "method"]).optional().catch(undefined),
   /** What an identity provider's sign-in came back with, when it failed. */
   error: z
     .string()

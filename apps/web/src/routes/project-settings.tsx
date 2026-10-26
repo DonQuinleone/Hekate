@@ -1,7 +1,5 @@
 import {
-  type CategoryHandling,
   capital,
-  categoryHandlings,
   customRef,
   defaultReferences,
   defaultWatermark,
@@ -31,6 +29,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
+import { CategoryDialog } from "~/components/category-dialog";
 import {
   deliveryHint,
   formatDb,
@@ -732,7 +731,8 @@ function Comments({ project }: { project: Project }) {
   const onTrack = useTrackReferences(project.id);
   const playsTrack = useTrackNormalisation(project.id);
   const { data: categories } = useQuery(categoriesQuery(project.id));
-  const { remove } = useCategoryMutations(project.id);
+  const mutations = useCategoryMutations(project.id);
+  const { remove } = mutations;
   const [editing, setEditing] = useState<CommentCategory | "new" | null>(null);
   const [deleting, setDeleting] = useState<CommentCategory | null>(null);
   const shape = can("edit_workflows");
@@ -923,7 +923,7 @@ function Comments({ project }: { project: Project }) {
       )}
       {editing && (
         <CategoryDialog
-          projectId={project.id}
+          mutations={mutations}
           category={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
         />
@@ -954,83 +954,6 @@ function Comments({ project }: { project: Project }) {
         </Dialog>
       )}
     </>
-  );
-}
-
-/** A new category, or one renamed or handled differently. */
-function CategoryDialog({
-  projectId,
-  category,
-  onClose,
-}: {
-  projectId: string;
-  category: CommentCategory | null;
-  onClose: () => void;
-}) {
-  const { create, update } = useCategoryMutations(projectId);
-  const [name, setName] = useState(category?.name ?? "");
-  const [handling, setHandling] = useState<CategoryHandling>(category?.handling ?? "normal");
-  const [stage, setStage] = useState(category?.stage ?? "");
-  const saving = category ? update : create;
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const input = { name, handling, stage: handling === "deferred" ? stage : null };
-    if (category) update.mutate({ id: category.id, ...input }, { onSuccess: onClose });
-    else create.mutate(input, { onSuccess: onClose });
-  };
-  return (
-    <Dialog
-      title={category ? `Change ${category.name}` : "New category"}
-      onClose={onClose}
-      width="sm"
-    >
-      <form onSubmit={submit} className="flex flex-col gap-3">
-        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-          Name
-          <Input
-            value={name}
-            required
-            maxLength={40}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="For example Noise"
-          />
-        </label>
-        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-          Handling
-          <Select
-            value={handling}
-            onChange={(event) => setHandling(event.target.value as CategoryHandling)}
-          >
-            {categoryHandlings.map((h) => (
-              <option key={h} value={h}>
-                {handlingWords[h]}
-              </option>
-            ))}
-          </Select>
-        </label>
-        {handling === "deferred" && (
-          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-            Stage
-            <Input
-              value={stage}
-              required
-              maxLength={80}
-              onChange={(event) => setStage(event.target.value)}
-              placeholder="For example Noise reduction"
-            />
-          </label>
-        )}
-        {saving.error && <p className="text-[13px] text-signal">{saving.error.message}</p>}
-        <div className="mt-1 flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="md" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary" size="md" disabled={saving.isPending}>
-            {category ? "Save" : "Add category"}
-          </Button>
-        </div>
-      </form>
-    </Dialog>
   );
 }
 

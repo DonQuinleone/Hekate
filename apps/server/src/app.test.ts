@@ -991,8 +991,11 @@ describe.runIf(url)("api", () => {
         };
         expect((await call("", member)).status).toBe(403);
         expect((await call("", member, "PUT", sendgrid)).status).toBe(403);
-        // Until set, the instance's mail sends.
-        expect(await (await call("", owner)).json()).toEqual({ mail: null });
+        // Until set, the instance's mail sends: here only to the log, from MAIL_FROM's default.
+        expect(await (await call("", owner)).json()).toEqual({
+          mail: null,
+          instance: { from: "Hekate <hekate@localhost>", logOnly: true },
+        });
         // Checked as the installer checks it, and the log is no workspace's mail.
         expect((await call("", owner, "PUT", { ...sendgrid, provider: "microsoft" })).status).toBe(
           422,
@@ -1036,7 +1039,7 @@ describe.runIf(url)("api", () => {
 
         // Removed, the instance's mail sends again; each change is in the access log.
         expect((await call("", owner, "DELETE")).status).toBe(204);
-        expect(await (await call("", owner)).json()).toEqual({ mail: null });
+        expect(await (await call("", owner)).json()).toMatchObject({ mail: null });
         expect((await call("/test", owner, "POST", {})).status).toBe(422);
         const changes = await db
           .select({ details: schema.accessEvents.details })
@@ -5848,6 +5851,292 @@ describe.runIf(url)("api", () => {
       });
     });
 
+    describe("how members sign in, and for how long (decision 248)", () => {
+      const joinAs = async (owner: string, email: string, role: string) => {
+        const { body } = await invite(owner, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: "Colleague", password: "correct horse battery" }),
+        );
+        expect(res.status).toBe(201);
+        return cookieOf(res);
+      };
+      const organisationOf = async (cookie: string) =>
+        (
+          (await (await app.request("/api/me", { headers: { cookie } })).json()) as {
+            activeOrganisationId: string;
+          }
+        ).activeOrganisationId;
+      const change = (body: Record<string, unknown>, cookie: string) =>
+        app.request("/api/organisation/settings", { ...json(body, cookie), method: "PATCH" });
+      const projects = (cookie: string) => app.request("/api/projects", { headers: { cookie } });
+      /** Settings written as an earlier change would have left them. */
+      const store = async (organisationId: string, settings: Record<string, unknown>) => {
+        const [row] = await db
+          .select({ settings: schema.organisations.settings })
+          .from(schema.organisations)
+          .where(eq(schema.organisations.id, organisationId));
+        await db
+          .update(schema.organisations)
+          .set({ settings: { ...(row?.settings as object), ...settings } })
+          .where(eq(schema.organisations.id, organisationId));
+      };
+
+      it("keeps the ways in a workspace allows, for its admins to set and nobody to lock themselves out of", async () => {
+        const owner = cookieOf(await setup());
+        const admin = await joinAs(owner, "admin-methods@example.test", "admin");
+        const member = await joinAs(owner, "member-methods@example.test", "member");
+        // A lesser role may not; none at all is refused.
+        expect((await change({ signInMethods: ["password", "passkey"] }, member)).status).toBe(403);
+        expect((await change({ signInMethods: [] }, admin)).status).toBe(400);
+        expect((await change({ signInMethods: ["password", "password"] }, admin)).status).toBe(400);
+        // The admin signed in with a password: taking it away would shut them out.
+        const shut = await change({ signInMethods: ["passkey"] }, admin);
+        expect(shut.status).toBe(422);
+        expect(((await shut.json()) as { error: { message: string } }).error.message).toMatch(
+          /a password/,
+        );
+        const kept = await change({ signInMethods: ["password", "passkey"] }, admin);
+        expect(kept.status).toBe(200);
+        expect(
+          ((await kept.json()) as { settings: { signInMethods: string[] } }).settings.signInMethods,
+        ).toEqual(["password", "passkey"]);
+        // Every member still gets on.
+        expect((await projects(member)).status).toBe(200);
+      });
+
+      it("refuses a session signed in a way the workspace does not take, but never locks its owners out", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const member = await joinAs(owner, "player-methods@example.test", "member");
+        // Single sign-on alone, as a change before could have left it.
+        await store(organisationId, { signInMethods: ["sso"] });
+        const refused = await projects(member);
+        expect(refused.status).toBe(403);
+        expect(await refused.json()).toMatchObject({
+          error: {
+            code: "sign_in_method_refused",
+            message: expect.stringMatching(/does not take signing in with a password/),
+          },
+        });
+        // They may still read who they are, to be sent to sign in another way.
+        expect((await app.request("/api/me", { headers: { cookie: member } })).status).toBe(200);
+        // An owner keeps a password where only another system's way in is allowed.
+        expect((await projects(owner)).status).toBe(200);
+        // Signing in with a password again is refused at the door, saying why.
+        const again = await app.request(
+          "/api/auth/sign-in/email",
+          json({ email: "player-methods@example.test", password: "correct horse battery" }),
+        );
+        expect(again.status).toBe(403);
+        expect(((await again.json()) as { message: string }).message).toMatch(
+          /does not take signing in with a password/,
+        );
+        // Allowed again, the same session works.
+        await store(organisationId, { signInMethods: ["password", "sso"] });
+        expect((await projects(member)).status).toBe(200);
+      });
+
+      it("ends sessions after the workspace's length, within the instance's own", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const member = await joinAs(owner, "session-days@example.test", "member");
+        // Longer than the instance's fourteen days unused is refused; a member may not at all.
+        expect((await change({ sessionDays: 30 }, owner)).status).toBe(422);
+        expect((await change({ sessionDays: 7 }, member)).status).toBe(403);
+        expect((await change({ sessionDays: 3 }, owner)).status).toBe(400);
+        expect((await change({ sessionDays: 1 }, owner)).status).toBe(200);
+        expect((await projects(member)).status).toBe(200);
+
+        // The member signed in two days ago: ended, for good.
+        const memberId = (
+          (await (await app.request("/api/me", { headers: { cookie: member } })).json()) as {
+            user: { id: string };
+          }
+        ).user.id;
+        // Each session keeps the way it was signed in.
+        expect(
+          await db
+            .select({ method: schema.authSessions.method })
+            .from(schema.authSessions)
+            .where(eq(schema.authSessions.userId, memberId)),
+        ).toEqual([{ method: "password" }]);
+        const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+        await db
+          .update(schema.authSessions)
+          .set({ createdAt: twoDaysAgo })
+          .where(eq(schema.authSessions.userId, memberId));
+        const ended = await projects(member);
+        expect(ended.status).toBe(401);
+        expect(await ended.json()).toMatchObject({ error: { code: "session_ended" } });
+        expect(
+          await db
+            .select({ id: schema.authSessions.id })
+            .from(schema.authSessions)
+            .where(eq(schema.authSessions.userId, memberId)),
+        ).toEqual([]);
+        expect((await app.request("/api/me", { headers: { cookie: member } })).status).toBe(401);
+
+        // Another workspace's length is its own: one that ends sessions after a day does not
+        // reach the owner here, once this one goes back to the instance's.
+        expect((await change({ sessionDays: null }, owner)).status).toBe(200);
+        await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-sessions", settings: { sessionDays: 1 } });
+        const ownerId = (
+          (await (await app.request("/api/me", { headers: { cookie: owner } })).json()) as {
+            user: { id: string };
+          }
+        ).user.id;
+        await db
+          .update(schema.authSessions)
+          .set({ createdAt: twoDaysAgo })
+          .where(eq(schema.authSessions.userId, ownerId));
+        expect((await projects(owner)).status).toBe(200);
+        expect(organisationId).toBeTruthy();
+      });
+    });
+
+    describe("the workspace's comment categories (decision 247)", () => {
+      type Category = { id: string; name: string; handling: string; stage: string | null };
+      const joinAs = async (owner: string, email: string, role: string) => {
+        const { body } = await invite(owner, email, role);
+        const res = await app.request(
+          `/api/invitations/${tokenFrom(body.link)}/accept`,
+          json({ name: "Colleague", password: "correct horse battery" }),
+        );
+        expect(res.status).toBe(201);
+        return cookieOf(res);
+      };
+      const set = async (cookie: string) =>
+        (
+          (await (
+            await app.request("/api/organisation/categories", { headers: { cookie } })
+          ).json()) as { categories: Category[] }
+        ).categories;
+      const send = (method: string, path: string, cookie: string, body?: unknown) =>
+        app.request(`/api/organisation/categories${path}`, {
+          ...(body === undefined
+            ? { headers: { cookie, origin: "http://localhost:3000" } }
+            : json(body, cookie)),
+          method,
+        });
+      const projectCategories = async (cookie: string, name: string) => {
+        const made = (await (
+          await app.request("/api/projects", json({ name, profile: "music" }, cookie))
+        ).json()) as { project: { id: string } };
+        return (
+          (await (
+            await app.request(`/api/projects/${made.project.id}/categories`, {
+              headers: { cookie },
+            })
+          ).json()) as { categories: Category[] }
+        ).categories.map((c) => c.name);
+      };
+
+      it("starts new projects with the workspace's set, which only admins change", async () => {
+        const owner = cookieOf(await setup());
+        const admin = await joinAs(owner, "admin-categories@example.test", "admin");
+        const member = await joinAs(owner, "member-categories@example.test", "member");
+        // The defaults, once, whoever reads them first.
+        const first = await set(member);
+        expect(first.map((c) => c.name)).toEqual([
+          "Noise",
+          "Edit",
+          "Balance",
+          "Performance",
+          "Information",
+        ]);
+        expect(await set(owner)).toHaveLength(5);
+        const before = await projectCategories(owner, "Joplin Rags");
+        expect(before).toEqual(["Noise", "Edit", "Balance", "Performance", "Information"]);
+
+        // A member may not change them.
+        expect(
+          (await send("POST", "", member, { name: "Tuning", handling: "normal" })).status,
+        ).toBe(403);
+        const noise = first.find((c) => c.name === "Noise");
+        expect((await send("DELETE", `/${noise?.id}`, member)).status).toBe(403);
+        expect(
+          (await send("PATCH", `/${noise?.id}`, member, { name: "Hiss", handling: "normal" }))
+            .status,
+        ).toBe(403);
+
+        // An admin adds, changes and removes; names are the workspace's own.
+        const tuning = await send("POST", "", admin, {
+          name: "Tuning",
+          handling: "deferred",
+          stage: "Pitch correction",
+        });
+        expect(tuning.status).toBe(201);
+        expect((await send("POST", "", admin, { name: "tuning", handling: "normal" })).status).toBe(
+          409,
+        );
+        expect((await send("POST", "", admin, { name: "Late", handling: "deferred" })).status).toBe(
+          400,
+        );
+        expect((await send("DELETE", `/${noise?.id}`, admin)).status).toBe(204);
+        const edit = first.find((c) => c.name === "Edit");
+        expect(
+          (await send("PATCH", `/${edit?.id}`, admin, { name: "Edits", handling: "normal" }))
+            .status,
+        ).toBe(200);
+        expect((await set(owner)).map((c) => c.name)).toEqual([
+          "Edits",
+          "Balance",
+          "Performance",
+          "Information",
+          "Tuning",
+        ]);
+
+        // A new project starts with the set as it is now; one made before keeps its own.
+        expect(await projectCategories(owner, "Opening titles")).toEqual([
+          "Edits",
+          "Balance",
+          "Performance",
+          "Information",
+          "Tuning",
+        ]);
+        const [made] = await db
+          .select({ id: schema.projects.id })
+          .from(schema.projects)
+          .where(eq(schema.projects.name, "Joplin Rags"));
+        const kept = (await (
+          await app.request(`/api/projects/${made?.id}/categories`, { headers: { cookie: owner } })
+        ).json()) as { categories: Category[] };
+        expect(kept.categories.map((c) => c.name)).toEqual(before);
+
+        // Emptied, it stays empty: new projects start with none.
+        for (const c of await set(owner)) await send("DELETE", `/${c.id}`, admin);
+        expect(await set(owner)).toEqual([]);
+        expect(await projectCategories(owner, "Endless Hall Records")).toEqual([]);
+      });
+
+      it("never reaches another workspace's set", async () => {
+        const owner = cookieOf(await setup());
+        await set(owner);
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-categories" })
+          .returning({ id: schema.organisations.id });
+        const [theirs] = await db
+          .insert(schema.workspaceCategories)
+          .values({ organisationId: other?.id ?? "", name: "Theirs", handling: "normal" })
+          .returning({ id: schema.workspaceCategories.id });
+        expect((await set(owner)).map((c) => c.name)).not.toContain("Theirs");
+        expect(
+          (await send("PATCH", `/${theirs?.id}`, owner, { name: "Mine", handling: "normal" }))
+            .status,
+        ).toBe(404);
+        expect((await send("DELETE", `/${theirs?.id}`, owner)).status).toBe(404);
+        const [still] = await db
+          .select({ name: schema.workspaceCategories.name })
+          .from(schema.workspaceCategories)
+          .where(eq(schema.workspaceCategories.id, theirs?.id ?? ""));
+        expect(still?.name).toBe("Theirs");
+      });
+    });
+
     describe("storage", () => {
       const joinAs = async (owner: string, email: string, role: string) => {
         const { body } = await invite(owner, email, role);
@@ -6219,6 +6508,8 @@ describe.runIf(url)("api", () => {
           emailSubjects: {},
           secondFactor: "off",
           securityKeyForAdmins: false,
+          signInMethods: ["password", "passkey", "sso", "directory"],
+          sessionDays: null,
           forensicAudio: false,
           roleTools: {
             Producer: ["qa", "meters", "spectrogram", "score", "compare", "loops", "normalise"],

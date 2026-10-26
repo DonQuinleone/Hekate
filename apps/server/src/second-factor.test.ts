@@ -3,6 +3,7 @@ import {
   factorFor,
   hashedRecoveryCodes,
   hashRecoveryCode,
+  methodFor,
   newRecoveryCodes,
   normaliseRecoveryCode,
   recoveryCodesLeft,
@@ -75,5 +76,28 @@ describe("how a session was signed in", () => {
     expect(factorFor("/two-factor/disable", plain, "passkey")).toBe("passkey");
     expect(factorFor("/two-factor/disable", plain, "second_factor")).toBe("password");
     expect(factorFor("/change-password", plain, undefined)).toBe("password");
+  });
+});
+
+describe("the way a session was signed in (decision 248)", () => {
+  it("names single sign-on, the directory, a passkey and a password from what made it", () => {
+    expect(methodFor("/sso/callback/acme", "password", true, undefined)).toBe("sso");
+    expect(methodFor("/sign-in/directory", "password", false, undefined)).toBe("directory");
+    expect(methodFor("/passkey/verify-authentication", "passkey", false, undefined)).toBe(
+      "passkey",
+    );
+    expect(methodFor("/sign-in/email", "password", false, undefined)).toBe("password");
+    expect(methodFor("/sign-in/email", "second_factor", false, undefined)).toBe("password");
+    expect(methodFor("/two-factor/verify-totp", "second_factor", false, undefined)).toBe(
+      "password",
+    );
+  });
+
+  it("counts a passkey confirming a password as a passkey, and keeps the way of a renewed session", () => {
+    expect(methodFor("/passkey/verify-authentication", "passkey", false, "password")).toBe(
+      "passkey",
+    );
+    expect(methodFor("/two-factor/verify-totp", "second_factor", false, "sso")).toBe("sso");
+    expect(methodFor("/two-factor/disable", "password", false, "directory")).toBe("directory");
   });
 });

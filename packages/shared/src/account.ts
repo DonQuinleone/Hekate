@@ -74,6 +74,16 @@ export const preferencesSchema = z.object({
   showLoudness: z.boolean(),
   /** Each channel in its own lane, rather than combined; the View menu changes it too. */
   splitChannels: z.boolean(),
+  /**
+   * The metadata editor on the QA view. Only the choice is kept for now: the editor itself is
+   * not built yet, and reads this when it is (see `usePreferences().showMetadataEditor`).
+   */
+  showMetadataEditor: z.boolean(),
+  /**
+   * Whether "?" alone opens the keyboard map. Off, the Help menu still opens it; a single
+   * character that does something can be turned off, as WCAG 2.1.4 asks.
+   */
+  keyboardMapOnQuestion: z.boolean(),
   /** How the player is drawn (#135); none until it is first changed, so the defaults apply. */
   playerView: playerViewSchema.nullable(),
   /** Views kept under a name. */
@@ -97,6 +107,8 @@ export const defaultPreferences: Preferences = {
   showSpectrogram: true,
   showLoudness: true,
   splitChannels: false,
+  showMetadataEditor: false,
+  keyboardMapOnQuestion: true,
   playerView: null,
   viewPresets: [],
   board: defaultBoardDisplay,

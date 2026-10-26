@@ -1,5 +1,5 @@
 import { createHmac, randomInt } from "node:crypto";
-import type { SessionFactor } from "@hekate/shared";
+import type { SessionFactor, SignInMethod } from "@hekate/shared";
 
 /**
  * Recovery codes for a second factor: ten, each ten characters from an alphabet without
@@ -74,5 +74,26 @@ export function factorFor(
   if (path === "/sign-in/email") return account.twoFactorEnabled ? "second_factor" : "password";
   // Removing the code app takes away what a code-backed session stood on.
   if (path === "/two-factor/disable") return previous === "passkey" ? "passkey" : "password";
+  return previous ?? "password";
+}
+
+/**
+ * The way in a new session was signed in with (decision 248), which a workspace's allowed
+ * methods are held against: single sign-on where a provider made it, the directory where its
+ * route did, a passkey wherever the factor is one (on its own, or confirming a password), and a
+ * password for a password with or without a code (no session comes before a code at sign-in).
+ * Anything else keeps the way of the session it replaces.
+ */
+export function methodFor(
+  path: string | undefined,
+  factor: SessionFactor,
+  viaSso: boolean,
+  previous: SignInMethod | null | undefined,
+): SignInMethod {
+  if (viaSso) return "sso";
+  if (path === "/sign-in/directory") return "directory";
+  if (factor === "passkey") return "passkey";
+  if (path === "/sign-in/email") return "password";
+  // A code after a password at sign-in; with a session already, the code app being set up.
   return previous ?? "password";
 }

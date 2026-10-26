@@ -20,7 +20,7 @@ export class NotFound extends HTTPException {
 /** A refusal the web app acts on by its code, not only its status. */
 export class CodedException extends HTTPException {
   readonly code: string;
-  constructor(status: 400 | 403 | 409 | 410 | 422 | 429, code: string, message: string) {
+  constructor(status: 400 | 401 | 403 | 409 | 410 | 422 | 429, code: string, message: string) {
     super(status, { message });
     this.code = code;
   }

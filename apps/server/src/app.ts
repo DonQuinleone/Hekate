@@ -48,7 +48,11 @@ import { projectBoardRoutes } from "./routes/board.ts";
 import { brandingRoutes, logoRoutes } from "./routes/branding.ts";
 import { calendarFeedRoutes, projectCalendarRoutes } from "./routes/calendar.ts";
 import { captionRoutes } from "./routes/captions.ts";
-import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
+import {
+  categoryRoutes,
+  projectCategoryRoutes,
+  workspaceCategoryRoutes,
+} from "./routes/categories.ts";
 import { channelRoutes } from "./routes/channels.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { CROOM_PATH, projectCroomRoutes } from "./routes/croom.ts";
@@ -197,6 +201,8 @@ export interface AppDeps {
   settings?: InstanceSettingsStore;
   /** How instance mail goes out (#71): SMTP, Microsoft 365, Mailcoach, or to the log. */
   mail?: InstanceMail;
+  /** Who instance mail comes from (MAIL_FROM), as a workspace's email templates name it. */
+  mailFrom?: string;
   /** The commit the image was built from (HEKATE_BUILD). */
   build?: string;
   /** The daily release check is on (HEKATE_UPDATE_CHECK). */
@@ -553,6 +559,10 @@ export function createApi(given: AppDeps) {
           trustProxy: deps.trustProxy ?? false,
           publicUrl: deps.publicUrl,
           ...(deps.buildWorkspaceMailer ? { build: deps.buildWorkspaceMailer } : {}),
+          instance: {
+            from: deps.mailFrom ?? "Hekate <hekate@localhost>",
+            logOnly: (deps.mail ?? "log") === "log",
+          },
         }),
       )
       .route(
@@ -575,6 +585,7 @@ export function createApi(given: AppDeps) {
           removing: (deps.storageReconcile ?? "remove") === "remove",
         }),
       )
+      .route("/organisation/categories", workspaceCategoryRoutes(deps.db))
       .route("/organisation/exports", workspaceExportRoutes(lifecycle))
       .route("/organisation/deletion", workspaceDeletionRoutes(lifecycle))
       .route(

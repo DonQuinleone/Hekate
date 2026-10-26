@@ -15,6 +15,8 @@ Each instance answers at its own address:
 https://review.endlesshall.example/api/mcp
 ```
 
+A workspace's owners and admins find it, ready to copy, in *Workspace settings*, *Notifications and integrations*, under *API and MCP*.
+
 It speaks MCP's Streamable HTTP transport (protocol versions `2025-11-25` and `2025-06-18`), without sessions: each message is posted on its own and answered with JSON, or with one event for a client that asks only for a stream.
 
 ## Connecting an assistant

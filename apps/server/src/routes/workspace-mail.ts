@@ -1,5 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { type MailSuppression, workspaceMailInput } from "@hekate/shared";
+import { type InstanceSender, type MailSuppression, workspaceMailInput } from "@hekate/shared";
 import { desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -29,7 +29,12 @@ export interface WorkspaceMailRouteDeps {
   publicUrl: string;
   /** For tests: the mailer a workspace's details come to. */
   build?: RoutedMailDeps["build"];
+  /** The instance's own mail, which sends for a workspace without its own. */
+  instance?: InstanceSender;
 }
+
+/** As the configuration's default has it, where nothing says otherwise. */
+const defaultSender: InstanceSender = { from: "Hekate <hekate@localhost>", logOnly: true };
 
 /**
  * `/api/organisation/mail` (#161): the workspace's own mail, which sends what is sent for it
@@ -44,8 +49,12 @@ export const workspaceMailRoutes = (deps: WorkspaceMailRouteDeps) => {
   return (
     new Hono<{ Variables: TenantVariables }>()
       .use("*", requireRole("admin"))
+      // With the instance's sender, which the templates name and the channels stand in for.
       .get("/", async (c) =>
-        c.json({ mail: await workspaceMailOf(db, keyring, c.var.organisationId, deps.publicUrl) }),
+        c.json({
+          mail: await workspaceMailOf(db, keyring, c.var.organisationId, deps.publicUrl),
+          instance: deps.instance ?? defaultSender,
+        }),
       )
       .put("/", zValidator("json", workspaceMailInput), async (c) => {
         const organisationId = c.var.organisationId;

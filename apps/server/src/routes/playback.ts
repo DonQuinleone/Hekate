@@ -47,6 +47,7 @@ import type { Storage } from "../storage.ts";
 import {
   assertOpen,
   assertSecondFactor,
+  assertSessionAllowed,
   assertSignedInThrough,
   membershipOf,
   type SecondFactorRule,
@@ -795,6 +796,11 @@ export const playRoutes = (deps: PlaybackDeps) => {
       // A workspace suspended, or that has come to ask for a second factor or for single
       // sign-on, ends playback at once too.
       await assertOpen(deps.db, claims.organisationId);
+      // So does a session the workspace has since ended, or no longer lets in.
+      await assertSessionAllowed(deps.db, claims.sessionId, {
+        organisationId: claims.organisationId,
+        role: membership.role,
+      });
       await assertSignedInThrough(deps.db, claims.sessionId, {
         organisationId: claims.organisationId,
         role: membership.role,

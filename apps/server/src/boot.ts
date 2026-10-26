@@ -394,6 +394,7 @@ export async function boot(
     build: config.HEKATE_BUILD,
     updateCheck: config.HEKATE_UPDATE_CHECK,
     mail: mailTransport.kind,
+    mailFrom: config.MAIL_FROM,
     auth,
     mailer,
     storage,

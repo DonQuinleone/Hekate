@@ -3,6 +3,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { api } from "~/lib/api";
+import { authClient } from "~/lib/auth";
 import { meQuery, quoting } from "~/lib/queries";
 import { ErrorLine, Field, Frame } from "./auth-pages";
 
@@ -73,8 +74,39 @@ export function InvitePage({ token }: { token: string }) {
   }
   const title = `Join ${invitation.organisation}`;
   const intro = `You are invited as ${roleLabel[invitation.role]}, as ${invitation.email}.`;
+  const signedInAsInvitee = me?.user.email.toLowerCase() === invitation.email.toLowerCase();
+  // Signed in, but as someone else: say who, and let them stay or sign out to accept.
+  if (me && !signedInAsInvitee) {
+    const signOutAndAccept = async () => {
+      setPending(true);
+      await authClient.signOut();
+      client.clear();
+      setPending(false);
+      // With an account, they sign in as it and come back here; without one, this page asks
+      // for a name and a password.
+      if (invitation.hasAccount)
+        await navigate({ to: "/sign-in", search: { redirect: `/invite/${token}` } });
+    };
+    return (
+      <Frame
+        title="Signed in as someone else"
+        intro={`This invitation is for ${invitation.email}, and you are signed in as ${me.user.name}.`}
+      >
+        <Button variant="primary" size="lg" onClick={() => navigate({ to: "/" })}>
+          Stay as {me.user.name}
+        </Button>
+        <Button
+          variant="secondary"
+          size="lg"
+          disabled={pending}
+          onClick={() => void signOutAndAccept()}
+        >
+          Sign out and accept
+        </Button>
+      </Frame>
+    );
+  }
   if (invitation.hasAccount) {
-    const signedInAsInvitee = me?.user.email === invitation.email;
     return (
       <Frame title={title} intro={intro}>
         {signedInAsInvitee ? (

@@ -3,8 +3,13 @@ import {
   atLeast,
   factorDemand,
   isDunningReason,
+  methodsFor,
   OWNER_DELETION_REASON,
+  orList,
+  sessionEndsAt,
   sessionMeets,
+  sessionMethod,
+  signInMethodWords,
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { and, asc, eq } from "drizzle-orm";
@@ -174,6 +179,55 @@ export async function assertSignedInThrough(
 }
 
 /**
+ * Holds a member's session to how the workspace lets its members in (decision 248). One older
+ * than the workspace's session length ends, everywhere, as an expired session does, and the
+ * answer is 401 so they sign in again. One signed in a way the workspace does not allow is
+ * refused here, though it may still work in another workspace that allows it. A token's
+ * "session" (#198) has no row, and is held to its own expiry.
+ */
+export async function assertSessionAllowed(
+  db: Database,
+  sessionId: string,
+  membership: { organisationId: string; role: OrganisationRole },
+  options: { methods?: boolean; now?: Date } = {},
+) {
+  const now = options.now ?? new Date();
+  const [row] = await db
+    .select({
+      method: schema.authSessions.method,
+      factor: schema.authSessions.factor,
+      ssoProviderId: schema.authSessions.ssoProviderId,
+      createdAt: schema.authSessions.createdAt,
+      expiresAt: schema.authSessions.expiresAt,
+      name: schema.organisations.name,
+      settings: schema.organisations.settings,
+    })
+    .from(schema.authSessions)
+    .innerJoin(schema.organisations, eq(schema.organisations.id, membership.organisationId))
+    .where(eq(schema.authSessions.id, sessionId));
+  if (!row) return;
+  const settings = workspaceSettingsOf(row.settings);
+  if (sessionEndsAt(row, settings.sessionDays) <= now) {
+    await db.delete(schema.authSessions).where(eq(schema.authSessions.id, sessionId));
+    const days = settings.sessionDays === 1 ? "a day" : `${settings.sessionDays} days`;
+    throw new CodedException(
+      401,
+      "session_ended",
+      `${row.name} ends a session ${days} after signing in. Sign in again to carry on.`,
+    );
+  }
+  if (options.methods === false) return;
+  const allowed = methodsFor(settings.signInMethods, membership.role);
+  const method = sessionMethod(row);
+  if (!allowed.includes(method))
+    throw new CodedException(
+      403,
+      "sign_in_method_refused",
+      `${row.name} does not take signing in with ${signInMethodWords[method]}. Sign in with ${orList(allowed.map((m) => signInMethodWords[m]))} to carry on.`,
+    );
+}
+
+/**
  * Refuses everyone in a workspace an operator has suspended (#174), saying why: nothing is
  * deleted, and nobody gets in until it is reinstated.
  */
@@ -242,9 +296,13 @@ export const requireOrganisation = (
           owner &&
           deletable.some((prefix) => c.req.path === prefix || c.req.path.startsWith(`${prefix}/`)),
       });
+      await assertSessionAllowed(db, c.var.sessionId, membership);
       await assertSignedInThrough(db, c.var.sessionId, membership);
       await assertSecondFactor(db, c.var.sessionId, membership, rule);
     }
+    // Where they learn what they owe, an ended session still ends; the way they signed in is
+    // checked on every other path, as single sign-on is.
+    else await assertSessionAllowed(db, c.var.sessionId, membership, { methods: false });
     c.set("organisationId", membership.organisationId);
     c.set("organisationRole", membership.role);
     await next();

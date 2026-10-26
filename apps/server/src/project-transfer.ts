@@ -127,6 +127,8 @@ export const transferTables = {
     "guest_sessions",
     "tags",
     "delivery_profiles",
+    // The set new projects start with (decision 247): a project's own were copied from it.
+    "workspace_categories",
     "project_templates",
     "notification_preferences",
     "saved_searches",

@@ -185,7 +185,7 @@ Comments are raised on one version and often addressed in a later one. Each comm
 
 ## Categories and deferral
 
-Comments can be given a category with one action, such as marking a comment as **Noise**. Categories are configurable per project, each with a default handling:
+Comments can be given a category with one action, such as marking a comment as **Noise**. Categories are configurable per project, each with a default handling; a new project starts with a copy of its workspace's set, which the workspace's admins keep (decision 247):
 
 - **Normal:** stays in the current round.
 - **Deferred to a stage:** leaves the current round's to-do list, stays open, and returns when the named workflow stage starts (for example *Noise reduction* at the end of the process).

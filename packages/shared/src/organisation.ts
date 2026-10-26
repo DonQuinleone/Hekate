@@ -112,6 +112,79 @@ export function sessionMeets(factor: SessionFactor, demand: FactorDemand): boole
   return true;
 }
 
+/**
+ * The ways a member signs in (decision 248): a password, a passkey or hardware security key on
+ * its own, the workspace's single sign-on, or its directory (LDAP). A workspace allows some.
+ */
+export const signInMethods = ["password", "passkey", "sso", "directory"] as const;
+export const signInMethod = z.enum(signInMethods);
+export type SignInMethod = z.infer<typeof signInMethod>;
+
+export const signInMethodLabels: Record<SignInMethod, string> = {
+  password: "Password",
+  passkey: "Passkey",
+  sso: "Single sign-on",
+  directory: "Directory (LDAP)",
+};
+
+/** Each method as a sentence names it: "does not take signing in with a password". */
+export const signInMethodWords: Record<SignInMethod, string> = {
+  password: "a password",
+  passkey: "a passkey",
+  sso: "single sign-on",
+  directory: "its directory",
+};
+
+/** Words joined as a sentence lists them: "a, b or c". */
+export const orList = (words: readonly string[]) =>
+  words.length < 2 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} or ${words.at(-1)}`;
+
+/**
+ * How a session was signed in, as its methods are counted: what it recorded, or for a session
+ * from before it recorded one, single sign-on where a provider made it and otherwise its factor
+ * (a passkey, or a password with or without a code).
+ */
+export function sessionMethod(session: {
+  method?: SignInMethod | null;
+  factor: SessionFactor;
+  ssoProviderId?: string | null;
+}): SignInMethod {
+  if (session.method) return session.method;
+  if (session.ssoProviderId) return "sso";
+  return session.factor === "passkey" ? "passkey" : "password";
+}
+
+/**
+ * The methods that let this member into a workspace: the ones it allows. An owner also keeps a
+ * password and a passkey where it allows only ways that lean on another system (single sign-on,
+ * a directory), so that system failing never locks the workspace out, as with enforced single
+ * sign-on (#37).
+ */
+export function methodsFor(
+  allowed: readonly SignInMethod[],
+  role: OrganisationRole,
+): SignInMethod[] {
+  const ownWay = allowed.includes("password") || allowed.includes("passkey");
+  const methods = role === "owner" && !ownWay ? [...allowed, "password", "passkey"] : allowed;
+  return signInMethods.filter((m) => methods.includes(m));
+}
+
+/** How long a session lasts in a workspace, in days from signing in; null is the instance's own. */
+export const sessionDayChoices = [1, 7, 14, 30] as const;
+
+/**
+ * When a session stops working in a workspace (decision 248): at the instance's expiry (sliding,
+ * as it is used), or `days` after it was signed in, whichever comes first.
+ */
+export function sessionEndsAt(
+  session: { createdAt: Date; expiresAt: Date },
+  days: number | null,
+): Date {
+  if (days === null) return session.expiresAt;
+  const limit = new Date(session.createdAt.getTime() + days * 24 * 60 * 60 * 1000);
+  return limit < session.expiresAt ? limit : session.expiresAt;
+}
+
 /** The roles every project starts with, whose tools the workspace chooses (#55). */
 export const defaultRoleNames = ["Producer", "Engineer", "Editor", "Reviewer", "Viewer"] as const;
 export type DefaultRoleName = (typeof defaultRoleNames)[number];
@@ -147,6 +220,14 @@ export const workspaceSettingsSchema = z.object({
   secondFactor: secondFactorPolicy,
   /** Whether owners and admins must sign in with a passkey or hardware security key. */
   securityKeyForAdmins: z.boolean(),
+  /** The ways members may sign in (decision 248); guests always use their link. */
+  signInMethods: z
+    .array(signInMethod)
+    .min(1, "Allow at least one way to sign in")
+    .max(signInMethods.length)
+    .refine((m) => new Set(m).size === m.length, "Name each way once"),
+  /** Days from signing in after which a session ends here; null is the instance's own length. */
+  sessionDays: z.literal(sessionDayChoices).nullable(),
   /**
    * Whether recordings' downloads carry an inaudible mark for their recipient (#32). Owners
    * change it, through its own route, never with the other settings.
@@ -182,6 +263,8 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   emailSubjects: {},
   secondFactor: "off",
   securityKeyForAdmins: false,
+  signInMethods: [...signInMethods],
+  sessionDays: null,
   forensicAudio: false,
   roleTools: startingRoleTools,
   reviewer: {
@@ -206,6 +289,8 @@ export const workspaceSettingsInput = z
     emailSubjects: emailSubjectsChange.optional(),
     secondFactor: workspaceSettingsSchema.shape.secondFactor.optional(),
     securityKeyForAdmins: workspaceSettingsSchema.shape.securityKeyForAdmins.optional(),
+    signInMethods: workspaceSettingsSchema.shape.signInMethods.optional(),
+    sessionDays: workspaceSettingsSchema.shape.sessionDays.optional(),
     roleTools: workspaceSettingsSchema.shape.roleTools.partial().strict().optional(),
     reviewer: workspaceSettingsSchema.shape.reviewer.partial().strict().optional(),
   })
@@ -264,6 +349,8 @@ export function workspaceSettingsOf(stored: unknown): WorkspaceSettings {
       read(stored, "securityKeyForAdmins"),
       d.securityKeyForAdmins,
     ),
+    signInMethods: pick(shape.signInMethods, read(stored, "signInMethods"), d.signInMethods),
+    sessionDays: pick(shape.sessionDays, read(stored, "sessionDays"), d.sessionDays),
     forensicAudio: pick(shape.forensicAudio, read(stored, "forensicAudio"), d.forensicAudio),
     roleTools: Object.fromEntries(
       defaultRoleNames.map((name) => [
@@ -306,6 +393,8 @@ export function applyWorkspaceSettings(
     ) as EmailSubjects,
     secondFactor: change.secondFactor ?? current.secondFactor,
     securityKeyForAdmins: change.securityKeyForAdmins ?? current.securityKeyForAdmins,
+    signInMethods: change.signInMethods ?? current.signInMethods,
+    sessionDays: change.sessionDays === undefined ? current.sessionDays : change.sessionDays,
     forensicAudio: current.forensicAudio,
     roleTools: { ...current.roleTools, ...change.roleTools },
     reviewer: { ...current.reviewer, ...change.reviewer },

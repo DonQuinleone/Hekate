@@ -64,6 +64,7 @@ import {
   type InstanceOverview,
   type Plan as InstancePlan,
   type InstanceProjectRow,
+  type InstanceSender,
   type InstanceSettings,
   type InstanceWorkspaceDetail,
   type InstanceWorkspaceKeys,
@@ -216,6 +217,8 @@ export class SignedOutError extends Error {}
 export class SecondFactorDueError extends Error {}
 /** The workspace signs its members in only through its single sign-on. */
 export class SsoRequiredError extends Error {}
+/** The workspace does not take the way this session was signed in (decision 248). */
+export class SignInMethodRefusedError extends Error {}
 /** The instance's operators have suspended the workspace (#174). */
 export class WorkspaceSuspendedError extends Error {}
 /** A refusal with the server's code for it, for pages that answer each refusal differently. */
@@ -246,6 +249,7 @@ export async function json<T>(res: Response): Promise<T> {
     const message = quoting(body?.error?.message ?? `Request failed (${res.status})`, reference);
     if (body?.error?.code === "second_factor_required") throw new SecondFactorDueError(message);
     if (body?.error?.code === "sso_required") throw new SsoRequiredError(message);
+    if (body?.error?.code === "sign_in_method_refused") throw new SignInMethodRefusedError(message);
     if (body?.error?.code === "workspace_suspended") throw new WorkspaceSuspendedError(message);
     throw new ApiError(message, body?.error?.code, reference);
   }
@@ -888,10 +892,18 @@ export function useRenameWorkspace() {
 }
 
 /** The workspace's settings; every member reads them. */
-export const workspaceSettingsQuery = queryOptions({
+/** The workspace's settings, with the instance's limits on them (its session length). */
+export const workspaceSettingsWithLimitsQuery = queryOptions({
   queryKey: ["organisation", "settings"],
   queryFn: async () =>
-    (await json<{ settings: WorkspaceSettings }>(await api.organisation.settings.$get())).settings,
+    json<{ settings: WorkspaceSettings; instance: { sessionDays: number } }>(
+      await api.organisation.settings.$get(),
+    ),
+});
+
+export const workspaceSettingsQuery = queryOptions({
+  ...workspaceSettingsWithLimitsQuery,
+  select: (r: { settings: WorkspaceSettings }) => r.settings,
 });
 
 /** Change some workspace settings (admins). The language reaches every member, so `me` too. */
@@ -967,12 +979,35 @@ export function useChannels() {
   };
 }
 
-/** The workspace's own mail (#161), or null where the instance's sends; admins only. */
-export const workspaceMailQuery = queryOptions({
+/**
+ * The workspace's own mail (#161), or null where the instance's sends, and the instance's
+ * sender beside it; admins only.
+ */
+export const workspaceMailSendersQuery = queryOptions({
   queryKey: ["organisation", "mail"],
   queryFn: async () =>
-    (await json<{ mail: WorkspaceMail | null }>(await api.organisation.mail.$get())).mail,
+    json<{ mail: WorkspaceMail | null; instance?: InstanceSender }>(
+      await api.organisation.mail.$get(),
+    ),
 });
+
+/** The workspace's own mail alone. */
+export const workspaceMailQuery = queryOptions({
+  ...workspaceMailSendersQuery,
+  select: (r: { mail: WorkspaceMail | null }) => r.mail,
+});
+
+/** Who the workspace's mail comes from: its own sender, or the instance's. */
+export function useMailSender() {
+  const { data } = useQuery(workspaceMailSendersQuery);
+  const from = data?.mail?.from ?? data?.instance?.from;
+  if (!data || !from) return null;
+  return {
+    from,
+    own: Boolean(data.mail),
+    logOnly: !data.mail && Boolean(data.instance?.logOnly),
+  };
+}
 
 /** Set, test, resume or remove the workspace's own mail. */
 export function useWorkspaceMail() {
@@ -1168,7 +1203,9 @@ export function useSaveWorkspaceSettings() {
         )
       ).settings,
     onSuccess: (settings, change) => {
-      client.setQueryData(workspaceSettingsQuery.queryKey, settings);
+      client.setQueryData(workspaceSettingsWithLimitsQuery.queryKey, (before) =>
+        before ? { ...before, settings } : before,
+      );
       if (change.emailSubjects) client.invalidateQueries({ queryKey: ["organisation", "email"] });
       if (change.locale !== undefined) client.invalidateQueries({ queryKey: meQuery.queryKey });
       // Every file that inherits the workspace's profile is measured afresh, in every project.
@@ -1799,6 +1836,46 @@ export function useCategoryMutations(projectId: string) {
     }),
   };
 }
+
+/** The categories every new project in the workspace starts with (decision 247). */
+export const workspaceCategoriesQuery = queryOptions({
+  queryKey: ["organisation", "categories"],
+  queryFn: async () =>
+    (await json<{ categories: CommentCategory[] }>(await api.organisation.categories.$get()))
+      .categories,
+});
+
+/** Add, change or remove one of the workspace's categories for new projects (admins). */
+export function useWorkspaceCategoryMutations(): CategoryMutations {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: workspaceCategoriesQuery.queryKey });
+  return {
+    create: useMutation({
+      mutationFn: async (input: CategoryInput) =>
+        json<{ category: CommentCategory }>(
+          await api.organisation.categories.$post({ json: input }),
+        ),
+      onSuccess: refresh,
+    }),
+    update: useMutation({
+      mutationFn: async ({ id, ...input }: CategoryInput & { id: string }) =>
+        json<{ category: CommentCategory }>(
+          await api.organisation.categories[":id"].$patch({ param: { id }, json: input }),
+        ),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.organisation.categories[":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+  };
+}
+
+/** Making, changing and removing categories: a project's, or the workspace's set. */
+export type CategoryMutations = ReturnType<typeof useCategoryMutations>;
 
 /** What swapping a track's score carried to the new one (#52), and what stayed. */
 export interface ScoreRehomed {
