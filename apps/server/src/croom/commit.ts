@@ -5,6 +5,7 @@ import { HTTPException } from "hono/http-exception";
 import type { Actor, Audit, RequestInfo } from "../audit.ts";
 import { NotFound } from "../errors.ts";
 import type { Jobs } from "../jobs.ts";
+import { pageSourceOf } from "../media/pages.ts";
 import { metrics } from "../metrics/index.ts";
 import { follow } from "../notifications.ts";
 import type { Storage } from "../storage.ts";
@@ -26,6 +27,7 @@ const {
   scoreMarks,
   sectionMembers,
   sessions,
+  sessionTodos,
   sessionTracks,
   stageBoxes,
   stageItems,
@@ -190,10 +192,16 @@ export interface CommitOptions {
   beforeCommit?: (tx: Tx) => Promise<void>;
 }
 
+/** Whether a file is drawn or probed by the media worker once it is in: as an upload is. */
+const workedOn = (file: { name: string; contentType: string; kind: string }) =>
+  file.kind === "audio" ||
+  file.kind === "video" ||
+  pageSourceOf(file.name, file.contentType) !== null;
+
 /**
  * Writes a replayed `.croom` file into a project in one transaction (#57, decision 242). The
- * embedded scores are stored first, encrypted as any upload is; if anything after fails, the
- * transaction writes nothing and the stored scores are taken back.
+ * embedded files (scores, attachments, underlays) are stored first, encrypted as any upload is;
+ * if anything after fails, the transaction writes nothing and the stored files are taken back.
  */
 export async function commitImport(
   deps: CommitDeps,
@@ -206,12 +214,12 @@ export async function commitImport(
   // A first plan, outside the lock, to know which scores to store before the transaction.
   const first = planImport(
     replayed.model,
-    source.file.blobs,
+    source.file,
     await existingIn(db, organisationId, projectId),
     options.choice,
     replayed.report,
   );
-  const total = first.scores.reduce((n, s) => n + s.byteSize, 0);
+  const total = first.files.reduce((n, s) => n + s.byteSize, 0);
   if (total > 0) await db.transaction((tx) => assertStorageRoom(tx, organisationId, total));
   const stored = new Map<string, { blobId: string; byteSize: number }>();
   let committed: {
@@ -220,14 +228,14 @@ export async function commitImport(
     report: CroomImported["report"];
   };
   try {
-    for (const score of first.scores) {
-      const bytes = source.blob(score.blobId);
+    for (const file of first.files) {
+      const bytes = source.blob(file.blobId);
       if (!bytes) continue;
       const blob = await storage.put(organisationId, bytes, {
-        contentType: "application/pdf",
+        contentType: file.contentType,
         projectId,
       });
-      stored.set(score.key, { blobId: blob.id, byteSize: blob.byteSize });
+      stored.set(file.key, { blobId: blob.id, byteSize: blob.byteSize });
     }
     const written = await db.transaction(async (tx) => {
       // Imports into one project take turns, so each plans against what the last one wrote;
@@ -245,16 +253,16 @@ export async function commitImport(
       const again = replayFile(source.file);
       const plan = planImport(
         again.model,
-        source.file.blobs,
+        source.file,
         await existingIn(tx, organisationId, projectId),
         options.choice,
         again.report,
       );
       const fileIds = await writePlan(tx, plan, stored, options);
-      // In the access log with what it wrote, or not at all: each score as an upload, and the
+      // In the access log with what it wrote, or not at all: each file as an upload, and the
       // import itself.
       for (const [key, fileId] of fileIds) {
-        const score = plan.scores.find((s) => s.key === key);
+        const file = plan.files.find((s) => s.key === key);
         await audit.record(
           organisationId,
           options.actor,
@@ -262,7 +270,7 @@ export async function commitImport(
             action: "file.upload",
             projectId,
             fileId,
-            details: { name: score?.name, size: score?.byteSize, kind: "document", from: "croom" },
+            details: { name: file?.name, size: file?.byteSize, kind: file?.kind, from: "croom" },
           },
           options.request,
           tx,
@@ -287,26 +295,28 @@ export async function commitImport(
     });
     committed = written;
   } catch (error) {
-    // Nothing points at the stored scores now: take them back.
+    // Nothing points at the stored files now: take them back.
     for (const { blobId } of stored.values())
       await storage.remove(organisationId, blobId).catch(() => undefined);
     throw error;
   }
-  // The scores are drawn as any document is. The import stands whatever happens here: a score
-  // whose drawing could not be queued is said in the server's log.
+  // The files are drawn, or probed, as any upload is. The import stands whatever happens here:
+  // a file whose work could not be queued is said in the server's log.
   for (const [key, fileId] of committed.fileIds) {
-    const score = committed.plan.scores.find((s) => s.key === key);
-    metrics.uploadsBytes.inc({ workspace: organisationId }, score?.byteSize ?? 0);
+    const file = committed.plan.files.find((s) => s.key === key);
+    metrics.uploadsBytes.inc({ workspace: organisationId }, file?.byteSize ?? 0);
+    if (!file || !workedOn(file)) continue;
+    const job = file.kind === "audio" || file.kind === "video" ? "media-probe" : "document-render";
     await deps.jobs
-      .send("document-render", { organisationId, fileId }, { singletonKey: fileId })
+      .send(job, { organisationId, fileId }, { singletonKey: fileId })
       .catch((error: unknown) =>
-        console.warn(`Could not queue drawing the imported score ${fileId}: ${String(error)}`),
+        console.warn(`Could not queue the imported file ${fileId}: ${String(error)}`),
       );
   }
   return { counts: committed.plan.counts, report: committed.report };
 }
 
-/** Every row of the plan, in an order that lets each find what it refers to. Returns the scores' files. */
+/** Every row of the plan, in an order that lets each find what it refers to. Returns the files. */
 async function writePlan(
   tx: Tx,
   plan: ImportPlan,
@@ -316,26 +326,27 @@ async function writePlan(
   const { organisationId, projectId, userId } = options;
   const base = { organisationId };
 
-  // Scores, as documents of the project, drawn by the media worker like any upload.
+  // Scores, attachments and underlays, as files of the project, drawn or probed by the media
+  // worker like any upload.
   const fileOf = new Map<string, string>();
-  for (const score of plan.scores) {
-    const blob = stored.get(score.key);
+  for (const file of plan.files) {
+    const blob = stored.get(file.key);
     if (!blob) continue;
     const [row] = await tx
       .insert(files)
       .values({
         ...base,
         projectId,
-        name: score.name,
-        kind: "document",
+        name: file.name,
+        kind: file.kind,
         blobId: blob.blobId,
-        contentType: "application/pdf",
+        contentType: file.contentType,
         byteSize: blob.byteSize,
-        streamStatus: "pending",
+        streamStatus: workedOn(file) ? "pending" : "none",
         uploadedBy: userId,
       })
       .returning({ id: files.id });
-    if (row) fileOf.set(score.key, row.id);
+    if (row) fileOf.set(file.key, row.id);
   }
 
   // Venues.
@@ -443,7 +454,13 @@ async function writePlan(
       }
       const [row] = await tx
         .insert(tracks)
-        .values({ ...base, projectId, name: t.name, scoreFileId, position: trackPosition++ })
+        .values({
+          ...base,
+          projectId,
+          name: t.name,
+          scoreFileId: t.scoreKey ? (fileOf.get(t.scoreKey) ?? scoreFileId) : scoreFileId,
+          position: trackPosition++,
+        })
         .returning({ id: tracks.id });
       if (!row) continue;
       trackOf.set(t.key, row.id);
@@ -472,13 +489,25 @@ async function writePlan(
         projectId,
         name: s.name,
         recordedOn: s.recordedOn,
-        venue: s.venue,
         notes: s.notes,
+        numbering: s.numbering,
         position: position++,
       })
       .returning({ id: sessions.id });
     if (!row) continue;
     sessionOf.set(s.key, row.id);
+    // The take log lists its to-dos oldest first: a millisecond apart keeps the file's order.
+    const now = Date.now();
+    if (s.todos.length > 0)
+      await tx.insert(sessionTodos).values(
+        s.todos.map((t, i) => ({
+          ...base,
+          sessionId: row.id,
+          text: t.text,
+          done: t.done,
+          createdAt: new Date(now + i),
+        })),
+      );
     const linked = s.trackKeys.map((k) => trackOf.get(k)).filter((id): id is string => !!id);
     if (linked.length > 0)
       await tx
@@ -499,17 +528,11 @@ async function writePlan(
         number: t.number,
         notes: t.notes,
         rating: t.rating,
-        starred: t.starred,
         lifecycle: t.lifecycle,
         falseStarts: t.falseStarts,
         timecodeIn: t.timecodeIn,
         timecodeOut: t.timecodeOut,
         wallIn: t.wallIn ? new Date(t.wallIn) : null,
-        wallOut: t.wallOut ? new Date(t.wallOut) : null,
-        page: t.page,
-        pageTo: t.pageTo,
-        barFrom: t.barFrom,
-        barTo: t.barTo,
       };
     })
     .filter((r) => r !== null);
@@ -559,11 +582,13 @@ async function writePlan(
         categoryId: m.categoryKey ? (categoryOf.get(m.categoryKey) ?? null) : null,
         takes: m.takes,
         fixedBy: m.fixedBy,
-        resolvedAt: m.resolved ? new Date() : null,
+        resolvedAt: m.resolved ? (m.resolvedAt ? new Date(m.resolvedAt) : new Date()) : null,
         fromTake: m.from,
         toTake: m.to,
         overdub: m.overdub,
         createdById: userId,
+        // When it was marked in ControlRoom.
+        ...(m.createdAt ? { createdAt: new Date(m.createdAt) } : {}),
       };
     })
     .filter((r) => r !== null);
@@ -671,6 +696,16 @@ async function writePlan(
         depth: p.depth,
         grid: p.grid,
         position: position++,
+        ...(p.underlay && fileOf.has(p.underlay.fileKey)
+          ? {
+              underlayFileId: fileOf.get(p.underlay.fileKey),
+              underlayPage: 1,
+              underlayX: p.underlay.x,
+              underlayY: p.underlay.y,
+              underlayWidth: p.underlay.width,
+              underlayOpacity: p.underlay.opacity,
+            }
+          : {}),
       })
       .returning({ id: stagePlans.id });
     if (!row || p.items.length === 0) continue;

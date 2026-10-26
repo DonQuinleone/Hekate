@@ -1,181 +1,229 @@
-import type { CroomReport, ScoreMarkKind } from "@hekate/shared";
+import type { CroomReport } from "@hekate/shared";
 
 /**
- * The project a `.croom` file's events rebuild, in words of neither ControlRoom nor Hekate's
- * tables: what the replay (`replay.ts`) writes and the import (`commit.ts`) reads. Ids are
- * ControlRoom's, as strings; references between entries are by those ids. Maps keep the order
- * entries were added in, which becomes their order in Hekate.
+ * The project a `.croom` file's events rebuild, as ControlRoom's own replay rebuilds it
+ * (`SessionState` in its `src/core/model.hpp`), in plain TypeScript: what the replay
+ * (`replay.ts`) writes and the plan (`plan.ts`) reads (decision 242). Ids are ControlRoom's,
+ * as strings, drawn from its one counter; a reference of 0 (none) is null. Maps keep the order
+ * entries were added in, which ControlRoom keeps too and which becomes their order in Hekate.
  */
 
-export interface CrWork {
-  id: string;
-  title: string;
-  composer: string;
-  forces: string;
-  abbreviation: string;
-  notes: string;
-  /** The PDF its score is, by id. */
-  pdfId: string | null;
-  pageOffset: number;
-}
+/** ControlRoom's frame rates, as `set_meta frame_rate` writes them. */
+export const frameRates = ["24", "25", "29.97", "29.97DF", "30"] as const;
+export type FrameRate = (typeof frameRates)[number];
 
-/** A movement of a piece: in Hekate, a track of the work (Hekate has no movements). */
-export interface CrMovement {
-  id: string;
-  workId: string;
-  title: string;
-  /** As the score prints it: "I", "2a". */
-  number: string;
-  pageFrom: number | null;
-  pageTo: number | null;
+/** Frames in a timecode second at each rate: 30 for both 29.97 rates. */
+export const nominalFps: Record<FrameRate, number> = {
+  "24": 24,
+  "25": 25,
+  "29.97": 30,
+  "29.97DF": 30,
+  "30": 30,
+};
+
+/** The session's own settings, from `create_session`, `set_meta` and `set_notes`. */
+export interface CrMeta {
+  name: string;
+  conductor: string;
+  producer: string;
+  engineer: string;
+  /** The letterhead line on its exports. */
+  organisation: string;
+  /** The schedule export's front-page prose. */
+  publicInfo: string;
+  /** "alpha" or "schedule": how its score selector lists the works. */
+  scoreOrder: string;
+  /** On the stage plan headers and the schedule export's footer. */
+  author: string;
+  /** Session Info > Notes: one person's own, never printed. */
+  personalNotes: string;
+  frameRate: FrameRate;
+  lifecycleEnabled: boolean;
+  /** Each score (or movement) keeps its own run of take numbers. */
+  perScoreTakes: boolean;
+  /** The session notes panel (`set_notes`). */
+  notes: string;
 }
 
 export interface CrPdf {
   id: string;
   name: string;
-  /** The blob holding its bytes, by the blobs table's id. */
+  /** Its row in the blobs table. */
   blobId: string | null;
+  pages: number;
+  /** The PDF's page (1-based) less the page as printed. */
+  pageOffset: number;
 }
 
-export interface CrSession {
+/** A work of the take log's first structure (`add_work`), before the repertoire. */
+export interface CrLogWork {
   id: string;
   name: string;
-  /** A calendar date, "2026-09-12". */
-  date: string | null;
-  venueId: string | null;
+  numbering: string;
+}
+
+/** A movement of such a work (`add_movement`). */
+export interface CrLogMovement {
+  id: string;
+  workId: string | null;
+  name: string;
+}
+
+/** A movement of a repertoire piece, which has no id of its own: takes and slots name it by place, from 1. */
+export interface CrPieceMovement {
+  number: string;
+  title: string;
+  forces: string;
+  abbreviation: string;
+  pdfId: string | null;
+  /** Printed pages; null where unset (0 in the file). */
+  pageFrom: number | null;
+  pageTo: number | null;
+}
+
+/** A repertoire work (`add_piece`, `update_piece`). */
+export interface CrPiece {
+  id: string;
+  title: string;
+  composer: string;
+  /** Kept for older files; typed into the composer nowadays. */
+  arranger: string;
+  forces: string;
+  abbreviation: string;
   notes: string;
+  pdfId: string | null;
+  movements: CrPieceMovement[];
+}
+
+export interface Timecode {
+  hours: number;
+  minutes: number;
+  seconds: number;
+  frames: number;
+}
+
+export const takeLifecycles = ["idle", "armed", "recording", "recorded", "aborted"] as const;
+export type CrLifecycle = (typeof takeLifecycles)[number];
+
+export interface CrTake {
+  id: string;
+  number: number;
+  /**
+   * What it was recorded under: a repertoire piece and a movement by place (0 is the whole
+   * piece), or in older files a take-log work and movement by id. Null for neither.
+   */
+  workId: string | null;
+  movement: number;
+  /** The score it was recorded against, kept only where each score runs its own numbers. */
+  pdfId: string | null;
+  falseStarts: number;
+  lifecycle: CrLifecycle;
+  rating: number;
+  notes: string;
+  timecodeIn: Timecode | null;
+  timecodeOut: Timecode | null;
+  /** When `add_take` was written, which is when the take was started: ms since 1970. */
+  createdAt: number | null;
 }
 
 export interface CrCategory {
   id: string;
-  name: string;
-  colour: string | null;
-  key: string | null;
+  label: string;
+  /** Packed as ImGui packs a colour: red in the lowest byte, alpha in the highest. */
+  colour: number;
+  keybind: string;
 }
 
-export interface CrTake {
-  id: string;
-  workId: string | null;
-  movementId: string | null;
-  sessionId: string | null;
-  number: number | null;
-  rating: number;
-  starred: boolean;
-  notes: string;
-  falseStarts: number;
-  timecodeIn: string | null;
-  timecodeOut: string | null;
-  wallIn: string | null;
-  wallOut: string | null;
-  page: number | null;
-  pageTo: number | null;
-  barFrom: number | null;
-  barTo: number | null;
-  aborted: boolean;
-}
+export const annotationKinds = [
+  "issue",
+  "tedit",
+  "take_begin",
+  "take_end",
+  "spot_x",
+  "circled_dynamic",
+  "punch_in",
+  "note",
+  "ink",
+] as const;
+export type CrAnnotationKind = (typeof annotationKinds)[number];
 
-export interface CrMark {
+export interface CrAnnotation {
   id: string;
-  workId: string | null;
-  movementId: string | null;
-  /** Null where the file names a kind Hekate does not have: reported, and left out. */
-  kind: ScoreMarkKind | null;
-  page: number | null;
+  kind: CrAnnotationKind;
+  pdfId: string | null;
+  /** 0-based, as ControlRoom counts the PDF's pages. */
+  page: number;
+  rect: boolean;
+  /** Fractions of the page: a point, or a region's top-left corner and size. */
   x: number;
   y: number;
-  width: number | null;
-  height: number | null;
-  points: [number, number][] | null;
-  barFrom: number | null;
-  barTo: number | null;
-  text: string | null;
+  w: number;
+  h: number;
   categoryId: string | null;
-  takes: number[];
-  fixedBy: number | null;
-  from: number | null;
-  to: number | null;
-  overdub: boolean;
+  note: string;
   resolved: boolean;
+  takesAffected: number[];
+  takeResolved: number | null;
+  tedit: { takes: number[]; overdub: boolean; lead: boolean };
+  /** A freehand stroke's points, as offsets from (x, y). */
+  ink: [number, number][];
+  createdAt: number | null;
+  updatedAt: number | null;
+  /** When it was last marked resolved. */
+  resolvedAt: number | null;
 }
 
-export interface CrSection {
-  name: string;
-  count: number;
-  divisi: string;
-  members: { name: string; agreement: boolean; headphones: boolean }[];
+export interface CrTodo {
+  id: string;
+  text: string;
+  done: boolean;
 }
 
-export interface CrPerson {
+export interface CrAttachment {
   id: string;
   name: string;
-  kind: "artist" | "ensemble" | "staff" | "other";
-  role: string;
-  agreement: boolean;
-  headphones: boolean;
-  seating: string;
-  sections: CrSection[];
+  blobId: string | null;
 }
 
 export interface CrVenue {
   id: string;
   name: string;
   address: string;
-  notes: string;
 }
 
-export interface CrDay {
-  id: string;
-  label: string;
-  date: string | null;
-  venueId: string | null;
-  start: string | null;
-}
+export const personnelKinds = ["artist", "staff", "ensemble", "other"] as const;
+export type CrPersonnelKind = (typeof personnelKinds)[number];
 
-export interface CrRow {
-  id: string;
-  /** Its day by id; or, where the file gives none, its date, which finds or makes one. */
-  dayId: string | null;
-  date: string | null;
-  kind: "slot" | "break" | "get-in" | "venue" | "custom";
-  start: string | null;
-  minutes: number;
-  label: string;
-  allRepertoire: boolean;
-  workIds: string[];
-  movementIds: string[];
-  personnel: string;
-  notes: string;
-  done: boolean;
-}
-
-export interface CrStagePlan {
-  id: string;
+export interface CrMember {
   name: string;
-  width: number;
-  depth: number;
-  grid: number;
-  venueId: string | null;
+  divisi: string;
+  rights: boolean;
+  cans: boolean;
 }
 
-export interface CrStageElement {
+export interface CrSection {
+  name: string;
+  members: CrMember[];
+  /** The head-count while no one is named. */
+  unnamed: number;
+}
+
+export interface CrPerson {
   id: string;
-  planId: string | null;
-  kind: string;
-  label: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  rotation: number;
-  personId: string | null;
-  /** The patch list channel it is plugged into: a box and an input channel. */
-  boxId: string | null;
-  channel: number | null;
-  group: string;
+  kind: CrPersonnelKind;
+  name: string;
+  role: string;
+  forcesNotes: string;
+  /** The session agreement is signed. */
+  rights: boolean;
+  /** Needs headphones. */
+  cans: boolean;
+  sections: CrSection[];
+  /** Older files' guests on a person, before the "other" kind. */
+  observers: string[];
 }
 
-export interface CrPatch {
-  channel: number;
+export interface CrPatchRow {
   source: string;
   device: string;
   cable: string;
@@ -185,43 +233,137 @@ export interface CrPatch {
 export interface CrStageBox {
   id: string;
   name: string;
-  inputs: CrPatch[];
-  outputs: CrPatch[];
+  /** Channel n is row n - 1. */
+  inputs: CrPatchRow[];
+  outputs: CrPatchRow[];
+}
+
+/** One element of a stage plan: metres, from its centre, turned clockwise by `rot` degrees. */
+export interface CrElement {
+  id: string;
+  kind: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rot: number;
+  label: string;
+  colour: number;
+  personId: string | null;
+  section: number;
+  member: number;
+  boxId: string | null;
+  channel: number;
+  /** A cable's or wall's corners, in metres from the stage's top-left. */
+  points: [number, number][];
+}
+
+export interface CrStagePlan {
+  id: string;
+  name: string;
+  width: number;
+  depth: number;
+  paper: string;
+  venueId: string | null;
+  underlayBlobId: string | null;
+  underlayName: string;
+  underlayX: number;
+  underlayY: number;
+  /** Metres to a pixel of the underlay; 0 until ControlRoom first fits it to the stage's width. */
+  underlayScale: number;
+  underlayOpacity: number;
+  /** Which label groups draw: people, sections, mics, boxes, from the lowest bit. */
+  labelMask: number;
+  elements: CrElement[];
+}
+
+export const scheduleKinds = ["day", "slot", "break", "venue"] as const;
+export type CrScheduleKind = (typeof scheduleKinds)[number];
+
+export interface CrScheduleItem {
+  id: string;
+  kind: CrScheduleKind;
+  /** "HH:MM", or empty to chain from the row before. */
+  start: string;
+  minutes: number;
+  done: boolean;
+  title: string;
+  notes: string;
+  personnel: string;
+  /** A slot's works and movements; a piece of "all" is the whole repertoire. */
+  refs: { piece: string | "all"; movement: number }[];
+  label: string;
+  date: string;
+  venueId: string | null;
+  /** Older files' fields, written on the row before the registries. */
+  legacy: {
+    composer: string;
+    arranger: string;
+    forces: string;
+    venue: string;
+    pdfId: string | null;
+  };
 }
 
 export interface CroomModel {
-  works: Map<string, CrWork>;
-  movements: Map<string, CrMovement>;
+  meta: CrMeta;
   pdfs: Map<string, CrPdf>;
-  sessions: Map<string, CrSession>;
-  categories: Map<string, CrCategory>;
+  logWorks: Map<string, CrLogWork>;
+  logMovements: Map<string, CrLogMovement>;
+  pieces: Map<string, CrPiece>;
   takes: Map<string, CrTake>;
-  marks: Map<string, CrMark>;
-  personnel: Map<string, CrPerson>;
+  categories: Map<string, CrCategory>;
+  annotations: Map<string, CrAnnotation>;
+  todos: Map<string, CrTodo>;
+  attachments: Map<string, CrAttachment>;
   venues: Map<string, CrVenue>;
-  days: Map<string, CrDay>;
-  rows: Map<string, CrRow>;
-  stagePlans: Map<string, CrStagePlan>;
-  stageElements: Map<string, CrStageElement>;
+  personnel: Map<string, CrPerson>;
   stageBoxes: Map<string, CrStageBox>;
+  stagePlans: Map<string, CrStagePlan>;
+  /** In ControlRoom's order: a day row starts each day. */
+  schedule: CrScheduleItem[];
 }
 
 export const emptyModel = (): CroomModel => ({
-  works: new Map(),
-  movements: new Map(),
+  meta: {
+    name: "",
+    conductor: "",
+    producer: "",
+    engineer: "",
+    organisation: "",
+    publicInfo: "",
+    scoreOrder: "alpha",
+    author: "",
+    personalNotes: "",
+    frameRate: "25",
+    lifecycleEnabled: false,
+    perScoreTakes: false,
+    notes: "",
+  },
   pdfs: new Map(),
-  sessions: new Map(),
-  categories: new Map(),
+  logWorks: new Map(),
+  logMovements: new Map(),
+  pieces: new Map(),
   takes: new Map(),
-  marks: new Map(),
-  personnel: new Map(),
+  categories: new Map(),
+  annotations: new Map(),
+  todos: new Map(),
+  attachments: new Map(),
   venues: new Map(),
-  days: new Map(),
-  rows: new Map(),
-  stagePlans: new Map(),
-  stageElements: new Map(),
+  personnel: new Map(),
   stageBoxes: new Map(),
+  stagePlans: new Map(),
+  schedule: [],
 });
+
+/** A map in a new order: `id` moved to `to`, clamped, as ControlRoom moves a row or a person. */
+export function moveTo<V>(map: Map<string, V>, id: string, to: number): Map<string, V> {
+  const held = map.get(id);
+  if (held === undefined) return map;
+  const rest = [...map].filter(([key]) => key !== id);
+  rest.splice(Math.min(Math.max(0, to), rest.length), 0, [id, held]);
+  return new Map(rest);
+}
 
 /** Counts what the replay could not bring over, and says it once each. */
 export class ReportCollector {
@@ -242,6 +384,7 @@ export class ReportCollector {
     else this.unknownFields.set(key, { type, field, count: 1 });
   }
 
+  /** Something the file holds that Hekate has no place for: counted under its name, with why. */
   ignore(type: string, reason: string) {
     const held = this.ignored.get(type);
     if (held) held.count += 1;

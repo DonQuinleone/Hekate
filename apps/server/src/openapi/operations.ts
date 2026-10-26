@@ -854,7 +854,7 @@ export const apiOperations: Record<string, ApiOperation> = {
   "POST /projects/{id}/croom/import": {
     summary: "Import a ControlRoom project",
     description:
-      "Writes everything the preview counted into the project in one transaction, its embedded scores stored encrypted as uploads. The file is sent again, as nothing of it is kept after the preview.",
+      "Writes everything the preview counted into the project in one transaction, its embedded scores and attached files stored encrypted as uploads. The file is sent again, as nothing of it is kept after the preview.",
     status: 201,
     body: { type: "application/octet-stream", description: "The .croom file's bytes." },
   },

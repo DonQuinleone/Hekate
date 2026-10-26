@@ -1,100 +1,70 @@
-import { aliases, crud, type Family, or, type ReplayContext } from "../family.ts";
-import { eachFields, type Fields } from "../fields.ts";
-import type { CrPerson, CrSection } from "../model.ts";
-import { keyOf } from "./values.ts";
+import { absent, type Family, removeFrom } from "../family.ts";
+import { eachOf } from "../fields.ts";
+import { type CrPersonnelKind, moveTo, personnelKinds } from "../model.ts";
 
 /**
- * Personnel (provisional, decision 242): `add_person` with `name`, `kind` (artist, ensemble,
- * staff or other, and some likely synonyms), `role`, `agreement`, `headphones`, `seating`, and
- * for an ensemble its `sections`, each with `name`, `count`, `divisi` and `members` (names, or
- * entries with their own `agreement` and `headphones`).
+ * Personnel (decision 242). `add_personnel` has only `kind` (artist, staff, ensemble or other;
+ * any other word ControlRoom reads as artist), and `update_personnel` then writes the whole
+ * entry but its kind: `id`, `name`, `role`, `rights` (the session agreement is signed), `cans`
+ * (needs headphones), `forces_notes`, `sections` (each with `name`, `members`, each with `name`,
+ * `div`, `rights` and `cans`, and `unnamed`, the head-count while no one is named) and, in older
+ * files, `observers`, names of guests. `delete_personnel` removes one by `id`, and
+ * `move_personnel` moves one to place `to` in the list.
  */
-const kinds: Record<string, CrPerson["kind"]> = {
-  artist: "artist",
-  soloist: "artist",
-  conductor: "artist",
-  performer: "artist",
-  musician: "artist",
-  ensemble: "ensemble",
-  orchestra: "ensemble",
-  choir: "ensemble",
-  band: "ensemble",
-  group: "ensemble",
-  staff: "staff",
-  crew: "staff",
-  production: "staff",
-  engineer: "staff",
-  producer: "staff",
-  other: "other",
-};
-
-function readSections(f: Fields, ctx: ReplayContext): CrSection[] | undefined {
-  const listed = f.list("sections", "parts");
-  if (listed === undefined) return undefined;
-  return eachFields(listed, `${ctx.type}.sections`, ctx.report).map((s) => {
-    const members = (s.list("members", "players", "names") ?? []).map((m) => {
-      if (typeof m === "string") return { name: m, agreement: false, headphones: false };
-      const mf = eachFields([m], `${ctx.type}.sections.members`, ctx.report)[0] as Fields;
-      const member = {
-        name: mf.str("name") ?? "",
-        agreement: mf.bool("agreement", "session_agreement", "signed") ?? false,
-        headphones: mf.bool("headphones", "needs_headphones", "cans") ?? false,
-      };
-      mf.done();
-      return member;
-    });
-    const section: CrSection = {
-      name: s.str("name", "title", "label") ?? "",
-      count: Math.max(s.int("count", "size", "players_count", "headcount") ?? 0, members.length),
-      divisi: s.str("divisi", "split") ?? "",
-      members: members.filter((m) => m.name.trim() !== ""),
-    };
-    s.done();
-    return section;
-  });
-}
-
-const person = crud<CrPerson>(
-  "person",
-  (m) => m.personnel,
-  (id) => ({
-    id,
-    name: "",
-    kind: "other",
-    role: "",
-    agreement: false,
-    headphones: false,
-    seating: "",
-    sections: [],
-  }),
-  (f, base, ctx) => {
-    const kindWritten = f.str("kind", "type", "category", "group");
-    let kind = base.kind;
-    if (kindWritten !== undefined) {
-      const found = kinds[keyOf(kindWritten)];
-      if (!found)
-        ctx.report.problem(
-          `${ctx.type}: "${kindWritten.slice(0, 30)}" is not a kind of personnel Hekate has, so it is listed as other`,
-        );
-      kind = found ?? "other";
-    }
-    return {
-      ...base,
-      kind,
-      name: or(f.str("name", "full_name", "title"), base.name),
-      role: or(f.str("role", "instrument", "position", "job"), base.role),
-      agreement: or(
-        f.bool("agreement", "session_agreement", "agreement_signed", "signed"),
-        base.agreement,
-      ),
-      headphones: or(f.bool("headphones", "needs_headphones", "cans"), base.headphones),
-      seating: or(f.str("seating", "seating_notes", "forces"), base.seating),
-      sections: or(readSections(f, ctx), base.sections),
-    };
-  },
-);
+const kindOf = (value: string): CrPersonnelKind =>
+  (personnelKinds as readonly string[]).includes(value) ? (value as CrPersonnelKind) : "artist";
 
 export const personnel: Family = {
   name: "personnel",
-  nouns: aliases(["person", "personnel", "people", "contact"], person),
+  events: {
+    add_personnel(ctx, f) {
+      const id = ctx.nextId();
+      ctx.model.personnel.set(id, {
+        id,
+        kind: kindOf(f.str("kind", "artist")),
+        name: "",
+        role: "",
+        forcesNotes: "",
+        rights: false,
+        cans: false,
+        sections: [],
+        observers: [],
+      });
+    },
+    update_personnel(ctx, f) {
+      const id = f.id("id");
+      // A person's kind is fixed when they are added.
+      f.skip("kind");
+      const next = {
+        name: f.str("name"),
+        role: f.str("role"),
+        rights: f.bool("rights", false),
+        cans: f.bool("cans", false),
+        forcesNotes: f.str("forces_notes"),
+        sections: eachOf(f.list("sections"), `${ctx.type}.sections`, ctx.report, (s) => ({
+          name: s.str("name"),
+          unnamed: Math.max(0, s.int("unnamed", 0)),
+          members: eachOf(s.list("members"), `${ctx.type}.sections.members`, ctx.report, (m) => ({
+            name: m.str("name"),
+            divisi: m.str("div"),
+            rights: m.bool("rights", false),
+            cans: m.bool("cans", false),
+          })),
+        })),
+        observers: (f.list("observers") ?? []).filter((o): o is string => typeof o === "string"),
+      };
+      const held = id ? ctx.model.personnel.get(id) : undefined;
+      if (!held) return absent(ctx, "a person");
+      Object.assign(held, next);
+    },
+    delete_personnel(ctx, f) {
+      removeFrom(ctx, f, ctx.model.personnel, "a person");
+    },
+    move_personnel(ctx, f) {
+      const id = f.id("id");
+      const to = f.int("to", 0);
+      if (!id || !ctx.model.personnel.has(id)) return absent(ctx, "a person");
+      ctx.model.personnel = moveTo(ctx.model.personnel, id, to);
+    },
+  },
 };

@@ -5,14 +5,25 @@ import { DatabaseSync } from "node:sqlite";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { withWorkspace } from "../media/workspace.ts";
+import { imageSize } from "./image-size.ts";
 
 /**
- * Reading a ControlRoom project file (#57, decision 242). A `.croom` file is an event-sourced
- * SQLite database of four tables: `meta` (the schema version, the head, and the desktop app's
- * view state under `ui.*`), `events` (`seq`, `ts`, `type`, a JSON `payload` and `branch`: 0 is
- * the project as it stands, 1 holds undone events), `blobs` (embedded PDFs) and
- * `sqlite_sequence`. This module only opens and checks the file and reads it out; what the
- * events mean is the replay's (`replay.ts`).
+ * Reading a ControlRoom project file (#57, decision 242). A `.croom` file is ControlRoom's
+ * event store (`EventStore` in its `src/core/store.cpp`): one SQLite database of three tables.
+ *
+ * - `meta (key text primary key, value text)`: `schema_version` ("1"), `head` (the `seq` of the
+ *   last event in effect; "0" when everything is undone) and the desktop app's view state under
+ *   `ui.*` (the score shown, its page, zoom and colour filter), which is never an event.
+ * - `events (seq integer primary key autoincrement, ts integer not null, type text not null,
+ *   payload text not null, branch integer not null default 0)`: `ts` is ms since 1970, and
+ *   `payload` the event as JSON, its `type` included. Undo moves `head` back and redo forward,
+ *   so the project is branch 0 up to `head`; events past it are undone and can be redone. A new
+ *   event after an undo moves those to branch 1 for good. Nothing is ever deleted.
+ * - `blobs (id integer primary key autoincrement, name text, bytes blob)`: the embedded files
+ *   (scores, attachments, stage plan underlays), referred to by `id` from their events.
+ *
+ * This module only opens and checks the file and reads it out; what the events mean is the
+ * replay's (`replay.ts`).
  */
 
 /** A file that is not a ControlRoom project, or not one this reader can open. */
@@ -21,15 +32,16 @@ export class CroomError extends Error {
 }
 
 /**
- * The schema versions the event mapping was written against. Provisional (decision 242): the
- * mapping is unverified against a real file, so another version is read all the same and the
- * report says so, rather than refused.
+ * The schema versions the mapping was checked against: ControlRoom writes 1 and has written
+ * nothing else. Another is read all the same, and the report says so.
  */
 export const KNOWN_SCHEMA_VERSIONS: readonly number[] = [1];
 
 export interface CroomEvent {
   seq: number;
-  ts: string | null;
+  /** When it was written: ms since 1970. */
+  ts: number | null;
+  /** The type in the events table; the replay reads the one in the payload, as ControlRoom does. */
   type: string;
   /** The parsed payload; undefined where it was not JSON. */
   payload: unknown;
@@ -39,20 +51,24 @@ export interface CroomEvent {
 
 export interface CroomFile {
   schemaVersion: number;
-  /** The `head` meta value as written; what it points at is unverified. */
-  head: string | null;
-  /** Every meta value but the view state. */
-  meta: Record<string, string>;
+  /** The `head` meta value; null where the file has none. */
+  head: number | null;
   /** How many `ui.*` values the file holds: view state, never imported. */
   viewState: number;
-  /** Branch 0, in `seq` order: what replaying rebuilds the project from. */
+  /** Meta keys ControlRoom does not write. */
+  unknownMeta: string[];
+  /** The project: branch 0 up to the head, in `seq` order. */
   events: CroomEvent[];
-  /** Events on branch 1: undone, so never replayed. */
+  /** Events undone and not replayed: those past the head, and those a later event set aside. */
   undone: number;
-  /** Events on any other branch, also never replayed. */
+  /** Of those, the ones past the head, which ControlRoom could still redo. */
+  redoable: number;
+  /** Events on a branch ControlRoom never writes, also never replayed. */
   otherBranches: number;
   /** Each embedded blob's id and size, without its bytes. */
   blobs: Map<string, number>;
+  /** The size in pixels of each blob that is a picture, for an underlay's scale. */
+  images: Map<string, { width: number; height: number }>;
 }
 
 /** An open project file: what it holds, and its blobs' bytes on demand. */
@@ -62,19 +78,11 @@ export interface CroomSource {
   close(): void;
 }
 
-const REQUIRED_TABLES = ["meta", "events", "blobs", "sqlite_sequence"] as const;
-const EVENT_COLUMNS = ["seq", "ts", "type", "payload", "branch"] as const;
-
-/** A column of a table, matched by name from those that might hold it. */
-function columnOf(columns: { name: string; type: string }[], names: string[]): string | null {
-  for (const name of names) {
-    const found = columns.find((c) => c.name.toLowerCase() === name);
-    if (found) return found.name;
-  }
-  return null;
-}
-
-const quoted = (name: string) => `"${name.replaceAll('"', '""')}"`;
+const TABLES: Record<string, readonly string[]> = {
+  meta: ["key", "value"],
+  events: ["seq", "ts", "type", "payload", "branch"],
+  blobs: ["id", "name", "bytes"],
+};
 
 /** Opens a `.croom` file at `path` read-only and checks it is one before anything is read. */
 export function openCroom(path: string): CroomSource {
@@ -95,102 +103,87 @@ export function openCroom(path: string): CroomSource {
     } catch {
       throw new CroomError("This is not a ControlRoom project file");
     }
-    const missing = REQUIRED_TABLES.filter((t) => !tables.includes(t));
+    const missing = Object.keys(TABLES).filter((t) => !tables.includes(t));
     if (missing.length > 0)
       throw new CroomError(
         `This is not a ControlRoom project file: it has no ${missing.join(", ")} table`,
       );
-    const columns = (table: string) =>
-      db.prepare(`select name, type from pragma_table_info(?)`).all(table) as {
-        name: string;
-        type: string;
-      }[];
-
-    const eventColumns = columns("events").map((c) => c.name.toLowerCase());
-    const lacking = EVENT_COLUMNS.filter((c) => !eventColumns.includes(c));
-    if (lacking.length > 0)
-      throw new CroomError(
-        `The file's events have no ${lacking.join(", ")}: it cannot be replayed`,
-      );
-
-    // The meta table's columns are not known for certain: a key and a value, by likely names.
-    const metaColumns = columns("meta");
-    const keyColumn = columnOf(metaColumns, ["key", "name", "k"]);
-    const valueColumn = columnOf(metaColumns, ["value", "val", "v"]);
-    if (!keyColumn || !valueColumn)
-      throw new CroomError("The file's meta table has no key and value");
-    const meta: Record<string, string> = {};
-    let viewState = 0;
-    for (const row of db
-      .prepare(`select ${quoted(keyColumn)} as k, ${quoted(valueColumn)} as v from meta`)
-      .all() as { k: unknown; v: unknown }[]) {
-      const key = String(row.k);
-      if (key.startsWith("ui.")) {
-        viewState += 1;
-        continue;
-      }
-      meta[key] = row.v == null ? "" : String(row.v);
+    for (const [table, wanted] of Object.entries(TABLES)) {
+      const columns = (
+        db.prepare("select name from pragma_table_info(?)").all(table) as { name: string }[]
+      ).map((c) => c.name.toLowerCase());
+      const lacking = wanted.filter((c) => !columns.includes(c));
+      if (lacking.length > 0)
+        throw new CroomError(
+          `This is not a ControlRoom project file: its ${table} table has no ${lacking.join(", ")}`,
+        );
     }
-    const version = Number(meta.schema_version);
-    if (!meta.schema_version || !Number.isInteger(version) || version < 1)
+
+    let schemaVersion: string | undefined;
+    let headWritten: string | undefined;
+    let viewState = 0;
+    const unknownMeta: string[] = [];
+    for (const row of db.prepare("select key, value from meta order by key").all() as {
+      key: unknown;
+      value: unknown;
+    }[]) {
+      const key = String(row.key);
+      const value = row.value == null ? "" : String(row.value).trim();
+      if (key.startsWith("ui.")) viewState += 1;
+      else if (key === "schema_version") schemaVersion = value;
+      else if (key === "head") headWritten = value;
+      else unknownMeta.push(key);
+    }
+    const version = Number(schemaVersion);
+    if (!schemaVersion || !Number.isInteger(version) || version < 1)
       throw new CroomError("The file does not say which ControlRoom schema it was written in");
+    const head =
+      headWritten !== undefined && /^\d+$/.test(headWritten) ? Number(headWritten) : null;
 
     const events: CroomEvent[] = [];
     let undone = 0;
+    let redoable = 0;
     let otherBranches = 0;
     for (const row of db
       .prepare("select seq, ts, type, payload, branch from events order by seq")
       .all() as { seq: number; ts: unknown; type: unknown; payload: unknown; branch: unknown }[]) {
       const branch = Number(row.branch ?? 0);
-      if (branch === 1) {
+      if (branch === 1) undone += 1;
+      else if (branch !== 0) otherBranches += 1;
+      else if (head !== null && Number(row.seq) > head) {
         undone += 1;
-        continue;
-      }
-      if (branch !== 0) {
-        otherBranches += 1;
-        continue;
-      }
-      events.push(eventOf(row));
+        redoable += 1;
+      } else events.push(eventOf(row));
     }
 
-    // The blobs' columns are not known either: an id, and the bytes.
-    const blobColumns = columns("blobs");
-    const idColumn = columnOf(blobColumns, ["id", "blob_id", "hash", "key", "name", "rowid"]);
-    const dataColumn =
-      columnOf(blobColumns, ["data", "bytes", "content", "blob", "body", "pdf"]) ??
-      blobColumns.find((c) => c.type.toUpperCase() === "BLOB")?.name ??
-      null;
     const blobs = new Map<string, number>();
-    const idExpression = idColumn ? quoted(idColumn) : "rowid";
-    if (dataColumn) {
-      for (const row of db
-        .prepare(`select ${idExpression} as id, length(${quoted(dataColumn)}) as size from blobs`)
-        .all() as { id: unknown; size: unknown }[])
-        blobs.set(String(row.id), Number(row.size ?? 0));
+    const images = new Map<string, { width: number; height: number }>();
+    for (const row of db
+      .prepare("select id, length(bytes) as size, substr(bytes, 1, 262144) as head from blobs")
+      .all() as { id: unknown; size: unknown; head: unknown }[]) {
+      blobs.set(String(row.id), Number(row.size ?? 0));
+      const size = row.head instanceof Uint8Array ? imageSize(row.head) : null;
+      if (size) images.set(String(row.id), size);
     }
-    const readBlob = dataColumn
-      ? db.prepare(`select ${quoted(dataColumn)} as data from blobs where ${idExpression} = ?`)
-      : null;
+    const readBlob = db.prepare("select bytes from blobs where id = ?");
 
     return {
       file: {
         schemaVersion: version,
-        head: meta.head ?? null,
-        meta,
+        head,
         viewState,
+        unknownMeta,
         events,
         undone,
+        redoable,
         otherBranches,
         blobs,
+        images,
       },
       blob(id) {
-        if (!readBlob || !blobs.has(id)) return null;
-        // An id read back as a number where the column is an integer.
-        const row = (readBlob.get(id) ?? readBlob.get(Number(id))) as { data: unknown } | undefined;
-        const data = row?.data;
-        if (data instanceof Uint8Array) return data;
-        if (typeof data === "string") return Buffer.from(data, "base64");
-        return null;
+        if (!blobs.has(id)) return null;
+        const row = readBlob.get(Number(id)) as { bytes: unknown } | undefined;
+        return row?.bytes instanceof Uint8Array ? row.bytes : null;
       },
       close: () => db.close(),
     };
@@ -202,20 +195,17 @@ export function openCroom(path: string): CroomSource {
 }
 
 function eventOf(row: { seq: number; ts: unknown; type: unknown; payload: unknown }): CroomEvent {
+  const ts = row.ts == null ? Number.NaN : Number(row.ts);
   const event: CroomEvent = {
     seq: Number(row.seq),
-    ts: row.ts == null ? null : String(row.ts),
+    ts: Number.isFinite(ts) ? ts : null,
     type: row.type == null ? "" : String(row.type),
     payload: undefined,
   };
-  if (row.payload == null || row.payload === "") {
-    event.payload = {};
-    return event;
-  }
   const text =
     row.payload instanceof Uint8Array ? Buffer.from(row.payload).toString("utf8") : row.payload;
   try {
-    event.payload = JSON.parse(String(text));
+    event.payload = JSON.parse(String(text ?? ""));
   } catch {
     event.payloadError = "its payload is not JSON";
   }

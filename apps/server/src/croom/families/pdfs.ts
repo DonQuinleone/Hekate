@@ -1,30 +1,42 @@
-import { aliases, crud, type Family, or } from "../family.ts";
-import type { CrPdf } from "../model.ts";
+import { absent, type Family } from "../family.ts";
 
 /**
- * PDFs (provisional, decision 242): `add_pdf` with `name`, `blob_id` (the blobs table's id of
- * its bytes) and optionally `piece_id`, the piece whose score it is. Each becomes a document in
- * the project, stored encrypted as any upload is, and a piece's becomes its work's score.
+ * Score PDFs embedded in the file (decision 242): `add_pdf` with `name`, `blob` (its row in the
+ * blobs table) and `pages`; `set_pdf_page_offset` with `pdf` and `offset` (the PDF's page less
+ * the printed page); `replace_pdf`, a swapped file under the same identity (`pdf`, `name`,
+ * `blob`, `pages`: its marks, takes and repertoire links stay); and `remove_pdf` by `pdf`,
+ * which takes the score's marks with it.
  */
-const pdf = crud<CrPdf>(
-  "pdf",
-  (m) => m.pdfs,
-  (id) => ({ id, name: "", blobId: null }),
-  (f, base, ctx) => {
-    const next: CrPdf = {
-      ...base,
-      name: or(f.str("name", "filename", "file_name", "title"), base.name),
-      blobId: or(f.id("blob_id", "blob", "hash", "blob_hash", "sha256"), base.blobId),
-    };
-    const pieceId = f.id("piece_id", "work_id", "piece");
-    const work = pieceId ? ctx.model.works.get(pieceId) : undefined;
-    if (pieceId && !work) ctx.report.problem(`${ctx.type}: names a piece the file never added`);
-    if (work && !work.pdfId) work.pdfId = base.id;
-    return next;
-  },
-);
-
 export const pdfs: Family = {
   name: "pdfs",
-  nouns: aliases(["pdf", "score_pdf", "document", "attachment"], pdf),
+  events: {
+    add_pdf(ctx, f) {
+      const id = ctx.nextId();
+      ctx.model.pdfs.set(id, {
+        id,
+        name: f.str("name"),
+        blobId: f.id("blob"),
+        pages: f.int("pages", 0),
+        pageOffset: 0,
+      });
+    },
+    set_pdf_page_offset(ctx, f) {
+      const held = ctx.model.pdfs.get(f.id("pdf") ?? "");
+      const offset = f.int("offset", 0);
+      if (!held) return absent(ctx, "a score");
+      held.pageOffset = offset;
+    },
+    replace_pdf(ctx, f) {
+      const held = ctx.model.pdfs.get(f.id("pdf") ?? "");
+      const next = { name: f.str("name"), blobId: f.id("blob"), pages: f.int("pages", 0) };
+      if (!held) return absent(ctx, "a score");
+      Object.assign(held, next);
+    },
+    remove_pdf(ctx, f) {
+      const id = f.id("pdf");
+      if (!id || !ctx.model.pdfs.delete(id)) return absent(ctx, "a score");
+      for (const [key, a] of ctx.model.annotations)
+        if (a.pdfId === id) ctx.model.annotations.delete(key);
+    },
+  },
 };
