@@ -62,6 +62,15 @@ const screens = [
   // 3.2 Home and navigation
   { name: "home", route: "/" },
   { name: "help-menu", route: "/", steps: [{ click: 'role=button[name="Help"]' }] },
+  {
+    name: "search-fields",
+    route: "/search",
+    steps: [
+      { click: "role=button[name=/^Fields/]" },
+      { fill: ['[aria-label="Duration, in minutes, at least"]', "1"] },
+      { click: 'role=button[name="Apply"]' },
+    ],
+  },
   { name: "shell-offline", route: "/", state: "offline" },
   {
     name: "palette",

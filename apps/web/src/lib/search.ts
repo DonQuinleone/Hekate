@@ -50,7 +50,110 @@ export function describeSearch(search: SearchRequest, names: (id: string) => str
     if (name) parts.push(name);
   }
   if (search.since) parts.push(sinceLabels[search.since].toLowerCase());
+  for (const chip of fieldChips(search)) parts.push(chip.label.toLowerCase());
   return parts.join(", ").slice(0, 60);
+}
+
+/* ---------- Advanced search by field (decision 263) ---------- */
+
+export type FieldKey =
+  | "durationMin"
+  | "durationMax"
+  | "sizeMin"
+  | "sizeMax"
+  | "frameRate"
+  | "commentText";
+
+const MB = 1_000_000;
+const GB = 1_000_000_000;
+
+/** A duration in seconds, as the page says it: "90 s", "2 min", "1 h 30 min". */
+export function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)} s`;
+  const minutes = Math.round(seconds / 6) / 10;
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rest = Math.round(minutes - hours * 60);
+  return rest ? `${hours} h ${rest} min` : `${hours} h`;
+}
+
+/** A size in bytes, as the page says it: "250 MB", "1.5 GB". */
+export function formatSize(bytes: number): string {
+  if (bytes >= GB) return `${Math.round((bytes / GB) * 10) / 10} GB`;
+  return `${Math.round((bytes / MB) * 10) / 10} MB`;
+}
+
+/** The fields set, each as a chip that clears what it says. */
+export function fieldChips(search: Partial<SearchRequest>): { keys: FieldKey[]; label: string }[] {
+  const chips: { keys: FieldKey[]; label: string }[] = [];
+  const { durationMin: dMin, durationMax: dMax, sizeMin: sMin, sizeMax: sMax } = search;
+  if (dMin && dMax)
+    chips.push({
+      keys: ["durationMin", "durationMax"],
+      label: `${formatDuration(dMin)} to ${formatDuration(dMax)}`,
+    });
+  else if (dMin)
+    chips.push({ keys: ["durationMin"], label: `Longer than ${formatDuration(dMin)}` });
+  else if (dMax)
+    chips.push({ keys: ["durationMax"], label: `Shorter than ${formatDuration(dMax)}` });
+  if (sMin && sMax)
+    chips.push({
+      keys: ["sizeMin", "sizeMax"],
+      label: `${formatSize(sMin)} to ${formatSize(sMax)}`,
+    });
+  else if (sMin) chips.push({ keys: ["sizeMin"], label: `Over ${formatSize(sMin)}` });
+  else if (sMax) chips.push({ keys: ["sizeMax"], label: `Under ${formatSize(sMax)}` });
+  if (search.frameRate) chips.push({ keys: ["frameRate"], label: `${search.frameRate} fps` });
+  if (search.commentText)
+    chips.push({ keys: ["commentText"], label: `Comments say “${search.commentText}”` });
+  return chips;
+}
+
+/** The fields as typed in the Fields form: minutes and megabytes, as text. */
+export interface FieldDraft {
+  durationMin: string;
+  durationMax: string;
+  sizeMin: string;
+  sizeMax: string;
+  frameRate: string;
+  commentText: string;
+}
+
+const shown = (value: number | undefined, unit: number) =>
+  value ? String(Math.round((value / unit) * 100) / 100) : "";
+
+/** The form's text for the fields a search has. */
+export function draftOf(search: Partial<SearchRequest>): FieldDraft {
+  return {
+    durationMin: shown(search.durationMin, 60),
+    durationMax: shown(search.durationMax, 60),
+    sizeMin: shown(search.sizeMin, MB),
+    sizeMax: shown(search.sizeMax, MB),
+    frameRate: search.frameRate ? String(search.frameRate) : "",
+    commentText: search.commentText ?? "",
+  };
+}
+
+const read = (text: string, unit: number) => {
+  const value = Number(text.trim().replace(",", "."));
+  return text.trim() && Number.isFinite(value) && value > 0 ? Math.round(value * unit) : undefined;
+};
+
+/**
+ * The fields a form's text stands for, in seconds and bytes; anything that does not read as a
+ * positive number is left out. A range typed the wrong way round is turned the right way.
+ */
+export function fieldsOf(draft: FieldDraft): Pick<SearchRequest, FieldKey> {
+  let durationMin = read(draft.durationMin, 60);
+  let durationMax = read(draft.durationMax, 60);
+  if (durationMin && durationMax && durationMin > durationMax)
+    [durationMin, durationMax] = [durationMax, durationMin];
+  let sizeMin = read(draft.sizeMin, MB);
+  let sizeMax = read(draft.sizeMax, MB);
+  if (sizeMin && sizeMax && sizeMin > sizeMax) [sizeMin, sizeMax] = [sizeMax, sizeMin];
+  const frameRate = Number(draft.frameRate) || undefined;
+  const commentText = draft.commentText.trim() || undefined;
+  return { durationMin, durationMax, sizeMin, sizeMax, frameRate, commentText };
 }
 
 /** Only what is set, so the address stays short and two equal searches read the same. */

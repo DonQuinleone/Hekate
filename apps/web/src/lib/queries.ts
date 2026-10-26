@@ -4302,7 +4302,9 @@ export const searchQuery = (search: SearchRequest) =>
     queryFn: async () => {
       const { q, ...filters } = search;
       // Only the filters that are set reach the address.
-      const query = Object.fromEntries(Object.entries({ q, ...filters }).filter(([, v]) => v));
+      const query = Object.fromEntries(
+        Object.entries({ q, ...filters }).flatMap(([k, v]) => (v ? [[k, String(v)]] : [])),
+      );
       // Read through the shared schema, so a change to the contract shows here at once.
       return searchResponse.parse(await json(await api.search.$get({ query }))).results;
     },

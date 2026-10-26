@@ -3971,3 +3971,14 @@ test("settings-log-filters", async ({ page }) => {
   await saveScreen(page, "settings-log-filtered");
   await checkScreen(page);
 });
+
+// Advanced search by field (#6, decision 263): a duration set, shown as a chip, and the Fields
+// control open with it filled in.
+test("search-fields", async ({ page }) => {
+  await page.goto("/search?durationMin=30&kind=files");
+  await settle(page, "main ul[aria-label='Fields'] >> text=Longer than 30 s");
+  await page.getByRole("button", { name: /^Fields/ }).click();
+  await settle(page, "role=dialog[name='Search by field']");
+  await saveScreen(page, "search-fields");
+  await checkScreen(page);
+});

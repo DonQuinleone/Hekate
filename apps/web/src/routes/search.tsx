@@ -4,6 +4,7 @@ import {
   type SearchRequest,
   type SearchResult,
   type SearchSince,
+  searchFrameRates,
   searchSince,
 } from "@hekate/shared";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -23,7 +24,9 @@ import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
+import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
+import { usePopover } from "~/components/ui/menu";
 import {
   membersQuery,
   projectsQuery,
@@ -36,6 +39,11 @@ import {
 import {
   compact,
   describeSearch,
+  draftOf,
+  type FieldDraft,
+  type FieldKey,
+  fieldChips,
+  fieldsOf,
   fromKindChoice,
   kindChoice,
   kindChoices,
@@ -191,6 +199,7 @@ export function SearchPage({ search }: { search: SearchRequest }) {
               ))}
             </Select>
           )}
+          <FieldsMenu search={search} onApply={(fields) => go(fields)} />
           {filtered && (
             <Button
               variant="ghost"
@@ -204,6 +213,7 @@ export function SearchPage({ search }: { search: SearchRequest }) {
                   personId: undefined,
                   tagId: undefined,
                   since: undefined,
+                  ...noFields,
                 })
               }
             >
@@ -223,6 +233,12 @@ export function SearchPage({ search }: { search: SearchRequest }) {
             </Button>
           )}
         </div>
+        {fieldChips(search).length > 0 && (
+          <FieldChips
+            search={search}
+            onClear={(keys) => go(Object.fromEntries(keys.map((k) => [k, undefined])))}
+          />
+        )}
         {!words && saved.length > 0 && (
           <Saved
             saved={saved}
@@ -236,7 +252,8 @@ export function SearchPage({ search }: { search: SearchRequest }) {
         {found.error && <p className="m-0 text-signal">{found.error.message}</p>}
         {!looking ? (
           <p className="m-0 text-[13px] text-ink-3">
-            Type to search what you may see, or narrow by kind, project, person and time.
+            Type to search what you may see, or narrow by kind, project, person, time and a file's
+            fields.
           </p>
         ) : found.isPending ? (
           <p className="m-0 text-[13px] text-ink-3">Searching</p>
@@ -261,6 +278,171 @@ export function SearchPage({ search }: { search: SearchRequest }) {
         />
       )}
     </>
+  );
+}
+
+const noFields: Pick<SearchRequest, FieldKey> = {
+  durationMin: undefined,
+  durationMax: undefined,
+  sizeMin: undefined,
+  sizeMax: undefined,
+  frameRate: undefined,
+  commentText: undefined,
+};
+
+/**
+ * Advanced search by field (decision 263): a file's duration and size as ranges, its frame
+ * rate, and what its comments say, filled in together and applied at once, so a half-typed
+ * number never searches.
+ */
+function FieldsMenu({
+  search,
+  onApply,
+}: {
+  search: SearchRequest;
+  onApply: (fields: Pick<SearchRequest, FieldKey>) => void;
+}) {
+  const [open, setOpen, box] = usePopover();
+  const [draft, setDraft] = useState<FieldDraft>(() => draftOf(search));
+  const count = fieldChips(search).length;
+  const edit = (key: keyof FieldDraft) => (e: { target: { value: string } }) =>
+    setDraft((d) => ({ ...d, [key]: e.target.value }));
+  const apply = (e: FormEvent) => {
+    e.preventDefault();
+    onApply(fieldsOf(draft));
+    setOpen(false);
+  };
+  return (
+    <div ref={box} className="relative col-span-2 @3xl/app:col-span-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => {
+          if (!open) setDraft(draftOf(search));
+          setOpen(!open);
+        }}
+        className={count ? "text-ink" : "text-ink-3"}
+      >
+        <Icon name="sliders" size={14} />
+        Fields
+        {count > 0 && (
+          <span className="tabular rounded-full bg-raised px-1.5 text-[11px] text-ink-2">
+            {count}
+          </span>
+        )}
+      </Button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Search by field"
+          data-e2e-overlap
+          className="rise-in absolute left-0 z-30 mt-1 w-80 max-w-[calc(100vw-32px)] rounded-panel-lg bg-overlay p-3 shadow-4 @3xl/app:right-0 @3xl/app:left-auto"
+        >
+          <form onSubmit={apply} className="flex flex-col gap-3">
+            <fieldset className="m-0 grid grid-cols-2 gap-2 border-0 p-0">
+              <legend className="mb-1.5 p-0 text-[13px] text-ink-2">Duration, in minutes</legend>
+              <Input
+                aria-label="Longer than, minutes"
+                placeholder="At least"
+                inputMode="decimal"
+                value={draft.durationMin}
+                onChange={edit("durationMin")}
+              />
+              <Input
+                aria-label="Shorter than, minutes"
+                placeholder="At most"
+                inputMode="decimal"
+                value={draft.durationMax}
+                onChange={edit("durationMax")}
+              />
+            </fieldset>
+            <fieldset className="m-0 grid grid-cols-2 gap-2 border-0 p-0">
+              <legend className="mb-1.5 p-0 text-[13px] text-ink-2">Size, in MB</legend>
+              <Input
+                aria-label="Larger than, MB"
+                placeholder="At least"
+                inputMode="decimal"
+                value={draft.sizeMin}
+                onChange={edit("sizeMin")}
+              />
+              <Input
+                aria-label="Smaller than, MB"
+                placeholder="At most"
+                inputMode="decimal"
+                value={draft.sizeMax}
+                onChange={edit("sizeMax")}
+              />
+            </fieldset>
+            <Field label="Frame rate">
+              <Select value={draft.frameRate} onChange={edit("frameRate")}>
+                <option value="">Any frame rate</option>
+                {searchFrameRates.map((rate) => (
+                  <option key={rate} value={String(rate)}>
+                    {rate} fps
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Comments say">
+              <Input
+                value={draft.commentText}
+                onChange={edit("commentText")}
+                maxLength={200}
+                placeholder="Words in a comment"
+              />
+            </Field>
+            <div className="flex justify-end gap-2 border-t border-line pt-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  onApply(noFields);
+                  setOpen(false);
+                }}
+              >
+                Clear fields
+              </Button>
+              <Button type="submit" variant="primary" size="sm">
+                Apply
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The fields in force, each removable, as the files page shows its filters. */
+function FieldChips({
+  search,
+  onClear,
+}: {
+  search: SearchRequest;
+  onClear: (keys: FieldKey[]) => void;
+}) {
+  return (
+    <ul aria-label="Fields" className="m-0 flex list-none flex-wrap items-center gap-1.5 p-0">
+      {fieldChips(search).map((chip) => (
+        <li
+          key={chip.keys.join()}
+          className="flex h-7 items-center gap-1.5 rounded-full border border-line bg-raised/40 pr-1 pl-2.5 text-[12px] text-ink-2"
+        >
+          <span className="max-w-64 truncate">{chip.label}</span>
+          <button
+            type="button"
+            aria-label={`Remove ${chip.label}`}
+            onClick={() => onClear(chip.keys)}
+            className="flex size-6 items-center justify-center rounded-full text-ink-3 hover:bg-raised hover:text-ink"
+          >
+            <Icon name="close" size={11} />
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
