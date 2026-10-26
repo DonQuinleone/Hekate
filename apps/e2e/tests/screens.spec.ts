@@ -2551,6 +2551,79 @@ test("file-qa-atmos", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The metadata editor open on a recording's QA view (decision 260), for someone who turned it
+// on (Appearance) and may organise the project's files. The file's answers are amended in this
+// page alone, to a Broadcast Wave file with one field already corrected; nothing is saved.
+test("file-qa-metadata-editor", async ({ page }) => {
+  const id = seeded().dryFileId;
+  await page.route("**/api/me", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { user: { preferences: Record<string, unknown> } };
+    body.user.preferences = { ...body.user.preferences, showMetadataEditor: true };
+    await route.fulfill({ response, json: body });
+  });
+  await page.route(`**/api/files/${id}`, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      file: { mediaInfo: { format?: string; metadata: Record<string, unknown> } };
+    };
+    body.file.mediaInfo.format = "wav";
+    body.file.mediaInfo.metadata = {
+      bext: {
+        description: "Maple Leaf Rag, V2 dry, Endless Hall",
+        originator: "Endless Hall Records",
+        originationDate: "2026-10-14",
+        originationTime: "09:58:00",
+        timeReference: 10 * 3600 * 48_000,
+        codingHistory: "A=PCM,F=48000,W=24,M=stereo",
+      },
+      ixml: { bytes: 1200, scene: "12", take: "3", timecodeRate: "25/1" },
+      tags: { title: "Maple Leaf Rag", artist: "Endless Hall Records" },
+      adm: null,
+    };
+    await route.fulfill({ response, json: body });
+  });
+  await page.route(`**/api/files/${id}/metadata`, (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({
+          json: {
+            format: "wave",
+            fields: [
+              "description",
+              "originator",
+              "originatorReference",
+              "originationDate",
+              "originationTime",
+              "timeReference",
+              "project",
+              "scene",
+              "take",
+              "tape",
+              "note",
+              "title",
+              "artist",
+              "album",
+              "genre",
+              "date",
+              "isrc",
+              "copyright",
+            ],
+            corrections: { originator: { value: "Endless Hall Records", read: "Endless Hal" } },
+            editable: true,
+          },
+        })
+      : route.fallback(),
+  );
+  await page.goto(`/files/${id}?view=qa`);
+  const panel = page.locator("section[aria-label='Embedded metadata']");
+  await settle(page, "section[aria-label='Embedded metadata'] >> text=Corrected");
+  await panel.getByRole("button", { name: "Edit" }).click();
+  await expect(panel.getByRole("form", { name: "Edit embedded metadata" })).toBeVisible();
+  await panel.scrollIntoViewIfNeeded();
+  await saveScreen(page, "file-qa-metadata-editor");
+  await checkScreen(page);
+});
+
 // A video's picture checks (#42), on its QA view and marked along its timeline. The seeded cut
 // is a clean test pattern, so the report is amended in this page alone to show a few problems.
 test("file-qa-video", async ({ page }) => {
