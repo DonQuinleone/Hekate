@@ -483,12 +483,6 @@ const screens: Screen[] = [
     path: () => "/instance/debug",
     ready: "main >> text=HK-7F3A-2C",
   },
-  // An error report open (decision 252): its file to inspect, and Mark as known.
-  {
-    name: "instance-debug-report",
-    path: () => "/instance/debug?reference=HK-7F3A-2C",
-    ready: "main >> text=Mark as known",
-  },
   // The queues (decision 250) and Operations (decision 251).
   {
     name: "instance-queues",
@@ -956,7 +950,8 @@ test("file-qa-report", async ({ page }) => {
 // An exception to the player tools (decision 258): for one person, guest or group of the project.
 test("project-settings-exception", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/settings?section=roles`);
-  await settle(page, "main >> text=Soloists");
+  // The seeded group's exception has loaded (on a phone its column waits behind the chooser).
+  await settle(page, "main >> text=tools replace the role");
   await page.getByRole("button", { name: "Add an exception" }).click();
   await settle(page, "[role=dialog] >> text=Tools");
   await saveScreen(page, "project-settings-exception");
@@ -1894,13 +1889,15 @@ test("invite-someone-else", async ({ page }) => {
   await checkScreen(page);
 });
 
-// Debug tools (#159): the story behind a reference, opened from what failed today.
+// Debug tools (#159): the story behind a reference, opened from what failed today, with its
+// file to inspect and Mark as known (decision 252).
 test("instance-debug-report", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/instance/debug");
   await settle(page, "main >> text=HK-7F3A-2C");
   await page.getByRole("button", { name: "Open HK-7F3A-2C" }).click();
   await settle(page, "main >> text=Copy the report");
+  await settle(page, "main >> text=Mark as known");
   await saveScreen(page, "instance-debug-report");
   await checkScreen(page);
 });
