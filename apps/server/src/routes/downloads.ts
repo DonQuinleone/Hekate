@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   allowsDownload,
+  assetPolicyOf,
   DOWNLOAD_LINK_SECONDS,
   type DownloadKind,
   type DownloadLevel,
@@ -622,9 +623,19 @@ function markedVideo(
   });
 }
 
-/** Whether a file's downloads carry an inaudible mark now: a recording, where the workspace marks them. */
-const marksFile = async (deps: DownloadDeps, organisationId: string, file: FileRow) =>
-  file.kind === "audio" && (await marksAudio(deps.db, organisationId, deps.billing ?? false));
+/**
+ * Whether a file's downloads carry an inaudible mark now: a recording, where the workspace
+ * marks them and its project has not stopped it (decision 257).
+ */
+async function marksFile(deps: DownloadDeps, organisationId: string, file: FileRow) {
+  if (file.kind !== "audio") return false;
+  const [project] = await deps.db
+    .select({ assetPolicy: projects.assetPolicy })
+    .from(projects)
+    .where(inOrg(projects, organisationId, eq(projects.id, file.projectId)));
+  if (!assetPolicyOf(project?.assetPolicy).forensicDownloads) return false;
+  return marksAudio(deps.db, organisationId, deps.billing ?? false);
+}
 
 /**
  * A recording with an inaudible mark for its recipient (#32): made from the original, the

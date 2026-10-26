@@ -3,6 +3,7 @@ import {
   type AlignmentPoints,
   type Anchor,
   type ApprovalRule,
+  type AssetPolicy,
   analysisKey,
   type BillingCredit,
   type BillingGatewayStatus,
@@ -89,6 +90,7 @@ import {
   type NotificationPreferences,
   narrowed,
   type OperatorRow,
+  type OrganisationRole,
   type OverviewSection,
   type PatchedChannel,
   type PatchRowChange,
@@ -165,6 +167,7 @@ import {
   type TaskDetail,
   type TaskInput,
   type TaskSummary,
+  type ToolException,
   type TraceResult,
   type TrackState,
   type TransferConfirmation,
@@ -185,6 +188,7 @@ import {
   type Work,
   type WorkflowChange,
   type WorkflowInput,
+  type WorkflowNotices,
   type WorkflowRunInspection,
   type WorkflowStanding,
   type WorkflowStatus,
@@ -463,6 +467,12 @@ export interface Project {
   normalisation?: NormalisationMode;
   /** The visible watermark: whom it marks, where and how strongly (#31). */
   watermark?: WatermarkSettings;
+  /** Downloads and deletion, and whether downloads are marked (decision 257). */
+  assetPolicy?: AssetPolicy;
+  /** For whoever edits it: whether the workspace marks recordings' downloads (decision 239). */
+  workspaceMarks?: boolean;
+  /** Who its workflows tell, and how (decision 259). */
+  workflowNotices?: WorkflowNotices;
   /** A deletion waiting for a second owner (#240); only on a single project. */
   deletion?: ProjectDeletion | null;
   /** In the list: whether they are a member of it. */
@@ -526,6 +536,8 @@ export interface ProjectMember {
   name: string;
   email: string;
   roleId: string;
+  /** Their role in the workspace: an owner or admin keeps every tool, whatever the project says. */
+  workspaceRole: OrganisationRole | null;
 }
 
 export const projectRolesQuery = (projectId: string) =>
@@ -630,6 +642,76 @@ export function useProjectAccessMutations(projectId: string) {
             param: { id: projectId, userId },
           }),
         ),
+      onSuccess: refresh,
+    }),
+  };
+}
+
+/** A project's exceptions to the player tools (decision 258). */
+export const projectToolExceptionsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "tool-exceptions"],
+    queryFn: async () =>
+      (
+        await json<{ exceptions: ToolException[] }>(
+          await api.projects[":id"]["tool-exceptions"].$get({ param: { id: projectId } }),
+        )
+      ).exceptions,
+  });
+
+export function useToolExceptionMutations(projectId: string) {
+  const client = useQueryClient();
+  const key = projectToolExceptionsQuery(projectId).queryKey;
+  // An exception changes what its people see on the recording page, so refresh the project.
+  const refresh = () => client.invalidateQueries({ queryKey: ["projects", projectId] });
+  return {
+    create: useMutation({
+      mutationFn: async (input: {
+        userId?: string;
+        guestId?: string;
+        groupId?: string;
+        tools: PlayerTool[];
+      }) =>
+        (
+          await json<{ exception: ToolException }>(
+            await api.projects[":id"]["tool-exceptions"].$post({
+              param: { id: projectId },
+              json: input,
+            }),
+          )
+        ).exception,
+      onSuccess: refresh,
+    }),
+    update: useMutation({
+      // One at a time, in order, as a role's changes are.
+      scope: { id: `tool-exceptions-${projectId}` },
+      mutationFn: async (input: { id: string; tools: PlayerTool[] }) =>
+        (
+          await json<{ exception: ToolException }>(
+            await api.projects[":id"]["tool-exceptions"][":exceptionId"].$patch({
+              param: { id: projectId, exceptionId: input.id },
+              json: { tools: input.tools },
+            }),
+          )
+        ).exception,
+      onMutate: async (input) => {
+        await client.cancelQueries({ queryKey: key });
+        const before = client.getQueryData(key);
+        client.setQueryData(key, (list) =>
+          list?.map((e) => (e.id === input.id ? { ...e, tools: input.tools } : e)),
+        );
+        return { before };
+      },
+      onError: (_error, _input, context) => client.setQueryData(key, context?.before),
+      onSettled: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.projects[":id"]["tool-exceptions"][":exceptionId"].$delete({
+          param: { id: projectId, exceptionId: id },
+        });
+        if (!res.ok) await json(res);
+      },
       onSuccess: refresh,
     }),
   };

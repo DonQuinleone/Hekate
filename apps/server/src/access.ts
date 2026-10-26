@@ -1,12 +1,19 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  type AssetPolicy,
+  assetPolicyOf,
+  cappedDownload,
+  type DownloadLevel,
+  exceptedTools,
   lookingPermissions,
   mergeGrants,
+  narrowedByPolicy,
   type OrganisationRole,
   type PlayerTool,
   type ProjectPermission,
   permissionsFor,
   type ReviewerPermissions,
+  type ReviewerTool,
   readGrant,
   toolsFor,
   withinWindow,
@@ -23,6 +30,8 @@ const {
   projectMembers,
   projectRoles,
   files,
+  groupMembers,
+  projectToolExceptions,
   reviews,
   reviewItems,
   reviewReviewers,
@@ -119,6 +128,7 @@ export async function guestReach(
   const rows = await db
     .select({
       reviewId: reviews.id,
+      projectId: reviews.projectId,
       itemId: reviewItems.id,
       permissions: reviewReviewers.permissions,
       fileId: reviewItems.fileId,
@@ -137,9 +147,11 @@ export async function guestReach(
     )
     .where(inOrg(reviewItems, guest.organisationId, eq(reviews.status, "open")))
     .orderBy(desc(reviews.createdAt), desc(reviews.id));
-  // Within their window, and among the items their review shows them (#55).
+  // Within their window, and among the items their review shows them (#55); with what their
+  // review gives them narrowed by each project's downloads and tool exceptions (decisions 257, 258).
+  const narrowing = await guestNarrowing(db, guest, [...new Set(rows.map((r) => r.projectId))]);
   const items = rows
-    .map((r) => ({ ...r, permissions: readGrant(r.permissions) }))
+    .map((r) => ({ ...r, permissions: narrowing(r.projectId, readGrant(r.permissions)) }))
     .filter(
       (r) =>
         withinWindow(r.permissions, now) &&
@@ -212,6 +224,109 @@ export async function guestReach(
   // their own, no download, and none of the take's own comments.
   for (const [fileId, item] of await sharedTakeReach(db, guest, ids)) add(fileId, item);
   return ids;
+}
+
+/**
+ * How each project narrows what a guest's reviews give them: no download beyond what its
+ * policy allows (decision 257), and no tool its exceptions for them, or their groups, leave out
+ * (decision 258). An exception never gives a guest a tool their review does not.
+ */
+async function guestNarrowing(
+  db: Pick<Database, "select">,
+  guest: GuestActor,
+  projectIds: string[],
+) {
+  const org = guest.organisationId;
+  const [policies, exceptions] =
+    projectIds.length === 0
+      ? [[], []]
+      : await Promise.all([
+          db
+            .select({ id: projects.id, assetPolicy: projects.assetPolicy })
+            .from(projects)
+            .where(inOrg(projects, org, inArray(projects.id, projectIds))),
+          db
+            .select({
+              projectId: projectToolExceptions.projectId,
+              guestId: projectToolExceptions.guestId,
+              tools: projectToolExceptions.tools,
+            })
+            .from(projectToolExceptions)
+            .where(
+              inOrg(
+                projectToolExceptions,
+                org,
+                inArray(projectToolExceptions.projectId, projectIds),
+                or(
+                  eq(projectToolExceptions.guestId, guest.guestId),
+                  inArray(
+                    projectToolExceptions.groupId,
+                    db
+                      .select({ id: groupMembers.groupId })
+                      .from(groupMembers)
+                      .where(inOrg(groupMembers, org, eq(groupMembers.guestId, guest.guestId))),
+                  ),
+                ),
+              ),
+            ),
+        ]);
+  const policyOf = new Map(policies.map((p) => [p.id, assetPolicyOf(p.assetPolicy)]));
+  return <G extends { tools: ReviewerTool[]; download: DownloadLevel }>(
+    projectId: string,
+    grant: G,
+  ): G => {
+    const policy = policyOf.get(projectId) ?? assetPolicyOf(null);
+    const here = exceptions.filter((e) => e.projectId === projectId);
+    const own = here.find((e) => e.guestId !== null)?.tools ?? null;
+    const groups = here.filter((e) => e.guestId === null).map((e) => e.tools);
+    const allowed = exceptedTools(new Set(grant.tools), own, groups, true);
+    return {
+      ...grant,
+      tools: grant.tools.filter((t) => allowed.has(t)),
+      download: cappedDownload(grant.download, policy),
+    };
+  };
+}
+
+/**
+ * The tools a member has in a project once its exceptions apply (decision 258): their own
+ * exception, else their groups', else their role's. Owners and admins keep every tool.
+ */
+async function memberTools(
+  db: Pick<Database, "select">,
+  actor: MemberActor,
+  projectId: string,
+  base: Set<PlayerTool>,
+): Promise<Set<PlayerTool>> {
+  if (actor.organisationRole === "owner" || actor.organisationRole === "admin") return base;
+  const org = actor.organisationId;
+  const found = await db
+    .select({ userId: projectToolExceptions.userId, tools: projectToolExceptions.tools })
+    .from(projectToolExceptions)
+    .where(
+      inOrg(
+        projectToolExceptions,
+        org,
+        eq(projectToolExceptions.projectId, projectId),
+        or(
+          eq(projectToolExceptions.userId, actor.userId),
+          inArray(
+            projectToolExceptions.groupId,
+            db
+              .select({ id: groupMembers.groupId })
+              .from(groupMembers)
+              .where(inOrg(groupMembers, org, eq(groupMembers.userId, actor.userId))),
+          ),
+        ),
+      ),
+    );
+  if (found.length === 0) return base;
+  const own = found.find((e) => e.userId !== null)?.tools ?? null;
+  return exceptedTools(
+    base,
+    own,
+    found.filter((e) => e.userId === null).map((e) => e.tools),
+  );
 }
 
 /**
@@ -311,8 +426,10 @@ export async function projectAccess(
   permissions: Set<ProjectPermission>;
   /** What their role grants, archived or not: what unarchiving it is decided by. */
   granted: Set<ProjectPermission>;
-  /** The player tools their role has on (#240). */
+  /** The player tools their role has on (#240), or an exception gives them (decision 258). */
   tools: Set<PlayerTool>;
+  /** The project's downloads and deletion (decision 257). */
+  assetPolicy: AssetPolicy;
   archived: boolean;
 } | null> {
   // Guests see no projects; they reach files only through their reviews.
@@ -321,6 +438,7 @@ export async function projectAccess(
     .select({
       id: projects.id,
       archivedAt: projects.archivedAt,
+      assetPolicy: projects.assetPolicy,
       permissions: projectRoles.permissions,
       tools: projectRoles.tools,
     })
@@ -342,7 +460,14 @@ export async function projectAccess(
     )
     .where(inOrg(projects, actor.organisationId, eq(projects.id, projectId)));
   if (!row) return null;
-  const granted = permissionsFor(actor.organisationRole, row.permissions);
+  const assetPolicy = assetPolicyOf(row.assetPolicy);
+  // What the role grants, less what the project's downloads and deletion leave to nobody, or
+  // to the workspace's owners and admins (decision 257).
+  const granted = narrowedByPolicy(
+    permissionsFor(actor.organisationRole, row.permissions),
+    assetPolicy,
+    actor.organisationRole,
+  );
   if (!granted.has("view")) return null;
   // An archived project is read-only for everyone until it is unarchived.
   const archived = row.archivedAt !== null;
@@ -353,7 +478,8 @@ export async function projectAccess(
     projectId: row.id,
     permissions,
     granted,
-    tools: toolsFor(actor.organisationRole, row.tools),
+    tools: await memberTools(db, actor, row.id, toolsFor(actor.organisationRole, row.tools)),
+    assetPolicy,
     archived,
   };
 }

@@ -1,14 +1,26 @@
 import {
+  type AssetPolicy,
   capital,
   customRef,
+  type DeletionPolicy,
+  type DownloadPolicy,
+  defaultAssetPolicy,
   defaultReferences,
   defaultWatermark,
+  defaultWorkflowNotices,
+  deletionPolicies,
+  deletionPolicyWords,
+  downloadPolicies,
+  downloadPolicyWords,
   formatBytes,
   handlingWords,
   itemWords,
   type NormalisationMode,
   normalisationModes,
   normalisationWords,
+  type OriginalPolicy,
+  originalPolicies,
+  originalPolicyWords,
   type ProfileRef,
   type ProjectPermission,
   type ProjectProfile,
@@ -19,6 +31,7 @@ import {
   type WatermarkPosition,
   type WatermarkScope,
   type WatermarkSettings,
+  type WorkflowNotices,
   type WorkflowSummary,
   watermarkPositions,
   watermarkPositionWords,
@@ -100,14 +113,14 @@ const sections = [
     id: "workflow",
     label: "Workflow",
     group: "Project",
-    intro: "What a new version must pass before it lands.",
+    intro: "Its workflows, who they tell, and what a new version must pass before it lands.",
   },
   {
     id: "security",
     label: "Asset security",
     group: "Protection",
     intro:
-      "How what people see carries their name, so a capture says whose it was. Downloads are always marked for the person who asked.",
+      "How what people see carries their name, so a capture says whose it was, and who may take files away or delete them. Downloads are always marked for the person who asked.",
   },
   {
     id: "storage",
@@ -632,7 +645,8 @@ function ProjectStorageSection({ project }: { project: Project }) {
 
 /**
  * The visible watermark (#31): whom it marks, where and how strongly, with a preview in the
- * viewer's own name. Burned into pages and pictures, laid over video.
+ * viewer's own name. Burned into pages and pictures, laid over video. Then the inaudible mark
+ * in recordings' downloads, and who may download and delete (decision 257).
  */
 function AssetSecurity({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
@@ -715,6 +729,110 @@ function AssetSecurity({ project }: { project: Project }) {
             </div>
           </Row>
         )}
+      </Section>
+      <Downloads project={project} />
+      {update.error && <p className="-mt-6 text-[13px] text-signal">{update.error.message}</p>}
+    </>
+  );
+}
+
+/**
+ * Forensic marking and downloads and deletion (decision 257). Each narrows what the roles and
+ * reviews allow; the server applies it wherever they are checked.
+ */
+function Downloads({ project }: { project: Project }) {
+  const can = useProjectCan(project.id);
+  const update = useUpdateProject(project.id);
+  const { data: me } = useQuery(meQuery);
+  const owner = me?.organisations.find((o) => o.id === me.activeOrganisationId)?.role === "owner";
+  const policy = project.assetPolicy ?? defaultAssetPolicy;
+  // One change at a time: each sends the whole policy, so a second waits for the first.
+  const edit = can("edit_project") && !update.isPending;
+  const change = (next: Partial<AssetPolicy>) =>
+    update.mutate({ assetPolicy: { ...policy, ...next } });
+  const workspaceMarks = project.workspaceMarks ?? false;
+  const marking = workspaceMarks && policy.forensicDownloads;
+  return (
+    <>
+      <Section
+        title="Forensic marking"
+        intro="An inaudible mark made for each recipient in a recording's download, so a leak can be traced to the person who received it."
+      >
+        <SwitchRow
+          name="Downloads"
+          hint={
+            !workspaceMarks
+              ? "Off for the workspace: its owners turn it on under Leak tracing."
+              : !marking
+                ? "This project's recordings download as they were uploaded, unmarked."
+                : owner
+                  ? "Each recording's download carries a mark made for whoever asked."
+                  : "Only the workspace's owners can stop marking a project's downloads."
+          }
+          checked={marking}
+          disabled={!edit || !workspaceMarks || (marking && !owner)}
+          onChange={(forensicDownloads) => change({ forensicDownloads })}
+        />
+      </Section>
+      <Section
+        title="Downloads and deletion"
+        intro="Each narrows what the roles and reviews allow. A download is still made for the person who asked, marked and logged."
+      >
+        <Row name="Who may download">
+          <Select
+            value={policy.downloads}
+            aria-label="Who may download"
+            disabled={!edit}
+            onChange={(e) => change({ downloads: e.target.value as DownloadPolicy })}
+            className="w-full @3xl/app:w-64"
+          >
+            {downloadPolicies.map((p) => (
+              <option key={p} value={p}>
+                {downloadPolicyWords[p]}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row
+          name="Originals"
+          hint="A download gives the proxy unless the person may have the original."
+        >
+          <Select
+            value={policy.originals}
+            aria-label="Originals"
+            disabled={!edit || policy.downloads === "nobody"}
+            onChange={(e) => change({ originals: e.target.value as OriginalPolicy })}
+            className="w-full @3xl/app:w-64"
+          >
+            {originalPolicies.map((p) => (
+              <option key={p} value={p}>
+                {originalPolicyWords[p]}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row name="Who may delete">
+          <Select
+            value={policy.deletion}
+            aria-label="Who may delete"
+            disabled={!edit}
+            onChange={(e) => change({ deletion: e.target.value as DeletionPolicy })}
+            className="w-full @3xl/app:w-64"
+          >
+            {deletionPolicies.map((p) => (
+              <option key={p} value={p}>
+                {deletionPolicyWords[p]}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <SwitchRow
+          name="Files in a review cannot be deleted"
+          hint="Open or closed, so what reviewers were asked about stays on the record."
+          checked={policy.keepReviewed}
+          disabled={!edit}
+          onChange={(keepReviewed) => change({ keepReviewed })}
+        />
       </Section>
       {update.error && <p className="-mt-6 text-[13px] text-signal">{update.error.message}</p>}
     </>
@@ -977,6 +1095,11 @@ function Workflow({ project }: { project: Project }) {
   const update = useUpdateProject(project.id);
   const edit = can("edit_workflows");
   const { effective } = useProjectProfile(project);
+  const notices = project.workflowNotices ?? defaultWorkflowNotices;
+  // Each sends all three, so a change waits for the one before it.
+  const notify = (next: Partial<WorkflowNotices>) => {
+    if (!update.isPending) update.mutate({ workflowNotices: { ...notices, ...next } });
+  };
   // Those who may open the builder (decision on #26): who edits workflows, or runs the roles.
   const mayBuild = edit || (can("manage_roles") && can("view_workflows"));
   const { data: workflows } = useQuery({
@@ -1017,6 +1140,27 @@ function Workflow({ project }: { project: Project }) {
           ))}
         </Section>
       )}
+      <Section title="Notifications" intro="Who is told when a stage or status is entered.">
+        <SwitchRow
+          name="Participants, in the app"
+          hint="Whoever a stage names, and the track's followers on a new status."
+          checked={notices.app}
+          disabled={!edit}
+          onChange={(app) => notify({ app })}
+        />
+        <SwitchRow
+          name="Participants, by mail"
+          checked={notices.mail}
+          disabled={!edit}
+          onChange={(mail) => notify({ mail })}
+        />
+        <SwitchRow
+          name="Everyone in the project, on a status change"
+          checked={notices.everyoneOnStatus}
+          disabled={!edit}
+          onChange={(everyoneOnStatus) => notify({ everyoneOnStatus })}
+        />
+      </Section>
       <Section
         title="Checks on a new version"
         intro="A version that fails is refused, saying why; whoever edits the workflow can let it through, on the record."

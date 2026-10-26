@@ -1257,6 +1257,67 @@
                       "position",
                       "opacity"
                     ]
+                  },
+                  "assetPolicy": {
+                    "type": "object",
+                    "properties": {
+                      "downloads": {
+                        "type": "string",
+                        "enum": [
+                          "roles",
+                          "nobody"
+                        ]
+                      },
+                      "originals": {
+                        "type": "string",
+                        "enum": [
+                          "roles",
+                          "owners",
+                          "never"
+                        ]
+                      },
+                      "deletion": {
+                        "type": "string",
+                        "enum": [
+                          "roles",
+                          "owners"
+                        ]
+                      },
+                      "keepReviewed": {
+                        "type": "boolean"
+                      },
+                      "forensicDownloads": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "downloads",
+                      "originals",
+                      "deletion",
+                      "keepReviewed",
+                      "forensicDownloads"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "workflowNotices": {
+                    "type": "object",
+                    "properties": {
+                      "app": {
+                        "type": "boolean"
+                      },
+                      "mail": {
+                        "type": "boolean"
+                      },
+                      "everyoneOnStatus": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "app",
+                      "mail",
+                      "everyoneOnStatus"
+                    ],
+                    "additionalProperties": false
                   }
                 }
               },
@@ -14859,7 +14920,7 @@
           "Files"
         ],
         "summary": "Delete a file",
-        "description": "A file that is part of a track's version, or under review, stays: removing it would change what reviewers were asked about.\n\nNeeds the `files:write` scope.",
+        "description": "A file that is part of a track's version stays, and so does one under review unless the project lets reviewed files go: removing it would change what reviewers were asked about.\n\nNeeds the `files:write` scope.",
         "security": [
           {
             "token": [

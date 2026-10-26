@@ -15,6 +15,7 @@ import {
   type WorkflowDefinition,
   type WorkflowEffect,
   type WorkflowRun,
+  workflowNoticesOf,
 } from "@hekate/shared";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
@@ -33,6 +34,7 @@ const {
   fileTags,
   files,
   folders,
+  projects,
   projectMembers,
   projectRoles,
   tags,
@@ -218,7 +220,20 @@ async function apply(
   // A task stage ended done by hand: its open task is done too, so the list agrees.
   if (from.nodeId && from.outcome === "done" && node(from.nodeId)?.type === "task")
     await closeStageTasks(tx, organisationId, row.id, from.nodeId, from.byUserId);
-  const tell = async (recipients: string[], text: string, detail?: string) => {
+  // Who the project's workflows tell, and how (decision 259).
+  const [project] = await tx
+    .select({ workflowNotices: projects.workflowNotices })
+    .from(projects)
+    .where(inOrg(projects, organisationId, eq(projects.id, projectId)));
+  const notices = workflowNoticesOf(project?.workflowNotices);
+  // What a stage or a status tells reaches people in the app and by mail as the project
+  // allows; a stage that could not do its work tells the run's starter whatever it allows.
+  const send = async (
+    recipients: string[],
+    text: string,
+    detail: string | undefined,
+    allowed: { app: boolean; mail: boolean } | undefined,
+  ) => {
     if (recipients.length === 0) return;
     await recordNotification(tx, {
       organisationId,
@@ -230,8 +245,13 @@ async function apply(
       text,
       detail: detail || null,
       link: `/tracks/${trackId}`,
+      channels: allowed,
     });
   };
+  const tell = (recipients: string[], text: string, detail?: string) =>
+    send(recipients, text, detail, { app: notices.app, mail: notices.mail });
+  const warn = (recipients: string[], text: string, detail?: string) =>
+    send(recipients, text, detail, undefined);
   for (const effect of moved.effects) {
     // Every stage that starts, whatever it does, is an event for the workspace's channels.
     if (effect.kind === "start")
@@ -250,12 +270,17 @@ async function apply(
         .update(tracks)
         .set({ workflowStatus: status, updatedAt: new Date() })
         .where(inOrg(tracks, organisationId, eq(tracks.id, trackId)));
-      // Those who follow the track hear of its new status (#110), but not whoever moved it.
+      // Those who follow the track hear of its new status (#110), or everyone in the project
+      // where it says so (decision 259), but not whoever moved it.
       if (status && !(held && sameStatus(held, status))) {
-        const followers = (await followersOf(tx, organisationId, { trackId })).filter(
-          (id) => id !== from.byUserId,
+        const followers = await followersOf(tx, organisationId, { trackId });
+        const everyone = notices.everyoneOnStatus
+          ? (await projectPeople(tx, organisationId, projectId)).map((p) => p.id)
+          : [];
+        await tell(
+          [...new Set([...followers, ...everyone])].filter((id) => id !== from.byUserId),
+          `${track?.name ?? "A track"} is now ${status}`,
         );
-        await tell(followers, `${track?.name ?? "A track"} is now ${status}`);
       }
       held = status;
     } else if (effect.kind === "do" && effect.type === "notify") {
@@ -308,7 +333,7 @@ async function apply(
         // A folder that is not there is told, and the run carries on; anything else (the
         // database failing) fails the step, as the transaction can no longer go on.
         if (!(failure instanceof MoveRefused)) throw failure;
-        await tell(
+        await warn(
           row.startedBy ? [row.startedBy] : [],
           `${node(effect.nodeId)?.name ?? "A stage"} could not move ${track?.name ?? "the track"}`,
           failure.message,

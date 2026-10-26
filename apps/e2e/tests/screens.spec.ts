@@ -275,12 +275,12 @@ const screens: Screen[] = [
   {
     name: "project-settings-security",
     path: (s) => `/projects/${s.musicProjectId}/settings?section=security`,
-    ready: "main >> text=Visible watermark",
+    ready: "main >> text=Files in a review cannot be deleted",
   },
   {
     name: "project-settings-workflow",
     path: (s) => `/projects/${s.musicProjectId}/settings?section=workflow`,
-    ready: "main >> text=Checks on a new version",
+    ready: "main >> text=Everyone in the project, on a status change",
   },
   // The project's workflows (#26), opened from its settings: drawn on the canvas, and each as a
   // list of steps.
@@ -950,6 +950,16 @@ test("file-qa-report", async ({ page }) => {
   await page.getByRole("button", { name: "QA report" }).click();
   await settle(page, "[role=dialog] button:has-text('Download PDF')");
   await saveScreen(page, "file-qa-report");
+  await checkScreen(page);
+});
+
+// An exception to the player tools (decision 258): for one person, guest or group of the project.
+test("project-settings-exception", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/settings?section=roles`);
+  await settle(page, "main >> text=Soloists");
+  await page.getByRole("button", { name: "Add an exception" }).click();
+  await settle(page, "[role=dialog] >> text=Tools");
+  await saveScreen(page, "project-settings-exception");
   await checkScreen(page);
 });
 

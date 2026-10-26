@@ -1,5 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  assetPolicyOf,
   canMoveFolder,
   createFolderInput,
   deliveryProfileChoice,
@@ -291,8 +292,9 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
       });
       return c.body(null, 204);
     })
-    // A file that is part of a track's version, or under review, stays: removing it would
-    // change what reviewers were asked about. Its stored bytes go at the next reconciliation.
+    // A file that is part of a track's version stays, and so does one under review where the
+    // project keeps them (decision 027, the default; decision 257): removing it would change what
+    // reviewers were asked about. Its stored bytes go at the next reconciliation.
     .delete("/:id", idParam, async (c) => {
       const actor = memberOnly(c.var.actor);
       const id = c.req.valid("param").id;
@@ -301,6 +303,11 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
       await db.transaction(async (tx) => {
         // Under the project lock, as a file's versions are linked (#149).
         await lockProject(tx, actor.organisationId, projectId);
+        const [project] = await tx
+          .select({ assetPolicy: projects.assetPolicy })
+          .from(projects)
+          .where(inOrg(projects, actor.organisationId, eq(projects.id, projectId)));
+        const { keepReviewed } = assetPolicyOf(project?.assetPolicy);
         const [file] = await tx
           .select({ id: files.id, name: files.name, previousFileId: files.previousFileId })
           .from(files)
@@ -327,8 +334,8 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
             message: `This file is in version ${variation.version} of ${variation.track}`,
           });
         }
-        const [reviewed] = await tx
-          .select({ title: reviews.title })
+        const reviewedIn = await tx
+          .select({ id: reviews.id, title: reviews.title })
           .from(reviewItems)
           .innerJoin(reviews, eq(reviews.id, reviewItems.reviewId))
           .where(
@@ -337,7 +344,8 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
               eq(reviews.organisationId, actor.organisationId),
             ),
           );
-        if (reviewed) {
+        const [reviewed] = reviewedIn;
+        if (reviewed && keepReviewed) {
           throw new HTTPException(409, {
             message: `This file is part of the review "${reviewed.title}"`,
           });
@@ -356,7 +364,16 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
         await audit.record(
           actor.organisationId,
           who,
-          { action: "file.delete", projectId, details: { fileId: id, name: file.name } },
+          {
+            action: "file.delete",
+            projectId,
+            details: {
+              fileId: id,
+              name: file.name,
+              // The reviews it leaves, where the project lets a reviewed file go.
+              ...(reviewedIn.length > 0 ? { reviews: reviewedIn.map((r) => r.id) } : {}),
+            },
+          },
           requestInfo(c, trustProxy),
           tx,
         );

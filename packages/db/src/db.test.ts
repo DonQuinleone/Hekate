@@ -83,6 +83,7 @@ describe("tenancy", () => {
       "project_reviewer_grants",
       "project_roles",
       "project_templates",
+      "project_tool_exceptions",
       "projects",
       "qa_findings",
       "rendition_segments",

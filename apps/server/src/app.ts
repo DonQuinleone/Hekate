@@ -617,7 +617,15 @@ export function createApi(given: AppDeps) {
       .route("/home", homeRoutes(deps.db))
       .use("/projects/*", ...member)
       .use("/projects", ...member)
-      .route("/projects", projectRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
+      .route(
+        "/projects",
+        projectRoutes(
+          deps.db,
+          deps.audit,
+          deps.trustProxy ?? false,
+          (deps.modules?.billing ?? "off") !== "off",
+        ),
+      )
       .route("/projects", projectDeletionRoutes(reviewDeps))
       .route("/projects", projectStorageRoutes({ db: deps.db, storage: deps.storage }))
       .route("/projects", projectScoreDownloadRoutes(downloads))

@@ -3,6 +3,7 @@ import {
   type Anchor,
   type ApiScope,
   type ApiTokenKind,
+  type AssetPolicy,
   approvalRules,
   auditActions,
   auditActorTypes,
@@ -79,6 +80,7 @@ import {
   type WatermarkSettings,
   type WorkflowDefinition,
   type WorkflowEffect,
+  type WorkflowNotices,
   type WorkflowRun,
   type WorkflowStatus,
   type WorkspaceExportStatus,
@@ -519,6 +521,13 @@ export const projects = pgTable(
     storageBackend: text("storage_backend"),
     /** The visible watermark (#31): whom it marks, where and how strongly; null is the default. */
     watermark: jsonb("watermark").$type<WatermarkSettings>(),
+    /**
+     * Downloads and deletion (decision 257): who may download, originals, who may delete,
+     * whether a reviewed file stays, and whether downloads are marked; null is the default.
+     */
+    assetPolicy: jsonb("asset_policy").$type<AssetPolicy>(),
+    /** Who its workflows tell, and how (decision 259); null is the default. */
+    workflowNotices: jsonb("workflow_notices").$type<WorkflowNotices>(),
     /**
      * Whether its comment categories have been made: a new project gets the defaults at once,
      * one made before categories existed the first time its categories are read.
@@ -2525,6 +2534,37 @@ export const projectReviewerGrants = pgTable(
     check(
       "project_reviewer_grants_one_person",
       sql`(${t.userId} is null) <> (${t.guestId} is null)`,
+    ),
+  ],
+);
+
+/**
+ * Exceptions to the player tools (decision 258): for one member, guest or group of a project,
+ * the tools they have there in place of their role's (for a guest, within their reviews').
+ */
+export const projectToolExceptions = pgTable(
+  "project_tool_exceptions",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** A member, a guest or one of the project's groups: exactly one. */
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    guestId: uuid("guest_id").references(() => guests.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id").references(() => groups.id, { onDelete: "cascade" }),
+    tools: text("tools").array().notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("project_tool_exceptions_user_idx").on(t.organisationId, t.projectId, t.userId),
+    uniqueIndex("project_tool_exceptions_guest_idx").on(t.organisationId, t.projectId, t.guestId),
+    uniqueIndex("project_tool_exceptions_group_idx").on(t.organisationId, t.projectId, t.groupId),
+    check(
+      "project_tool_exceptions_one_subject",
+      sql`num_nonnulls(${t.userId}, ${t.guestId}, ${t.groupId}) = 1`,
     ),
   ],
 );

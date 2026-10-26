@@ -172,6 +172,8 @@ export const auditActions = [
   "project.croom_import",
   /** Someone in the workspace, or an operator, downloaded a file attached to a ticket (#181). */
   "support.attachment_download",
+  /** A project's downloads and deletion changed (decision 257): who may download, originals, deleting, marking. */
+  "project.asset_security",
 ] as const;
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;

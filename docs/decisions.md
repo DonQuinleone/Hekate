@@ -2006,3 +2006,38 @@ The prototype's board Customise panel has "Set as the project's default" beside 
 - **Shown as the prototype has it.** "Set as the project's default" sits opposite Reset for those who may manage the project; while what they see is already the project's default it reads "The project's default" and does nothing.
 
 **Expanding only:** one nullable column added to `projects`, and one preference added, which an older release ignores (its own reading of preferences keeps only what it knows; a change it saves drops the flag, and the rule for preferences without one applies) (decision 198).
+
+## 257. A project's downloads and deletion: settings that only narrow, applied where the permissions are read
+
+The prototype's Asset security has *Downloads and deletion* and a per-project *Forensic marking*; the product had only the visible watermark. Now a project chooses who may download, whether anyone may have an original, who may delete, whether a file in a review may be deleted, and whether its recordings' downloads carry the workspace's inaudible mark (decision 239). The audio and video stream switches wait for stream marking (#451 to #453).
+
+- **Only narrowing.** Each choice takes away from what the roles (and a guest's review) give, and never adds to it: *Who may download* is the roles that allow it, or nobody; *Originals*, the roles that allow them, only the workspace's owners and admins, or never (a download then gives the proxy); *Who may delete*, the roles that allow it, or only the workspace's owners and admins. The prototype's "Any member" (a second way to give downloads, beside the role matrix) and its role-named choices ("Producers", "Roles with delete") were replaced with these; the prototype now shows them.
+- **One place.** The project's policy is applied where a member's permissions are read (`projectAccess`, through the pure `narrowedByPolicy`) and where a guest's reviews are read (`guestReach`, through `cappedDownload`), so every check that already asks for `download_proxy`, `download_original` or `delete_files` (downloads, score downloads, caption exports, deleting files and folders) follows it, and the project's `permissions` say so to the web app. Nobody means nobody: owners and admins too, until someone who edits the project changes it.
+- **A reviewed file.** *Files in a review cannot be deleted*, on by default, is decision 027 as it was: an item of any review, open or closed, stays. The prototype said "an open review"; the server has always kept closed reviews' files too, so that what was approved stays on the record, and the switch keeps that rather than quietly letting a closed review lose its items. Off, a file may be deleted wherever it was reviewed; its review items go with it, and the access log's `file.delete` names the reviews it left. A file in a track's version still cannot be deleted.
+- **Marking stays the owners'.** Marking is off until a workspace's owners turn it on (decision 239), so only an owner may stop it for a project; anyone who edits the project may turn it back on, and a project started from one that stopped it is marked unless an owner starts it. The switch shows as off, and cannot change, while the workspace does not mark. Downloads are still made for their recipient, marked visibly where they are (decision 080) and logged, whatever is chosen.
+- **Logged.** Who edits the project changes the policy; each change is in the access log as `project.asset_security`, with what changed. A template carries the policy.
+
+**Expanding only:** a nullable column, `projects.asset_policy` (null reads as the defaults above), and one value added to the access log's action type (decision 198).
+
+## 258. Exceptions to the player tools: one person, guest or group, in place of their role's
+
+The prototype's *Add an exception* under Player tools. An exception gives one member, guest or group of a project its own set of player tools there, in place of what their role has. It is a row of `project_tool_exceptions` (exactly one of a member, a guest or one of the project's groups), made, changed and removed by whoever manages the project's roles, and read by whoever reads them; a token cannot reach them, as it cannot reach roles.
+
+- **Who it is for.** A member must hold a role in the project; a guest must have been asked by one of its reviews or groups; a group must be the project's. Anyone else is not found.
+- **Which wins.** A person's own exception; else every tool any of their groups' exceptions gives; else their role's. Owners and admins keep every tool, as the matrix says.
+- **Guests only lose tools.** A guest's tools come from their review's grant, which is what lets them reach a track's score at all (decision 057), so an exception for a guest, or a group with guests in it, only takes away what the review gives: it is applied in `guestReach`, before the score is reached, so a guest without the score no longer reaches the score file either.
+- **Enforced where tools are.** Members' exceptions are applied in `projectAccess`, guests' in `guestReach`, so every server check of a tool (QA, meters, the spectrogram, the score, compare) and the project's `tools` follow them.
+- **Shown in the matrix.** Each exception is a column of the Player tools matrix after the roles, named with whom it is for and toggled as a role is, with a menu to remove it. The prototype showed exceptions as a line of text under the matrix; it now shows them as columns too. On a phone, one column is shown at a time, chosen above the matrix.
+
+**Expanding only:** a new table, `project_tool_exceptions`, moved with its project between workspaces like the project's reviewer defaults (decision 198).
+
+## 259. Who a project's workflow tells: participants in the app and by mail, and everyone on a status change
+
+The prototype's three switches under Workflow, Notifications, now change who is told.
+
+- **Participants.** The people a stage names: a task's owner, the roles a notice stage names, and those told of a track's new status. *In the app* and *By mail* are the channels the project allows; within them, each person's own choice for workflow notices still applies (`withinChannels`). A kind that always reaches people in the app does not override the project here: workflow notices are not one.
+- **Everyone, on a status change.** Off by default, as before: a new status goes to the track's followers (#110). On, everyone who may see the project hears of it too, once each, never whoever moved it.
+- **Not the review.** An approval or feedback stage asks for its review as any review is asked: its reviewers are told by the review, and a guest has to be sent their link, whatever the switches say. A stage that could not do its work (no folder to move to, nobody to ask) still tells the run's starter, since that is the workflow failing, not a notice.
+- **Who changes it.** Those who edit the project's workflows, from its settings. A template carries it.
+
+**Expanding only:** a nullable column, `projects.workflow_notices` (null reads as in the app, by mail, and followers only) (decision 198).

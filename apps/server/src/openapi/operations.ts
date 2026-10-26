@@ -291,7 +291,7 @@ export const apiOperations: Record<string, ApiOperation> = {
   "DELETE /files/{id}": {
     summary: "Delete a file",
     description:
-      "A file that is part of a track's version, or under review, stays: removing it would change what reviewers were asked about.",
+      "A file that is part of a track's version stays, and so does one under review unless the project lets reviewed files go: removing it would change what reviewers were asked about.",
   },
   "POST /files/{id}/next": {
     summary: "Make another file this one's next version",

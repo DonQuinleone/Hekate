@@ -787,12 +787,22 @@ setup("seed", async ({ page, browser }) => {
   );
 
   // A group of guests the request form can ask together (#130).
-  await api(page, "POST", `/api/projects/${music.id}/groups`, {
-    name: "Soloists",
-    members: [
-      { name: "Mira Solberg", email: "mira@example.test", label: "Violin" },
-      { name: "Ines Arlow", email: "ines@example.test", label: "Piano" },
-    ],
+  const soloists = await api<{ group: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${music.id}/groups`,
+    {
+      name: "Soloists",
+      members: [
+        { name: "Mira Solberg", email: "mira@example.test", label: "Violin" },
+        { name: "Ines Arlow", email: "ines@example.test", label: "Piano" },
+      ],
+    },
+  );
+  // Their own player tools in this project (decision 258): the score, compare and loops.
+  await api(page, "POST", `/api/projects/${music.id}/tool-exceptions`, {
+    groupId: soloists.group.id,
+    tools: ["score", "compare", "loops"],
   });
 
   // The repertoire and venues (#48): the rags as one work, numbered as the score prints them.

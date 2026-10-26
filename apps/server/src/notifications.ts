@@ -6,9 +6,11 @@ import {
   defaultNotificationPreferences,
   type EmailSubjects,
   type MailMode,
+  type NotificationChannels,
   type NotificationKind,
   type NotificationMail,
   subjectFor,
+  withinChannels,
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
@@ -52,6 +54,11 @@ export interface NotificationEvent {
   link: string;
   /** The workspace template whose subject line its mail takes, and the values for it. */
   mail?: NotificationMail;
+  /**
+   * The channels its sender allows, within which each person's own choice applies: a project's
+   * workflow may tell no one in the app, or by mail (decision 259). Left out, both.
+   */
+  channels?: NotificationChannels;
 }
 
 export type NotificationRow = typeof notifications.$inferSelect;
@@ -137,7 +144,7 @@ export async function recordNotification(db: Db, event: NotificationEvent) {
   const name = await actorName(db, event.organisationId, event.actor);
   const values = recipients.flatMap((userId) => {
     const pref = prefs.get(userId) ?? defaultNotificationPreferences;
-    const channels = channelsFor(pref, event.kind);
+    const channels = withinChannels(channelsFor(pref, event.kind), event.channels);
     if (!channels.app && !channels.mail) return [];
     return [
       {

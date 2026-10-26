@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { assetPolicy } from "./asset-policy.ts";
 import { categoryHandlings } from "./categories.ts";
 import { normalisationMode } from "./normalisation.ts";
+import { workflowNotices } from "./notifications.ts";
 import { profileRef } from "./qa.ts";
 import { qaSettings } from "./qa-rules.ts";
 import { commentReferences } from "./references.ts";
@@ -32,6 +34,10 @@ export const templateContent = z.object({
     normalisation: normalisationMode.optional(),
     /** The visible watermark (#31); left out, the default. */
     watermark: watermarkSettings.nullable().optional(),
+    /** Downloads and deletion (decision 257); left out, the default. */
+    assetPolicy: assetPolicy.nullable().optional(),
+    /** Who the workflow tells (decision 259); left out, the default. */
+    workflowNotices: workflowNotices.nullable().optional(),
   }),
   // No limits of their own: whatever a project may hold, its template holds.
   roles: z.array(

@@ -1,5 +1,5 @@
 import { type PlayerTool, playerTools } from "@hekate/shared";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { cn } from "~/lib/cn";
 import { Checkbox } from "./ui/choice";
 
@@ -14,9 +14,21 @@ export const toolWords: Record<PlayerTool, { label: string; hint: string }> = {
   normalise: { label: "Normalise", hint: "Playback at the delivery target, where it is a choice" },
 };
 
+/** A column of the matrix: a role, or an exception for one person or group (decision 258). */
+export interface ToolColumn {
+  id: string;
+  name: string;
+  tools: readonly string[];
+  /** A line under its name: "Guest", "Group". */
+  caption?: string;
+  /** Its actions, beside its name. */
+  actions?: ReactNode;
+}
+
 /**
- * Every player tool against every role, on or off: a project's roles (#240), or the default
- * roles a new project starts with (#55). On a phone only `column`'s role is shown.
+ * Every player tool against every role, on or off: a project's roles (#240) and its
+ * exceptions (decision 258), or the default roles a new project starts with (#55). On a phone
+ * only `column`'s column is shown.
  */
 export function PlayerToolsTable({
   roles,
@@ -24,7 +36,7 @@ export function PlayerToolsTable({
   column,
   onToggle,
 }: {
-  roles: { id: string; name: string; tools: readonly string[] }[];
+  roles: ToolColumn[];
   manage: boolean;
   /** Classes for a role's column: hidden on a phone unless it is the one shown. */
   column: (roleId: string) => string;
@@ -47,7 +59,17 @@ export function PlayerToolsTable({
                   column(role.id),
                 )}
               >
-                <span className="label block truncate px-2">{role.name}</span>
+                <span className="flex items-center gap-1 px-2">
+                  <span className="min-w-0 flex-1">
+                    <span className="label block truncate" title={role.name}>
+                      {role.name}
+                    </span>
+                    {role.caption && (
+                      <span className="block truncate text-[12px] text-ink-3">{role.caption}</span>
+                    )}
+                  </span>
+                  {role.actions}
+                </span>
               </th>
             ))}
           </tr>
