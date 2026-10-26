@@ -46,7 +46,9 @@ export function PlayerToolsTable({
     <div className="rounded-panel-lg border border-line bg-raised/25 shadow-1 @3xl/app:overflow-x-auto">
       <table
         className="w-full border-collapse text-[13px] @3xl/app:min-w-[var(--roles-width)]"
-        style={{ "--roles-width": `${220 + roles.length * 120}px` } as CSSProperties}
+        // A column holds a checkbox and a name that truncates, so a project's five roles and an
+        // exception or two fit the settings page before it scrolls sideways.
+        style={{ "--roles-width": `${200 + roles.length * 100}px` } as CSSProperties}
       >
         <thead>
           <tr>
