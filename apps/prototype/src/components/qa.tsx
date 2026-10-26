@@ -4,6 +4,7 @@ import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { SeverityDot } from "~/components/status";
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import {
   deliveryProfiles,
@@ -367,6 +368,7 @@ export function QaView({
   playback,
   previous,
   canChooseProfile,
+  canEditMetadata,
   canComment,
   onComment,
   meters,
@@ -375,6 +377,8 @@ export function QaView({
   playback: Playback;
   previous?: File;
   canChooseProfile: boolean;
+  /** Whoever organises the project's files, with QA, and the editor on (decision 260). */
+  canEditMetadata: boolean;
   canComment: boolean;
   onComment: (finding: QaFinding) => void;
   meters: boolean;
@@ -389,6 +393,7 @@ export function QaView({
   const passed = findings.filter((f) => f.severity === "pass");
   const [showPassed, setShowPassed] = useState(false);
   const [report, setReport] = useState(false);
+  const [editingMetadata, setEditingMetadata] = useState(false);
   // Narrowing the list (#43): to one severity, as its count is pressed, and to one check.
   const [only, setOnly] = useState<"fail" | "warn" | "info" | null>(null);
   const [check, setCheck] = useState("");
@@ -653,31 +658,99 @@ export function QaView({
         <section className="rounded-panel-lg border border-line bg-raised/40 p-4 shadow-1">
           <div className="flex items-center justify-between">
             <Label>Embedded metadata</Label>
-            {canChooseProfile && (
-              <button type="button" className="text-[13px] text-ink-3 hover:text-ink">
+            {canEditMetadata && !editingMetadata && (
+              <button
+                type="button"
+                className="text-[13px] text-ink-3 hover:text-ink"
+                onClick={() => setEditingMetadata(true)}
+              >
                 Edit
               </button>
             )}
           </div>
-          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
-            {[
-              ["Description", "Maple Leaf Rag, V2 dry, Endless Hall"],
-              ["Originator", "Endless Hall Records"],
-              ["Origination", "2026-10-14 09:58"],
-              ["Time reference", "10:00:00:00"],
-              ["Coding history", "A=PCM,F=96000,W=24,M=stereo"],
-              ["iXML", "1.2 KB embedded"],
-              ["Title", "Maple Leaf Rag"],
-              ["Artist", "Endless Hall Records"],
-              ["ISRC", "none"],
-              ["Artwork", file.media.channels === 12 ? "none" : "JPEG 1500 × 1500"],
-            ].map(([k, v]) => (
-              <div key={k} className="contents">
-                <dt className="text-ink-3">{k}</dt>
-                <dd className="tabular truncate text-ink-2">{v}</dd>
+          {editingMetadata ? (
+            // Corrections are Hekate's own record: the stored original is never rewritten, and
+            // a download writes them into the file as it leaves (decision 260).
+            <form
+              className="mt-3 flex flex-col gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                setEditingMetadata(false);
+              }}
+              onKeyDown={(e) => e.key === "Escape" && setEditingMetadata(false)}
+            >
+              {[
+                [
+                  "Broadcast Wave",
+                  ["Description", "Originator", "Origination date", "Time reference"],
+                ],
+                ["iXML", ["Scene", "Take"]],
+                ["Tags", ["Title", "Artist", "ISRC"]],
+              ].map(([group, labels]) => (
+                <fieldset key={group as string} className="flex flex-col gap-2">
+                  <Label>{group}</Label>
+                  {(labels as string[]).map((label) => (
+                    <label key={label} className="flex flex-col gap-1 text-[13px] text-ink-2">
+                      {label}
+                      <Input
+                        defaultValue={
+                          {
+                            Description: "Maple Leaf Rag, V2 dry, Endless Hall",
+                            Originator: "Endless Hall Records",
+                            "Origination date": "2026-10-14",
+                            "Time reference": "10:00:00:00",
+                            Scene: "12",
+                            Take: "3",
+                            Title: "Maple Leaf Rag",
+                            Artist: "Endless Hall Records",
+                          }[label] ?? ""
+                        }
+                      />
+                      {label === "Originator" && (
+                        <span className="flex items-center justify-between text-[12px] text-ink-3">
+                          In the file: Endless Hal
+                          <button type="button" className="hover:text-ink">
+                            Restore
+                          </button>
+                        </span>
+                      )}
+                    </label>
+                  ))}
+                </fieldset>
+              ))}
+              <div className="flex items-center gap-2">
+                <Button type="submit" size="sm">
+                  Save
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setEditingMetadata(false)}>
+                  Cancel
+                </Button>
               </div>
-            ))}
-          </dl>
+              <p className="text-[12px] text-ink-3">
+                Kept by Hekate and written into downloads; the stored original is never changed.
+              </p>
+            </form>
+          ) : (
+            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
+              {[
+                ["Description", "Maple Leaf Rag, V2 dry, Endless Hall"],
+                ["Originator", "Endless Hall Records"],
+                ["Origination", "2026-10-14 09:58"],
+                ["Time reference", "10:00:00:00"],
+                ["Coding history", "A=PCM,F=96000,W=24,M=stereo"],
+                ["iXML", "1.2 KB embedded"],
+                ["Title", "Maple Leaf Rag"],
+                ["Artist", "Endless Hall Records"],
+                ["ISRC", "none"],
+                ["Artwork", file.media.channels === 12 ? "none" : "JPEG 1500 × 1500"],
+              ].map(([k, v]) => (
+                <div key={k} className="contents">
+                  <dt className="text-ink-3">{k}</dt>
+                  <dd className="tabular truncate text-ink-2">{v}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
           {file.media.channels === 12 && (
             <div className="mt-3 border-t border-line pt-2 text-[13px]">
               <Label>ADM · Dolby Atmos</Label>

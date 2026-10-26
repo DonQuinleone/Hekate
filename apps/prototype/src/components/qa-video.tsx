@@ -384,12 +384,8 @@ export function VideoQaView({
           </Card>
           <Card className="p-4">
             <div className="flex items-center justify-between">
+              {/* Not edited: a video's downloads leave its metadata out (decision 260). */}
               <Label>Embedded metadata</Label>
-              {canChooseProfile && (
-                <button type="button" className="text-[13px] text-ink-3 hover:text-ink">
-                  Edit
-                </button>
-              )}
             </div>
             <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
               {[
