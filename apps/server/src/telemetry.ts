@@ -1,7 +1,15 @@
-import { context, propagation, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
-import { type Logger, logs, SeverityNumber } from "@opentelemetry/api-logs";
+import {
+  context,
+  type Logger,
+  logs,
+  propagation,
+  SeverityNumber,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+} from "@opentelemetry/api";
 import type { LogRecordProcessor } from "@opentelemetry/sdk-logs";
-import type { SpanProcessor } from "@opentelemetry/sdk-trace-base";
+import type { SpanProcessor } from "@opentelemetry/sdk-trace";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { routeOf } from "./metrics/index.ts";
@@ -66,32 +74,45 @@ export async function startTelemetry(
   const endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT?.replace(/\/+$/, "");
   if (!endpoint && !given) return { shutdown: async () => {} };
   const [
+    { AsyncLocalStorageContextManager },
+    { CompositePropagator, W3CBaggagePropagator, W3CTraceContextPropagator },
     { OTLPLogExporter },
     { OTLPTraceExporter },
     { resourceFromAttributes },
     { BatchLogRecordProcessor, LoggerProvider },
-    { BatchSpanProcessor, NodeTracerProvider },
+    { BatchSpanProcessor, TracerProvider },
   ] = await Promise.all([
+    import("@opentelemetry/context-async-hooks"),
+    import("@opentelemetry/core"),
     import("@opentelemetry/exporter-logs-otlp-http"),
     import("@opentelemetry/exporter-trace-otlp-http"),
     import("@opentelemetry/resources"),
     import("@opentelemetry/sdk-logs"),
-    import("@opentelemetry/sdk-trace-node"),
+    import("@opentelemetry/sdk-trace"),
   ]);
   const headers = headersOf(settings.OTEL_EXPORTER_OTLP_HEADERS);
   const resource = resourceFromAttributes({
     "service.name": settings.OTEL_SERVICE_NAME || "hekate",
     "service.version": version,
   });
-  const tracing = new NodeTracerProvider({
+  const tracing = new TracerProvider({
     resource,
     spanProcessors: [
       given?.spans ??
-        new BatchSpanProcessor(new OTLPTraceExporter({ url: `${endpoint}/v1/traces`, headers })),
+        new BatchSpanProcessor({
+          exporter: new OTLPTraceExporter({ url: `${endpoint}/v1/traces`, headers }),
+        }),
     ],
   });
-  // The async context and the W3C trace context propagator, for the whole process.
-  tracing.register();
+  // The provider, the async context and the W3C trace context and baggage propagators, for the
+  // whole process: what the SDK's Node.js provider registered before 3.0 (decision 206).
+  trace.setGlobalTracerProvider(tracing);
+  context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+  propagation.setGlobalPropagator(
+    new CompositePropagator({
+      propagators: [new W3CTraceContextPropagator(), new W3CBaggagePropagator()],
+    }),
+  );
   const logging = new LoggerProvider({
     resource,
     processors: [
