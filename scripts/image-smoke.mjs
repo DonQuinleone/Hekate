@@ -55,7 +55,7 @@ for (const gone of [
   "/usr/local/bin/pip3",
 ])
   if (existsSync(gone)) fail(`${gone} is still there`);
-// Only the programs Hekate runs, and the links that name them (decision 243).
+// Only the programs Hekate runs, and the links that name them (decision 244).
 const programs = new Set(["node", "ffmpeg", "ffprobe", "pdfinfo", "pdftoppm", "pdftotext"]);
 for (const dir of ["/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"]) {
   let names;

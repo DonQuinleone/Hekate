@@ -1,4 +1,4 @@
-// The app image's last build step (decision 243), run by Node because it removes the shell:
+// The app image's last build step (decision 244), run by Node because it removes the shell:
 // every program but the few Hekate runs goes, so the image holds no shell, no busybox applet
 // and no package manager, and no file keeps a setuid or setgid bit. Package records stay in
 // /lib/apk/db, so scanners still see every package.

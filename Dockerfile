@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # One image: the Hono server, the built web app, ffmpeg, Poppler (PDF pages), fonts for
 # watermarks and for the PDFs Hekate writes (decision 238), and the EBU ADM Renderer for an ADM
-# master's objects (decision 140). Alpine throughout, holding only what Hekate runs (decision 243).
+# master's objects (decision 140). Alpine throughout, holding only what Hekate runs (decision 244).
 
 # Every stage starts from the same image, pinned by digest, so all of them are one Alpine
 # release; Renovate moves the pin when the image is rebuilt.
