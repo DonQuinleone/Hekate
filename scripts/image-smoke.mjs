@@ -67,7 +67,9 @@ for (const dir of ["/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"]) 
   const other = names.filter((name) => !programs.has(name) && !/^python3(\.\d+)?$/.test(name));
   if (other.length) fail(`${dir} holds other programs: ${other.join(", ")}`);
 }
-// apk goes, but its records stay, so scanners still see every package.
+// apk goes, its library too, but its records stay, so scanners still see every package.
+const libapk = readdirSync("/usr/lib").filter((name) => name.startsWith("libapk.so"));
+if (libapk.length) fail(`apk's library is still there: ${libapk.join(", ")}`);
 if (!existsSync("/lib/apk/db/installed")) fail("the package records are gone");
 
 const setuid = [];

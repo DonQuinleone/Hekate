@@ -9,8 +9,13 @@ import { dirname, join, resolve } from "node:path";
 const programs = ["node", "ffmpeg", "ffprobe", "pdfinfo", "pdftoppm", "pdftotext", "python3"];
 /** Where programs live, in the order PATH searches them. */
 const bins = ["/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"];
-/** apk's library, which nothing else links, and its keys and repositories. */
-const alsoGone = ["/usr/lib/libapk.so.3.0.0", "/etc/apk"];
+/** apk's library (which nothing else links), its keys and its repositories. */
+const alsoGone = [
+  ...readdirSync("/usr/lib")
+    .filter((name) => name.startsWith("libapk.so"))
+    .map((name) => join("/usr/lib", name)),
+  "/etc/apk",
+];
 
 const exists = (path) => {
   try {
