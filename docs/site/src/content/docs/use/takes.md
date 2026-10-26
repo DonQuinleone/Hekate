@@ -19,3 +19,13 @@ Correct anything before importing: a take's track or mix, a session's name, or a
 When the files carry no iXML, a **file-name pattern** says where the take number and the rest are: `T{take} {mic}` reads `T27_Spot.wav` as take 27 on the Spot microphone. It can name `{take}`, `{mic}`, `{tc}` (timecode), `{scene}`, `{session}` and `{track}`, and `*` matches anything.
 
 **Import** uploads each take's mix into its track's folder and makes it the track's next take, in its session. If an import stops part way, import the same files again: the takes already made are shown as *Already imported* and skipped. For now a take brings its mix only; its other microphones follow later.
+
+## A session's takes, and a take's own page
+
+A session's page lists its takes in a table: each take's rating, track and coverage (its page and bars in the score), its notes, its timecode in and out, its microphones, and where the track's latest version uses it, as its edit decision list says (*V3 bars 12–40*). A take that was stopped short says *aborted*, and one with false starts counts them.
+
+A take opens on its own page. Its line at the top gives its rating, star, track, coverage, timecode and the version that uses it, with the session's other takes of the same track beside it: choose one, or press its number key (**1** for the first). The take's mix plays in the player, as any recording does; **Loop** plays it from its in point to its out point. Those who edit takes write its notes in place. Where the track follows a score and the take has bars, the score opens beside it at the take's page.
+
+**Share to a comment** (for those who triage comments) puts the take on an open thread of the track's latest version, for everyone on that thread to hear; on a thread about a bar, at that bar, looped.
+
+For now a take is its mix alone, so its page has one lane. Once takes hold a file per microphone, each microphone gets a lane of its own to solo and mute, with the mix as the last.

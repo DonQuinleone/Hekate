@@ -7,6 +7,7 @@ import {
   type ScoreMarkKind,
   type SharedTake,
   shareTakesInput,
+  type TakeDetail,
   type TakeHistoryEntry,
   type TakeHistoryField,
   type TakeLifecycle,
@@ -17,7 +18,7 @@ import {
   takesCovering,
   takesForBar,
 } from "@hekate/shared";
-import { and, asc, eq, inArray, max } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, max } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -216,9 +217,56 @@ export const trackTakeRoutes = (db: Database) =>
       return c.json({ takes: await takesOf(db, organisationId, track.id) }, 201);
     });
 
-/** `/api/takes/:id`: changing a take, or no longer counting its file as one. */
+/** `/api/takes/:id`: one take for its page, changing it, or no longer counting its file as one. */
 export const takeRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
+    // The take page: the take with its track, session and the session's other takes of the
+    // track. Seen by those whose role shows takes, as the track's takes are.
+    .get("/:id", idParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const { id } = c.req.valid("param");
+      const [row] = await db
+        .select({
+          take: takes,
+          track: {
+            id: tracks.id,
+            name: tracks.name,
+            projectId: tracks.projectId,
+            scoreFileId: tracks.scoreFileId,
+          },
+        })
+        .from(takes)
+        .innerJoin(
+          tracks,
+          and(eq(tracks.id, takes.trackId), eq(tracks.organisationId, organisationId)),
+        )
+        .where(inOrg(takes, organisationId, eq(takes.id, id)));
+      if (!row) throw new NotFound("Take");
+      await can(db, actorOf(c.var), "view_takes", row.track.projectId);
+      const sessionId = row.take.sessionId;
+      const [session] = sessionId
+        ? await db
+            .select({ id: sessions.id, name: sessions.name })
+            .from(sessions)
+            .where(inOrg(sessions, organisationId, eq(sessions.id, sessionId)))
+        : [];
+      const siblings = await db
+        .select({ id: takes.id, number: takes.number, starred: takes.starred })
+        .from(takes)
+        .where(
+          inOrg(
+            takes,
+            organisationId,
+            eq(takes.trackId, row.track.id),
+            sessionId ? eq(takes.sessionId, sessionId) : isNull(takes.sessionId),
+          ),
+        )
+        .orderBy(asc(takes.number));
+      const [take] = await takeRowsFor(db, organisationId, [{ take: row.take }]);
+      if (!take) throw new NotFound("Take");
+      const detail: TakeDetail = { ...take, track: row.track, session: session ?? null, siblings };
+      return c.json({ take: detail });
+    })
     .patch("/:id", idParam, zValidator("json", takeChangeInput), async (c) => {
       const organisationId = c.var.organisationId;
       const { id } = c.req.valid("param");

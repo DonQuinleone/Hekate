@@ -338,6 +338,13 @@ const screens: Screen[] = [
     ready: "main >> text=Day 2",
   },
   { name: "session", path: (s) => `/sessions/${s.sessionId}`, ready: "main table >> text=T3" },
+  // One take (#21, #45): its mix in the player, the session's takes of the track to switch
+  // between, its notes, and the score at its bars.
+  {
+    name: "take",
+    path: (s) => `/takes/${s.takeId}`,
+    ready: "main >> text=The summed mix.",
+  },
   {
     name: "track-takes",
     path: (s) => `/tracks/${s.trackId}?view=takes`,
@@ -718,6 +725,17 @@ test.describe("guest", () => {
 });
 
 for (const screen of screens.filter((s) => !s.as || s.as === "owner")) capture(screen);
+
+// Sharing a take to a thread of the track's latest version (#133), from the take's page.
+test("take-share", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/takes/${seeded().takeId}`);
+  await settle(page, "main >> text=The summed mix.");
+  await page.getByRole("button", { name: "Share to a comment" }).click();
+  await settle(page, "[role=dialog] >> text=Share this take to a comment");
+  await saveScreen(page, "take-share");
+  await checkScreen(page);
+});
 
 // A file opened from a review (#15): the reviewer's decision beside the comments, where they
 // listen. Nothing is decided, so no other capture sees a change.

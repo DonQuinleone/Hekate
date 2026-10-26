@@ -775,6 +775,11 @@ export const apiOperations: Record<string, ApiOperation> = {
     description:
       "Recording-session snippets, with an optional bar range and in and out points. Takes are reference material, never versions.",
   },
+  "GET /takes/{id}": {
+    summary: "Read a take",
+    description:
+      "With its track, the session it was recorded in, and that session's other takes of the track.",
+  },
   "PATCH /takes/{id}": { summary: "Change a take" },
   "GET /takes/{id}/history": {
     summary: "Read a take's history",

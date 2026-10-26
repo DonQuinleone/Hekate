@@ -84,6 +84,7 @@ import { SessionPage, SessionsPage } from "~/routes/sessions";
 import { SignUpLinkPage, SignUpPage } from "~/routes/sign-up";
 import { StagePlanPage } from "~/routes/stage-plan";
 import { StatusPage } from "~/routes/status";
+import { TakePage } from "~/routes/take";
 import { TakeLogPage } from "~/routes/take-log";
 import { TasksPage } from "~/routes/tasks";
 import { TrackPage } from "~/routes/track";
@@ -726,6 +727,15 @@ const takeLog = createRoute({
     return <TakeLogPage sessionId={sessionId} />;
   },
 });
+// One take (#21, #45): its recording, its notes and its place in the score.
+const takePage = createRoute({
+  getParentRoute: () => app,
+  path: "/takes/$takeId",
+  component: function TakeRoute() {
+    const { takeId } = takePage.useParams();
+    return <TakePage takeId={takeId} />;
+  },
+});
 // The project's settings: the section in the query string, as in the prototype.
 const projectSettings = createRoute({
   getParentRoute: () => app,
@@ -1026,6 +1036,7 @@ export const router = createRouter({
       projectVenues,
       session,
       takeLog,
+      takePage,
       projectSettings,
       projectWorkflows,
       track,

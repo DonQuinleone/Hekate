@@ -11380,6 +11380,61 @@
       }
     },
     "/takes/{id}": {
+      "get": {
+        "operationId": "getTakesId",
+        "tags": [
+          "Takes and sessions"
+        ],
+        "summary": "Read a take",
+        "description": "With its track, the session it was recorded in, and that session's other takes of the track.\n\nNeeds the `files:read` scope.",
+        "security": [
+          {
+            "token": [
+              "files:read"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      },
       "patch": {
         "operationId": "patchTakesId",
         "tags": [

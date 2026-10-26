@@ -13306,6 +13306,145 @@ describe.runIf(url)("api", () => {
           expect(kept).toEqual({ sessionId: null });
         });
 
+        it("reads one take for its page: its track, session and the session's other takes of the track", async () => {
+          const s = await studio();
+          const send = (method: string, url: string, body: unknown, cookie = s.engineer) =>
+            app.request(url, { ...json(body, cookie), method });
+          const recording = async (name: string) => {
+            const blob = await storage.put(s.organisationId, Buffer.from(name));
+            const [row] = await db
+              .insert(schema.files)
+              .values({
+                organisationId: s.organisationId,
+                projectId: s.projectId,
+                name,
+                kind: "audio",
+                blobId: blob.id,
+                contentType: "audio/wav",
+                byteSize: blob.byteSize,
+                mediaInfo: { duration: 74 } as never,
+              })
+              .returning();
+            return row?.id ?? "";
+          };
+          const files = [
+            await recording("T1.wav"),
+            await recording("T2.wav"),
+            await recording("T3.wav"),
+          ];
+          const added = (await (
+            await send("POST", `/api/tracks/${s.trackId}/takes`, { fileIds: files })
+          ).json()) as { takes: { id: string }[] };
+          const [one, two, three] = added.takes.map((t) => t.id);
+          const day = (await (
+            await send("POST", `/api/projects/${s.projectId}/sessions`, {
+              name: "Day 3",
+              trackIds: [s.trackId],
+            })
+          ).json()) as { session: { id: string } };
+          // The first two were recorded on the day; the third in no session.
+          for (const id of [one, two])
+            expect(
+              (await send("PATCH", `/api/takes/${id}`, { sessionId: day.session.id })).status,
+            ).toBe(200);
+          await send("PATCH", `/api/takes/${two}`, {
+            starred: true,
+            timecodeIn: "10:14:02:00",
+            falseStarts: 2,
+          });
+
+          type Detail = {
+            take: {
+              id: string;
+              number: number;
+              starred: boolean;
+              timecodeIn: string | null;
+              falseStarts: number;
+              file: { id: string } | null;
+              track: { id: string; name: string; projectId: string; scoreFileId: string | null };
+              session: { id: string; name: string } | null;
+              siblings: { id: string; number: number; starred: boolean }[];
+            };
+          };
+          // A reviewer sees takes, so reads one.
+          const read = await getAs(`/api/takes/${two}`, s.composer);
+          expect(read.status).toBe(200);
+          const { take } = (await read.json()) as Detail;
+          expect(take).toMatchObject({
+            id: two,
+            number: 2,
+            starred: true,
+            timecodeIn: "10:14:02:00",
+            falseStarts: 2,
+            file: { id: files[1] },
+            track: { id: s.trackId, name: "Maple Leaf Rag", projectId: s.projectId },
+            session: { id: day.session.id, name: "Day 3" },
+          });
+          expect(take.siblings).toEqual([
+            { id: one, number: 1, starred: false },
+            { id: two, number: 2, starred: true },
+          ]);
+          // A take from no session switches among the track's others from none.
+          const loose = (await (await getAs(`/api/takes/${three}`, s.composer)).json()) as Detail;
+          expect(loose.take.session).toBeNull();
+          expect(loose.take.siblings.map((t) => t.id)).toEqual([three]);
+
+          // A role that keeps the takes from them is refused; so is a member without the project.
+          const levels = {
+            files: "view",
+            comments: "none",
+            reviews: "none",
+            downloads: "none",
+            takes: "none",
+            production: "none",
+            workflow: "none",
+            people: "none",
+            project: "none",
+          };
+          expect(
+            (
+              await send(
+                "POST",
+                `/api/projects/${s.projectId}/roles`,
+                { name: "Listener", levels },
+                s.owner,
+              )
+            ).status,
+          ).toBe(201);
+          const listener = await joinAs(s.owner, "take-listener@example.test");
+          await grantRole(s.owner, s.projectId, listener, "Listener");
+          expect((await getAs(`/api/takes/${two}`, listener)).status).toBe(403);
+          const newcomer = await joinAs(s.owner, "take-newcomer@example.test");
+          expect((await getAs(`/api/takes/${two}`, newcomer)).status).toBe(404);
+
+          // Another workspace's take does not exist from here.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-take-page" })
+            .returning();
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+            .returning();
+          const [theirTrack] = await db
+            .insert(schema.tracks)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              projectId: theirProject?.id ?? "",
+              name: "Theirs",
+            })
+            .returning();
+          const [theirTake] = await db
+            .insert(schema.takes)
+            .values({
+              organisationId: elsewhere?.id ?? "",
+              trackId: theirTrack?.id ?? "",
+              number: 1,
+            })
+            .returning();
+          expect((await getAs(`/api/takes/${theirTake?.id}`, s.owner)).status).toBe(404);
+        });
+
         it("logs takes live: numbered as the session says, rolled, stopped and timed (#51)", async () => {
           const s = await studio();
           const send = (method: string, url: string, body: unknown, cookie = s.engineer) =>

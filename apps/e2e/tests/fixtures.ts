@@ -14,6 +14,8 @@ export interface Seeded {
   trackId: string;
   /** A recording session (#21, #45) with three of the track's takes. */
   sessionId: string;
+  /** Its third take: starred, with bars, a page and timecode, and used by V2's edit list. */
+  takeId: string;
   dryFileId: string;
   scoreFileId: string;
   cutFileId: string;

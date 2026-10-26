@@ -1,5 +1,5 @@
 import { formatDuration, type SessionSummary, type TakeNumbering } from "@hekate/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Empty } from "~/components/empty";
@@ -16,6 +16,7 @@ import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { formatDates } from "~/lib/locale";
 import {
+  editDecisionsQuery,
   projectQuery,
   projectSessionsQuery,
   projectTracksQuery,
@@ -24,6 +25,7 @@ import {
   useSessionMutations,
 } from "~/lib/queries";
 import { slotMoment, slotTime } from "~/lib/take-log";
+import { coverageLabel, falseStartsLabel, timecodeSpan, usedInLabel } from "~/lib/take-page";
 import { ProjectFrame } from "~/routes/project";
 
 const body =
@@ -303,6 +305,12 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Where each track's latest edit decision list uses its takes (#56), for "Used in".
+  const trackIds = [...new Set(session?.takeRows.map((t) => t.track.id) ?? [])];
+  const lists = useQueries({
+    queries: trackIds.map((id) => ({ ...editDecisionsQuery(id), retry: false })),
+  });
+  const decisions = new Map(trackIds.map((id, i) => [id, lists[i]?.data ?? null]));
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!session || !project) return <p className="p-8 text-ink-3">Loading</p>;
   const canEdit = can("edit_takes") && !project.archivedAt;
@@ -389,10 +397,20 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
         ) : (
           // A wide table scrolls on its own on a phone; the page does not.
           <div className="-mx-5 overflow-x-auto px-5 @3xl/app:mx-0 @3xl/app:px-0">
-            <table className="w-full min-w-[720px] border-collapse text-[13px]">
+            <table className="w-full min-w-[960px] border-collapse text-[13px]">
               <thead>
                 <tr className="text-left text-[12px] text-ink-3">
-                  {["Take", "Rating", "Track", "Bars", "Notes", ""].map((h) => (
+                  {[
+                    "Take",
+                    "Rating",
+                    "Track",
+                    "Coverage",
+                    "Notes",
+                    "Timecode",
+                    "Mics",
+                    "Used in",
+                    "",
+                  ].map((h) => (
                     <th key={h || "length"} className="px-2 py-2 font-normal">
                       {h}
                     </th>
@@ -400,46 +418,64 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((t) => (
-                  <tr key={t.id} className="border-t border-line">
-                    <td className="px-2 py-2">
-                      <Link
-                        to="/tracks/$trackId"
-                        params={{ trackId: t.track.id }}
-                        search={{ view: "takes" }}
-                        className="tabular inline-flex items-center gap-1.5 font-medium text-ink no-underline hover:text-ink-2"
-                      >
-                        {t.starred && (
-                          <Icon
-                            name="star"
-                            size={12}
-                            fill="currentColor"
-                            aria-label="Starred"
-                            className="text-ink-2"
-                          />
-                        )}
-                        T{t.number}
-                      </Link>
-                    </td>
-                    <td className="px-2 py-2">
-                      <Rating value={t.rating} />
-                    </td>
-                    <td className="px-2 py-2 text-ink-2">{t.track.name}</td>
-                    <td className="tabular px-2 py-2 text-ink-2">
-                      {t.barFrom === null ? (
-                        <span className="text-ink-3">none</span>
-                      ) : (
-                        `${t.page ? `p. ${t.page} · ` : ""}bars ${t.barFrom}–${t.barTo ?? t.barFrom}`
-                      )}
-                    </td>
-                    <td className="max-w-[320px] truncate px-2 py-2 text-ink-2">
-                      {t.notes || t.label}
-                    </td>
-                    <td className="tabular px-2 py-2 text-right text-ink-3">
-                      {t.file?.duration != null ? formatDuration(t.file.duration) : ""}
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((t) => {
+                  const falseStarts = falseStartsLabel(t.falseStarts);
+                  const coverage = coverageLabel(t);
+                  return (
+                    <tr
+                      key={t.id}
+                      className="border-t border-line transition-colors hover:bg-raised/40"
+                    >
+                      <td className="px-2 py-2">
+                        <Link
+                          to="/takes/$takeId"
+                          params={{ takeId: t.id }}
+                          className="tabular inline-flex items-center gap-1.5 whitespace-nowrap font-medium text-ink no-underline hover:text-ink-2"
+                        >
+                          {t.starred && (
+                            <Icon
+                              name="star"
+                              size={12}
+                              fill="currentColor"
+                              aria-label="Starred"
+                              className="text-ink-2"
+                            />
+                          )}
+                          T{t.number}
+                          {t.lifecycle === "aborted" && (
+                            <span className="text-[12px] font-normal text-ink-3">aborted</span>
+                          )}
+                          {falseStarts && (
+                            <span className="text-[12px] font-normal text-ink-3">
+                              {falseStarts}
+                            </span>
+                          )}
+                        </Link>
+                      </td>
+                      <td className="px-2 py-2">
+                        <Rating value={t.rating} />
+                      </td>
+                      <td className="px-2 py-2 text-ink-2">{t.track.name}</td>
+                      <td className="tabular px-2 py-2 text-ink-2">
+                        {coverage ?? <span className="text-ink-3">none</span>}
+                      </td>
+                      <td className="max-w-[260px] truncate px-2 py-2 text-ink-2">
+                        {t.notes || t.label}
+                      </td>
+                      <td className="tabular whitespace-nowrap px-2 py-2 text-ink-3">
+                        {timecodeSpan(t.timecodeIn, t.timecodeOut, true)}
+                      </td>
+                      {/* A take is its summed mix for now; its microphones follow (decision 246). */}
+                      <td className="px-2 py-2 text-ink-3">{t.file ? "mix" : ""}</td>
+                      <td className="tabular whitespace-nowrap px-2 py-2 text-ink-3">
+                        {usedInLabel(decisions.get(t.track.id), t.id)}
+                      </td>
+                      <td className="tabular px-2 py-2 text-right text-ink-3">
+                        {t.file?.duration != null ? formatDuration(t.file.duration) : ""}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

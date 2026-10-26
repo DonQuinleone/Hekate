@@ -504,17 +504,14 @@ function TakeLine({
         end !== null && "@2xl/app:col-span-3",
       )}
     >
-      {take.file ? (
-        <Link
-          to="/files/$fileId"
-          params={{ fileId: take.file.id }}
-          className="flex min-w-0 items-center gap-2.5 px-4 py-1.5 no-underline"
-        >
-          {heading}
-        </Link>
-      ) : (
-        <span className="flex min-w-0 items-center gap-2.5 px-4 py-1.5">{heading}</span>
-      )}
+      {/* The take's own page, which says so where it was logged without a file. */}
+      <Link
+        to="/takes/$takeId"
+        params={{ takeId: take.id }}
+        className="flex min-w-0 items-center gap-2.5 px-4 py-1.5 no-underline"
+      >
+        {heading}
+      </Link>
       {end !== null && (
         <span className="relative mr-2 hidden h-9 @2xl/app:block">
           {Array.from({ length: end / 10 }, (_, i) => (

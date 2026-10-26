@@ -154,6 +154,7 @@ import {
   type SystemInformation,
   searchResponse,
   type TakeChange,
+  type TakeDetail,
   type TakeImport,
   type TakeRow,
   type TaskChange,
@@ -2365,6 +2366,15 @@ export const trackTakesQuery = (trackId: string) =>
       ).takes,
   });
 
+/** One take for its page: its track, session, and the session's other takes of the track. */
+export const takeQuery = (takeId: string) =>
+  queryOptions({
+    queryKey: ["takes", takeId],
+    queryFn: async () =>
+      (await json<{ take: TakeDetail }>(await api.takes[":id"].$get({ param: { id: takeId } })))
+        .take,
+  });
+
 /**
  * A track's edit decisions (#56): the latest version's edit decision list matched to its
  * takes, read at a timecode rate where the list leaves it unsure; or a given version's list.
@@ -3035,8 +3045,9 @@ export function useTakeMutations(trackId: string) {
         client.setQueryData(key, (list: TakeRow[] | undefined) =>
           list?.map((t) => (t.id === take.id ? take : t)),
         );
-        // A session counts the takes recorded in it.
+        // A session counts the takes recorded in it; the take's own page shows it.
         void client.invalidateQueries({ queryKey: ["sessions"] });
+        void client.invalidateQueries({ queryKey: ["takes", take.id] });
         void client.invalidateQueries({ queryKey: ["projects"], predicate: sessionsKey });
       },
     }),
