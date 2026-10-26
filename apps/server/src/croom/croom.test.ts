@@ -460,6 +460,8 @@ describe("replaying events", () => {
       ev("add_todo", { text: "B" }), // 7
       ev("add_todo", { text: "C" }), // 8
       ev("reorder_todos", { order: [8, 99, 6] }),
+      // Naming one twice: ControlRoom leaves the list as it is.
+      ev("reorder_todos", { order: [7, 7, 6] }),
     ]);
     // A removed score takes its marks with it.
     expect(model.annotations.size).toBe(0);
