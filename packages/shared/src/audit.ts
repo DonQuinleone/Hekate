@@ -188,6 +188,8 @@ export const auditQuery = z.object({
   fileId: z.uuid().optional(),
   reviewId: z.uuid().optional(),
   userId: z.string().min(1).max(64).optional(),
+  /** A guest's entries, as a person filter picks them from an entry (decision 263). */
+  guestId: z.uuid().optional(),
   action: auditAction.optional(),
   from: z.iso.datetime({ offset: true }).optional(),
   to: z.iso.datetime({ offset: true }).optional(),

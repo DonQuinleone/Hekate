@@ -117,6 +117,15 @@ import { uuidv7 } from "./id.ts";
  */
 export const searchVector = (text: SQL) => sql`to_tsvector('simple', ${text})`;
 
+/**
+ * A file's measured duration in seconds and a video's frame rate, as advanced search reads them
+ * (decision 263): from its media info, indexed as these expressions and queried with the same.
+ */
+export const fileDuration = (mediaInfo: SQL | AnyPgColumn) =>
+  sql<number>`((${mediaInfo}->>'duration')::double precision)`;
+export const fileFrameRate = (mediaInfo: SQL | AnyPgColumn) =>
+  sql<number>`((${mediaInfo}->'video'->>'fps')::double precision)`;
+
 const id = () =>
   uuid("id")
     .primaryKey()
@@ -1415,6 +1424,10 @@ export const files = pgTable(
     index("files_project_folder_idx").on(t.projectId, t.folderId),
     index("files_take_idx").on(t.takeId),
     index("files_blob_idx").on(t.blobId),
+    // Advanced search by field (decision 263).
+    index("files_size_idx").on(t.organisationId, t.byteSize),
+    index("files_duration_idx").on(t.organisationId, fileDuration(t.mediaInfo)),
+    index("files_frame_rate_idx").on(t.organisationId, fileFrameRate(t.mediaInfo)),
   ],
 );
 
@@ -1820,6 +1833,7 @@ export const accessEvents = pgTable(
     index("access_events_user_idx").on(t.organisationId, t.userId, t.id),
     index("access_events_review_idx").on(t.organisationId, t.reviewId, t.id),
     index("access_events_project_idx").on(t.organisationId, t.projectId, t.id),
+    index("access_events_guest_idx").on(t.organisationId, t.guestId, t.id),
   ],
 );
 

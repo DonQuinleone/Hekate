@@ -384,6 +384,36 @@
                           "year"
                         ]
                       },
+                      "durationMin": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 86400
+                      },
+                      "durationMax": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 86400
+                      },
+                      "sizeMin": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1000000000000000
+                      },
+                      "sizeMax": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1000000000000000
+                      },
+                      "frameRate": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "maximum": 1000
+                      },
+                      "commentText": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
                       "q": {
                         "type": "string",
                         "maxLength": 200
@@ -576,6 +606,66 @@
                 "month",
                 "year"
               ]
+            }
+          },
+          {
+            "name": "durationMin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 86400
+            }
+          },
+          {
+            "name": "durationMax",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 86400
+            }
+          },
+          {
+            "name": "sizeMin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000000
+            }
+          },
+          {
+            "name": "sizeMax",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000000
+            }
+          },
+          {
+            "name": "frameRate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1000
+            }
+          },
+          {
+            "name": "commentText",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           },
           {

@@ -1,5 +1,7 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  FRAME_RATE_TOLERANCE,
+  fileFields,
   narrowed,
   type SearchKind,
   type SearchResponse,
@@ -8,7 +10,19 @@ import {
   searchFilters,
   sinceDate,
 } from "@hekate/shared";
-import { and, type Column, desc, eq, gte, ilike, isNull, or, type SQL, sql } from "drizzle-orm";
+import {
+  and,
+  type Column,
+  desc,
+  eq,
+  gte,
+  ilike,
+  isNull,
+  lte,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { actorOf, visibleProjects } from "../access.ts";
@@ -29,6 +43,8 @@ const {
   users,
   savedSearches,
   searchVector,
+  fileDuration,
+  fileFrameRate,
 } = schema;
 
 const searchQuery = zValidator(
@@ -134,12 +150,39 @@ export const searchRoutes = (db: Database) =>
         ? sql`exists (select 1 from ${fileTags} ft where ft.file_id = ${files.id}
             and ft.organisation_id = ${organisationId} and ft.tag_id = ${filters.tagId})`
         : undefined;
-      // Which kinds the filters leave: a person narrows to what people make, a file kind or a
-      // tag to files.
+      // By field (decision 263): a file's duration, size and frame rate, each through its index.
+      const duration = fileDuration(files.mediaInfo);
+      const frameRate = fileFrameRate(files.mediaInfo);
+      const fields = [
+        filters.durationMin !== undefined ? gte(duration, filters.durationMin) : undefined,
+        filters.durationMax !== undefined ? lte(duration, filters.durationMax) : undefined,
+        filters.sizeMin !== undefined ? gte(files.byteSize, filters.sizeMin) : undefined,
+        filters.sizeMax !== undefined ? lte(files.byteSize, filters.sizeMax) : undefined,
+        filters.frameRate !== undefined
+          ? and(
+              gte(frameRate, filters.frameRate - FRAME_RATE_TOLERANCE),
+              lte(frameRate, filters.frameRate + FRAME_RATE_TOLERANCE),
+            )
+          : undefined,
+      ];
+      // What a comment says: the comments that say it, and the files they are on, through the
+      // comments' own search index. Replies count; only this workspace's comments are read.
+      const said = filters.commentText ? prefixQuery(filters.commentText) : null;
+      const saidQuery = said ? sql`to_tsquery('simple', ${said})` : null;
+      const saysIt = saidQuery ? sql`${words.comments} @@ ${saidQuery}` : undefined;
+      const commentedSo = saidQuery
+        ? sql`exists (select 1 from ${comments} where ${comments.fileId} = ${files.id}
+            and ${comments.organisationId} = ${organisationId}
+            and ${words.comments} @@ ${saidQuery})`
+        : undefined;
+      // Which kinds the filters leave: a person narrows to what people make, a file kind, a tag
+      // or a file's fields to files, and what comments say to comments and their files.
       const wanted = (kind: SearchKind) =>
         (!filters.kind || filters.kind === kind) &&
         (!filters.fileKind || kind === "files") &&
         (!filters.tagId || kind === "files") &&
+        (!fileFields(filters) || kind === "files") &&
+        (!filters.commentText || kind === "files" || kind === "comments") &&
         (!filters.personId || kind === "files" || kind === "reviews" || kind === "comments") &&
         (!filters.projectId || kind !== "people");
       const none = Promise.resolve([] as never[]);
@@ -204,6 +247,8 @@ export const searchRoutes = (db: Database) =>
                     after(files.createdAt),
                     by(files.uploadedBy),
                     filters.fileKind ? eq(files.kind, filters.fileKind) : undefined,
+                    ...fields,
+                    commentedSo,
                   ),
                 )
                 .orderBy(...order(words.files, files.createdAt))
@@ -252,6 +297,7 @@ export const searchRoutes = (db: Database) =>
                     comments,
                     organisationId,
                     matches(words.comments),
+                    saysIt,
                     inLiveProject,
                     after(comments.createdAt),
                     by(comments.authorId),
