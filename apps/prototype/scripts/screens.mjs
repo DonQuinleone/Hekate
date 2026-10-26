@@ -53,6 +53,7 @@ const screens = [
   },
   { name: "invitation", route: "/invite" },
   { name: "guest-link", route: "/guest/link" },
+  { name: "guest-link-gone", route: "/guest/link", state: "expired" },
   { name: "guest-home", route: "/g", persona: "guest" },
   { name: "status", route: "/status" },
   { name: "status-incident", route: "/status", state: "failed" },
@@ -61,6 +62,7 @@ const screens = [
   // 3.2 Home and navigation
   { name: "home", route: "/" },
   { name: "help-menu", route: "/", steps: [{ click: 'role=button[name="Help"]' }] },
+  { name: "shell-offline", route: "/", state: "offline" },
   {
     name: "palette",
     route: "/projects/proj-joplin",
@@ -118,6 +120,11 @@ const screens = [
 
   // 3.4 Music
   { name: "takes", route: "/tracks/t-maple?view=takes" },
+  {
+    name: "track-history",
+    route: "/tracks/t-maple?view=versions",
+    steps: [{ scroll: "History" }],
+  },
   { name: "recording", route: "/files/file-maple-v2-dry" },
   {
     name: "recording-spectrogram",

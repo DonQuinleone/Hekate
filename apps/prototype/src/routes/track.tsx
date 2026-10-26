@@ -563,7 +563,7 @@ const runWords = { running: "Under way", finished: "Finished", stopped: "Stopped
 function WorkflowHistory() {
   return (
     <section aria-label="Workflow history" className="flex flex-col gap-2">
-      <Label className="px-1">History</Label>
+      <h2 className="eyebrow m-0 px-1">History</h2>
       <div className="rounded-panel-lg border border-line bg-raised/40 shadow-1">
         {trackHistory.map((run) => (
           <div key={run.id} className="border-t border-line first:border-t-0">

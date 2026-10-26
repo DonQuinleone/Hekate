@@ -3939,3 +3939,13 @@ test("review-reviewer-permissions", async ({ page }) => {
   await saveScreen(page, "review-reviewer-permissions");
   await checkScreen(page);
 });
+
+// The shell's foot (#4): with the server's health check unanswered, "API unreachable", in the
+// sidebar's foot and, on a phone, above the page.
+test("shell-offline", async ({ page }) => {
+  await page.route("**/api/health", (route) => route.abort());
+  await page.goto("/");
+  await settle(page, "text=API unreachable >> visible=true");
+  await saveScreen(page, "shell-offline");
+  await checkScreen(page);
+});

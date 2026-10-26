@@ -2047,3 +2047,20 @@ The prototype's three switches under Workflow, Notifications, now change who is 
 The prototype showed three pages for a guest link that does not open: expired, already used, and the review closed to the guest. The server has always given one answer (410, `link_gone`) for a link that is unknown, used, revoked or expired, and the web app one page, "This link no longer works", because which of them it was tells whoever holds a forwarded, intercepted or guessed link something: that the token was real, that someone has already opened it, or roughly when it was sent. A guest who should be in asks whoever invited them for a new link whatever the reason, so the three answers helped nobody who is meant to be there. The prototype now shows the one page in all three of its states.
 
 A review closed to a guest (outside their access window, cancelled, a view or play limit reached) is not a property of the link: the link still signs them in, and their reviews say what is closed and why. The inventory's Guest link row says so.
+
+## 261. A track's workflow history: every move, by name, with who made it
+
+The inventory's Track workflow row asks for the history of transitions; the server kept it (each run's steps, decision 253's inspection reads them) but the web app never showed it, and the prototype did not draw it. The track's versions page now lists it under the versions, as the prototype now shows too.
+
+- **What a line says.** Each step a run ended, by the step's name and its outcome as the workflow builder words it ("Conductor · submitted"), the status it set, who ended it and when; the run's start and a stop (a new version starting it again elsewhere) are lines of their own. Runs are newest first, each with how it stands ("Under way, at Engineer edits"); within one, the moves are in order.
+- **Who.** The person whose action moved it on: who uploaded the version that started it, who decided, who marked the task done, who ended a step by hand. A review stage settled with no member named (a guest decided, or the member has since gone) was "A reviewer". A move nobody made (a wait elapsing, a due date passing, a check running) is Hekate's, and says so rather than leaving the column empty.
+- **Names from the run.** A step is named as the run's own copy of its workflow had it, so renaming or removing a step later does not rewrite what happened; a step since removed from that copy shows its id. People are named from their accounts, read only for the ids the runs hold.
+- **Who sees it.** Whoever may see the project's workflow (`view_workflows`), as the runs route already required; others still see where the track stands. The route's answer grew (each step's `name`, `type` and `byName`, the run's `startedBy`), which older clients ignore.
+
+## 262. The shell's foot: the connection to the server and its version, from the health check
+
+The prototype's Shell row puts the connection and the version at the foot of the sidebar, with "API unreachable" as a state; the prototype did not draw it, and now does (its own "API unreachable" state in the switcher).
+
+- **From `/api/health`.** The foot reads the same check the image's HEALTHCHECK does, every half minute and every ten seconds while it fails: "Connected" with the version, "Database unreachable" when the server answers without its database, and "API unreachable" when nothing answers or something else does (a proxy's error page). The version is the last one known, so it stays while the server is away.
+- **The version, not the build.** The health check is public and already gives the release; the build (HEKATE_BUILD) stays in System information, for operators, rather than telling everyone which commit an instance runs.
+- **Phones.** There is no sidebar, so a lost connection shows as a line above the page; a working one shows nothing.

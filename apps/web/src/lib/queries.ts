@@ -215,6 +215,7 @@ import {
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import type { Health } from "./connection";
 import { notMemberAddress } from "./hosts";
 import { outboxStore } from "./outbox-store";
 import { baseOf, outcomeOf, type PendingWrite, rolledAt } from "./take-outbox";
@@ -267,17 +268,19 @@ export async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/**
+ * The server's health, as the shell's foot shows it: read every half minute, and every ten
+ * seconds while it cannot be reached, so the foot clears soon after the server is back. An
+ * answer that is not the health check's (a proxy's error page) counts as no answer.
+ */
 export const healthQuery = queryOptions({
   queryKey: ["health"],
-  queryFn: async () => {
+  queryFn: async (): Promise<Health> => {
     const res = await api.health.$get();
-    return (await res.json()) as {
-      status: "ok" | "degraded";
-      version: string;
-      database: "ok" | "unreachable";
-    };
+    return (await res.json()) as Health;
   },
-  refetchInterval: 30_000,
+  retry: 1,
+  refetchInterval: (query) => (query.state.status === "error" ? 10_000 : 30_000),
 });
 
 export interface Me {

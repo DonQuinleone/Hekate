@@ -65,8 +65,23 @@ describe("a track's workflow history", () => {
       ["Conductor · submitted", "Editing", "Mira Solberg"],
       // A wait's outcome has no words of its own, and nobody ended it.
       ["Let it rest", null, null],
-      ["Approved · changes requested", "Approved", null],
+      ["Approved · changes requested", "Approved", "A reviewer"],
       ["Stopped", null, "Ines Arlow"],
+    ]);
+  });
+
+  it("gives a review's stage ended with no member named to a reviewer, its due date to Hekate", () => {
+    const lines = transitionsOf(
+      run({
+        steps: [
+          step({ nodeId: "a", name: "Label approval", type: "approval", outcome: "approved" }),
+          step({ nodeId: "f", name: "Conductor", type: "feedback", outcome: "overdue" }),
+        ],
+      }),
+    );
+    expect(lines.map((l) => [l.text, l.by])).toEqual([
+      ["Label approval · all approved", "A reviewer"],
+      ["Conductor · due date passed", null],
     ]);
   });
 

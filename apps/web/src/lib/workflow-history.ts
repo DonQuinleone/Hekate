@@ -55,12 +55,16 @@ export function transitionsOf(run: WorkflowRunSummary): Transition[] {
           : undefined;
       text = label ? `${name} · ${label}` : name;
     }
+    // A review's stage ended by its reviewers' decisions with no member named was a guest's
+    // (or someone's since removed): a reviewer, not Hekate. Only its due date passing is Hekate's.
+    const reviewed =
+      (step.type === "approval" || step.type === "feedback") && step.outcome !== "overdue";
     return {
       key: `${run.id}:${i}`,
       at: step.at,
       text,
       status,
-      by: step.byName,
+      by: step.byName ?? (reviewed ? "A reviewer" : null),
       byId: step.byUserId,
     };
   });

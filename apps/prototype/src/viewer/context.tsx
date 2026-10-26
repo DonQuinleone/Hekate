@@ -23,7 +23,9 @@ export type ScreenState =
   | "failed"
   | "refused"
   | "expired"
-  | "long";
+  | "long"
+  /** The shell cannot reach the API: its foot says so. */
+  | "offline";
 export type Width = "desktop" | "phone";
 
 export interface Settings {
