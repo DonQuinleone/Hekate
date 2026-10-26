@@ -2041,3 +2041,9 @@ The prototype's three switches under Workflow, Notifications, now change who is 
 - **Who changes it.** Those who edit the project's workflows, from its settings. A template carries it.
 
 **Expanding only:** a nullable column, `projects.workflow_notices` (null reads as in the app, by mail, and followers only) (decision 198).
+
+## 260. A guest link that no longer works gives one answer
+
+The prototype showed three pages for a guest link that does not open: expired, already used, and the review closed to the guest. The server has always given one answer (410, `link_gone`) for a link that is unknown, used, revoked or expired, and the web app one page, "This link no longer works", because which of them it was tells whoever holds a forwarded, intercepted or guessed link something: that the token was real, that someone has already opened it, or roughly when it was sent. A guest who should be in asks whoever invited them for a new link whatever the reason, so the three answers helped nobody who is meant to be there. The prototype now shows the one page in all three of its states.
+
+A review closed to a guest (outside their access window, cancelled, a view or play limit reached) is not a property of the link: the link still signs them in, and their reviews say what is closed and why. The inventory's Guest link row says so.
