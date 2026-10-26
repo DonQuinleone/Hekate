@@ -44,7 +44,7 @@ import { DirectorySection } from "~/components/directory";
 import { EmailTemplatesSection } from "~/components/email-templates";
 import { Empty } from "~/components/empty";
 import { ChannelsSection } from "~/components/event-channels";
-import { Icon } from "~/components/icons";
+import { Icon, type IconName } from "~/components/icons";
 import { LeakTracingSection } from "~/components/leak-tracing";
 import { OAuthClientsSection } from "~/components/oauth";
 import { PageHeader } from "~/components/page-header";
@@ -56,12 +56,24 @@ import { type AskedFrom, SupportSection } from "~/components/support";
 import { Button } from "~/components/ui/button";
 import { ToggleChip } from "~/components/ui/chip";
 import { Dialog } from "~/components/ui/dialog";
+import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
-import { ActionMenu } from "~/components/ui/menu";
+import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
 import { StatusDot } from "~/components/ui/status";
 import { UsageRows } from "~/components/usage";
 import { DeleteWorkspace, WorkspaceExports } from "~/components/workspace-lifecycle";
-import { actionCopy } from "~/lib/access-log";
+import {
+  actionCopy,
+  exportUrl,
+  filtered,
+  type LogFilterKey,
+  type LogFilters,
+  type LogSince,
+  logFilterKeys,
+  logSince,
+  logSinceLabels,
+  without,
+} from "~/lib/access-log";
 import { shortAgent } from "~/lib/agent";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
@@ -77,6 +89,7 @@ import {
   type Member,
   membersQuery,
   meQuery,
+  projectsQuery,
   type StorageUsage,
   ssoQuery,
   storageUsageQuery,
@@ -1439,31 +1452,237 @@ function targetOf(e: AccessEvent): string | null {
   return null;
 }
 
+/** A person filter's value in its menu: a member's account or a guest. */
+const personValue = (f: LogFilters) =>
+  f.userId ? `user:${f.userId}` : f.guestId ? `guest:${f.guestId}` : "";
+
+/**
+ * The log's filters (decision 263), behind one Filter control as on the files page: an action,
+ * a project, a person (a member or a guest) and how far back. A file or a review is chosen
+ * from an entry's menu, since there are too many to list.
+ */
+function AccessLogFilterMenu({
+  filters,
+  onChange,
+}: {
+  filters: LogFilters;
+  onChange: (next: LogFilters) => void;
+}) {
+  const [open, setOpen, box] = usePopover();
+  const { data: projects = [] } = useQuery(projectsQuery);
+  const { data: members = [] } = useQuery(membersQuery);
+  const { data: guests = [] } = useQuery(workspaceGuestsQuery);
+  const active = logFilterKeys.filter((key) => filters[key]).length;
+  const set = (key: LogFilterKey, value: string) =>
+    onChange(value ? { ...filters, [key]: value } : without(filters, key));
+  return (
+    <div ref={box} className="relative">
+      <Button
+        variant="ghost"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => setOpen(!open)}
+        className={cn(active ? "text-ink" : "text-ink-3")}
+      >
+        <Icon name="filter" size={14} />
+        Filter
+        {active > 0 && (
+          <span className="tabular rounded-full bg-raised px-1.5 text-[11px] text-ink-2">
+            {active}
+          </span>
+        )}
+      </Button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Filter entries"
+          data-e2e-overlap
+          className="rise-in absolute right-0 z-30 mt-1 flex w-72 flex-col gap-3 rounded-panel-lg bg-overlay p-3 shadow-4"
+        >
+          <Field label="Action">
+            <Select value={filters.action ?? ""} onChange={(e) => set("action", e.target.value)}>
+              <option value="">Every action</option>
+              {Object.entries(actionCopy).map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Project">
+            <Select
+              value={filters.projectId ?? ""}
+              onChange={(e) => set("projectId", e.target.value)}
+            >
+              <option value="">Any project</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Person">
+            <Select
+              value={personValue(filters)}
+              onChange={(e) => {
+                const [kind, id = ""] = e.target.value.split(":");
+                const rest = without(without(filters, "userId"), "guestId");
+                onChange(
+                  kind === "user"
+                    ? { ...rest, userId: id }
+                    : kind === "guest"
+                      ? { ...rest, guestId: id }
+                      : rest,
+                );
+              }}
+            >
+              <option value="">Anyone</option>
+              <optgroup label="Members">
+                {members.map((m) => (
+                  <option key={m.userId} value={`user:${m.userId}`}>
+                    {m.name}
+                  </option>
+                ))}
+              </optgroup>
+              {guests.length > 0 && (
+                <optgroup label="Guests">
+                  {guests.map((g) => (
+                    <option key={g.id} value={`guest:${g.id}`}>
+                      {g.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </Select>
+          </Field>
+          <Field label="When">
+            <Select value={filters.since ?? ""} onChange={(e) => set("since", e.target.value)}>
+              <option value="">Any time</option>
+              {logSince.map((since) => (
+                <option key={since} value={since}>
+                  {logSinceLabels[since]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <p className="m-0 text-[12px] text-ink-3">
+            For one file or review, choose it from an entry's menu.
+          </p>
+          {active > 0 && (
+            <div className="border-t border-line pt-2">
+              <Button variant="ghost" size="sm" onClick={() => onChange({})}>
+                Clear filters
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AccessLog() {
-  const [action, setAction] = useState("");
-  const log = useInfiniteQuery(accessLogQuery(action ? { action } : {}));
+  const [filters, setFilters] = useState<LogFilters>({});
+  // What a filter chosen from an entry is called, as that entry named it.
+  const [named, setNamed] = useState<Partial<Record<LogFilterKey, string>>>({});
+  const log = useInfiniteQuery(accessLogQuery(filters));
+  const { data: projects = [] } = useQuery(projectsQuery);
+  const { data: members = [] } = useQuery(membersQuery);
+  const { data: guests = [] } = useQuery(workspaceGuestsQuery);
   const events = log.data?.pages.flatMap((p) => p.events) ?? [];
-  const exportUrl = `/api/organisation/audit.csv${action ? `?action=${encodeURIComponent(action)}` : ""}`;
+  const only = (key: LogFilterKey, value: string, name: string) => {
+    setNamed((n) => ({ ...n, [key]: name }));
+    // One person at a time: a member or a guest.
+    const rest =
+      key === "userId"
+        ? without(filters, "guestId")
+        : key === "guestId"
+          ? without(filters, "userId")
+          : filters;
+    setFilters({ ...rest, [key]: value });
+  };
+  const chipLabel = (key: LogFilterKey): string => {
+    const value = filters[key] ?? "";
+    switch (key) {
+      case "action":
+        return actionCopy[value] ?? value;
+      case "projectId":
+        return projects.find((p) => p.id === value)?.name ?? named.projectId ?? "A project";
+      case "fileId":
+        return named.fileId ?? "A file";
+      case "reviewId":
+        return named.reviewId ?? "A review";
+      case "userId":
+        return members.find((m) => m.userId === value)?.name ?? named.userId ?? "A member";
+      case "guestId":
+        return guests.find((g) => g.id === value)?.name ?? named.guestId ?? "A guest";
+      case "since":
+        return logSinceLabels[value as LogSince] ?? value;
+    }
+  };
+  const chipIcon: Record<LogFilterKey, IconName> = {
+    action: "list",
+    projectId: "folder",
+    fileId: "file",
+    reviewId: "review",
+    userId: "user",
+    guestId: "user",
+    since: "clock",
+  };
+  const entryActions = (e: AccessEvent): MenuAction[] => [
+    ...(e.userId
+      ? [
+          {
+            label: "Only this person",
+            onSelect: () => only("userId", e.userId ?? "", e.actorLabel),
+          },
+        ]
+      : e.guestId
+        ? [
+            {
+              label: "Only this guest",
+              onSelect: () => only("guestId", e.guestId ?? "", e.actorLabel),
+            },
+          ]
+        : []),
+    ...(e.fileId
+      ? [
+          {
+            label: "Only this file",
+            onSelect: () => only("fileId", e.fileId ?? "", e.fileName ?? "A deleted file"),
+          },
+        ]
+      : []),
+    ...(e.reviewId
+      ? [
+          {
+            label: "Only this review",
+            onSelect: () => only("reviewId", e.reviewId ?? "", e.reviewTitle ?? "A deleted review"),
+          },
+        ]
+      : []),
+    ...(e.projectId
+      ? [
+          {
+            label: "Only this project",
+            onSelect: () => only("projectId", e.projectId ?? "", "A project"),
+          },
+        ]
+      : []),
+    {
+      label: "Only this action",
+      onSelect: () => only("action", e.action, actionCopy[e.action] ?? e.action),
+    },
+  ];
   return (
     <Section
       title="Entries"
       action={
         <span className="flex items-center gap-1.5">
-          <Select
-            aria-label="Action"
-            value={action}
-            onChange={(e) => setAction(e.target.value)}
-            className="h-8 w-48 text-[13px]"
-          >
-            <option value="">Every action</option>
-            {Object.entries(actionCopy).map(([id, label]) => (
-              <option key={id} value={id}>
-                {label}
-              </option>
-            ))}
-          </Select>
+          <AccessLogFilterMenu filters={filters} onChange={setFilters} />
           <Button variant="secondary" asChild>
-            <a href={exportUrl} download>
+            <a href={exportUrl(filters)} download>
               <Icon name="download" size={14} />
               Export CSV
             </a>
@@ -1471,14 +1690,57 @@ function AccessLog() {
         </span>
       }
     >
+      {filtered(filters) && (
+        <ul
+          aria-label="Filters"
+          className="m-0 flex list-none flex-wrap items-center gap-1.5 border-b border-line px-4 py-2"
+        >
+          {logFilterKeys
+            .filter((key) => filters[key])
+            .map((key) => (
+              <li
+                key={key}
+                className="flex h-7 items-center gap-1.5 rounded-full border border-line bg-raised/40 pr-1 pl-2.5 text-[12px] text-ink-2"
+              >
+                <Icon name={chipIcon[key]} size={12} className="text-ink-3" />
+                <span className="max-w-56 truncate">{chipLabel(key)}</span>
+                <button
+                  type="button"
+                  aria-label={`Remove the filter ${chipLabel(key)}`}
+                  onClick={() => setFilters(without(filters, key))}
+                  className="flex size-6 items-center justify-center rounded-full text-ink-3 hover:bg-raised hover:text-ink"
+                >
+                  <Icon name="close" size={11} />
+                </button>
+              </li>
+            ))}
+          <li>
+            <Button variant="ghost" size="sm" onClick={() => setFilters({})}>
+              Clear
+            </Button>
+          </li>
+        </ul>
+      )}
       {log.isPending ? (
         <p className="px-4 py-3 text-[13px] text-ink-3">Loading</p>
       ) : events.length === 0 ? (
         <div className="p-4">
-          <Empty
-            title="Nothing logged yet"
-            text="Entries appear as people play, render, download and decide."
-          />
+          {filtered(filters) ? (
+            <Empty
+              title="No entries match"
+              text="Nothing logged matches these filters. Remove one to see more."
+              action={
+                <Button variant="secondary" onClick={() => setFilters({})}>
+                  Clear filters
+                </Button>
+              }
+            />
+          ) : (
+            <Empty
+              title="Nothing logged yet"
+              text="Entries appear as people play, render, download and decide."
+            />
+          )}
         </div>
       ) : (
         <>
@@ -1486,7 +1748,7 @@ function AccessLog() {
             <div
               key={e.id}
               data-log-entry
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px] @6xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_140px]"
+              className="group grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_auto] @6xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_140px_auto]"
             >
               <span className="tabular text-ink-3">
                 {timeFormat.format(new Date(e.occurredAt))}
@@ -1495,6 +1757,12 @@ function AccessLog() {
                 <span className="rounded-chip bg-raised px-1.5 py-0.5 text-[12px] text-ink-2">
                   {actionCopy[e.action] ?? e.action}
                 </span>
+              </span>
+              <span className="row-span-2 self-center @3xl/app:order-last @3xl/app:row-span-1">
+                <ActionMenu
+                  label={`the entry at ${timeFormat.format(new Date(e.occurredAt))}`}
+                  actions={entryActions(e)}
+                />
               </span>
               <span className="col-span-2 flex min-w-0 flex-col @3xl/app:col-span-1">
                 <span className="truncate text-ink-2">{e.actorLabel}</span>

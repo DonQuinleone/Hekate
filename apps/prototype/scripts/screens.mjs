@@ -228,6 +228,16 @@ const screens = [
   { name: "org-storage", route: "/settings/storage" },
   { name: "org-leaks", route: "/settings/leaks" },
   { name: "org-access-log", route: "/settings/log" },
+  {
+    name: "org-access-log-filters",
+    route: "/settings/log",
+    steps: [
+      { click: "role=button[name=/^Filter/]" },
+      {
+        select: ['role=dialog[name="Filter entries"] >> label:has-text("Person") select', "p-mira"],
+      },
+    ],
+  },
   { name: "org-operations", route: "/settings/operations" },
   { name: "account-tokens", route: "/account/tokens" },
   { name: "account-apps", route: "/account/apps" },

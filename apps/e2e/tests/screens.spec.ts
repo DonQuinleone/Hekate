@@ -3949,3 +3949,25 @@ test("shell-offline", async ({ page }) => {
   await saveScreen(page, "shell-offline");
   await checkScreen(page);
 });
+
+// The access log's filters (#30, decision 263): the Filter control open with a time chosen,
+// then an entry's action chosen from its menu, both shown as chips above the entries.
+test("settings-log-filters", async ({ page }) => {
+  await page.goto("/settings/log");
+  await settle(page, "main [data-log-entry] >> nth=0");
+  await page.getByRole("button", { name: /^Filter/ }).click();
+  const menu = page.getByRole("dialog", { name: "Filter entries" });
+  await menu.getByLabel("When").selectOption("week");
+  await settle(page, "main ul[aria-label='Filters']");
+  await saveScreen(page, "settings-log-filter-menu");
+  await checkScreen(page);
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: /^Actions for the entry/ })
+    .first()
+    .click();
+  await page.getByRole("menuitem", { name: "Only this action" }).click();
+  await settle(page, "main ul[aria-label='Filters'] li >> nth=2");
+  await saveScreen(page, "settings-log-filtered");
+  await checkScreen(page);
+});

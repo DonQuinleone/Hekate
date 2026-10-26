@@ -65,7 +65,7 @@ The last column names each screen's captures in `docs/screens`, 1440 by 900, as 
 | Dashboard (home) | Waiting on you: reviews to decide, feedback to give, comments to triage, comments assigned to you; upcoming due dates; recent activity; uploads processing. | Empty (new organisation); loading. | canvas note | [home](screens/home.png) |
 | Reviews (mine) | Every review you are in or asked for: waiting on you, in progress, finished; state dots. | Empty; long list; filters. | #22 | [inbox](screens/inbox.png) |
 | Notifications | Decisions, replies, new versions, stage changes, assignments; mark read. | Empty. | #25 | [inbox](screens/inbox.png) |
-| Search | Across projects, files, tracks, comments and people; advanced search by field (type, duration, size, frame rate, tags, uploader, comment text) with saved searches. | No results; a saved search. | #6, legacy | [palette](screens/palette.png) |
+| Search | Across projects, files, tracks, comments and people; advanced search by field (type, duration, size, frame rate, tags, uploader, comment text) with saved searches: kind, project, person, time and tag as menus, the file's fields behind a Fields control and shown as removable chips (decision 263). | No results; a saved search; fields set. | #6, legacy | [palette](screens/palette.png), [search-fields](screens/search-fields.png) |
 
 ### 3.3 Projects
 
@@ -186,7 +186,7 @@ The last column names each screen's captures in `docs/screens`, 1440 by 900, as 
 | Transfers | Projects moving in from, or out to, another workspace: what each waits for (a second member's approval, the other workspace's acceptance), Withdraw, Refuse, Approve and Accept, each confirmed with the project's name and a password; those settled (moved, refused, withdrawn, lapsed); the workspace's address, for someone moving a project here. | Nothing waiting; a move waiting on this workspace. | #240 | [org-transfers](screens/org-transfers.png) |
 | Storage | Backends (local disk, S3-compatible), default for new objects, usage per project, reconciliation (last run, orphaned, removed, missing bytes needing a person; report only). | Missing bytes found. | #7 #67 | [org-storage](screens/org-storage.png) |
 | Leak tracing | Forensic marking on streams and downloads; upload a suspected leak; the matching access or "no mark found". | Match; no match; scanning. | #32 | [org-leaks](screens/org-leaks.png) |
-| Access log | Every key issue, stream, page render, download, guest sign-in, decision and export, with person, review, address and agent; filters by project, file, review, person, action, time; CSV export. | Empty; long. | #30 | [org-access-log](screens/org-access-log.png) |
+| Access log | Every key issue, stream, page render, download, guest sign-in, decision and export, with person, review, address and agent; filters by project, file, review, person (a member or a guest), action and time, behind one Filter control with the filters in force as removable chips, a file or a review chosen from an entry's menu (decision 263); CSV export of what is shown. | Empty; long; nothing matches the filters. | #30 | [org-access-log](screens/org-access-log.png), [org-access-log-filters](screens/org-access-log-filters.png) |
 | Operations | Connected, version, worker on or off, queue depth, encryption and key rotation state, Prometheus endpoint, backups and upgrade notes. | Worker off; key rotation pending. | #4 #9 #17 #28 #62 #70 | [org-operations](screens/org-operations.png) |
 
 ## 4. From Hekate-Legacy

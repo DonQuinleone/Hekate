@@ -214,6 +214,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { type LogFilters, logQuery } from "./access-log";
 import { api } from "./api";
 import type { Health } from "./connection";
 import { notMemberAddress } from "./hosts";
@@ -1485,6 +1486,7 @@ export interface AccessEvent {
   action: string;
   actorType: "member" | "guest" | "system";
   userId: string | null;
+  guestId: string | null;
   actorLabel: string;
   projectId: string | null;
   fileId: string | null;
@@ -1497,22 +1499,13 @@ export interface AccessEvent {
   details: Record<string, unknown> | null;
 }
 
-export interface AccessLogFilters {
-  action?: string;
-  projectId?: string;
-  fileId?: string;
-}
-
-/** The access log, newest first, a page at a time. */
-export const accessLogQuery = (filters: AccessLogFilters) =>
+/** The access log, newest first, a page at a time, narrowed as the filters say (decision 263). */
+export const accessLogQuery = (filters: LogFilters) =>
   infiniteQueryOptions({
     queryKey: ["organisation", "audit", filters],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
-      const query: Record<string, string> = { limit: "50" };
-      if (filters.action) query.action = filters.action;
-      if (filters.projectId) query.projectId = filters.projectId;
-      if (filters.fileId) query.fileId = filters.fileId;
+      const query: Record<string, string> = { limit: "50", ...logQuery(filters) };
       if (pageParam) query.before = pageParam;
       return json<{ events: AccessEvent[]; nextBefore: string | null }>(
         await api.organisation.audit.$get({ query }),
