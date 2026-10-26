@@ -554,7 +554,7 @@ const schema = z.object({
         group: "Media",
         description:
           "A TrueType font (.ttf) for text in the PDFs Hekate writes (the annotated score, patch list, stage plan, schedule and comment sheets) that Helvetica cannot print: Greek, Cyrillic, Hebrew, Arabic, a Czech ř. Only the glyphs a PDF uses are embedded; Latin text stays in Helvetica. The image sets DejaVu Sans; without a font, such text prints as question marks.",
-        example: "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        example: "/usr/share/fonts/dejavu/DejaVuSans.ttf",
       }),
     ),
   PDF_FONT_BOLD: z
@@ -566,7 +566,7 @@ const schema = z.object({
         group: "Media",
         description:
           "The bold face of PDF_FONT, for headings. Without it, bold text in PDF_FONT is drawn heavier instead.",
-        example: "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        example: "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf",
       }),
     ),
   PDF_FONT_FALLBACK: list
@@ -579,7 +579,7 @@ const schema = z.object({
         group: "Media",
         description:
           "TrueType fonts, comma separated, tried in turn for characters PDF_FONT lacks. The image sets Droid Sans Fallback, for Chinese, Japanese and Korean.",
-        example: "/usr/share/fonts-droid-fallback/truetype/DroidSansFallback.ttf",
+        example: "/usr/share/fonts/droid-nonlatin/DroidSansFallback.ttf",
       }),
     ),
   VIDEO_LADDER: z

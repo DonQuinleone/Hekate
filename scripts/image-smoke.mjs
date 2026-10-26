@@ -1,6 +1,6 @@
 // Run inside the app image (CI's image job): it starts as built, read-only and with every
-// capability dropped, its media tools work (the ADM renderer too), its PDF fonts are there, and
-// nothing in it can raise its privileges.
+// capability dropped, its media tools work (the ADM renderer too), its PDF fonts are there, it
+// holds no program but those Hekate runs, and nothing in it can raise its privileges.
 import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -15,6 +15,8 @@ for (const [tool, args] of [
   ["ffmpeg", ["-version"]],
   ["ffprobe", ["-version"]],
   ["pdftoppm", ["-v"]],
+  ["pdfinfo", ["-v"]],
+  ["pdftotext", ["-v"]],
 ]) {
   try {
     execFileSync(tool, args, { encoding: "utf8", stdio: "pipe" });
@@ -26,7 +28,7 @@ for (const [tool, args] of [
     else if (!/version/i.test(said)) fail(`${tool} does not run: ${error.message}`);
   }
 }
-// The ADM renderer (decision 140) loads and runs with Debian's Python alone.
+// The ADM renderer (decision 140) loads and runs with Alpine's Python alone.
 try {
   execFileSync("python3", ["-W", "ignore", "-m", "ear.cmdline.render_file", "--help"], {
     encoding: "utf8",
@@ -45,15 +47,30 @@ for (const name of ["PDF_FONT", "PDF_FONT_BOLD", "PDF_FONT_FALLBACK"]) {
 }
 for (const gone of [
   "/bin/sh",
-  "/usr/bin/bash",
-  "/usr/bin/dash",
-  "/usr/bin/apt-get",
-  "/usr/bin/dpkg",
+  "/bin/ash",
+  "/bin/busybox",
+  "/sbin/apk",
   "/usr/local/bin/npm",
   "/usr/bin/pip3",
   "/usr/local/bin/pip3",
 ])
   if (existsSync(gone)) fail(`${gone} is still there`);
+// Only the programs Hekate runs, and the links that name them (decision 244).
+const programs = new Set(["node", "ffmpeg", "ffprobe", "pdfinfo", "pdftoppm", "pdftotext"]);
+for (const dir of ["/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"]) {
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch {
+    continue; // Not in this image.
+  }
+  const other = names.filter((name) => !programs.has(name) && !/^python3(\.\d+)?$/.test(name));
+  if (other.length) fail(`${dir} holds other programs: ${other.join(", ")}`);
+}
+// apk goes, its library too, but its records stay, so scanners still see every package.
+const libapk = readdirSync("/usr/lib").filter((name) => name.startsWith("libapk.so"));
+if (libapk.length) fail(`apk's library is still there: ${libapk.join(", ")}`);
+if (!existsSync("/lib/apk/db/installed")) fail("the package records are gone");
 
 const setuid = [];
 const walk = (dir) => {

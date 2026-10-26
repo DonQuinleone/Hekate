@@ -14,7 +14,7 @@ import { readTrueType } from "./truetype.ts";
 
 const hasPoppler = spawnSync("pdftotext", ["-v"]).status === 0;
 const ci = Boolean(process.env.CI);
-/** DejaVu as CI and the image install it. */
+/** DejaVu where CI's Ubuntu installs it (the image's Alpine has it in /usr/share/fonts/dejavu). */
 const REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 const BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 /** Droid Sans Fallback, for Chinese, Japanese and Korean: CI installs it; elsewhere, say where. */
