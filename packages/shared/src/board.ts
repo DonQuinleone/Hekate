@@ -36,6 +36,38 @@ export const defaultBoardDisplay: BoardDisplay = {
   hidden: [],
 };
 
+/** Setting a project's own arrangement of its board, for those who have not chosen theirs. */
+export const boardDefaultInput = z.object({ display: boardDisplaySchema }).strict();
+export type BoardDefaultInput = z.infer<typeof boardDefaultInput>;
+
+/** Whether two arrangements of a board are the same, hidden columns in any order. */
+export function sameBoardDisplay(a: BoardDisplay, b: BoardDisplay): boolean {
+  const hidden = (d: BoardDisplay) => [...d.hidden].sort().join("\n");
+  return (
+    a.groupBy === b.groupBy &&
+    a.tasks === b.tasks &&
+    a.comments === b.comments &&
+    a.decisions === b.decisions &&
+    a.fields.version === b.fields.version &&
+    a.fields.stage === b.fields.stage &&
+    a.fields.reviewers === b.fields.reviewers &&
+    a.fields.due === b.fields.due &&
+    hidden(a) === hidden(b)
+  );
+}
+
+/**
+ * How someone sees a project's board (decision 256): their own arrangement once they have
+ * chosen one, else the project's default where it has one, else the built-in arrangement.
+ */
+export function boardDisplayFor(
+  own: { board: BoardDisplay; boardChosen: boolean },
+  projectDefault: BoardDisplay | null | undefined,
+): BoardDisplay {
+  if (own.boardChosen) return own.board;
+  return projectDefault ?? defaultBoardDisplay;
+}
+
 /** How a column reads beside its name: not started, under way, or done. */
 export const statusCategories = ["todo", "in_progress", "done"] as const;
 export type ColumnCategory = (typeof statusCategories)[number];
@@ -196,6 +228,8 @@ export interface Board {
   /** Its columns in each grouping. */
   columns: Record<BoardGrouping, BoardColumn[]>;
   cards: BoardCard[];
+  /** The project's default arrangement, for those who have not chosen their own; null for none. */
+  display?: BoardDisplay | null;
 }
 
 const DAY = 86_400_000;

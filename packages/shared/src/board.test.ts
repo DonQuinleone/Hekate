@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   boardColumnOf,
   boardColumns,
+  boardDefaultInput,
+  boardDisplayFor,
+  defaultBoardDisplay,
   NO_STATUS,
   NO_VERSION,
   NOT_AT_A_STAGE,
   projectStatuses,
+  sameBoardDisplay,
   shiftWeeks,
   timelineBar,
   timelineWeeks,
@@ -218,5 +222,39 @@ describe("a project's statuses", () => {
       ],
     });
     expect(twice.success).toBe(false);
+  });
+});
+
+describe("a board's arrangement", () => {
+  const stage = { ...defaultBoardDisplay, groupBy: "stage" as const };
+  const quiet = { ...defaultBoardDisplay, comments: false, hidden: ["Done", "Approved"] };
+
+  it("is the person's own choice, else the project's default, else the built-in one", () => {
+    expect(boardDisplayFor({ board: quiet, boardChosen: true }, stage)).toEqual(quiet);
+    expect(boardDisplayFor({ board: quiet, boardChosen: false }, stage)).toEqual(stage);
+    expect(boardDisplayFor({ board: quiet, boardChosen: false }, null)).toEqual(
+      defaultBoardDisplay,
+    );
+    expect(boardDisplayFor({ board: quiet, boardChosen: false }, undefined)).toEqual(
+      defaultBoardDisplay,
+    );
+  });
+
+  it("is the same whatever order its hidden columns are in", () => {
+    expect(sameBoardDisplay(quiet, { ...quiet, hidden: ["Approved", "Done"] })).toBe(true);
+    expect(sameBoardDisplay(quiet, { ...quiet, hidden: ["Done"] })).toBe(false);
+    expect(sameBoardDisplay(defaultBoardDisplay, stage)).toBe(false);
+    expect(
+      sameBoardDisplay(defaultBoardDisplay, {
+        ...defaultBoardDisplay,
+        fields: { ...defaultBoardDisplay.fields, due: false },
+      }),
+    ).toBe(false);
+  });
+
+  it("is set as a project's default whole, and nothing else", () => {
+    expect(boardDefaultInput.safeParse({ display: stage }).success).toBe(true);
+    expect(boardDefaultInput.safeParse({ display: { groupBy: "stage" } }).success).toBe(false);
+    expect(boardDefaultInput.safeParse({ display: stage, everyone: true }).success).toBe(false);
   });
 });

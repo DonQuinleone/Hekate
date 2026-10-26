@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { boardDisplaySchema, defaultBoardDisplay } from "./board.ts";
+import { boardDisplaySchema, defaultBoardDisplay, sameBoardDisplay } from "./board.ts";
 import { playerViewSchema, viewPresetsSchema } from "./player-view.ts";
 
 /** The languages Hekate's dates and numbers can be shown in; its words are English for now. */
@@ -90,6 +90,11 @@ export const preferencesSchema = z.object({
   viewPresets: viewPresetsSchema,
   /** How they arrange a project's board (#141): its grouping, what cards carry, hidden columns. */
   board: boardDisplaySchema,
+  /**
+   * Whether `board` is an arrangement they chose: until they do (and after Reset), a project's
+   * default arrangement applies where it has one (decision 256).
+   */
+  boardChosen: z.boolean(),
   /** How far the arrow keys move the playhead, in seconds. */
   skipSeconds: z.union(
     skipSteps.map((n) => z.literal(n)) as [z.ZodLiteral<1>, z.ZodLiteral<5>, z.ZodLiteral<10>],
@@ -112,6 +117,7 @@ export const defaultPreferences: Preferences = {
   playerView: null,
   viewPresets: [],
   board: defaultBoardDisplay,
+  boardChosen: false,
   skipSeconds: 5,
   preRoll: 1,
 };
@@ -132,6 +138,10 @@ export function preferencesOf(stored: unknown): Preferences {
       );
       if (parsed.success) (out as Record<string, unknown>)[key] = parsed.data;
     }
+    // Kept before it was recorded whether they chose it: an arrangement other than the
+    // built-in one is theirs.
+    if (!("boardChosen" in stored))
+      out.boardChosen = !sameBoardDisplay(out.board, defaultBoardDisplay);
   }
   return out;
 }

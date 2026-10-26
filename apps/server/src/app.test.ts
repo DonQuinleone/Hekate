@@ -10317,6 +10317,99 @@ describe.runIf(url)("api", () => {
       const request = (cookie: string, projectId: string, body: Record<string, unknown>) =>
         app.request(`/api/projects/${projectId}/reviews`, json(body, cookie));
 
+      it("counts each track's takes in the project's list, for those who may see takes", async () => {
+        const s = await studio();
+        const listPath = `/api/projects/${s.projectId}/tracks`;
+        type Listed = { tracks: { id: string; takes?: number }[] };
+        const listed = async (cookie: string) =>
+          ((await (await getAs(listPath, cookie)).json()) as Listed).tracks;
+        expect((await listed(s.composer))[0]?.takes).toBe(0);
+        const added = await app.request(
+          `/api/tracks/${s.trackId}/takes`,
+          json({ fileIds: [s.artwork] }, s.engineer),
+        );
+        expect(added.status).toBe(201);
+        expect((await listed(s.composer))[0]?.takes).toBe(1);
+        // A role that sees files but not takes is not told how many there are.
+        const made = await app.request(
+          `/api/projects/${s.projectId}/roles`,
+          json({ name: "Listener", permissions: ["view"] }, s.owner),
+        );
+        expect(made.status).toBe(201);
+        const listener = await joinAs(s.owner, "listener-takes@example.test");
+        await grantRole(s.owner, s.projectId, listener, "Listener");
+        const seen = await listed(listener);
+        expect(seen.map((t) => t.id)).toEqual([s.trackId]);
+        expect(seen[0]).not.toHaveProperty("takes");
+        // Someone with no place in the project finds nothing.
+        const outsider = await joinAs(s.owner, "outsider-takes@example.test");
+        expect((await getAs(listPath, outsider)).status).toBe(404);
+      });
+
+      it("keeps a project's board arrangement for those who have not chosen theirs (decision 256)", async () => {
+        const s = await studio();
+        const boardPath = `/api/projects/${s.projectId}/board`;
+        const displayPath = `${boardPath}/display`;
+        const display = {
+          groupBy: "stage",
+          tasks: false,
+          comments: true,
+          decisions: true,
+          fields: { version: true, stage: true, reviewers: false, due: true },
+          hidden: ["Approved"],
+        };
+        const put = (body: unknown, cookie: string, path = displayPath) =>
+          app.request(path, { ...json(body, cookie), method: "PUT" });
+        const shown = async (cookie: string) =>
+          ((await (await getAs(boardPath, cookie)).json()) as { display: unknown }).display;
+        // None until someone sets it.
+        expect(await shown(s.composer)).toBeNull();
+        // Only those who may manage the project set it, and only whole.
+        expect((await put({ display }, s.engineer)).status).toBe(403);
+        expect((await put({ display }, s.composer)).status).toBe(403);
+        expect((await put({ display: { groupBy: "stage" } }, s.owner)).status).toBe(400);
+        const set = await put({ display }, s.owner);
+        expect(set.status).toBe(200);
+        expect(await set.json()).toEqual({ display });
+        // Everyone who sees the board is given it.
+        expect(await shown(s.composer)).toEqual(display);
+        expect(await shown(s.engineer)).toEqual(display);
+        // Someone with no place in the project, and another workspace's project, find nothing.
+        const outsider = await joinAs(s.owner, "outsider-display@example.test");
+        expect((await put({ display }, outsider)).status).toBe(404);
+        expect((await getAs(boardPath, outsider)).status).toBe(404);
+        const [elsewhere] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-board-display" })
+          .returning();
+        const [foreign] = await db
+          .insert(schema.projects)
+          .values({ organisationId: elsewhere?.id ?? "", name: "Theirs", profile: "music" })
+          .returning();
+        expect(
+          (await put({ display }, s.owner, `/api/projects/${foreign?.id}/board/display`)).status,
+        ).toBe(404);
+        const [theirs] = await db
+          .select({ display: schema.projects.boardDisplay })
+          .from(schema.projects)
+          .where(eq(schema.projects.id, foreign?.id ?? ""));
+        expect(theirs?.display).toBeNull();
+        // A person's own choice is kept apart from it, and says it is theirs.
+        const mine = await app.request("/api/me/preferences", {
+          ...json({ board: { ...display, groupBy: "status" }, boardChosen: true }, s.composer),
+          method: "PATCH",
+        });
+        expect(mine.status).toBe(200);
+        const me = (await (await getAs("/api/me", s.composer)).json()) as {
+          user: { preferences: { board: { groupBy: string }; boardChosen: boolean } };
+        };
+        expect(me.user.preferences).toMatchObject({
+          board: { groupBy: "status" },
+          boardChosen: true,
+        });
+        expect(await shown(s.composer)).toEqual(display);
+      });
+
       it("compares two versions: how they line up, what was fixed and new, comments carried (#137)", async () => {
         const s = await studio();
         // A second version, with the cover's audio as its mix.

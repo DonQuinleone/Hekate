@@ -21,6 +21,7 @@ import { type PointerEvent, useEffect, useId, useRef, useState } from "react";
 import { DownloadDialog, ScoresDownloadDialog } from "~/components/downloads";
 import { drawingColour } from "~/components/drawings";
 import { Empty } from "~/components/empty";
+import { GoToField } from "~/components/go-to";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { ProductionNav } from "~/components/production-nav";
@@ -192,8 +193,6 @@ function Marking({
   const [selected, setSelected] = useState<string | null>(null);
   const [placing, setPlacing] = useState<Placing | null>(null);
   const [exporting, setExporting] = useState<"one" | "every" | null>(null);
-  const [goTo, setGoTo] = useState("");
-  const [goToBar, setGoToBar] = useState("");
   /** Where the bar asked for was found, marked for a moment; and what to say of it. */
   const [found, setFound] = useState<{ page: number; y: number } | null>(null);
   const [barNote, setBarNote] = useState<string | null>(null);
@@ -377,44 +376,8 @@ function Marking({
               </Button>
             </span>
           )}
-          <form
-            className="flex items-center gap-1.5"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const n = Number.parseInt(goTo, 10);
-              if (n >= 1) go(n);
-              setGoTo("");
-            }}
-          >
-            <Input
-              size="sm"
-              inputMode="numeric"
-              aria-label="Go to page"
-              placeholder="Go to page"
-              value={goTo}
-              onChange={(e) => setGoTo(e.target.value)}
-              className="w-28"
-            />
-          </form>
-          <form
-            className="flex items-center gap-1.5"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const n = Number.parseInt(goToBar, 10);
-              if (n >= 0) goToBarNumber(n);
-              setGoToBar("");
-            }}
-          >
-            <Input
-              size="sm"
-              inputMode="numeric"
-              aria-label="Go to bar"
-              placeholder="Go to bar"
-              value={goToBar}
-              onChange={(e) => setGoToBar(e.target.value)}
-              className="w-28"
-            />
-          </form>
+          <GoToField label="Go to page" onGo={go} />
+          <GoToField label="Go to bar" min={0} onGo={goToBarNumber} />
           <span className="ml-auto flex flex-wrap items-center justify-end gap-1">
             {edits.length > 0 && (
               <Button variant="ghost" size="sm" onClick={nextEdit}>

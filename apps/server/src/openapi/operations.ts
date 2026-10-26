@@ -895,6 +895,11 @@ export const apiOperations: Record<string, ApiOperation> = {
     summary: "Read a project's board",
     description: "Its tracks and files in columns by status.",
   },
+  "PUT /projects/{id}/board/display": {
+    summary: "Set how a project's board is arranged by default",
+    description:
+      "Its grouping, what the cards carry and the columns put away, for everyone who has not chosen their own. For those who may manage the project.",
+  },
   "GET /projects/{id}/calendar": {
     summary: "Read a project's calendar",
     description: "A month of its sessions, schedule, reviews and tasks.",

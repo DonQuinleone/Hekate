@@ -8,6 +8,7 @@ import {
   auditActorTypes,
   authMethods,
   authResults,
+  type BoardDisplay,
   type CaptionCue,
   type CaptionFormat,
   type CaptionKind,
@@ -532,6 +533,11 @@ export const projects = pgTable(
       .$type<WorkflowStatus[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    /**
+     * How its board is arranged for those who have not chosen their own (decision 256); null
+     * leaves them the built-in arrangement.
+     */
+    boardDisplay: jsonb("board_display").$type<BoardDisplay>(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     ...timestamps,
   },

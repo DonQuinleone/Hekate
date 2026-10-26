@@ -777,7 +777,7 @@ function EdlDialog({
  * Another variation of a version, or a corrected file in place of one: dropped, chosen or
  * picked from the project's loose files.
  */
-function VariationDialog({
+export function VariationDialog({
   track,
   version,
   mode,

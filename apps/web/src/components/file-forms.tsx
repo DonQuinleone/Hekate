@@ -180,3 +180,62 @@ export function MoveForm({
     </form>
   );
 }
+
+/**
+ * The score beside a track's recordings, chosen from the project's PDFs, or none; as its
+ * versions page chooses it, for those who organise.
+ */
+export function ScoreForm({
+  scores,
+  current,
+  pending,
+  onChoose,
+  onCancel,
+}: {
+  scores: ProjectFile[];
+  current: string | null;
+  pending: boolean;
+  onChoose: (scoreFileId: string | null) => void;
+  onCancel: () => void;
+}) {
+  const [to, setTo] = useState(current ?? scores[0]?.id ?? "");
+  if (scores.length === 0)
+    return (
+      <span className="flex flex-wrap items-center gap-2">
+        <span className="text-[13px] text-ink-2">No score: upload its PDF to link one.</span>
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Close
+        </Button>
+      </span>
+    );
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        onChoose(to || null);
+      }}
+      className="flex flex-wrap items-center gap-2"
+      aria-label="Link a score"
+    >
+      <Select
+        aria-label="Score"
+        className="max-w-72"
+        value={to}
+        onChange={(e) => setTo(e.target.value)}
+      >
+        {current && <option value="">No score</option>}
+        {scores.map((f) => (
+          <option key={f.id} value={f.id}>
+            {f.name}
+          </option>
+        ))}
+      </Select>
+      <Button size="sm" type="submit" disabled={pending || to === (current ?? "")}>
+        {to ? "Link" : "Unlink"}
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onCancel}>
+        Cancel
+      </Button>
+    </form>
+  );
+}

@@ -136,6 +136,27 @@ export function latestFile(track: Track): string | null {
   );
 }
 
+/** What a track's row offers as the one thing it most wants next. */
+export type TrackNext = "add" | "replace" | "deliver" | "review";
+
+/**
+ * The one thing a track most wants next, as the prototype's file list offers it, for someone
+ * who may do it: its first version; a file to replace where its latest could not be read;
+ * delivering it once approved; or a review, unless one is under way. Null for none.
+ */
+export function trackNext(
+  track: Track,
+  may: { upload: boolean; organise: boolean; download: boolean; requestReviews: boolean },
+): TrackNext | null {
+  const latest = track.versions.at(-1);
+  const file = latestFile(track);
+  if (!latest && may.upload) return "add";
+  if (latest?.variations.some((v) => v.streamStatus === "failed") && may.organise) return "replace";
+  if (file && track.state === "approved" && may.download) return "deliver";
+  if (file && may.requestReviews && track.state !== "in_review") return "review";
+  return null;
+}
+
 /** Someone's marks, by `kind:id`, for quick lookups. */
 export interface MarkIndex {
   pinned: Set<string>;

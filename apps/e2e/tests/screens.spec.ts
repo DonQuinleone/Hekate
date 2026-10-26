@@ -2977,6 +2977,49 @@ test("project-files-attach", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A track's row: its quick ways in on hover (the player, versions and notes, takes, what it
+// wants next), and its menu with comparing, sharing and its score.
+test("project-files-track-actions", async ({ page }, info) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  const row = page.locator("main li[data-key^='track:']", { hasText: "Maple Leaf Rag" }).first();
+  if (info.project.name !== "phone") {
+    await row.hover();
+    await expect(row.getByRole("link", { name: "Versions and notes" })).toBeVisible();
+    await expect(row.getByRole("link", { name: "Takes" })).toBeVisible();
+  }
+  await page.getByRole("button", { name: "Actions for Maple Leaf Rag", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Share…" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Link a score…" })).toBeVisible();
+  await saveScreen(page, "project-files-track-actions");
+  await checkScreen(page);
+});
+
+// Sharing from a row starts with that track chosen, in the same dialog as the reviews page's.
+test("project-files-share", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("button", { name: "Actions for Maple Leaf Rag", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Share…" }).click();
+  await settle(page, "[role=dialog] >> text=What");
+  await saveScreen(page, "project-files-share");
+  await checkScreen(page);
+});
+
+// Choosing a track's score from its row, among the project's PDFs.
+test("project-files-link-score", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("button", { name: "Actions for Maple Leaf Rag", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Link a score…" }).click();
+  await settle(page, "main form[aria-label='Link a score']");
+  await saveScreen(page, "project-files-link-score");
+  await checkScreen(page);
+});
+
 // The details sheet opens only when asked for.
 test("file-without-details", async ({ page }, info) => {
   test.skip(info.project.name === "phone", "Once is enough");
@@ -3227,6 +3270,24 @@ test("project-board-customise", async ({ page }) => {
   await expect(page.getByRole("dialog", { name: "Customise the board" })).toBeVisible();
   await saveScreen(page, "project-board-customise");
   await checkScreen(page);
+});
+
+// Arranged otherwise, whoever may manage the project can make it the project's default
+// (decision 256). Reset puts the owner's own arrangement back for the screens after.
+test("project-board-default", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/board`);
+  await settle(page, "main >> text=Maple Leaf Rag");
+  await page.getByRole("button", { name: "Customise" }).click();
+  const panel = page.getByRole("dialog", { name: "Customise the board" });
+  await panel.getByRole("switch", { name: "Tasks" }).click();
+  try {
+    await expect(panel.getByRole("button", { name: "Set as the project's default" })).toBeVisible();
+    await saveScreen(page, "project-board-default");
+    await checkScreen(page);
+  } finally {
+    await panel.getByRole("button", { name: "Reset" }).click();
+  }
 });
 
 // The project's timeline (#141): each track from its latest version to its review's due date.

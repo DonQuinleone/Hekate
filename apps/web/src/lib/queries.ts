@@ -9,6 +9,7 @@ import {
   type BillingOverview,
   type BillingReports,
   type Board,
+  type BoardDisplay,
   type CalendarEvent,
   type CaptionFormat,
   type CaptionKind,
@@ -2363,6 +2364,8 @@ export interface Track {
   /** In a project's track list: where it stands, and who it waits on while in review. */
   state?: TrackState;
   waitingOn?: OverviewPerson[];
+  /** In a project's track list, for those who may see takes: how many it has. */
+  takes?: number;
 }
 
 export const projectTracksQuery = (projectId: string) =>
@@ -5245,6 +5248,29 @@ export const projectBoardQuery = (projectId: string) =>
     // Transitions made elsewhere (a decision, a stage ended) show within seconds.
     refetchInterval: 15_000,
   });
+
+/**
+ * Set the project's own arrangement of its board (decision 256), for those who may manage the
+ * project: what everyone sees until they choose theirs.
+ */
+export function useSetBoardDefault(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (display: BoardDisplay) =>
+      (
+        await json<{ display: BoardDisplay }>(
+          await api.projects[":id"].board.display.$put({
+            param: { id: projectId },
+            json: { display },
+          }),
+        )
+      ).display,
+    onSuccess: (display) =>
+      client.setQueryData(projectBoardQuery(projectId).queryKey, (board) =>
+        board ? { ...board, display } : board,
+      ),
+  });
+}
 
 /** A month of a project's calendar (#141), and whether the viewer has a feed of it. */
 export const projectCalendarQuery = (projectId: string, month: string) =>

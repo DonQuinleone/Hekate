@@ -6689,6 +6689,156 @@
         }
       }
     },
+    "/projects/{id}/board/display": {
+      "put": {
+        "operationId": "putProjectsIdBoardDisplay",
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "Set how a project's board is arranged by default",
+        "description": "Its grouping, what the cards carry and the columns put away, for everyone who has not chosen their own. For those who may manage the project.\n\nNeeds the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "display": {
+                    "type": "object",
+                    "properties": {
+                      "groupBy": {
+                        "type": "string",
+                        "enum": [
+                          "status",
+                          "stage"
+                        ]
+                      },
+                      "tasks": {
+                        "type": "boolean"
+                      },
+                      "comments": {
+                        "type": "boolean"
+                      },
+                      "decisions": {
+                        "type": "boolean"
+                      },
+                      "fields": {
+                        "type": "object",
+                        "properties": {
+                          "version": {
+                            "type": "boolean"
+                          },
+                          "stage": {
+                            "type": "boolean"
+                          },
+                          "reviewers": {
+                            "type": "boolean"
+                          },
+                          "due": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "version",
+                          "stage",
+                          "reviewers",
+                          "due"
+                        ]
+                      },
+                      "hidden": {
+                        "maxItems": 50,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 120
+                        }
+                      }
+                    },
+                    "required": [
+                      "groupBy",
+                      "tasks",
+                      "comments",
+                      "decisions",
+                      "fields",
+                      "hidden"
+                    ]
+                  }
+                },
+                "required": [
+                  "display"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "display": {
+                  "groupBy": "status",
+                  "tasks": true,
+                  "comments": true,
+                  "decisions": true,
+                  "fields": {
+                    "version": true,
+                    "stage": true,
+                    "reviewers": true,
+                    "due": true
+                  },
+                  "hidden": [
+                    "Masters"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
     "/projects/{id}/calendar": {
       "get": {
         "operationId": "getProjectsIdCalendar",

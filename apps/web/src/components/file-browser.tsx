@@ -2,12 +2,14 @@ import {
   capital,
   defaultFileColumns,
   descendantsOf,
+  downloadLevelOf,
   type FileColumn,
   type FileColumnLayout,
   fileChains,
   folderPath,
   formatBytes,
   formatDuration,
+  isPdf,
   type MarkKind,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -46,6 +48,7 @@ import {
   pinnedFirst,
   processingStage,
   rangeBetween,
+  trackNext,
   unviewed,
   versionSummary,
   versionsOf,
@@ -61,6 +64,7 @@ import {
   projectFilesQuery,
   projectFoldersQuery,
   projectMarksQuery,
+  projectQuery,
   projectTracksQuery,
   type Tag,
   type Track,
@@ -70,19 +74,25 @@ import {
   useMarks,
   useOrganise,
   useProjectCan,
+  useProjectTool,
   useRetryFile,
   useTagMutations,
   useTrackMutations,
+  type Version,
 } from "~/lib/queries";
+import { swappedSummary } from "~/lib/score-swap";
 import { useShortcuts } from "~/lib/shortcuts";
 import { Avatar, AvatarRow } from "./avatar";
+import { DownloadDialog } from "./downloads";
 import { Empty } from "./empty";
 import { ColumnHeading, ColumnsMenu, columnNames } from "./file-columns";
 import { FilterChips, FilterMenu, TagEditor } from "./file-filters";
-import { AttachForm, destinations, MoveForm, RenameForm } from "./file-forms";
+import { AttachForm, destinations, MoveForm, RenameForm, ScoreForm } from "./file-forms";
 import { fileSummary, kindIcon, UploadButton, UploadList } from "./files";
 import { Icon, type IconName } from "./icons";
 import { Card } from "./page";
+import { ShareDialog } from "./share";
+import { VariationDialog } from "./track-versions";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/choice";
 import { Input } from "./ui/input";
@@ -128,20 +138,21 @@ const itemIcon = (item: Item): IconName =>
  * What is being done to one item: renaming it, choosing where it goes, tagging it, or
  * confirming its removal.
  */
-type Editing = { id: string; mode: "rename" | "move" | "tags" | "attach" | "delete" } | null;
+type Editing = {
+  id: string;
+  mode: "rename" | "move" | "tags" | "attach" | "score" | "delete";
+} | null;
 
-/** A quick way in, shown when its row is hovered or focused. */
-function Quick({ fileId, icon, label }: { fileId: string; icon: IconName; label: string }) {
+/** A row's quick ways in and actions, shown when it is hovered or focused. */
+const quickClass =
+  "flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised hover:text-ink";
+
+/** A quick action on a row that stays on the page: a dialog, a download. */
+function Quick({ icon, label, onClick }: { icon: IconName; label: string; onClick: () => void }) {
   return (
-    <Link
-      to="/files/$fileId"
-      params={{ fileId }}
-      aria-label={label}
-      title={label}
-      className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised hover:text-ink"
-    >
+    <button type="button" aria-label={label} title={label} onClick={onClick} className={quickClass}>
       <Icon name={icon} size={14} />
-    </Link>
+    </button>
   );
 }
 
@@ -306,6 +317,12 @@ export function FileBrowser({
   const { data: tagList } = useQuery(tagsQuery);
   const { data: me } = useQuery(meQuery);
   const can = useProjectCan(projectId);
+  const tool = useProjectTool(projectId);
+  const { data: project } = useQuery(projectQuery(projectId));
+  // An archived project is looked at, not worked on: comparing goes with the rest (#131).
+  const live = Boolean(project && !project.archivedAt);
+  /** Members download as their role allows (#136); the dialog says what is on offer. */
+  const mayDownload = downloadLevelOf(project?.permissions ?? []) !== "none";
   const organise = useOrganise(projectId);
   const trackMutations = useTrackMutations(projectId);
   const setMarks = useMarks(projectId);
@@ -338,6 +355,12 @@ export function FileBrowser({
   const [view, setView] = useState<View>(storedView);
   const [naming, setNaming] = useState<"folder" | "track" | null>(null);
   const [requesting, setRequesting] = useState(false);
+  /** What is being shared from its row (`track:<id>` or `file:<id>`), downloaded, or replaced. */
+  const [sharing, setSharing] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState<{ fileId: string; name: string } | null>(null);
+  const [replacing, setReplacing] = useState<{ track: Track; version: Version } | null>(null);
+  /** What linking another score did to the marks on the old one. */
+  const [scoreNote, setScoreNote] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<Editing>(null);
   const [columnPath, setColumnPath] = useState<Item[]>([]);
@@ -617,6 +640,7 @@ export function FileBrowser({
     retry.error ??
     trackMutations.createTrack.error ??
     trackMutations.updateTrack.error ??
+    trackMutations.chooseScore.error ??
     trackMutations.createVersion.error ??
     trackMutations.addVariation.error;
 
@@ -691,6 +715,15 @@ export function FileBrowser({
           "divider",
           { label: "Rename", onSelect: () => setEditing({ id: item.id, mode: "rename" }) },
           { label: "Move to…", onSelect: () => setEditing({ id: item.id, mode: "move" }) },
+          // The score beside its recordings, as its versions page links one (#52).
+          ...(item.kind === "track" && !video
+            ? [
+                {
+                  label: "Link a score…",
+                  onSelect: () => setEditing({ id: item.id, mode: "score" }),
+                },
+              ]
+            : []),
           ...(item.kind === "file"
             ? [{ label: "Tags…", onSelect: () => setEditing({ id: item.id, mode: "tags" }) }]
             : []),
@@ -715,10 +748,25 @@ export function FileBrowser({
               ]),
         ]
       : [];
-    const about: (MenuAction | "divider")[] =
-      item.kind === "file"
+    // Comparing as the track's page offers it; sharing as the project's reviews page does.
+    const aboutItem: MenuAction[] = [
+      ...(item.kind === "track" && live && item.track.versions.length > 1 && tool("compare")
         ? [
-            "divider",
+            {
+              label: `Compare ${words.versions}`,
+              onSelect: () =>
+                void navigate({
+                  to: "/tracks/$trackId/compare",
+                  params: { trackId: item.track.id },
+                }),
+            },
+          ]
+        : []),
+      ...(item.kind !== "folder" && can("request_reviews")
+        ? [{ label: "Share…", onSelect: () => setSharing(key) }]
+        : []),
+      ...(item.kind === "file"
+        ? [
             {
               label: "Details",
               onSelect: () =>
@@ -729,7 +777,9 @@ export function FileBrowser({
                 }),
             },
           ]
-        : [];
+        : []),
+    ];
+    const about: (MenuAction | "divider")[] = aboutItem.length ? ["divider", ...aboutItem] : [];
     const recovering: (MenuAction | "divider")[] = failedFile
       ? ["divider", { label: "Try preparing again", onSelect: () => retry.mutate(failedFile.id) }]
       : [];
@@ -767,6 +817,27 @@ export function FileBrowser({
             tagging.setOnFile.mutate(
               { fileId: item.file.id, tagIds },
               { onSuccess: () => setEditing(null) },
+            )
+          }
+          onCancel={() => setEditing(null)}
+        />
+      );
+    }
+    if (editing.mode === "score" && item.kind === "track") {
+      return (
+        <ScoreForm
+          scores={allFiles.filter((f) => isPdf(f.name, f.contentType))}
+          current={item.track.scoreFileId}
+          pending={trackMutations.chooseScore.isPending}
+          onChoose={(scoreFileId) =>
+            trackMutations.chooseScore.mutate(
+              { id: item.track.id, scoreFileId },
+              {
+                onSuccess: ({ rehomed }) => {
+                  setEditing(null);
+                  setScoreNote(rehomed ? swappedSummary(rehomed) : null);
+                },
+              },
             )
           }
           onCancel={() => setEditing(null)}
@@ -1014,6 +1085,142 @@ export function FileBrowser({
     return item.kind === "file" ? fileSummary(item.file) : undefined;
   };
 
+  /**
+   * A row's quick ways in, as the prototype has them: a track opens in the player, its
+   * versions and notes, and its takes; then the one thing it most wants next (its first
+   * version, a file to replace, delivering it once approved, or a review). A file opens, or
+   * downloads. Each for those who may, as the page it leads to decides.
+   */
+  const quickActions = (item: Item): ReactNode[] => {
+    const icon = (name: IconName) => <Icon name={name} size={14} />;
+    if (item.kind === "file") {
+      const f = item.file;
+      return [
+        <Link
+          key="open"
+          to="/files/$fileId"
+          params={{ fileId: f.id }}
+          aria-label="Open"
+          title="Open"
+          className={quickClass}
+        >
+          {icon("eye")}
+        </Link>,
+        ...(mayDownload
+          ? [
+              <Quick
+                key="download"
+                icon="download"
+                label="Download"
+                onClick={() => setDownloading({ fileId: f.id, name: f.name })}
+              />,
+            ]
+          : []),
+      ];
+    }
+    if (item.kind !== "track") return [];
+    const t = item.track;
+    const latest = t.versions.at(-1);
+    const fileId = latestFile(t);
+    const out: ReactNode[] = [];
+    if (fileId)
+      out.push(
+        <Link
+          key="play"
+          to="/files/$fileId"
+          params={{ fileId }}
+          aria-label="Open in the player"
+          title="Open in the player"
+          className={quickClass}
+        >
+          {icon("play")}
+        </Link>,
+      );
+    const notes = `${capital(words.versions)} and notes`;
+    out.push(
+      <Link
+        key="versions"
+        to="/tracks/$trackId"
+        params={{ trackId: t.id }}
+        search={{ view: "versions" }}
+        aria-label={notes}
+        title={notes}
+        className={quickClass}
+      >
+        {icon("list")}
+      </Link>,
+    );
+    if ((t.takes ?? 0) > 0 && can("view_takes") && !video)
+      out.push(
+        <Link
+          key="takes"
+          to="/tracks/$trackId"
+          params={{ trackId: t.id }}
+          search={{ view: "takes" }}
+          aria-label="Takes"
+          title="Takes"
+          className={quickClass}
+        >
+          {icon("take")}
+        </Link>,
+      );
+    const next = trackNext(t, {
+      upload: can("upload"),
+      organise: manage,
+      download: mayDownload,
+      requestReviews: can("request_reviews"),
+    });
+    if (next === "add") {
+      const first = `Add the first ${words.version}`;
+      out.push(
+        <Link
+          key="add"
+          to="/tracks/$trackId"
+          params={{ trackId: t.id }}
+          search={{ view: "versions" }}
+          aria-label={first}
+          title={first}
+          className={quickClass}
+        >
+          {icon("upload")}
+        </Link>,
+      );
+    } else if (next === "replace" && latest) {
+      out.push(
+        <Quick
+          key="replace"
+          icon="refresh"
+          label="Replace the file"
+          onClick={() => setReplacing({ track: t, version: latest })}
+        />,
+      );
+    } else if (next === "deliver" && fileId) {
+      out.push(
+        <Quick
+          key="deliver"
+          icon="download"
+          label="Deliver"
+          onClick={() => setDownloading({ fileId, name: fileById.get(fileId)?.name ?? t.name })}
+        />,
+      );
+    } else if (next === "review") {
+      out.push(
+        <Link
+          key="review"
+          to="/projects/$projectId/reviews/new"
+          params={{ projectId }}
+          search={{ item: `track:${t.id}` }}
+          aria-label="Request a review"
+          title="Request a review"
+          className={quickClass}
+        >
+          {icon("review")}
+        </Link>,
+      );
+    }
+    return out;
+  };
+
   const row = (item: Item, place?: Place) => {
     const open = editing?.id === item.id;
     const cells = (
@@ -1035,8 +1242,7 @@ export function FileBrowser({
         ))}
       </>
     );
-    const quickFile =
-      item.kind === "track" ? latestFile(item.track) : item.kind === "file" ? item.file.id : null;
+    const quick = open ? [] : quickActions(item);
     return (
       <li
         key={item.id}
@@ -1059,13 +1265,9 @@ export function FileBrowser({
         <div className={rowGrid} style={gridVars}>
           {cells}
           <span className="flex items-center justify-end gap-0.5">
-            {quickFile && !open && (
-              <span className="hidden opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @3xl/app:flex">
-                <Quick
-                  fileId={quickFile}
-                  icon={item.kind === "track" ? "play" : "eye"}
-                  label={item.kind === "track" ? "Open in the player" : "Open"}
-                />
+            {quick.length > 0 && (
+              <span className="hidden items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @3xl/app:flex">
+                {quick}
               </span>
             )}
             {!open && menu(item)}
@@ -1184,6 +1386,24 @@ export function FileBrowser({
         </div>
       </div>
 
+      {sharing && (
+        <ShareDialog projectId={projectId} item={sharing} onClose={() => setSharing(null)} />
+      )}
+      {downloading && (
+        <DownloadDialog
+          fileId={downloading.fileId}
+          name={downloading.name}
+          onClose={() => setDownloading(null)}
+        />
+      )}
+      {replacing && (
+        <VariationDialog
+          track={replacing.track}
+          version={replacing.version}
+          mode="replace"
+          onClose={() => setReplacing(null)}
+        />
+      )}
       {requesting && (
         <UploadRequestDialog
           projectId={projectId}
@@ -1233,6 +1453,9 @@ export function FileBrowser({
       )}
       {filtered && <FilterChips filters={filters} tags={tags} onChange={onFilter} />}
       {failure && <p className="m-0 text-[13px] text-signal">{failure.message}</p>}
+      <p role="status" className={cn("m-0 text-[13px] text-ink-3", !scoreNote && "sr-only")}>
+        {scoreNote}
+      </p>
 
       <UploadList />
 

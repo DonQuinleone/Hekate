@@ -25,6 +25,7 @@ import {
   rangeBetween,
   resizeColumn,
   toggleColumn,
+  trackNext,
   variationNameFor,
   versionSummary,
   versionsOf,
@@ -294,5 +295,39 @@ describe("variationNameFor", () => {
     expect(variationNameFor("Maple Leaf Rag - Dry v3.wav", "Maple Leaf Rag")).toBe("Dry v3");
     expect(variationNameFor("Stems.zip", "Maple Leaf Rag")).toBe("Stems");
     expect(variationNameFor("Maple Leaf Rag.wav", "Maple Leaf Rag")).toBe("Maple Leaf Rag");
+  });
+});
+
+describe("a track's next step", () => {
+  const all = { upload: true, organise: true, download: true, requestReviews: true };
+  const none = { upload: false, organise: false, download: false, requestReviews: false };
+  const at = (state: Track["state"], streamStatus = "ready") => {
+    const t = track("Maple Leaf Rag", null, [[1, ["mix1"]]]);
+    for (const v of t.versions[0]?.variations ?? []) Object.assign(v, { streamStatus });
+    return { ...t, state };
+  };
+
+  it("is its first version, for those who upload", () => {
+    const empty = { ...track("Joplin Rags", null, []), state: "no_version" as const };
+    expect(trackNext(empty, all)).toBe("add");
+    expect(trackNext(empty, { ...all, upload: false })).toBeNull();
+  });
+
+  it("is a new file where its latest could not be read, for those who organise", () => {
+    expect(trackNext(at("not_reviewed", "failed"), all)).toBe("replace");
+    // Without that, what follows still applies.
+    expect(trackNext(at("not_reviewed", "failed"), { ...all, organise: false })).toBe("review");
+  });
+
+  it("is delivering it once approved, for those who download", () => {
+    expect(trackNext(at("approved"), all)).toBe("deliver");
+    expect(trackNext(at("approved"), { ...all, download: false })).toBe("review");
+  });
+
+  it("is a review, unless one is under way or they may not ask", () => {
+    expect(trackNext(at("not_reviewed"), all)).toBe("review");
+    expect(trackNext(at("changes_requested"), all)).toBe("review");
+    expect(trackNext(at("in_review"), all)).toBeNull();
+    expect(trackNext(at("not_reviewed"), none)).toBeNull();
   });
 });
