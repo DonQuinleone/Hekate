@@ -21,11 +21,13 @@ import { MenuList, usePopover } from "~/components/ui/menu";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
+import { type Connection, connectionOf, connectionWords } from "~/lib/connection";
 import { useDensitySync } from "~/lib/density";
 import { docsUrl } from "~/lib/links";
 import { localeKey, setLocale } from "~/lib/locale";
 import {
   fileQuery,
+  healthQuery,
   instanceAccessQuery,
   type MyReview,
   meQuery,
@@ -618,6 +620,41 @@ function TopBar({
   );
 }
 
+/**
+ * The sidebar's foot (the prototype's Shell): whether the app reaches its server, and the
+ * server's version, from the health check. Losing the server turns it to the signal colour and
+ * says so; it clears on its own once the server answers again.
+ */
+function ConnectionFoot({ connection, collapsed }: { connection: Connection; collapsed: boolean }) {
+  const words = connectionWords[connection.state];
+  const lost = connection.state === "unreachable" || connection.state === "degraded";
+  const version = "version" in connection ? connection.version : null;
+  return (
+    <output
+      aria-live="polite"
+      title={version ? `${words} · Hekate ${version}` : words}
+      className={cn(
+        "flex h-6 items-center gap-2 px-2.5 text-[11px]",
+        lost ? "text-signal" : "text-ink-3",
+        collapsed && "justify-center px-0",
+      )}
+    >
+      <StateDot
+        state={lost ? "major" : "operational"}
+        className={cn(!lost && "size-[5px] bg-ink-3", connection.state === "checking" && "breathe")}
+      />
+      {collapsed ? (
+        <span className="sr-only">{words}</span>
+      ) : (
+        <>
+          <span className="truncate">{words}</span>
+          {version && <span className="tabular ml-auto shrink-0 text-ink-3">{version}</span>}
+        </>
+      )}
+    </output>
+  );
+}
+
 export function Shell({ children }: { children: ReactNode }) {
   const { data: signedIn } = useQuery(meQuery);
   // Dates and numbers in the member's language (else the workspace's) and time zone; the page
@@ -636,6 +673,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const section = pathname.split("/")[3] ?? "";
   const { data: instanceAccess } = useQuery(instanceAccessQuery);
+  const health = useQuery(healthQuery);
+  const connection = connectionOf(health.data, health.isError);
   const atInstance = pathname === "/instance" || pathname.startsWith("/instance/");
   const instanceView = atInstance ? pathname.split("/")[2] || "overview" : "";
   const instanceNav =
@@ -865,6 +904,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {!collapsed && <span>Collapse</span>}
           </button>
           <WorkspaceMenu collapsed={collapsed} />
+          <ConnectionFoot connection={connection} collapsed={collapsed} />
         </div>
       </nav>
 
@@ -913,6 +953,16 @@ export function Shell({ children }: { children: ReactNode }) {
                   </Link>
                 ))}
               </nav>
+            )}
+            {/* A phone has no sidebar foot, so losing the server says so above the page. */}
+            {(connection.state === "unreachable" || connection.state === "degraded") && (
+              <p
+                role="status"
+                className="m-0 flex shrink-0 items-center gap-2 border-b border-line px-4 py-2 text-[13px] text-ink-2 @3xl/app:hidden"
+              >
+                <StateDot state="major" />
+                {connectionWords[connection.state]}. Trying again.
+              </p>
             )}
             <main className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-auto">{page}</main>
           </HeaderSlotsProvider>

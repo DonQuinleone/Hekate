@@ -846,11 +846,19 @@ export interface WorkflowRunSummary {
   waiting: { nodeId: string; name: string; type: NodeType }[];
   steps: {
     nodeId: string | null;
+    /** The step's name as the run's workflow had it; null for the trigger that started it. */
+    name: string | null;
+    /** Its kind, for how its outcome reads; null for the trigger, or a step since removed. */
+    type: NodeType | null;
     outcome: string | null;
     effects: WorkflowEffect[];
     byUserId: string | null;
+    /** Who ended the step, by name, where someone did; null where Hekate moved it on. */
+    byName: string | null;
     at: string;
   }[];
+  /** Who started the run, by name, where someone did (a version uploaded, a start by hand). */
+  startedBy: string | null;
   startedAt: string;
   endedAt: string | null;
 }

@@ -11,8 +11,9 @@ import { TicketDialog, TicketRow } from "~/components/tickets";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
-import { ActionMenu } from "~/components/ui/menu";
+import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
 import {
+  type AccessEvent,
   accessLog,
   categories,
   deliveryProfiles,
@@ -20,6 +21,7 @@ import {
   fileById,
   newReference,
   organisation,
+  people,
   personById,
   projects,
   reviewById,
@@ -180,7 +182,6 @@ export function SettingsPage({
   const [adding, setAdding] = useState(false);
   const [channelKind, setChannelKind] = useState("Resend");
   const [leak, setLeak] = useState<"idle" | "scanning" | "match" | "none">("idle");
-  const [logFilter, setLogFilter] = useState("");
   // An OAuth client's menu (#447): who has connected it, or its secret rotated (shown once).
   const [clientDialog, setClientDialog] = useState<{
     name: string;
@@ -193,7 +194,6 @@ export function SettingsPage({
       <Refused title="Not for your role" text="Workspace settings are for owners and admins." />
     );
   const sec = sections.some((s) => s.id === section) ? section : "general";
-  const log = accessLog.filter((e) => !logFilter || e.action.includes(logFilter));
   return (
     <SettingsLayout
       title={sections.find((x) => x.id === sec)?.label ?? organisation.name}
@@ -1524,65 +1524,7 @@ export function SettingsPage({
           </Section>
         </>
       )}
-      {sec === "log" && (
-        <Section
-          title="Access log"
-          intro="Every key issue, stream, page render, download, guest sign-in, decision and export."
-          action={
-            <span className="flex gap-1">
-              <Select
-                value={logFilter}
-                onChange={(e) => setLogFilter(e.target.value)}
-                className="h-8 w-40 text-[13px]"
-              >
-                <option value="">Every action</option>
-                <option value="stream">Streams</option>
-                <option value="page">Page renders</option>
-                <option value="download">Downloads</option>
-                <option value="review">Decisions</option>
-                <option value="guest">Guest sign-ins</option>
-                <option value="audit">Exports</option>
-              </Select>
-              <Button variant="secondary" size="md">
-                Export CSV
-              </Button>
-            </span>
-          }
-        >
-          {state === "empty" || log.length === 0 ? (
-            <div className="p-6">
-              <Empty
-                title="Nothing logged"
-                text="Entries appear as people open, play, render and download."
-              />
-            </div>
-          ) : (
-            log.map((e) => (
-              <div
-                key={e.id}
-                className="grid grid-cols-[120px_minmax(0,1fr)] items-center gap-3 px-4 py-2 text-[13px] @3xl/app:grid-cols-[130px_150px_minmax(0,1fr)_150px_110px]"
-              >
-                <span className="tabular text-ink-3">{formatDateTime(e.at)}</span>
-                <span className="flex items-center gap-2 truncate text-ink">
-                  <span className="rounded-chip bg-raised px-1.5 text-[12px] text-ink-2">
-                    {e.action}
-                  </span>
-                </span>
-                <span className="hidden truncate text-ink-2 @3xl/app:block">
-                  {e.personId ? personById(e.personId).name : "Someone"}
-                  {e.guest ? " (guest)" : ""}
-                  {e.fileId ? ` · ${fileById(e.fileId)?.name}` : ""}
-                  {e.reviewId ? ` · ${reviewById(e.reviewId)?.title}` : ""}
-                </span>
-                <span className="tabular hidden truncate text-ink-3 @3xl/app:block">
-                  {e.address}
-                </span>
-                <span className="hidden truncate text-ink-3 @3xl/app:block">{e.agent}</span>
-              </div>
-            ))
-          )}
-        </Section>
-      )}
+      {sec === "log" && <AccessLogSection empty={state === "empty"} />}
       {sec === "operations" && (
         <>
           <Section title="This instance">
@@ -1900,5 +1842,241 @@ export function SettingsPage({
       )}
       <Label className="hidden">end</Label>
     </SettingsLayout>
+  );
+}
+
+/** The prototype's "now", for how far back the log's time filter reaches. */
+const LOG_NOW = Date.parse("2026-10-14T21:00:00Z");
+const logActions = [
+  ["stream", "Streams"],
+  ["page", "Page renders"],
+  ["download", "Downloads"],
+  ["review", "Decisions"],
+  ["guest", "Guest sign-ins"],
+  ["audit", "Exports"],
+] as const;
+const logSince = [
+  ["day", "Past day", 1],
+  ["week", "Past week", 7],
+  ["month", "Past month", 30],
+] as const;
+type LogFilters = {
+  action?: string;
+  projectId?: string;
+  fileId?: string;
+  reviewId?: string;
+  personId?: string;
+  since?: string;
+};
+type LogKey = keyof LogFilters;
+const logKeys: LogKey[] = ["action", "projectId", "fileId", "reviewId", "personId", "since"];
+const logIcons = {
+  action: "list",
+  projectId: "folder",
+  fileId: "file",
+  reviewId: "review",
+  personId: "user",
+  since: "clock",
+} as const;
+const projectOf = (e: AccessEvent) =>
+  (e.fileId && fileById(e.fileId)?.projectId) ||
+  (e.reviewId && reviewById(e.reviewId)?.projectId) ||
+  undefined;
+
+/**
+ * The access log (#30): every key issue, stream, page render, download, guest sign-in, decision
+ * and export, narrowed by project, file, review, person, action and time. The Filter control
+ * holds the choices that can be listed; a file or a review is chosen from an entry's menu. The
+ * filters in force are chips above the entries, each removable, as on the files page.
+ */
+function AccessLogSection({ empty }: { empty: boolean }) {
+  const [filters, setFilters] = useState<LogFilters>({});
+  const [open, setOpen, box] = usePopover();
+  const without = (key: LogKey) => {
+    const { [key]: _gone, ...rest } = filters;
+    return rest;
+  };
+  const set = (key: LogKey, value: string) =>
+    setFilters(value ? { ...filters, [key]: value } : without(key));
+  const days = logSince.find(([id]) => id === filters.since)?.[2];
+  const log = accessLog.filter(
+    (e) =>
+      (!filters.action || e.action.includes(filters.action)) &&
+      (!filters.projectId || projectOf(e) === filters.projectId) &&
+      (!filters.fileId || e.fileId === filters.fileId) &&
+      (!filters.reviewId || e.reviewId === filters.reviewId) &&
+      (!filters.personId || e.personId === filters.personId) &&
+      (!days || Date.parse(e.at) >= LOG_NOW - days * 86_400_000),
+  );
+  const active = logKeys.filter((key) => filters[key]);
+  const chipLabel = (key: LogKey) => {
+    const value = filters[key] ?? "";
+    if (key === "action") return logActions.find(([id]) => id === value)?.[1] ?? value;
+    if (key === "projectId") return projects.find((p) => p.id === value)?.name ?? "A project";
+    if (key === "fileId") return fileById(value)?.name ?? "A file";
+    if (key === "reviewId") return reviewById(value)?.title ?? "A review";
+    if (key === "personId") return personById(value).name;
+    return logSince.find(([id]) => id === value)?.[1] ?? value;
+  };
+  const entryActions = (e: AccessEvent): MenuAction[] => [
+    ...(e.personId
+      ? [
+          {
+            label: e.guest ? "Only this guest" : "Only this person",
+            onSelect: () => set("personId", e.personId ?? ""),
+          },
+        ]
+      : []),
+    ...(e.fileId
+      ? [{ label: "Only this file", onSelect: () => set("fileId", e.fileId ?? "") }]
+      : []),
+    ...(e.reviewId
+      ? [{ label: "Only this review", onSelect: () => set("reviewId", e.reviewId ?? "") }]
+      : []),
+    ...(projectOf(e)
+      ? [{ label: "Only this project", onSelect: () => set("projectId", projectOf(e) ?? "") }]
+      : []),
+  ];
+  return (
+    <Section
+      title="Access log"
+      intro="Every key issue, stream, page render, download, guest sign-in, decision and export."
+      action={
+        <span className="flex gap-1">
+          <div ref={box} className="relative">
+            <Button
+              variant="ghost"
+              size="md"
+              aria-expanded={open}
+              aria-haspopup="dialog"
+              onClick={() => setOpen(!open)}
+              className={active.length ? "text-ink" : "text-ink-3"}
+            >
+              <Icon name="filter" size={14} />
+              Filter
+              {active.length > 0 && (
+                <span className="tabular rounded-full bg-raised px-1.5 text-[11px] text-ink-2">
+                  {active.length}
+                </span>
+              )}
+            </Button>
+            {open && (
+              <div
+                role="dialog"
+                aria-label="Filter entries"
+                className="rise-in absolute right-0 z-30 mt-1 flex w-72 flex-col gap-3 rounded-panel-lg bg-overlay p-3 shadow-4"
+              >
+                {(
+                  [
+                    [
+                      "action",
+                      "Action",
+                      "Every action",
+                      logActions.map(([id, label]) => [id, label]),
+                    ],
+                    ["projectId", "Project", "Any project", projects.map((p) => [p.id, p.name])],
+                    ["personId", "Person", "Anyone", people.map((p) => [p.id, p.name])],
+                    ["since", "When", "Any time", logSince.map(([id, label]) => [id, label])],
+                  ] as const
+                ).map(([key, label, any, choices]) => (
+                  <label key={key} className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                    {label}
+                    <Select value={filters[key] ?? ""} onChange={(e) => set(key, e.target.value)}>
+                      <option value="">{any}</option>
+                      {choices.map(([id, name]) => (
+                        <option key={id} value={id}>
+                          {name}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                ))}
+                <p className="m-0 text-[12px] text-ink-3">
+                  For one file or review, choose it from an entry's menu.
+                </p>
+                {active.length > 0 && (
+                  <div className="border-t border-line pt-2">
+                    <Button variant="ghost" size="sm" onClick={() => setFilters({})}>
+                      Clear filters
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          <Button variant="secondary" size="md">
+            Export CSV
+          </Button>
+        </span>
+      }
+    >
+      {active.length > 0 && (
+        <ul
+          aria-label="Filters"
+          className="m-0 flex list-none flex-wrap items-center gap-1.5 border-b border-line px-4 py-2"
+        >
+          {active.map((key) => (
+            <li
+              key={key}
+              className="flex h-7 items-center gap-1.5 rounded-full border border-line bg-raised/40 pr-1 pl-2.5 text-[12px] text-ink-2"
+            >
+              <Icon name={logIcons[key]} size={12} className="text-ink-3" />
+              <span className="max-w-56 truncate">{chipLabel(key)}</span>
+              <button
+                type="button"
+                aria-label={`Remove the filter ${chipLabel(key)}`}
+                onClick={() => setFilters(without(key))}
+                className="flex size-6 items-center justify-center rounded-full text-ink-3 hover:bg-raised hover:text-ink"
+              >
+                <Icon name="close" size={11} />
+              </button>
+            </li>
+          ))}
+          <li>
+            <Button variant="ghost" size="sm" onClick={() => setFilters({})}>
+              Clear
+            </Button>
+          </li>
+        </ul>
+      )}
+      {empty || log.length === 0 ? (
+        <div className="p-6">
+          {active.length > 0 && !empty ? (
+            <Empty
+              title="No entries match"
+              text="Nothing logged matches these filters. Remove one to see more."
+            />
+          ) : (
+            <Empty
+              title="Nothing logged"
+              text="Entries appear as people open, play, render and download."
+            />
+          )}
+        </div>
+      ) : (
+        log.map((e) => (
+          <div
+            key={e.id}
+            className="group grid grid-cols-[120px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2 text-[13px] @3xl/app:grid-cols-[130px_150px_minmax(0,1fr)_150px_110px_auto]"
+          >
+            <span className="tabular text-ink-3">{formatDateTime(e.at)}</span>
+            <span className="flex items-center gap-2 truncate text-ink">
+              <span className="rounded-chip bg-raised px-1.5 text-[12px] text-ink-2">
+                {e.action}
+              </span>
+            </span>
+            <span className="hidden truncate text-ink-2 @3xl/app:block">
+              {e.personId ? personById(e.personId).name : "Someone"}
+              {e.guest ? " (guest)" : ""}
+              {e.fileId ? ` · ${fileById(e.fileId)?.name}` : ""}
+              {e.reviewId ? ` · ${reviewById(e.reviewId)?.title}` : ""}
+            </span>
+            <span className="tabular hidden truncate text-ink-3 @3xl/app:block">{e.address}</span>
+            <span className="hidden truncate text-ink-3 @3xl/app:block">{e.agent}</span>
+            <ActionMenu label={`the entry at ${formatDateTime(e.at)}`} actions={entryActions(e)} />
+          </div>
+        ))
+      )}
+    </Section>
   );
 }

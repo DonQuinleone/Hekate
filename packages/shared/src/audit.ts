@@ -174,6 +174,11 @@ export const auditActions = [
   "support.attachment_download",
   /** A project's downloads and deletion changed (decision 257): who may download, originals, deleting, marking. */
   "project.asset_security",
+  /**
+   * Someone corrected a recording's embedded metadata (decision 264): each field changed, what
+   * it said and now says. The original is untouched; downloads carry the corrections.
+   */
+  "file.metadata_edit",
 ] as const;
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;
@@ -188,6 +193,8 @@ export const auditQuery = z.object({
   fileId: z.uuid().optional(),
   reviewId: z.uuid().optional(),
   userId: z.string().min(1).max(64).optional(),
+  /** A guest's entries, as a person filter picks them from an entry (decision 263). */
+  guestId: z.uuid().optional(),
   action: auditAction.optional(),
   from: z.iso.datetime({ offset: true }).optional(),
   to: z.iso.datetime({ offset: true }).optional(),

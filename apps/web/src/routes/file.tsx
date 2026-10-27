@@ -1,13 +1,10 @@
 import {
-  admHeading,
-  admLine,
   type CaptionTrack,
   fileStart,
   formatBytes,
   formatChannels,
   formatDuration,
   type MediaInfo,
-  metadataRows,
   type QaFinding,
   type ReviewerTool,
   videoClock,
@@ -38,6 +35,7 @@ import { Icon } from "~/components/icons";
 import { ListeningNotice, ListenTogether, useListeningSync } from "~/components/listening";
 import { Loudness } from "~/components/loudness";
 import { ImportMarkersDialog } from "~/components/marker-import";
+import { EmbeddedMetadataPanel } from "~/components/metadata";
 import { type Crumb, PageHeader } from "~/components/page-header";
 import { CommentsSplitter, PanelPlacement } from "~/components/panel-placement";
 import { Player, PlayerStrip } from "~/components/player";
@@ -600,30 +598,20 @@ export function FilePage({
     <Loudness fileId={file.id} media={media} layout={file.mediaInfo.audio.channelLayout} />
   );
   const metadata = file.mediaInfo?.metadata && (
-    <section aria-label="Embedded metadata" className="flex flex-col gap-3 pt-2">
-      <h2 className="m-0 text-[15px] font-medium">Embedded metadata</h2>
-      <dl className="m-0 flex flex-col border-t border-hairline">
-        {metadataRows(file.mediaInfo.metadata, file.mediaInfo.audio?.sampleRate).map(
-          ([term, value]) => (
-            <div
-              key={term}
-              className="grid grid-cols-[minmax(0,140px)_1fr] gap-x-6 border-b border-hairline py-2.5"
-            >
-              <dt className="label">{term}</dt>
-              <dd className="tabular m-0 truncate text-[13px] text-ink-2" title={value}>
-                {value}
-              </dd>
-            </div>
-          ),
-        )}
-      </dl>
-      {file.mediaInfo.metadata.adm && (
-        <div className="flex flex-col gap-1 pt-1">
-          <h3 className="label m-0">{admHeading(file.mediaInfo.metadata.adm)}</h3>
-          <p className="m-0 text-[13px] text-ink-2">{admLine(file.mediaInfo.metadata.adm)}</p>
-        </div>
-      )}
-    </section>
+    <EmbeddedMetadataPanel
+      fileId={file.id}
+      metadata={file.mediaInfo.metadata}
+      sampleRate={file.mediaInfo.audio?.sampleRate}
+      // A recording's metadata can be corrected (decision 264), by whoever organises its files
+      // and has QA, where they have turned the editor on.
+      editor={
+        !guest &&
+        file.kind === "audio" &&
+        preferences.showMetadataEditor &&
+        allows("qa") &&
+        can("organise")
+      }
+    />
   );
   /** The track's score, where it is linked and this viewer has it: shown from the strip. */
   const hasScore = Boolean(

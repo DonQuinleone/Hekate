@@ -152,6 +152,7 @@ export function createAudit(db: Database): Audit {
         f.fileId ? eq(accessEvents.fileId, f.fileId) : undefined,
         f.reviewId ? eq(accessEvents.reviewId, f.reviewId) : undefined,
         f.userId ? eq(accessEvents.userId, f.userId) : undefined,
+        f.guestId ? eq(accessEvents.guestId, f.guestId) : undefined,
         f.action ? eq(accessEvents.action, f.action) : undefined,
         f.from ? gte(accessEvents.occurredAt, new Date(f.from)) : undefined,
         f.to ? lte(accessEvents.occurredAt, new Date(f.to)) : undefined,

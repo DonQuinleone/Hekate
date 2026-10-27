@@ -963,8 +963,12 @@ export function WorkflowCanvas({
             )}
           </div>
 
-          {/* Zoom */}
-          <div className="absolute bottom-3 left-3 flex items-center gap-0.5 rounded-control border border-line bg-overlay p-0.5 shadow-2">
+          {/* Zoom. It floats over the canvas, as a canvas's controls do: a stage panned under
+              it is covered on purpose (data-e2e-layer), not crowded. */}
+          <div
+            data-e2e-layer
+            className="absolute bottom-3 left-3 flex items-center gap-0.5 rounded-control border border-line bg-overlay p-0.5 shadow-2"
+          >
             <Button
               variant="quiet"
               size="iconSm"
@@ -1388,6 +1392,7 @@ function Minimap({
     : null;
   return (
     <svg
+      data-e2e-layer
       role="img"
       aria-label="Map of the canvas"
       width={W}

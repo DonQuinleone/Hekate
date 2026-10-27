@@ -433,6 +433,35 @@ function SideLink({
   );
 }
 
+/**
+ * The sidebar's foot: whether the app reaches the API, and Hekate's version. Losing the API
+ * turns the line to the signal colour and says so; it reads again on its own.
+ */
+function Connection({ collapsed, offline }: { collapsed: boolean; offline: boolean }) {
+  const words = offline ? "API unreachable" : "Connected";
+  return (
+    <output
+      aria-live="polite"
+      title={`${words} · Hekate 0.2.0`}
+      className={cn(
+        "flex h-6 items-center gap-2 px-2.5 text-[11px]",
+        offline ? "text-signal" : "text-ink-3",
+        collapsed && "justify-center px-0",
+      )}
+    >
+      <Dot state={offline ? "changes_requested" : "passed"} />
+      {collapsed ? (
+        <span className="sr-only">{words}</span>
+      ) : (
+        <>
+          <span className="truncate">{words}</span>
+          <span className="tabular ml-auto text-ink-3">0.2.0</span>
+        </>
+      )}
+    </output>
+  );
+}
+
 export function Shell({ children }: { children: ReactNode }) {
   const viewer = useViewer();
   const [collapsed, setCollapsed] = useCollapsed();
@@ -685,6 +714,7 @@ export function Shell({ children }: { children: ReactNode }) {
             {!collapsed && <span>Collapse</span>}
           </button>
           <WorkspaceMenu collapsed={collapsed} />
+          <Connection collapsed={collapsed} offline={viewer.settings.state === "offline"} />
         </div>
       </nav>
 
@@ -735,6 +765,16 @@ export function Shell({ children }: { children: ReactNode }) {
                 </Link>
               ))}
             </nav>
+          )}
+          {/* On a phone there is no sidebar foot, so losing the API says so above the page. */}
+          {viewer.settings.state === "offline" && (
+            <p
+              role="status"
+              className="m-0 flex shrink-0 items-center gap-2 border-b border-line px-4 py-2 text-[13px] text-ink-2 @3xl/app:hidden"
+            >
+              <Dot state="changes_requested" />
+              API unreachable. Trying again.
+            </p>
           )}
           <main className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
           {/* A listening room in reach away from the file pages, whose header holds it (#200). */}

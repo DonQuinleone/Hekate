@@ -53,6 +53,7 @@ const screens = [
   },
   { name: "invitation", route: "/invite" },
   { name: "guest-link", route: "/guest/link" },
+  { name: "guest-link-gone", route: "/guest/link", state: "expired" },
   { name: "guest-home", route: "/g", persona: "guest" },
   { name: "status", route: "/status" },
   { name: "status-incident", route: "/status", state: "failed" },
@@ -61,6 +62,16 @@ const screens = [
   // 3.2 Home and navigation
   { name: "home", route: "/" },
   { name: "help-menu", route: "/", steps: [{ click: 'role=button[name="Help"]' }] },
+  {
+    name: "search-fields",
+    route: "/search",
+    steps: [
+      { click: "role=button[name=/^Fields/]" },
+      { fill: ['[aria-label="Duration, in minutes, at least"]', "1"] },
+      { click: 'role=button[name="Apply"]' },
+    ],
+  },
+  { name: "shell-offline", route: "/", state: "offline" },
   {
     name: "palette",
     route: "/projects/proj-joplin",
@@ -118,6 +129,11 @@ const screens = [
 
   // 3.4 Music
   { name: "takes", route: "/tracks/t-maple?view=takes" },
+  {
+    name: "track-history",
+    route: "/tracks/t-maple?view=versions",
+    steps: [{ scroll: "History" }],
+  },
   { name: "recording", route: "/files/file-maple-v2-dry" },
   {
     name: "recording-spectrogram",
@@ -221,6 +237,16 @@ const screens = [
   { name: "org-storage", route: "/settings/storage" },
   { name: "org-leaks", route: "/settings/leaks" },
   { name: "org-access-log", route: "/settings/log" },
+  {
+    name: "org-access-log-filters",
+    route: "/settings/log",
+    steps: [
+      { click: "role=button[name=/^Filter/]" },
+      {
+        select: ['role=dialog[name="Filter entries"] >> label:has-text("Person") select', "p-mira"],
+      },
+    ],
+  },
   { name: "org-operations", route: "/settings/operations" },
   { name: "account-tokens", route: "/account/tokens" },
   { name: "account-apps", route: "/account/apps" },

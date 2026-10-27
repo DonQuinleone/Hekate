@@ -16,6 +16,7 @@ const states: { id: ScreenState; label: string }[] = [
   { id: "refused", label: "Refused" },
   { id: "expired", label: "Expired" },
   { id: "long", label: "Long names and lists" },
+  { id: "offline", label: "API unreachable" },
 ];
 
 /**

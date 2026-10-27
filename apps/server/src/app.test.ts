@@ -7084,6 +7084,41 @@ describe.runIf(url)("api", () => {
         ).json()) as Page;
         expect(forFile.events).toHaveLength(4);
         expect((await get("/api/organisation/audit?action=nonsense", owner)).status).toBe(400);
+
+        // By project, review, person (a member or a guest) and time (decision 263), together
+        // with the rest, and never another workspace's entries for the same ids.
+        const projectId = "01999999-0000-7000-8000-0000000000a1";
+        const reviewId = "01999999-0000-7000-8000-0000000000b1";
+        const guestId = "01999999-0000-7000-8000-0000000000c1";
+        const guest = { type: "guest" as const, label: "Mira Solberg (guest)", guestId };
+        await audit.record(organisationId, guest, {
+          action: "stream.key",
+          projectId,
+          reviewId,
+          fileId: fileB,
+        });
+        await audit.record(organisationId, me, { action: "review.decision", projectId, reviewId });
+        await audit.record(other?.id ?? "", guest, { action: "stream.key", projectId, reviewId });
+        const count = async (query: string) =>
+          ((await (await get(`/api/organisation/audit?${query}`, owner)).json()) as Page).events
+            .length;
+        expect(await count(`projectId=${projectId}`)).toBe(2);
+        expect(await count(`reviewId=${reviewId}&action=stream.key`)).toBe(1);
+        expect(await count(`guestId=${guestId}`)).toBe(1);
+        expect(await count(`userId=${me.userId}`)).toBe(7);
+        expect(await count(`guestId=${guestId}&fileId=${fileA}`)).toBe(0);
+        const hour = 60 * 60 * 1000;
+        const since = new Date(Date.now() - hour).toISOString();
+        const until = new Date(Date.now() - 2 * hour).toISOString();
+        expect(await count(`from=${encodeURIComponent(since)}`)).toBe(8);
+        expect(await count(`to=${encodeURIComponent(until)}`)).toBe(0);
+        expect((await get("/api/organisation/audit?guestId=someone", owner)).status).toBe(400);
+        expect((await get("/api/organisation/audit?from=yesterday", owner)).status).toBe(400);
+        // The export takes the same filters.
+        const csv = await (
+          await get(`/api/organisation/audit.csv?guestId=${guestId}`, owner)
+        ).text();
+        expect(csv.trim().split("\r\n")).toHaveLength(2);
       });
 
       it("names the file each entry touched, and nothing for one it cannot find", async () => {
@@ -11733,6 +11768,100 @@ describe.runIf(url)("api", () => {
         expect(await list(s.owner)).toEqual([]);
       });
 
+      it("searches files by duration, size, frame rate and what their comments say (decision 263)", async () => {
+        const s = await studio();
+        type Found = { results: { kind: string; label: string }[] };
+        const find = async (query: string, cookie = s.owner) => {
+          const res = await getAs(`/api/search?${query}`, cookie);
+          expect(res.status).toBe(200);
+          return ((await res.json()) as Found).results.map((r) => `${r.kind}:${r.label}`).sort();
+        };
+        // A five-minute cut at 23.976, of 2 GB, beside the studio's two one-minute mixes.
+        const blob = await storage.put(s.organisationId, Buffer.from("cut"));
+        const [cut] = await db
+          .insert(schema.files)
+          .values({
+            organisationId: s.organisationId,
+            projectId: s.projectId,
+            name: "Opening titles - Cut 3.mp4",
+            kind: "video",
+            blobId: blob.id,
+            contentType: "video/mp4",
+            byteSize: 2_000_000_000,
+            mediaInfo: {
+              duration: 300,
+              video: { codec: "h264", width: 1920, height: 1080, fps: 23.976023976 },
+            },
+          })
+          .returning();
+        await app.request(
+          `/api/files/${cut?.id}/comments`,
+          json({ body: "The titles flicker at the cut." }, s.owner),
+        );
+        await app.request(
+          `/api/files/${s.mix}/comments`,
+          json({ body: "Lovely balance in the bridge." }, s.owner),
+        );
+
+        expect(await find("durationMin=120")).toEqual(["files:Opening titles - Cut 3.mp4"]);
+        expect(await find("durationMax=90")).toEqual(["files:Cover.wav", "files:Mix v1.wav"]);
+        expect(await find("durationMin=30&durationMax=90&q=mix")).toEqual(["files:Mix v1.wav"]);
+        expect(await find("sizeMin=1000000000")).toEqual(["files:Opening titles - Cut 3.mp4"]);
+        expect(await find("sizeMax=1000000")).toEqual(["files:Cover.wav", "files:Mix v1.wav"]);
+        // A frame rate as people say it matches the rate measured, and no other.
+        expect(await find("frameRate=23.976")).toEqual(["files:Opening titles - Cut 3.mp4"]);
+        expect(await find("frameRate=25")).toEqual([]);
+        // What comments say: the comments, and the files they are on.
+        expect(await find("commentText=flicker")).toEqual([
+          "comments:The titles flicker at the cut.",
+          "files:Opening titles - Cut 3.mp4",
+        ]);
+        expect(await find("commentText=balance&kind=files")).toEqual(["files:Mix v1.wav"]);
+        // Fields and words narrow together; a field leaves only files.
+        expect(await find("q=maple&durationMin=1")).toEqual([]);
+        expect(await find("q=opening&frameRate=23.976&fileKind=video")).toEqual([
+          "files:Opening titles - Cut 3.mp4",
+        ]);
+        // A saved search keeps its fields.
+        const saved = await app.request(
+          "/api/search/saved",
+          json(
+            { name: "Long cuts", search: { q: "", durationMin: 120, frameRate: 23.976 } },
+            s.owner,
+          ),
+        );
+        expect(saved.status).toBe(201);
+        expect(((await saved.json()) as { saved: { search: unknown } }).saved.search).toEqual({
+          q: "",
+          durationMin: 120,
+          frameRate: 23.976,
+        });
+        // Values that are not numbers, or out of range, are refused.
+        for (const bad of ["durationMin=-1", "sizeMax=big", "frameRate=0", "commentText="])
+          expect((await getAs(`/api/search?${bad}`, s.owner)).status).toBe(400);
+        // A member without a role in the project finds none of it, nor another workspace.
+        const newcomer = await joinAs(s.owner, "newcomer-fields@example.test");
+        expect(await find("durationMin=1", newcomer)).toEqual([]);
+        expect(await find("commentText=flicker", newcomer)).toEqual([]);
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Saltmarsh Films", slug: "saltmarsh-search-fields" })
+          .returning({ id: schema.organisations.id });
+        await db
+          .insert(schema.members)
+          .values({ organisationId: other?.id ?? "", userId: await idOf(newcomer), role: "owner" });
+        expect(
+          (
+            await app.request("/api/me/organisation", {
+              ...json({ organisationId: other?.id }, newcomer),
+              method: "PUT",
+            })
+          ).status,
+        ).toBe(200);
+        expect(await find("durationMin=1", newcomer)).toEqual([]);
+        expect(await find("commentText=flicker", newcomer)).toEqual([]);
+      });
+
       describe("notifications", () => {
         type Listed = {
           notifications: { id: string; kind: string; actorName: string | null; text: string }[];
@@ -16290,6 +16419,19 @@ describe.runIf(url)("api", () => {
             ["edit", "done"],
             ["rest", "elapsed"],
           ]);
+          // The track's history of transitions: each step by its name, and who moved it on,
+          // where someone did; the wait that elapsed was Hekate's.
+          const named = (await runs())[0] as unknown as {
+            startedBy: string | null;
+            steps: { name: string | null; byName: string | null }[];
+          };
+          expect(named.startedBy).toBe("Producer");
+          expect(named.steps.map((st) => [st.name, st.byName])).toEqual([
+            [null, "Producer"],
+            ["Conductor", "Producer"],
+            ["Engineer edits", "engineer"],
+            ["Let it rest", null],
+          ]);
           expect(await statusOf()).toBe("Approved");
 
           // The next version starts it again; it is not started by hand.
@@ -16360,6 +16502,27 @@ describe.runIf(url)("api", () => {
             404,
           );
           expect((await step({ nodeId: "fb", outcome: "done" }, newcomer)).status).toBe(404);
+          // Nor does the owner of another workspace.
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Saltmarsh Films", slug: "saltmarsh-workflow-runs" })
+            .returning({ id: schema.organisations.id });
+          await db.insert(schema.members).values({
+            organisationId: elsewhere?.id ?? "",
+            userId: await idOf(newcomer),
+            role: "owner",
+          });
+          expect(
+            (
+              await app.request("/api/me/organisation", {
+                ...json({ organisationId: elsewhere?.id }, newcomer),
+                method: "PUT",
+              })
+            ).status,
+          ).toBe(200);
+          expect((await getAs(`/api/tracks/${s.trackId}/workflow-runs`, newcomer)).status).toBe(
+            404,
+          );
         });
 
         it("carries a run on from a version it waits for, even once its workflow is off (#25)", async () => {

@@ -343,6 +343,17 @@ export const apiOperations: Record<string, ApiOperation> = {
     produces: ["application/pdf", "text/csv", "application/json"],
   },
   "PUT /files/{id}/tags": { summary: "Set a file's tags" },
+  "GET /files/{id}/metadata": {
+    summary: "Read a recording's metadata corrections",
+    description:
+      "The fields that may be corrected in a file of its format (bext, iXML or tags), the corrections made so far beside what the file itself says, and whether the token's member may correct them. For those with the QA tool on the file.",
+  },
+  "PUT /files/{id}/metadata": {
+    summary: "Correct a recording's metadata",
+    description:
+      "Sets or clears the fields named. The original is never rewritten: the corrections are Hekate's record, QA reads with them, and a download of the original writes them in. For those who may organise the project's files and have the QA tool; each change is logged.",
+    request: { changes: { description: "Maple Leaf Rag, take 3", originator: null } },
+  },
   "POST /files/{id}/retry": {
     summary: "Prepare a file again",
     description: "After its preparation failed. For those who may upload to its project.",

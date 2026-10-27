@@ -35,6 +35,7 @@ import {
   type MailMode,
   type MailProvider,
   type MediaInfo,
+  type MetadataCorrections,
   mailResults,
   type NormalisationMode,
   type NotificationChannels,
@@ -116,6 +117,15 @@ import { uuidv7 } from "./id.ts";
  * language match as typed). Indexed as an expression, and queried with the same one.
  */
 export const searchVector = (text: SQL) => sql`to_tsvector('simple', ${text})`;
+
+/**
+ * A file's measured duration in seconds and a video's frame rate, as advanced search reads them
+ * (decision 263): from its media info, indexed as these expressions and queried with the same.
+ */
+export const fileDuration = (mediaInfo: SQL | AnyPgColumn) =>
+  sql<number>`((${mediaInfo}->>'duration')::double precision)`;
+export const fileFrameRate = (mediaInfo: SQL | AnyPgColumn) =>
+  sql<number>`((${mediaInfo}->'video'->>'fps')::double precision)`;
 
 const id = () =>
   uuid("id")
@@ -1380,6 +1390,13 @@ export const files = pgTable(
     /** Measured by the media worker; null until the file has been probed. */
     mediaInfo: jsonb("media_info").$type<MediaInfo>(),
     /**
+     * Corrections to a recording's embedded metadata (decision 264): each field's value and
+     * what the file itself says. `mediaInfo.metadata` already reads with them; the stored
+     * original is never rewritten, and a download writes them into the file as it leaves.
+     * Null where nothing was corrected.
+     */
+    metadataCorrections: jsonb("metadata_corrections").$type<MetadataCorrections>(),
+    /**
      * A video's filmstrip (#16): its frames at even steps along it, side by side in one
      * encrypted picture; null for anything else, or a video packaged before there was one.
      */
@@ -1415,6 +1432,10 @@ export const files = pgTable(
     index("files_project_folder_idx").on(t.projectId, t.folderId),
     index("files_take_idx").on(t.takeId),
     index("files_blob_idx").on(t.blobId),
+    // Advanced search by field (decision 263).
+    index("files_size_idx").on(t.organisationId, t.byteSize),
+    index("files_duration_idx").on(t.organisationId, fileDuration(t.mediaInfo)),
+    index("files_frame_rate_idx").on(t.organisationId, fileFrameRate(t.mediaInfo)),
   ],
 );
 
@@ -1820,6 +1841,7 @@ export const accessEvents = pgTable(
     index("access_events_user_idx").on(t.organisationId, t.userId, t.id),
     index("access_events_review_idx").on(t.organisationId, t.reviewId, t.id),
     index("access_events_project_idx").on(t.organisationId, t.projectId, t.id),
+    index("access_events_guest_idx").on(t.organisationId, t.guestId, t.id),
   ],
 );
 

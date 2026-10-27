@@ -91,7 +91,80 @@ const actionWords = {
   "project.croom_import": "ControlRoom project imported",
   "support.attachment_download": "Ticket attachment downloaded",
   "project.asset_security": "Project downloads and deletion changed",
+  "file.metadata_edit": "Embedded metadata corrected",
 } satisfies Record<AuditAction, string>;
 
 /** Plain words for what each entry records; every action has some, or this does not compile. */
 export const actionCopy: Record<string, string> = actionWords;
+
+/** How far back the log's time filter reaches. */
+export const logSince = ["day", "week", "month", "year"] as const;
+export type LogSince = (typeof logSince)[number];
+
+export const logSinceLabels: Record<LogSince, string> = {
+  day: "Past day",
+  week: "Past week",
+  month: "Past month",
+  year: "Past year",
+};
+
+const DAY = 24 * 60 * 60 * 1000;
+const sinceDays: Record<LogSince, number> = { day: 1, week: 7, month: 30, year: 365 };
+
+/**
+ * What narrows the access log (decision 263): an action, a project, a file, a review, a person
+ * (a member or a guest) and how far back. A file, a review and a guest are picked from an entry.
+ */
+export interface LogFilters {
+  action?: string;
+  projectId?: string;
+  fileId?: string;
+  reviewId?: string;
+  userId?: string;
+  guestId?: string;
+  since?: LogSince;
+}
+
+export type LogFilterKey = keyof LogFilters;
+
+/** The order filters show in, as chips. */
+export const logFilterKeys: LogFilterKey[] = [
+  "action",
+  "projectId",
+  "fileId",
+  "reviewId",
+  "userId",
+  "guestId",
+  "since",
+];
+
+/**
+ * The query the log is read with: each filter set, and a time filter as the moment it starts,
+ * worked out when the log is read (so a page left open reads its own past day).
+ */
+export function logQuery(filters: LogFilters, now = Date.now()): Record<string, string> {
+  const query: Record<string, string> = {};
+  for (const key of logFilterKeys) {
+    const value = filters[key];
+    if (!value) continue;
+    if (key === "since")
+      query.from = new Date(now - sinceDays[value as LogSince] * DAY).toISOString();
+    else query[key] = value;
+  }
+  return query;
+}
+
+/** Whether any filter is set. */
+export const filtered = (filters: LogFilters) => logFilterKeys.some((key) => filters[key]);
+
+/** The filters with one taken away. */
+export function without(filters: LogFilters, key: LogFilterKey): LogFilters {
+  const { [key]: _gone, ...rest } = filters;
+  return rest;
+}
+
+/** The address of the log's CSV export, with the filters the page shows. */
+export function exportUrl(filters: LogFilters, now = Date.now()): string {
+  const query = new URLSearchParams(logQuery(filters, now)).toString();
+  return `/api/organisation/audit.csv${query ? `?${query}` : ""}`;
+}

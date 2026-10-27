@@ -90,7 +90,8 @@ export function metadataRows(
     );
   }
   if (ixml) {
-    add("iXML", `${formatBytes(ixml.bytes)} embedded`);
+    // A correction can give a recording iXML it did not have: its size is known as it leaves.
+    if (ixml.bytes > 0) add("iXML", `${formatBytes(ixml.bytes)} embedded`);
     add("Project", ixml.project);
     add("Scene", ixml.scene);
     add("Take", ixml.take);

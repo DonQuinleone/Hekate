@@ -190,6 +190,7 @@ import {
   type WorkflowInput,
   type WorkflowNotices,
   type WorkflowRunInspection,
+  type WorkflowRunSummary,
   type WorkflowStanding,
   type WorkflowStatus,
   type WorkflowSummary,
@@ -213,7 +214,9 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { type LogFilters, logQuery } from "./access-log";
 import { api } from "./api";
+import type { Health } from "./connection";
 import { notMemberAddress } from "./hosts";
 import { outboxStore } from "./outbox-store";
 import { baseOf, outcomeOf, type PendingWrite, rolledAt } from "./take-outbox";
@@ -266,17 +269,19 @@ export async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/**
+ * The server's health, as the shell's foot shows it: read every half minute, and every ten
+ * seconds while it cannot be reached, so the foot clears soon after the server is back. An
+ * answer that is not the health check's (a proxy's error page) counts as no answer.
+ */
 export const healthQuery = queryOptions({
   queryKey: ["health"],
-  queryFn: async () => {
+  queryFn: async (): Promise<Health> => {
     const res = await api.health.$get();
-    return (await res.json()) as {
-      status: "ok" | "degraded";
-      version: string;
-      database: "ok" | "unreachable";
-    };
+    return (await res.json()) as Health;
   },
-  refetchInterval: 30_000,
+  retry: 1,
+  refetchInterval: (query) => (query.state.status === "error" ? 10_000 : 30_000),
 });
 
 export interface Me {
@@ -1481,6 +1486,7 @@ export interface AccessEvent {
   action: string;
   actorType: "member" | "guest" | "system";
   userId: string | null;
+  guestId: string | null;
   actorLabel: string;
   projectId: string | null;
   fileId: string | null;
@@ -1493,22 +1499,13 @@ export interface AccessEvent {
   details: Record<string, unknown> | null;
 }
 
-export interface AccessLogFilters {
-  action?: string;
-  projectId?: string;
-  fileId?: string;
-}
-
-/** The access log, newest first, a page at a time. */
-export const accessLogQuery = (filters: AccessLogFilters) =>
+/** The access log, newest first, a page at a time, narrowed as the filters say (decision 263). */
+export const accessLogQuery = (filters: LogFilters) =>
   infiniteQueryOptions({
     queryKey: ["organisation", "audit", filters],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
-      const query: Record<string, string> = { limit: "50" };
-      if (filters.action) query.action = filters.action;
-      if (filters.projectId) query.projectId = filters.projectId;
-      if (filters.fileId) query.fileId = filters.fileId;
+      const query: Record<string, string> = { limit: "50", ...logQuery(filters) };
       if (pageParam) query.before = pageParam;
       return json<{ events: AccessEvent[]; nextBefore: string | null }>(
         await api.organisation.audit.$get({ query }),
@@ -2517,6 +2514,18 @@ export const trackStandingQuery = (trackId: string) =>
       json<WorkflowStanding>(
         await api.tracks[":id"]["workflow-standing"].$get({ param: { id: trackId } }),
       ),
+  });
+
+/** A track's workflow runs (#25), newest first, each with its history of transitions. */
+export const trackWorkflowRunsQuery = (trackId: string) =>
+  queryOptions({
+    queryKey: ["tracks", trackId, "workflow-runs"],
+    queryFn: async () =>
+      (
+        await json<{ runs: WorkflowRunSummary[] }>(
+          await api.tracks[":id"]["workflow-runs"].$get({ param: { id: trackId } }),
+        )
+      ).runs,
   });
 
 /** A track's takes (#21, #46), in order. */
@@ -4293,7 +4302,9 @@ export const searchQuery = (search: SearchRequest) =>
     queryFn: async () => {
       const { q, ...filters } = search;
       // Only the filters that are set reach the address.
-      const query = Object.fromEntries(Object.entries({ q, ...filters }).filter(([, v]) => v));
+      const query = Object.fromEntries(
+        Object.entries({ q, ...filters }).flatMap(([k, v]) => (v ? [[k, String(v)]] : [])),
+      );
       // Read through the shared schema, so a change to the contract shows here at once.
       return searchResponse.parse(await json(await api.search.$get({ query }))).results;
     },

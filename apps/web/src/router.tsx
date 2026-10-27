@@ -915,6 +915,13 @@ const searchPageSchema = z.object({
   fileKind: z.enum(fileKinds).optional().catch(undefined),
   tagId: z.uuid().optional().catch(undefined),
   since: z.enum(searchSince).optional().catch(undefined),
+  // By field (decision 263): seconds, bytes, frames per second and what comments say.
+  durationMin: z.coerce.number().positive().max(86_400).optional().catch(undefined),
+  durationMax: z.coerce.number().positive().max(86_400).optional().catch(undefined),
+  sizeMin: z.coerce.number().int().positive().max(1e15).optional().catch(undefined),
+  sizeMax: z.coerce.number().int().positive().max(1e15).optional().catch(undefined),
+  frameRate: z.coerce.number().positive().max(1000).optional().catch(undefined),
+  commentText: z.string().trim().min(1).max(200).optional().catch(undefined),
 });
 const searchPage = createRoute({
   getParentRoute: () => app,

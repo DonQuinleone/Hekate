@@ -43,6 +43,7 @@ export * from "./mail-bounces.ts";
 export * from "./mcp.ts";
 export * from "./media.ts";
 export * from "./metadata.ts";
+export * from "./metadata-edit.ts";
 export * from "./midi-timecode.ts";
 export * from "./normalisation.ts";
 export * from "./notifications.ts";

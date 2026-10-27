@@ -18,6 +18,8 @@ import {
   formatBytes,
   isPdf,
   type MediaInfo,
+  type MetadataCorrections,
+  metadataFormatOf,
   rateLimits,
   type ScoreMarkKind,
   scoresDownloadInput,
@@ -51,7 +53,9 @@ import {
   markInThread,
   mixArgs,
   splicedWave,
+  waveData,
 } from "../media/forensic-audio.ts";
+import { carriesCorrections, correctedWave, retagArgs, tagArgs } from "../media/metadata-write.ts";
 import {
   IMAGE_DEMUXERS,
   MAX_PAGES,
@@ -145,6 +149,8 @@ type FileRow = {
   projectId: string;
   pageCount: number | null;
   mediaInfo: MediaInfo | null;
+  /** Corrections to its embedded metadata, written in as it leaves (decision 264). */
+  metadataCorrections: MetadataCorrections | null;
 };
 
 /** What the actor may download of a file: their role's level, or what their reviews grant. */
@@ -169,6 +175,7 @@ async function fileOf(db: Database, organisationId: string, fileId: string): Pro
       projectId: files.projectId,
       pageCount: files.pageCount,
       mediaInfo: files.mediaInfo,
+      metadataCorrections: files.metadataCorrections,
     })
     .from(files)
     .where(inOrg(files, organisationId, eq(files.id, fileId)));
@@ -254,7 +261,10 @@ async function choices(db: Database, organisationId: string, file: FileRow, mark
           ? { available: true, detail: markedAudioFormat(file.mediaInfo, "proxy").detail }
           : { available: false, detail: "Not prepared yet" },
         original: file.mediaInfo?.audio
-          ? { available: true, detail: markedAudioFormat(file.mediaInfo, "original").detail }
+          ? {
+              available: true,
+              detail: `${markedAudioFormat(file.mediaInfo, "original").detail}${corrected(file) ? ", with its corrected metadata" : ""}`,
+            }
           : { available: false, detail: "Not prepared yet" },
         marked: true,
         inaudible: true,
@@ -265,7 +275,7 @@ async function choices(db: Database, organisationId: string, file: FileRow, mark
         : { available: false, detail: "Not prepared yet" },
       original: {
         available: true,
-        detail: `${file.contentType}, ${formatBytes(file.byteSize)}`,
+        detail: `${file.contentType}, ${formatBytes(file.byteSize)}${corrected(file) ? ", with its corrected metadata" : ""}`,
       },
       marked: false,
     };
@@ -672,6 +682,8 @@ function markedAudio(
     );
     const format = markedAudioFormat(info, kind);
     const output = join(dir, `marked.${format.extension}`);
+    // An original carries its corrected metadata (decision 264); a proxy carries none.
+    const corrections = kind === "original" ? file.metadataCorrections : null;
     await run(
       "ffmpeg",
       mixArgs(
@@ -684,13 +696,66 @@ function markedAudio(
           format,
         },
         output,
+        format.muxer === "flac" && corrections ? tagArgs("flac", corrections) : [],
       ),
       { signal, timeoutMs },
     );
-    // A WAV original keeps every chunk of its own (Broadcast Wave, iXML, ADM), its samples marked.
+    // A WAV original keeps every chunk of its own (Broadcast Wave, iXML, ADM), its samples
+    // marked, and its metadata as corrected.
+    if (format.muxer === "wav" && carriesCorrections("wave", corrections) && corrections) {
+      const samples = await waveData(output);
+      const pieces =
+        (samples && (await correctedWave(input, corrections, { path: output, ...samples }))) ||
+        (await correctedWave(output, corrections));
+      if (!pieces) throw new MediaToolError("The marked recording's metadata could not be written");
+      yield* pieces;
+      return;
+    }
     const spliced = format.muxer === "wav" ? await splicedWave(input, output) : null;
     if (spliced) yield* spliced;
     else for await (const chunk of createReadStream(output)) yield chunk as Buffer;
+  });
+}
+
+/** Whether a recording's original leaves with corrected metadata written in (decision 264). */
+function corrected(file: FileRow) {
+  return (
+    file.kind === "audio" &&
+    carriesCorrections(metadataFormatOf(file.mediaInfo), file.metadataCorrections)
+  );
+}
+
+/**
+ * An unmarked original with its corrected metadata (decision 264), made from a decrypted copy
+ * in the private workspace, as the stored original is never rewritten: a wave file chunk by
+ * chunk, its audio copied as it is; FLAC and MP3 with their tags written by ffmpeg, the sound
+ * copied without decoding it.
+ */
+function correctedOriginal(
+  deps: DownloadDeps,
+  organisationId: string,
+  file: FileRow,
+  corrections: MetadataCorrections,
+  signal: AbortSignal,
+): AsyncGenerator<Buffer> {
+  return streamInWorkspace(deps.workDir, async function* (dir) {
+    const format = metadataFormatOf(file.mediaInfo);
+    const input = join(dir, "original");
+    await originalInto(deps, organisationId, file, input, signal);
+    if (format === "wave") {
+      const pieces = await correctedWave(input, corrections);
+      if (!pieces) throw new MediaToolError("The recording's metadata could not be written");
+      yield* pieces;
+      return;
+    }
+    if (format !== "flac" && format !== "mp3")
+      throw new MediaToolError("Hekate cannot write metadata into this kind of file");
+    const output = join(dir, `corrected.${format}`);
+    await run("ffmpeg", retagArgs(input, output, format, corrections), {
+      signal,
+      timeoutMs: burnDeadlineMs(file.mediaInfo?.duration),
+    });
+    for await (const chunk of createReadStream(output)) yield chunk as Buffer;
   });
 }
 
@@ -946,6 +1011,30 @@ export const downloadRoutes = (deps: DownloadDeps) =>
             ...PRIVATE,
             "content-type": format.contentType,
             "content-disposition": attachment(`${stem(file.name)}.${format.extension}`),
+          },
+        });
+      }
+      if (file.kind === "audio" && kind === "original" && corrected(file)) {
+        const stream = await primed(
+          correctedOriginal(
+            deps,
+            organisationId,
+            file,
+            file.metadataCorrections ?? {},
+            c.req.raw.signal,
+          ),
+        ).catch((error: unknown) => {
+          if (error instanceof MediaToolError)
+            throw new HTTPException(422, {
+              message: "This recording's corrected metadata could not be written into it",
+            });
+          throw error;
+        });
+        return new Response(stream as unknown as ReadableStream, {
+          headers: {
+            ...PRIVATE,
+            "content-type": file.contentType,
+            "content-disposition": attachment(file.name),
           },
         });
       }

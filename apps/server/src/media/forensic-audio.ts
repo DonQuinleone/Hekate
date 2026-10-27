@@ -217,6 +217,8 @@ export function mixArgs(
   markPath: string,
   options: { sampleRate: number; channels: number; layout?: string; format: MarkedAudioFormat },
   output: string,
+  /** `-metadata` arguments over the source's tags: an original's corrections (decision 264). */
+  tags: string[] = [],
 ): string[] {
   const { sampleRate, channels, format } = options;
   const layout = options.layout ?? defaultLayout(channels);
@@ -234,6 +236,7 @@ export function mixArgs(
     ...["-filter_complex", graph, "-map", "[out]"],
     // An original's tags go with it, as they did unmarked; a proxy's description is its own.
     ...["-map_metadata", format.keepsTags ? "0" : "-1"],
+    ...(format.keepsTags ? tags : []),
     ...format.codecArgs,
     ...["-f", format.muxer, "-y", `file:${output}`],
   ];

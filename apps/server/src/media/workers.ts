@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema, uuidv7 } from "@hekate/db";
 import {
   analysisOfKey,
+  correctedMetadata,
   encodeLoudness,
   encodePeaks,
   isDefaultAnalysis,
@@ -125,7 +126,12 @@ async function materialise(
 export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
   return async ({ organisationId, fileId }, job) => {
     const [file] = await deps.db
-      .select({ id: files.id, kind: files.kind, blobId: files.blobId })
+      .select({
+        id: files.id,
+        kind: files.kind,
+        blobId: files.blobId,
+        corrections: files.metadataCorrections,
+      })
       .from(files)
       .where(inOrg(files, organisationId, eq(files.id, fileId)));
     // Deleted since it was queued, or never media: nothing to measure.
@@ -161,6 +167,9 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
       throw error;
     }
 
+    // Probed again, a file says what it always said: Hekate's corrections go back over it.
+    if (info.metadata && file.corrections)
+      info = { ...info, metadata: correctedMetadata(info.metadata, file.corrections) };
     const playable = Boolean(info.audio || info.video);
     const checked = Boolean(info.audio || pictureOf(file.kind, info));
     await deps.db

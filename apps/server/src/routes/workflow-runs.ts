@@ -8,7 +8,7 @@ import {
   workflowRunStartInput,
   workflowStepInput,
 } from "@hekate/shared";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -18,34 +18,66 @@ import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { completeStep, type RunnerDeps, runsOf, startByHand } from "../workflow-runner.ts";
 
-const { projects, tracks, workflowRuns, workflows } = schema;
+const { projects, tracks, users, workflowRuns, workflows } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
 type Logged = Awaited<ReturnType<typeof runsOf>>[number];
 
-const summaryOf = ({ run, steps }: Logged): WorkflowRunSummary => ({
-  id: run.id,
-  workflowId: run.workflowId,
-  workflowName: run.workflowName,
-  workflowVersion: run.workflowVersion,
-  trackId: run.trackId,
-  state: run.state,
-  status: run.engine.status,
-  waiting: run.engine.active.flatMap((id) => {
-    const node = run.definition.nodes.find((n) => n.id === id);
-    return node ? [{ nodeId: id, name: node.name, type: node.type }] : [];
-  }),
-  steps: steps.map((s) => ({
-    nodeId: s.nodeId,
-    outcome: s.outcome,
-    effects: s.effects,
-    byUserId: s.byUserId,
-    at: s.createdAt.toISOString(),
-  })),
-  startedAt: run.createdAt.toISOString(),
-  endedAt: run.endedAt?.toISOString() ?? null,
-});
+const summaryOf = (
+  { run, steps }: Logged,
+  names: ReadonlyMap<string, string> = new Map(),
+): WorkflowRunSummary => {
+  const nodeOf = (id: string | null) =>
+    id ? run.definition.nodes.find((n) => n.id === id) : undefined;
+  const nameOf = (id: string | null) => (id ? (names.get(id) ?? null) : null);
+  return {
+    id: run.id,
+    workflowId: run.workflowId,
+    workflowName: run.workflowName,
+    workflowVersion: run.workflowVersion,
+    trackId: run.trackId,
+    state: run.state,
+    status: run.engine.status,
+    waiting: run.engine.active.flatMap((id) => {
+      const node = run.definition.nodes.find((n) => n.id === id);
+      return node ? [{ nodeId: id, name: node.name, type: node.type }] : [];
+    }),
+    steps: steps.map((s) => ({
+      nodeId: s.nodeId,
+      name: s.nodeId ? (nodeOf(s.nodeId)?.name ?? s.nodeId) : null,
+      type: nodeOf(s.nodeId)?.type ?? null,
+      outcome: s.outcome,
+      effects: s.effects,
+      byUserId: s.byUserId,
+      byName: nameOf(s.byUserId),
+      at: s.createdAt.toISOString(),
+    })),
+    startedBy: nameOf(run.startedBy),
+    startedAt: run.createdAt.toISOString(),
+    endedAt: run.endedAt?.toISOString() ?? null,
+  };
+};
+
+/**
+ * The names of those who started the runs or ended their steps, for a track's history of
+ * transitions. Accounts are not a workspace's; only the ids the runs name are read.
+ */
+async function namesOf(db: Database, logged: Logged[]): Promise<Map<string, string>> {
+  const ids = [
+    ...new Set(
+      logged.flatMap(({ run, steps }) =>
+        [run.startedBy, ...steps.map((s) => s.byUserId)].filter((id): id is string => !!id),
+      ),
+    ),
+  ];
+  if (ids.length === 0) return new Map();
+  const rows = await db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .where(inArray(users.id, ids));
+  return new Map(rows.map((r) => [r.id, r.name]));
+}
 
 async function trackOf(db: Database, organisationId: string, id: string) {
   const [track] = await db
@@ -127,7 +159,8 @@ export const trackWorkflowRunRoutes = (runner: RunnerDeps) => {
         const track = await trackOf(db, organisationId, c.req.valid("param").id);
         await can(db, actorOf(c.var), "view_workflows", track.projectId);
         const runs = await runsOf(db, organisationId, track.id);
-        return c.json({ runs: runs.map(summaryOf) });
+        const names = await namesOf(db, runs);
+        return c.json({ runs: runs.map((r) => summaryOf(r, names)) });
       })
       .post("/:id/workflow-runs", idParam, zValidator("json", workflowRunStartInput), async (c) => {
         const organisationId = c.var.organisationId;
@@ -157,7 +190,7 @@ export const trackWorkflowRunRoutes = (runner: RunnerDeps) => {
         const [logged] = (await runsOf(db, organisationId, track.id)).filter(
           (r) => r.run.id === run.id,
         );
-        return c.json({ run: logged ? summaryOf(logged) : null }, 201);
+        return c.json({ run: logged ? summaryOf(logged, await namesOf(db, [logged])) : null }, 201);
       })
   );
 };
@@ -188,7 +221,7 @@ export const workflowRunRoutes = (runner: RunnerDeps) => {
       const [logged] = (await runsOf(db, organisationId, run.trackId)).filter(
         (r) => r.run.id === moved?.id,
       );
-      return c.json({ run: logged ? summaryOf(logged) : null });
+      return c.json({ run: logged ? summaryOf(logged, await namesOf(db, [logged])) : null });
     },
   );
 };

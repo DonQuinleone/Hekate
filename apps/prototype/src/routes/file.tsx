@@ -1271,6 +1271,7 @@ export function FilePage({
             playback={playback}
             previous={previousFile}
             canChooseProfile={viewer.can(project.id, "edit_workflows")}
+            canEditMetadata={viewer.can(project.id, "organise") && tools.has("qa")}
             canComment={access.comment}
             onComment={() =>
               navigate({ to: base, params: { fileId }, search: (s) => ({ ...s, view: undefined }) })

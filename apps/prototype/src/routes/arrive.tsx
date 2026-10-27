@@ -469,27 +469,16 @@ export function GuestLinkPage() {
   const navigate = useNavigate();
   const { settings, setPersona } = useViewer();
   const state = settings.state;
+  // One answer for a link that is unknown, used, revoked or expired, as the server gives it
+  // (decision 260): which of them it was would tell whoever holds a forwarded or guessed link
+  // something. A review closed to the guest (its access window, a cancellation) is said on
+  // their reviews once they are in, not here.
   if (state === "expired" || state === "refused" || state === "failed") {
-    const copy = {
-      expired: [
-        "This link has expired",
-        "Links last three days. Ask whoever sent it for a new one; it will come from Hekate by email.",
-      ],
-      refused: [
-        "This link has already been used",
-        "Each link works once. If that was not you, ask whoever sent it to send a new one, which revokes this one.",
-      ],
-      failed: [
-        "This review is closed to you",
-        "Your access window has ended, or the review was cancelled. The workspace can open it again.",
-      ],
-    }[state];
     return (
-      <Frame title={copy[0] ?? ""} intro={copy[1]}>
-        <Button variant="secondary" size="lg" asChild>
-          <Link to="/guest">Back</Link>
-        </Button>
-      </Frame>
+      <Frame
+        title="This link no longer works"
+        intro="This link has been used or has expired. Ask whoever invited you to send a new one."
+      />
     );
   }
   if (organisation.guestVerification === "code" || state === "processing") {

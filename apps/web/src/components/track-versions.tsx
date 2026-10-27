@@ -46,6 +46,7 @@ import { Field } from "./ui/field";
 import { FileInput, Input, Select, Textarea } from "./ui/input";
 import { ActionMenu, Dropdown, type MenuAction } from "./ui/menu";
 import { ReviewerDot } from "./ui/status";
+import { WorkflowHistory } from "./workflow-history";
 
 const whenFormat = formatDates({
   day: "numeric",
@@ -1277,6 +1278,8 @@ export function TrackVersions({
               ))}
             </ul>
           </Card>
+          {/* Its workflow's moves, for whoever may see the workflow (#25). */}
+          {can("view_workflows") && <WorkflowHistory trackId={track.id} />}
         </>
       )}
     </div>

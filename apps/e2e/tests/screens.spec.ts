@@ -319,6 +319,12 @@ const screens: Screen[] = [
     path: (s) => `/tracks/${s.trackId}?view=versions`,
     ready: "text=Bars 12 to 16",
   },
+  // Its workflow's history of transitions (#25), under the versions: who moved it on, and when.
+  {
+    name: "track-history",
+    path: (s) => `/tracks/${s.trackId}?view=versions`,
+    ready: "section[aria-label='Workflow history'] >> text=Let it settle",
+  },
   // A deliverable (#16): a track in a video project, in video words, its renditions described.
   {
     name: "deliverable",
@@ -2545,6 +2551,79 @@ test("file-qa-atmos", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The metadata editor open on a recording's QA view (decision 264), for someone who turned it
+// on (Appearance) and may organise the project's files. The file's answers are amended in this
+// page alone, to a Broadcast Wave file with one field already corrected; nothing is saved.
+test("file-qa-metadata-editor", async ({ page }) => {
+  const id = seeded().dryFileId;
+  await page.route("**/api/me", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { user: { preferences: Record<string, unknown> } };
+    body.user.preferences = { ...body.user.preferences, showMetadataEditor: true };
+    await route.fulfill({ response, json: body });
+  });
+  await page.route(`**/api/files/${id}`, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      file: { mediaInfo: { format?: string; metadata: Record<string, unknown> } };
+    };
+    body.file.mediaInfo.format = "wav";
+    body.file.mediaInfo.metadata = {
+      bext: {
+        description: "Maple Leaf Rag, V2 dry, Endless Hall",
+        originator: "Endless Hall Records",
+        originationDate: "2026-10-14",
+        originationTime: "09:58:00",
+        timeReference: 10 * 3600 * 48_000,
+        codingHistory: "A=PCM,F=48000,W=24,M=stereo",
+      },
+      ixml: { bytes: 1200, scene: "12", take: "3", timecodeRate: "25/1" },
+      tags: { title: "Maple Leaf Rag", artist: "Endless Hall Records" },
+      adm: null,
+    };
+    await route.fulfill({ response, json: body });
+  });
+  await page.route(`**/api/files/${id}/metadata`, (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({
+          json: {
+            format: "wave",
+            fields: [
+              "description",
+              "originator",
+              "originatorReference",
+              "originationDate",
+              "originationTime",
+              "timeReference",
+              "project",
+              "scene",
+              "take",
+              "tape",
+              "note",
+              "title",
+              "artist",
+              "album",
+              "genre",
+              "date",
+              "isrc",
+              "copyright",
+            ],
+            corrections: { originator: { value: "Endless Hall Records", read: "Endless Hal" } },
+            editable: true,
+          },
+        })
+      : route.fallback(),
+  );
+  await page.goto(`/files/${id}?view=qa`);
+  const panel = page.locator("section[aria-label='Embedded metadata']");
+  await settle(page, "section[aria-label='Embedded metadata'] >> text=Corrected");
+  await panel.getByRole("button", { name: "Edit" }).click();
+  await expect(panel.getByRole("form", { name: "Edit embedded metadata" })).toBeVisible();
+  await panel.scrollIntoViewIfNeeded();
+  await saveScreen(page, "file-qa-metadata-editor");
+  await checkScreen(page);
+});
+
 // A video's picture checks (#42), on its QA view and marked along its timeline. The seeded cut
 // is a clean test pattern, so the report is amended in this page alone to show a few problems.
 test("file-qa-video", async ({ page }) => {
@@ -3931,5 +4010,48 @@ test("review-reviewer-permissions", async ({ page }) => {
   await expect(form.getByLabel("Plays of each file, at most")).toBeVisible();
   await form.evaluate((el) => el.scrollIntoView({ block: "center" }));
   await saveScreen(page, "review-reviewer-permissions");
+  await checkScreen(page);
+});
+
+// The shell's foot (#4): with the server's health check unanswered, "API unreachable", in the
+// sidebar's foot and, on a phone, above the page.
+test("shell-offline", async ({ page }) => {
+  await page.route("**/api/health", (route) => route.abort());
+  await page.goto("/");
+  await settle(page, "text=API unreachable >> visible=true");
+  await saveScreen(page, "shell-offline");
+  await checkScreen(page);
+});
+
+// The access log's filters (#30, decision 263): the Filter control open with a time chosen,
+// then an entry's action chosen from its menu, both shown as chips above the entries.
+test("settings-log-filters", async ({ page }) => {
+  await page.goto("/settings/log");
+  await settle(page, "main [data-log-entry] >> nth=0");
+  await page.getByRole("button", { name: /^Filter/ }).click();
+  const menu = page.getByRole("dialog", { name: "Filter entries" });
+  await menu.getByLabel("When").selectOption("week");
+  await settle(page, "main ul[aria-label='Filters']");
+  await saveScreen(page, "settings-log-filter-menu");
+  await checkScreen(page);
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("button", { name: /^Actions for the entry/ })
+    .first()
+    .click();
+  await page.getByRole("menuitem", { name: "Only this action" }).click();
+  await settle(page, "main ul[aria-label='Filters'] li >> nth=2");
+  await saveScreen(page, "settings-log-filtered");
+  await checkScreen(page);
+});
+
+// Advanced search by field (#6, decision 263): a duration set, shown as a chip, and the Fields
+// control open with it filled in.
+test("search-fields", async ({ page }) => {
+  await page.goto("/search?durationMin=30&kind=files");
+  await settle(page, "main ul[aria-label='Fields'] >> text=Longer than 30 s");
+  await page.getByRole("button", { name: /^Fields/ }).click();
+  await settle(page, "role=dialog[name='Search by field']");
+  await saveScreen(page, "search-fields");
   await checkScreen(page);
 });

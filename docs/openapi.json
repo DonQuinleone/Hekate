@@ -384,6 +384,36 @@
                           "year"
                         ]
                       },
+                      "durationMin": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 86400
+                      },
+                      "durationMax": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 86400
+                      },
+                      "sizeMin": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1000000000000000
+                      },
+                      "sizeMax": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1000000000000000
+                      },
+                      "frameRate": {
+                        "type": "number",
+                        "exclusiveMinimum": 0,
+                        "maximum": 1000
+                      },
+                      "commentText": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      },
                       "q": {
                         "type": "string",
                         "maxLength": 200
@@ -576,6 +606,66 @@
                 "month",
                 "year"
               ]
+            }
+          },
+          {
+            "name": "durationMin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 86400
+            }
+          },
+          {
+            "name": "durationMax",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 86400
+            }
+          },
+          {
+            "name": "sizeMin",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000000
+            }
+          },
+          {
+            "name": "sizeMax",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000000
+            }
+          },
+          {
+            "name": "frameRate",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1000
+            }
+          },
+          {
+            "name": "commentText",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           },
           {
@@ -16732,6 +16822,178 @@
                   "contentMediaType": "text/csv"
                 }
               },
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/files/{id}/metadata": {
+      "get": {
+        "operationId": "getFilesIdMetadata",
+        "tags": [
+          "Files"
+        ],
+        "summary": "Read a recording's metadata corrections",
+        "description": "The fields that may be corrected in a file of its format (bext, iXML or tags), the corrections made so far beside what the file itself says, and whether the token's member may correct them. For those with the QA tool on the file.\n\nNeeds the `files:read` scope.",
+        "security": [
+          {
+            "token": [
+              "files:read"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      },
+      "put": {
+        "operationId": "putFilesIdMetadata",
+        "tags": [
+          "Files"
+        ],
+        "summary": "Correct a recording's metadata",
+        "description": "Sets or clears the fields named. The original is never rewritten: the corrections are Hekate's record, QA reads with them, and a download of the original writes them in. For those who may organise the project's files and have the QA tool; each change is logged.\n\nNeeds the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "changes": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "enum": [
+                        "description",
+                        "originator",
+                        "originatorReference",
+                        "originationDate",
+                        "originationTime",
+                        "timeReference",
+                        "project",
+                        "scene",
+                        "take",
+                        "tape",
+                        "note",
+                        "title",
+                        "artist",
+                        "album",
+                        "albumArtist",
+                        "composer",
+                        "genre",
+                        "date",
+                        "isrc",
+                        "copyright"
+                      ]
+                    },
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 600
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "changes"
+                ]
+              },
+              "example": {
+                "changes": {
+                  "description": "Maple Leaf Rag, take 3",
+                  "originator": null
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
               "application/json": {
                 "schema": {}
               }
