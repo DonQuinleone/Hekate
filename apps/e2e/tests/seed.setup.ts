@@ -1354,10 +1354,11 @@ setup("seed", async ({ page, browser }) => {
       definition: {
         groups: [],
         nodes: [
-          step("start", "manual", "Started by hand", 0),
-          step("status", "status", "Mastering", 1, 0, { status: "Mastering" }),
-          step("settle", "wait", "Let it settle", 2, 0, { days: "2" }),
-          step("done", "finish", "Mastered", 3, 0, { status: "Mastered" }),
+          // Below the album review's two rows, as the project's canvas draws its workflows together.
+          step("start", "manual", "Started by hand", 0, 3),
+          step("status", "status", "Mastering", 1, 3, { status: "Mastering" }),
+          step("settle", "wait", "Let it settle", 2, 3, { days: "2" }),
+          step("done", "finish", "Mastered", 3, 3, { status: "Mastered" }),
         ],
         connectors: [
           { id: "c1", from: "start", outcome: "happened", to: "status" },
@@ -1378,6 +1379,9 @@ setup("seed", async ({ page, browser }) => {
     nodeId: "settle",
     outcome: "elapsed",
   });
+  // Its run finished, it goes back off: the album review stays the project's one workflow
+  // running, as the screens of a new version's restart and the canvas expect.
+  await api(page, "PATCH", `/api/workflows/${mastering.id}`, { active: false });
 
   // API tokens (#198): two of the owner's own (one since run out) and a service token for the
   // release pipeline, whose calls, one of them refused for want of a scope, fill the API log.
