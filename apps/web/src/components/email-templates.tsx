@@ -172,7 +172,7 @@ export function EmailTemplatesSection() {
                 <Link
                   to="/settings/$section"
                   params={{ section: "notifications" }}
-                  className="text-ink-2 transition-colors hover:text-ink"
+                  className="text-ink-2 underline decoration-line-strong underline-offset-2 transition-colors hover:text-ink hover:decoration-ink"
                 >
                   Notifications and integrations
                 </Link>
