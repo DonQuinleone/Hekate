@@ -219,6 +219,9 @@ export async function correctedWave(
         if (body.length >= 16) large = Number(body.readBigUInt64LE(8));
       }
       if (id === "data" && length === 0xffffffff && large !== undefined) length = large;
+      // A chunk that says it runs past the end of the file is not one to trust: the audio's
+      // own length is checked below, and any other chunk's must fit in what is there.
+      if (id !== "data" && position + 8 + length > fileSize) return null;
       const list = id === "LIST" ? (await read(position + 8, 4)).toString("latin1") : undefined;
       chunks.push({ id, position, length, ...(list ? { list } : {}) });
       position += 8 + length + (length % 2);
@@ -262,11 +265,18 @@ export async function correctedWave(
         });
         if (chunk.length % 2) pieces.push(Buffer.alloc(1));
       } else if (chunk.id === "ds64") {
+        // ds64 is a few dozen bytes; one far larger is not a file to write again.
+        if (chunk.length > MAX_REWRITTEN) return null;
         ds64 = chunkBytes("ds64", await body());
         pieces.push(ds64);
       } else if (chunk.id === "bext" && wanted.bext && !done.bext) {
-        pieces.push(chunkBytes("bext", bextBody(await body(), corrections)));
         done.bext = true;
+        // One too large to take in hand is left as it was, as iXML and INFO are.
+        pieces.push(
+          chunk.length <= MAX_REWRITTEN
+            ? chunkBytes("bext", bextBody(await body(), corrections))
+            : asItIs(chunk),
+        );
       } else if (chunk.id === "iXML" && wanted.ixml && !done.ixml) {
         done.ixml = true;
         // One too large to take in hand, or with no end to add to, is left as it was.

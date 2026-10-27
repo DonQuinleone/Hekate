@@ -160,6 +160,21 @@ describe("corrected metadata as a recording leaves (decision 264)", () => {
     });
   });
 
+  it("refuses a chunk that says it runs past the end of the file, rather than reading it", async () => {
+    await withWorkspace(undefined, async (dir) => {
+      // Valid audio, then a bext chunk claiming 4 GB the file does not have.
+      const crafted = join(dir, "crafted.wav");
+      const header = Buffer.alloc(8);
+      header.write("bext", 0, 4, "latin1");
+      header.writeUInt32LE(0xffffffff, 4);
+      await writeFile(
+        crafted,
+        Buffer.concat([waveBytes({ seconds: 0.1 }), header, Buffer.alloc(16)]),
+      );
+      expect(await correctedWave(crafted, fixes)).toBeNull();
+    });
+  });
+
   it("keeps an RF64 file's sizes right in its ds64 chunk", async () => {
     await withWorkspace(undefined, async (dir) => {
       const input = join(dir, "rf64.wav");

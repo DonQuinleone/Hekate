@@ -338,7 +338,7 @@ function FieldsMenu({
           role="dialog"
           aria-label="Search by field"
           data-e2e-overlap
-          className="rise-in absolute left-0 z-30 mt-1 w-80 max-w-[calc(100vw-32px)] rounded-panel-lg bg-overlay p-3 shadow-4 @3xl/app:right-0 @3xl/app:left-auto"
+          className="rise-in absolute left-0 z-30 mt-1 w-80 max-w-[calc(100vw-32px)] rounded-panel-lg bg-overlay p-3 shadow-4"
         >
           <form onSubmit={apply} className="flex flex-col gap-3">
             <fieldset className="m-0 grid grid-cols-2 gap-2 border-0 p-0">
