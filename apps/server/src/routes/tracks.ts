@@ -19,7 +19,7 @@ import {
   withPrimary,
   workspaceSettingsOf,
 } from "@hekate/shared";
-import { and, asc, eq, getTableColumns, inArray, max, ne, or } from "drizzle-orm";
+import { and, asc, count, eq, getTableColumns, inArray, max, ne, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -351,18 +351,34 @@ async function oneTrack(db: Database, organisationId: string, id: string) {
 export const projectTrackRoutes = (db: Database) =>
   new Hono<{ Variables: TenantVariables }>()
     .get("/:id/tracks", idParam, async (c) => {
-      const { projectId } = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
-      const [list, standing] = await Promise.all([
-        tracksOf(db, c.var.organisationId, projectId),
-        trackStandings(db, c.var.organisationId, projectId),
+      const organisationId = c.var.organisationId;
+      const access = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
+      const projectId = access.projectId;
+      const [list, standing, takeCounts] = await Promise.all([
+        tracksOf(db, organisationId, projectId),
+        trackStandings(db, organisationId, projectId),
+        // How many takes each has, for those who may see takes: the file browser's way to them.
+        access.permissions.has("view_takes")
+          ? db
+              .select({ trackId: schema.takes.trackId, n: count() })
+              .from(schema.takes)
+              .innerJoin(
+                tracks,
+                and(eq(tracks.id, schema.takes.trackId), eq(tracks.organisationId, organisationId)),
+              )
+              .where(inOrg(schema.takes, organisationId, eq(tracks.projectId, projectId)))
+              .groupBy(schema.takes.trackId)
+          : null,
       ]);
       // Where each stands, and who it waits on, for the file browser's status column.
       const by = new Map(standing.tracks.map((t) => [t.id, t]));
+      const takesBy = new Map((takeCounts ?? []).map((t) => [t.trackId, t.n]));
       return c.json({
         tracks: list.map((t) => ({
           ...t,
           state: by.get(t.id)?.state ?? ("no_version" as const),
           waitingOn: by.get(t.id)?.waitingOn ?? [],
+          ...(takeCounts ? { takes: takesBy.get(t.id) ?? 0 } : {}),
         })),
       });
     })

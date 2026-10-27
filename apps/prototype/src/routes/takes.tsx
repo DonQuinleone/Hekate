@@ -582,7 +582,7 @@ export function TakePage({ takeId }: { takeId: string }) {
       {sharing && (
         <Dialog
           title="Share this take to a comment"
-          description="The reviewers on that thread hear exactly this take, and nothing else from the sessions."
+          description="The reviewers on that thread hear exactly this take, and nothing else from the sessions; on a thread about a bar, at that bar, looped."
           onClose={() => setSharing(false)}
           width="sm"
           footer={
@@ -601,14 +601,6 @@ export function TakePage({ takeId }: { takeId: string }) {
             <Select defaultValue="c-3">
               <option value="c-3">#3 · Can we tighten the edit into bar 17?</option>
               <option value="c-2">#2 · Lovely rubato into the trio</option>
-              <option value="new">A new comment on the current version</option>
-            </Select>
-          </label>
-          <label className="mt-3 flex flex-col gap-1.5 text-[13px] text-ink-2">
-            Audition
-            <Select defaultValue="bar">
-              <option value="bar">At the comment's bar, looped and level-matched</option>
-              <option value="whole">The whole take</option>
             </Select>
           </label>
         </Dialog>

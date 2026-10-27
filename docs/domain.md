@@ -185,7 +185,7 @@ Comments are raised on one version and often addressed in a later one. Each comm
 
 ## Categories and deferral
 
-Comments can be given a category with one action, such as marking a comment as **Noise**. Categories are configurable per project, each with a default handling:
+Comments can be given a category with one action, such as marking a comment as **Noise**. Categories are configurable per project, each with a default handling; a new project starts with a copy of its workspace's set, which the workspace's admins keep (decision 247):
 
 - **Normal:** stays in the current round.
 - **Deferred to a stage:** leaves the current round's to-do list, stays open, and returns when the named workflow stage starts (for example *Noise reduction* at the end of the process).
@@ -249,6 +249,7 @@ A workflow is a graph of **nodes** joined by **connectors** (decision 040), plus
 - **Statuses** are where an item stands (*Editing*, *With conductor*, *Triage*, *Approved*), set by actions and shown on the board.
 - **Scope:** a project's workflows share one canvas, each starting from its own event; a track can override them. A new version is itself an event, so a flow decides what happens when one arrives (for example, go back to the conductor's round).
 - **Text:** every workflow can be read and written as YAML, so it can be stored, shared and reviewed.
+- **Notifications:** the people a stage names are told in the app and by mail, each as they choose within what the project allows; a new status goes to the track's followers, or to everyone in the project where it says so (decision 259).
 
 Example, a choral album:
 
@@ -278,6 +279,8 @@ Per-project roles hold one level in each area of access; a level includes the on
 Each level stands for permissions the server checks, so a role is still a set of permissions underneath (decision 058). View files is what makes the project visible at all; Respond is recording an approval decision, and Manage in reviews is adding and removing reviewers and guests; Organise is moving and renaming, Delete removing; Triage is categorising, deferring, assigning and resolving anyone's comments; in the project, Edit is its settings and Delete is archiving it (and deleting it, once that exists).
 
 Workspace owners and admins can do everything in every project. Guests have no role: they can see and act only on the items in the reviews they are invited to.
+
+A project's own settings narrow what the roles and reviews give, never widen it (decision 257): nobody may download, originals are never given or only to the workspace's owners and admins, only they may delete, and whether a file in a review may be deleted. Each role also has the player tools on or off; an **exception** gives one person, guest or group of the project other tools in place of their role's, and a guest none their review leaves out (decision 258).
 
 ## Settled questions
 

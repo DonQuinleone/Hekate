@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { isMac, keyCaps } from "~/lib/keys";
+import { usePreferences } from "~/lib/queries";
 import { type Shortcut, useShortcutGroups, useShortcuts } from "~/lib/shortcuts";
 import { Dialog } from "./ui/dialog";
 
@@ -70,16 +71,22 @@ const OPEN = "hekate:shortcuts";
 /** Open the map from anywhere, such as the Help menu. */
 export const openShortcutMap = () => window.dispatchEvent(new Event(OPEN));
 
-/** Holds the map on every page: "?" opens it, as does the Help menu. */
+/**
+ * Holds the map on every page: "?" opens it, as does the Help menu. Someone who turned off
+ * "Keyboard map on ?" in Account, Appearance, opens it from the Help menu alone.
+ */
 export function ShortcutMapHost() {
   const [open, setOpen] = useState(false);
+  const { keyboardMapOnQuestion } = usePreferences();
   useEffect(() => {
     const show = () => setOpen(true);
     window.addEventListener(OPEN, show);
     return () => window.removeEventListener(OPEN, show);
   }, []);
   useShortcuts("help", "Help", [
-    { keys: ["?"], label: "Show keyboard shortcuts", run: () => setOpen(true) },
+    ...(keyboardMapOnQuestion
+      ? [{ keys: ["?"], label: "Show keyboard shortcuts", run: () => setOpen(true) }]
+      : []),
     { keys: ["Escape"], label: "Close a dialog, menu or sheet" },
   ]);
   return open ? <ShortcutMap onClose={() => setOpen(false)} /> : null;

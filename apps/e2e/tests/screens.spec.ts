@@ -275,12 +275,12 @@ const screens: Screen[] = [
   {
     name: "project-settings-security",
     path: (s) => `/projects/${s.musicProjectId}/settings?section=security`,
-    ready: "main >> text=Visible watermark",
+    ready: "main >> text=Files in a review cannot be deleted",
   },
   {
     name: "project-settings-workflow",
     path: (s) => `/projects/${s.musicProjectId}/settings?section=workflow`,
-    ready: "main >> text=Checks on a new version",
+    ready: "main >> text=Everyone in the project, on a status change",
   },
   // The project's workflows (#26), opened from its settings: drawn on the canvas, and each as a
   // list of steps.
@@ -338,6 +338,13 @@ const screens: Screen[] = [
     ready: "main >> text=Day 2",
   },
   { name: "session", path: (s) => `/sessions/${s.sessionId}`, ready: "main table >> text=T3" },
+  // One take (#21, #45): its mix in the player, the session's takes of the track to switch
+  // between, its notes, and the score at its bars.
+  {
+    name: "take",
+    path: (s) => `/takes/${s.takeId}`,
+    ready: "main >> text=The summed mix.",
+  },
   {
     name: "track-takes",
     path: (s) => `/tracks/${s.trackId}?view=takes`,
@@ -476,6 +483,17 @@ const screens: Screen[] = [
     path: () => "/instance/debug",
     ready: "main >> text=HK-7F3A-2C",
   },
+  // The queues (decision 250) and Operations (decision 251).
+  {
+    name: "instance-queues",
+    path: () => "/instance/queues",
+    ready: "main >> text=Recent jobs",
+  },
+  {
+    name: "instance-operations",
+    path: () => "/instance/operations",
+    ready: "main >> text=Verify a restore",
+  },
   {
     name: "instance-billing",
     path: () => "/instance/billing",
@@ -486,6 +504,12 @@ const screens: Screen[] = [
     name: "settings-general",
     path: () => "/settings/general",
     ready: "main >> text=Guest links last",
+  },
+  // The set every new project starts with (decision 247).
+  {
+    name: "settings-categories",
+    path: () => "/settings/categories",
+    ready: "main >> text=Deferred to a stage named Noise reduction",
   },
   {
     name: "settings-delivery",
@@ -719,6 +743,17 @@ test.describe("guest", () => {
 
 for (const screen of screens.filter((s) => !s.as || s.as === "owner")) capture(screen);
 
+// Sharing a take to a thread of the track's latest version (#133), from the take's page.
+test("take-share", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/takes/${seeded().takeId}`);
+  await settle(page, "main >> text=The summed mix.");
+  await page.getByRole("button", { name: "Share to a comment" }).click();
+  await settle(page, "[role=dialog] >> text=Share this take to a comment");
+  await saveScreen(page, "take-share");
+  await checkScreen(page);
+});
+
 // A file opened from a review (#15): the reviewer's decision beside the comments, where they
 // listen. Nothing is decided, so no other capture sees a change.
 test("file-decision", async ({ page }) => {
@@ -909,6 +944,17 @@ test("file-qa-report", async ({ page }) => {
   await page.getByRole("button", { name: "QA report" }).click();
   await settle(page, "[role=dialog] button:has-text('Download PDF')");
   await saveScreen(page, "file-qa-report");
+  await checkScreen(page);
+});
+
+// An exception to the player tools (decision 258): for one person, guest or group of the project.
+test("project-settings-exception", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/settings?section=roles`);
+  // The seeded group's exception has loaded (on a phone its column waits behind the chooser).
+  await settle(page, "main >> text=tools replace the role");
+  await page.getByRole("button", { name: "Add an exception" }).click();
+  await settle(page, "[role=dialog] >> text=Tools");
+  await saveScreen(page, "project-settings-exception");
   await checkScreen(page);
 });
 
@@ -1471,6 +1517,22 @@ for (const [name, role, open, ready] of [
   });
 }
 
+// A workspace's rendition cache cleared (decision 255): asked first.
+test("instance-workspace-rendition-cache", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto("/instance/workspaces");
+  await settle(page, "main >> text=Recently in this workspace");
+  await page
+    .getByRole("tab", { name: /^Storage/ })
+    .first()
+    .click();
+  await settle(page, "main >> text=Rendition cache");
+  await page.getByRole("button", { name: "Clear", exact: true }).click();
+  await settle(page, "[role=dialog] >> text=Clear the rendition cache");
+  await saveScreen(page, "instance-workspace-rendition-cache");
+  await checkScreen(page);
+});
+
 // The instance's Billing (#180): its plans and promo codes, a plan open to edit, and a
 // workspace's plan being changed.
 for (const [name, steps, ready] of [
@@ -1719,7 +1781,11 @@ test("settings-notifications-bounces", async ({ page }) => {
     lastSentAt: "2026-10-14T09:12:00Z",
     lastError: null,
   };
-  await page.route("**/api/organisation/mail", (route) => route.fulfill({ json: { mail } }));
+  await page.route("**/api/organisation/mail", (route) =>
+    route.fulfill({
+      json: { mail, instance: { from: "Hekate <hekate@localhost>", logOnly: true } },
+    }),
+  );
   await page.route("**/api/organisation/mail/suppressions", (route) =>
     route.fulfill({
       json: {
@@ -1771,13 +1837,67 @@ test("settings-notifications-new", async ({ page }) => {
   await checkScreen(page);
 });
 
-// Debug tools (#159): the story behind a reference, opened from what failed today.
+// Members with nobody else yet (the prototype's "Just you so far"): the answers are amended in
+// the page alone, so the seeded workspace keeps its people.
+test("members-empty", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  const me = (await (await page.request.get("/api/me")).json()) as {
+    user: { id: string; name: string; email: string };
+  };
+  await page.route("**/api/organisation/members", (route) =>
+    route.fulfill({
+      json: {
+        members: [
+          {
+            id: "01a24300-0000-7000-8000-000000000001",
+            userId: me.user.id,
+            name: me.user.name,
+            email: me.user.email,
+            role: "owner",
+            joinedAt: "2026-09-01T09:00:00Z",
+          },
+        ],
+      },
+    }),
+  );
+  await page.route("**/api/organisation/invitations", (route) =>
+    route.fulfill({ json: { invitations: [] } }),
+  );
+  await page.goto("/settings/members");
+  await settle(page, "main >> text=Just you so far");
+  await saveScreen(page, "members-empty");
+  await checkScreen(page);
+});
+
+// An invitation opened while signed in as someone else: who they are, and the two ways on.
+test("invite-someone-else", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.route("**/api/invitations/*", (route) =>
+    route.fulfill({
+      json: {
+        organisation: "Endless Hall Records",
+        email: "ines.arlow@example.test",
+        role: "member",
+        status: "valid",
+        hasAccount: true,
+      },
+    }),
+  );
+  await page.goto("/invite/a-token-for-someone-else");
+  await settle(page, "text=Signed in as someone else");
+  await saveScreen(page, "invite-someone-else");
+  await checkScreen(page);
+});
+
+// Debug tools (#159): the story behind a reference, opened from what failed today, with its
+// file to inspect and Mark as known (decision 252).
 test("instance-debug-report", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/instance/debug");
   await settle(page, "main >> text=HK-7F3A-2C");
   await page.getByRole("button", { name: "Open HK-7F3A-2C" }).click();
   await settle(page, "main >> text=Copy the report");
+  await settle(page, "main >> text=Mark as known");
   await saveScreen(page, "instance-debug-report");
   await checkScreen(page);
 });
@@ -2864,6 +2984,49 @@ test("project-files-attach", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A track's row: its quick ways in on hover (the player, versions and notes, takes, what it
+// wants next), and its menu with comparing, sharing and its score.
+test("project-files-track-actions", async ({ page }, info) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  const row = page.locator("main li[data-key^='track:']", { hasText: "Maple Leaf Rag" }).first();
+  if (info.project.name !== "phone") {
+    await row.hover();
+    await expect(row.getByRole("link", { name: "Versions and notes" })).toBeVisible();
+    await expect(row.getByRole("link", { name: "Takes" })).toBeVisible();
+  }
+  await page.getByRole("button", { name: "Actions for Maple Leaf Rag", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Share…" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Link a score…" })).toBeVisible();
+  await saveScreen(page, "project-files-track-actions");
+  await checkScreen(page);
+});
+
+// Sharing from a row starts with that track chosen, in the same dialog as the reviews page's.
+test("project-files-share", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("button", { name: "Actions for Maple Leaf Rag", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Share…" }).click();
+  await settle(page, "[role=dialog] >> text=What");
+  await saveScreen(page, "project-files-share");
+  await checkScreen(page);
+});
+
+// Choosing a track's score from its row, among the project's PDFs.
+test("project-files-link-score", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("button", { name: "Actions for Maple Leaf Rag", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Link a score…" }).click();
+  await settle(page, "main form[aria-label='Link a score']");
+  await saveScreen(page, "project-files-link-score");
+  await checkScreen(page);
+});
+
 // The details sheet opens only when asked for.
 test("file-without-details", async ({ page }, info) => {
   test.skip(info.project.name === "phone", "Once is enough");
@@ -3114,6 +3277,24 @@ test("project-board-customise", async ({ page }) => {
   await expect(page.getByRole("dialog", { name: "Customise the board" })).toBeVisible();
   await saveScreen(page, "project-board-customise");
   await checkScreen(page);
+});
+
+// Arranged otherwise, whoever may manage the project can make it the project's default
+// (decision 256). Reset puts the owner's own arrangement back for the screens after.
+test("project-board-default", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/board`);
+  await settle(page, "main >> text=Maple Leaf Rag");
+  await page.getByRole("button", { name: "Customise" }).click();
+  const panel = page.getByRole("dialog", { name: "Customise the board" });
+  await panel.getByRole("switch", { name: "Tasks" }).click();
+  try {
+    await expect(panel.getByRole("button", { name: "Set as the project's default" })).toBeVisible();
+    await saveScreen(page, "project-board-default");
+    await checkScreen(page);
+  } finally {
+    await panel.getByRole("button", { name: "Reset" }).click();
+  }
 });
 
 // The project's timeline (#141): each track from its latest version to its review's due date.

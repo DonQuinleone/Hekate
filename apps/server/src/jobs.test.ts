@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { createDb, runMigrations, schema } from "@hekate/db";
 import { decodePeaks, mapTime } from "@hekate/shared";
 import { createBackends, storageConfigFromEnv, unwrapKey } from "@hekate/storage";
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createJobs, type JobName, jobDefinitions } from "./jobs.ts";
 import { createKeyring } from "./keyring.ts";
@@ -198,7 +198,36 @@ describe.runIf(url && (hasFfmpeg || process.env.CI))("media jobs", () => {
     const decoded = decodePeaks(new Uint8Array(Buffer.concat(await peaks.stream.toArray())));
     expect(decoded.channels).toBe(2);
     expect(Math.max(...decoded.data)).toBeGreaterThan(10);
-  });
+
+    // The rendition cache cleared (decision 255): new renditions from the original take the old
+    // ones' place, whose segments are removed; the original is untouched.
+    const before = all.map((r) => r.id);
+    const oldBlobs = [...all.map((r) => r.initBlobId), ...segments.map((s) => s.blobId)];
+    const [original] = await db
+      .select({ blobId: schema.files.blobId })
+      .from(schema.files)
+      .where(eq(schema.files.id, fileId));
+    expect(
+      await settle("media-reproxy", await jobs.send("media-reproxy", { organisationId, fileId })),
+    ).toBe("completed");
+    const after = await db
+      .select({ id: schema.renditions.id, name: schema.renditions.name })
+      .from(schema.renditions)
+      .where(eq(schema.renditions.fileId, fileId))
+      .orderBy(asc(schema.renditions.bandwidth));
+    expect(after.map((r) => r.name)).toEqual(["aac-256", "flac"]);
+    expect(after.some((r) => before.includes(r.id))).toBe(false);
+    const left = await db
+      .select({ id: schema.blobs.id })
+      .from(schema.blobs)
+      .where(inArray(schema.blobs.id, [...oldBlobs, original?.blobId ?? ""]));
+    expect(left.map((b) => b.id)).toEqual([original?.blobId]);
+    const [still] = await db
+      .select({ status: schema.files.streamStatus, blobId: schema.files.blobId })
+      .from(schema.files)
+      .where(eq(schema.files.id, fileId));
+    expect(still).toEqual({ status: "ready", blobId: original?.blobId });
+  }, 60_000);
 
   it("aligns two versions and moves carried comments to where the music went", async () => {
     // Version 1: a tone that steps up every two seconds. Version 2: the same, 1.5 s later.

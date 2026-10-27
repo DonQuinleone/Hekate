@@ -3,10 +3,12 @@ import {
   type BoardColumn,
   type BoardDisplay,
   boardColumnOf,
+  boardDisplayFor,
   capital,
   defaultBoardDisplay,
   NO_STATUS,
   NOT_AT_A_STAGE,
+  sameBoardDisplay,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -21,7 +23,14 @@ import { ReviewerDot, type ReviewerDotState } from "~/components/ui/status";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
-import { projectBoardQuery, useItemWords, usePreferences, useSavePreferences } from "~/lib/queries";
+import {
+  projectBoardQuery,
+  useItemWords,
+  usePreferences,
+  useProjectCan,
+  useSavePreferences,
+  useSetBoardDefault,
+} from "~/lib/queries";
 
 const dayFormat = formatDates({ day: "numeric", month: "short" });
 
@@ -46,13 +55,27 @@ const decisionWords = {
 function Customise({
   display,
   onChange,
+  onReset,
   version,
+  projectDefault,
+  onSetDefault,
+  settingDefault = false,
+  defaultError,
 }: {
   display: BoardDisplay;
   onChange: (d: BoardDisplay) => void;
+  /** Back to the project's default, or the built-in arrangement where it has none. */
+  onReset: () => void;
   /** What the project calls a version: Version, or Cut in video (#16). */
   version: string;
+  /** What everyone sees until they choose (decision 256). */
+  projectDefault: BoardDisplay;
+  /** For those who may manage the project: this arrangement for everyone who has not chosen. */
+  onSetDefault?: () => void;
+  settingDefault?: boolean;
+  defaultError?: string;
 }) {
+  const isDefault = sameBoardDisplay(display, projectDefault);
   const [open, setOpen, box] = usePopover();
   const row = (label: string, checked: boolean, set: (v: boolean) => void) => (
     <span className="flex h-8 items-center justify-between gap-6 text-[13px] text-ink">
@@ -121,15 +144,35 @@ function Customise({
               ))}
             </div>
           </div>
-          <div className="mt-3 flex items-center border-t border-line pt-3 text-[12px]">
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3 text-[12px]">
             <button
               type="button"
-              onClick={() => onChange(defaultBoardDisplay)}
+              onClick={onReset}
               className="text-ink-3 hover:text-ink"
+              title="Back to the project's default"
             >
               Reset
             </button>
+            {onSetDefault &&
+              (isDefault ? (
+                <span className="text-ink-3">The project's default</span>
+              ) : (
+                <button
+                  type="button"
+                  disabled={settingDefault}
+                  onClick={onSetDefault}
+                  className="text-ink-3 hover:text-ink disabled:opacity-50"
+                  title="What everyone sees until they arrange it for themselves"
+                >
+                  Set as the project's default
+                </button>
+              ))}
           </div>
+          {defaultError && (
+            <p role="alert" className="m-0 mt-2 text-[12px] text-signal">
+              {defaultError}
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -228,9 +271,15 @@ function Card({
 export function ProjectBoard({ projectId }: { projectId: string }) {
   const { data, error } = useQuery(projectBoardQuery(projectId));
   const { words, versionLabel } = useItemWords(projectId);
-  const display = usePreferences().board;
+  const preferences = usePreferences();
   const save = useSavePreferences();
-  const set = (board: BoardDisplay) => save.mutate({ board });
+  const can = useProjectCan(projectId);
+  const setDefault = useSetBoardDefault(projectId);
+  // Someone's own arrangement once they choose one; until then the project's (decision 256).
+  const projectDefault = data?.display ?? defaultBoardDisplay;
+  const display = boardDisplayFor(preferences, data?.display);
+  const set = (board: BoardDisplay) => save.mutate({ board, boardChosen: true });
+  const reset = () => save.mutate({ board: defaultBoardDisplay, boardChosen: false });
   if (error) return <p className="m-0 text-signal">{error.message}</p>;
   if (!data) return <p className="m-0 text-ink-3">Loading</p>;
   const columns = data.columns[display.groupBy];
@@ -261,7 +310,16 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
             : `No workflow is switched on; ${words.tracks} show the last status they were given.`}
         </span>
         <span className="ml-auto">
-          <Customise display={display} onChange={set} version={capital(words.version)} />
+          <Customise
+            display={display}
+            onChange={set}
+            onReset={reset}
+            version={capital(words.version)}
+            projectDefault={projectDefault}
+            onSetDefault={can("edit_project") ? () => setDefault.mutate(display) : undefined}
+            settingDefault={setDefault.isPending}
+            defaultError={setDefault.error?.message}
+          />
         </span>
       </div>
       <div className="scroll-quiet -mx-5 overflow-x-auto px-5 @3xl/app:-mx-10 @3xl/app:px-10">

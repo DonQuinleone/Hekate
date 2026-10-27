@@ -45,6 +45,9 @@ const defaultDisplay: Display = {
 /** The board's display options, as Linear keeps them: grouping, what is shown, which fields. */
 function Customise({ display, set }: { display: Display; set: (d: Display) => void }) {
   const [open, setOpen, box] = usePopover();
+  // What everyone sees until they arrange it for themselves; Reset goes back to it.
+  const [projectDefault, setProjectDefault] = useState<Display>(defaultDisplay);
+  const isDefault = JSON.stringify(display) === JSON.stringify(projectDefault);
   const row = (label: string, checked: boolean, onChange: (v: boolean) => void) => (
     <label className="flex h-8 items-center justify-between gap-6 text-[13px] text-ink">
       {label}
@@ -126,14 +129,24 @@ function Customise({ display, set }: { display: Display; set: (d: Display) => vo
           <div className="mt-3 flex items-center justify-between border-t border-line pt-3 text-[12px]">
             <button
               type="button"
-              onClick={() => set(defaultDisplay)}
+              onClick={() => set(projectDefault)}
               className="text-ink-3 hover:text-ink"
+              title="Back to the project's default"
             >
               Reset
             </button>
-            <button type="button" className="text-ink-3 hover:text-ink">
-              Set as the project's default
-            </button>
+            {isDefault ? (
+              <span className="text-ink-3">The project's default</span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setProjectDefault(display)}
+                className="text-ink-3 hover:text-ink"
+                title="What everyone sees until they arrange it for themselves"
+              >
+                Set as the project's default
+              </button>
+            )}
           </div>
         </div>
       )}

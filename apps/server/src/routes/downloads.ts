@@ -7,6 +7,7 @@ import { pipeline } from "node:stream/promises";
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   allowsDownload,
+  assetPolicyOf,
   DOWNLOAD_LINK_SECONDS,
   type DownloadKind,
   type DownloadLevel,
@@ -17,6 +18,7 @@ import {
   formatBytes,
   isPdf,
   type MediaInfo,
+  rateLimits,
   type ScoreMarkKind,
   scoresDownloadInput,
   type WatermarkSettings,
@@ -127,7 +129,7 @@ const PRIVATE = {
 } as const;
 
 /** A person may ask for this many downloads an hour, counted where every replica sees it. */
-const PER_HOUR = 20;
+const PER_HOUR = rateLimits.downloads;
 
 const hashOf = (token: string) => createHash("sha256").update(token).digest("hex");
 
@@ -621,9 +623,19 @@ function markedVideo(
   });
 }
 
-/** Whether a file's downloads carry an inaudible mark now: a recording, where the workspace marks them. */
-const marksFile = async (deps: DownloadDeps, organisationId: string, file: FileRow) =>
-  file.kind === "audio" && (await marksAudio(deps.db, organisationId, deps.billing ?? false));
+/**
+ * Whether a file's downloads carry an inaudible mark now: a recording, where the workspace
+ * marks them and its project has not stopped it (decision 257).
+ */
+async function marksFile(deps: DownloadDeps, organisationId: string, file: FileRow) {
+  if (file.kind !== "audio") return false;
+  const [project] = await deps.db
+    .select({ assetPolicy: projects.assetPolicy })
+    .from(projects)
+    .where(inOrg(projects, organisationId, eq(projects.id, file.projectId)));
+  if (!assetPolicyOf(project?.assetPolicy).forensicDownloads) return false;
+  return marksAudio(deps.db, organisationId, deps.billing ?? false);
+}
 
 /**
  * A recording with an inaudible mark for its recipient (#32): made from the original, the
@@ -730,10 +742,7 @@ export const fileDownloadRoutes = (deps: DownloadDeps) =>
         throw new HTTPException(422, { message: "That download is not offered for this file" });
       if (marks !== undefined) await markedTrack(deps.db, actor, fileId, marks);
       const who = actor.kind === "guest" ? `guest:${actor.guestId}` : `member:${actor.userId}`;
-      const { allowed, retryAfter } = await admit(deps.db, `download:${who}`, {
-        max: PER_HOUR,
-        windowMs: 60 * 60_000,
-      });
+      const { allowed, retryAfter } = await admit(deps.db, `download:${who}`, PER_HOUR);
       if (!allowed) return tooMany(c, retryAfter, "Too many downloads this hour; try again later");
       const token = randomBytes(32).toString("base64url");
       await deps.db.insert(downloadTickets).values({
@@ -764,10 +773,11 @@ export const projectScoreDownloadRoutes = (deps: DownloadDeps) =>
       const { kind } = c.req.valid("json");
       const actor = actorOf(c.var);
       await everyScore(deps.db, actor, projectId, kind);
-      const { allowed, retryAfter } = await admit(deps.db, `download:member:${c.var.userId}`, {
-        max: PER_HOUR,
-        windowMs: 60 * 60_000,
-      });
+      const { allowed, retryAfter } = await admit(
+        deps.db,
+        `download:member:${c.var.userId}`,
+        PER_HOUR,
+      );
       if (!allowed) return tooMany(c, retryAfter, "Too many downloads this hour; try again later");
       const token = randomBytes(32).toString("base64url");
       await deps.db.insert(downloadTickets).values({

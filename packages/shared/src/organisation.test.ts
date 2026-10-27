@@ -3,14 +3,79 @@ import {
   applyWorkspaceSettings,
   defaultWorkspaceSettings,
   factorDemand,
+  methodsFor,
   type OrganisationRole,
+  orList,
   reviewerDefaults,
   type SecondFactorPolicy,
   secondFactorRequired,
+  sessionEndsAt,
   sessionMeets,
+  sessionMethod,
   workspaceSettingsInput,
   workspaceSettingsOf,
 } from "./organisation.ts";
+
+describe("sign-in methods (decision 248)", () => {
+  it("reads a session from before it kept its way in from how it was signed in", () => {
+    expect(sessionMethod({ method: "directory", factor: "password" })).toBe("directory");
+    expect(sessionMethod({ factor: "passkey" })).toBe("passkey");
+    expect(sessionMethod({ factor: "second_factor" })).toBe("password");
+    expect(sessionMethod({ factor: "password", ssoProviderId: "acme" })).toBe("sso");
+  });
+
+  it("lets an owner keep their own way in where only another system's is allowed", () => {
+    expect(methodsFor(["sso"], "member")).toEqual(["sso"]);
+    expect(methodsFor(["sso"], "admin")).toEqual(["sso"]);
+    expect(methodsFor(["directory", "sso"], "owner")).toEqual([
+      "password",
+      "passkey",
+      "sso",
+      "directory",
+    ]);
+    // Where a password or a passkey is allowed, an owner is held to the set like anyone.
+    expect(methodsFor(["passkey", "sso"], "owner")).toEqual(["passkey", "sso"]);
+  });
+
+  it("is allowed every way until the workspace says otherwise, and never none", () => {
+    expect(workspaceSettingsOf({}).signInMethods).toEqual([
+      "password",
+      "passkey",
+      "sso",
+      "directory",
+    ]);
+    expect(workspaceSettingsOf({ signInMethods: [] }).signInMethods).toHaveLength(4);
+    expect(workspaceSettingsInput.safeParse({ signInMethods: [] }).success).toBe(false);
+    expect(workspaceSettingsInput.safeParse({ signInMethods: ["ldap"] }).success).toBe(false);
+    expect(workspaceSettingsInput.safeParse({ signInMethods: ["passkey"] }).success).toBe(true);
+  });
+
+  it("lists the ways in as a sentence does", () => {
+    expect(orList(["a password"])).toBe("a password");
+    expect(orList(["a password", "a passkey", "single sign-on"])).toBe(
+      "a password, a passkey or single sign-on",
+    );
+  });
+});
+
+describe("session length (decision 248)", () => {
+  const day = 24 * 60 * 60 * 1000;
+  const createdAt = new Date("2026-10-01T09:00:00Z");
+  const expiresAt = new Date(createdAt.getTime() + 14 * day);
+  it("ends at the instance's expiry, or the workspace's days from signing in if sooner", () => {
+    expect(sessionEndsAt({ createdAt, expiresAt }, null)).toEqual(expiresAt);
+    expect(sessionEndsAt({ createdAt, expiresAt }, 1)).toEqual(new Date(createdAt.getTime() + day));
+    expect(sessionEndsAt({ createdAt, expiresAt }, 30)).toEqual(expiresAt);
+  });
+
+  it("takes only the lengths offered", () => {
+    expect(workspaceSettingsOf({}).sessionDays).toBeNull();
+    expect(workspaceSettingsOf({ sessionDays: 3 }).sessionDays).toBeNull();
+    expect(workspaceSettingsInput.safeParse({ sessionDays: 7 }).success).toBe(true);
+    expect(workspaceSettingsInput.safeParse({ sessionDays: 3 }).success).toBe(false);
+    expect(workspaceSettingsInput.safeParse({ sessionDays: null }).success).toBe(true);
+  });
+});
 
 describe("workspace settings", () => {
   it("reads nothing as the defaults", () => {
@@ -44,6 +109,8 @@ describe("workspace settings", () => {
       emailSubjects: { invitation: "Join {workspace}" },
       secondFactor: "off",
       securityKeyForAdmins: false,
+      signInMethods: defaultWorkspaceSettings.signInMethods,
+      sessionDays: null,
       forensicAudio: false,
       roleTools: { ...defaultWorkspaceSettings.roleTools, Reviewer: ["score"] },
       reviewer: {

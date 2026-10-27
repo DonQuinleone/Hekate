@@ -1,6 +1,16 @@
 import { type Database, inOrg, schema } from "@hekate/db";
-import { levelsOf, listeningTools, projectMemberInput, roleInput } from "@hekate/shared";
-import { and, asc, count, eq, max } from "drizzle-orm";
+import {
+  levelsOf,
+  listeningTools,
+  type PlayerTool,
+  playerTools,
+  projectMemberInput,
+  roleInput,
+  type ToolException,
+  toolExceptionInput,
+  toolExceptionUpdate,
+} from "@hekate/shared";
+import { and, asc, count, eq, max, or, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -9,10 +19,22 @@ import { NotFound } from "../errors.ts";
 import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { projectRoles, projectMembers, members, users } = schema;
+const {
+  projectRoles,
+  projectMembers,
+  projectToolExceptions,
+  members,
+  users,
+  guests,
+  groups,
+  groupMembers,
+  reviews,
+  reviewReviewers,
+} = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 const roleParam = zValidator("param", z.object({ id: z.uuid(), roleId: z.uuid() }));
+const exceptionParam = zValidator("param", z.object({ id: z.uuid(), exceptionId: z.uuid() }));
 const memberParam = zValidator(
   "param",
   z.object({ id: z.uuid(), userId: z.string().min(1).max(64) }),
@@ -35,6 +57,117 @@ const choosesRoles = [...choosesPeople, "edit_workflows"] as const;
 
 const nameTaken = () =>
   new HTTPException(409, { message: "This project already has a role with that name" });
+
+type Reader = Pick<Database, "select">;
+
+/** A project's tool exceptions (decision 258), each with whom it is for, by name. */
+async function exceptionsOf(
+  db: Reader,
+  organisationId: string,
+  projectId: string,
+): Promise<ToolException[]> {
+  const rows = await db
+    .select({
+      id: projectToolExceptions.id,
+      userId: projectToolExceptions.userId,
+      guestId: projectToolExceptions.guestId,
+      groupId: projectToolExceptions.groupId,
+      tools: projectToolExceptions.tools,
+      userName: users.name,
+      guestName: guests.name,
+      groupName: groups.name,
+    })
+    .from(projectToolExceptions)
+    .leftJoin(users, eq(users.id, projectToolExceptions.userId))
+    .leftJoin(
+      guests,
+      and(eq(guests.id, projectToolExceptions.guestId), eq(guests.organisationId, organisationId)),
+    )
+    .leftJoin(
+      groups,
+      and(eq(groups.id, projectToolExceptions.groupId), eq(groups.organisationId, organisationId)),
+    )
+    .where(
+      inOrg(projectToolExceptions, organisationId, eq(projectToolExceptions.projectId, projectId)),
+    )
+    .orderBy(asc(projectToolExceptions.createdAt), asc(projectToolExceptions.id));
+  return rows.map((r) => ({
+    id: r.id,
+    kind: r.userId ? "member" : r.guestId ? "guest" : "group",
+    subjectId: r.userId ?? r.guestId ?? r.groupId ?? "",
+    name: r.userName ?? r.guestName ?? r.groupName ?? "",
+    tools: playerTools.filter((t) => r.tools.includes(t)),
+  }));
+}
+
+/**
+ * Whom an exception may be for: someone with a role in the project, a guest its reviews or
+ * groups have asked, or one of its groups. Anyone else is not found here.
+ */
+async function assertSubject(
+  db: Reader,
+  organisationId: string,
+  projectId: string,
+  subject: { userId?: string; guestId?: string; groupId?: string },
+) {
+  if (subject.userId) {
+    const [held] = await db
+      .select({ id: projectMembers.id })
+      .from(projectMembers)
+      .where(
+        inOrg(
+          projectMembers,
+          organisationId,
+          eq(projectMembers.projectId, projectId),
+          eq(projectMembers.userId, subject.userId),
+        ),
+      );
+    if (!held) throw new NotFound("Member");
+    return;
+  }
+  if (subject.groupId) {
+    const [group] = await db
+      .select({ id: groups.id })
+      .from(groups)
+      .where(
+        inOrg(
+          groups,
+          organisationId,
+          eq(groups.id, subject.groupId),
+          eq(groups.projectId, projectId),
+        ),
+      );
+    if (!group) throw new NotFound("Group");
+    return;
+  }
+  const guestId = subject.guestId ?? "";
+  const [asked] = await db
+    .select({ id: guests.id })
+    .from(guests)
+    .where(
+      inOrg(
+        guests,
+        organisationId,
+        eq(guests.id, guestId),
+        or(
+          sql`exists (select 1 from ${reviewReviewers} join ${reviews} on ${reviews.id} = ${reviewReviewers.reviewId}
+            where ${reviewReviewers.organisationId} = ${organisationId}
+              and ${reviews.organisationId} = ${organisationId}
+              and ${reviews.projectId} = ${projectId}
+              and ${reviewReviewers.guestId} = ${guests.id})`,
+          sql`exists (select 1 from ${groupMembers} join ${groups} on ${groups.id} = ${groupMembers.groupId}
+            where ${groupMembers.organisationId} = ${organisationId}
+              and ${groups.organisationId} = ${organisationId}
+              and ${groups.projectId} = ${projectId}
+              and ${groupMembers.guestId} = ${guests.id})`,
+        ),
+      ),
+    );
+  if (!asked) throw new NotFound("Guest");
+}
+
+const exceptionTaken = () =>
+  new HTTPException(409, { message: "They already have an exception in this project" });
 
 /**
  * `/api/projects/:id/roles` and `/api/projects/:id/members`: a project's roles and who
@@ -192,6 +325,81 @@ export const projectAccessRoutes = (db: Database) =>
       }
       return c.body(null, 204);
     })
+    // Exceptions to the player tools (decision 258): read by whoever reads the roles, made and
+    // changed by whoever manages them.
+    .get("/:id/tool-exceptions", idParam, async (c) => {
+      const { projectId } = await can(db, actorOf(c.var), choosesRoles, c.req.valid("param").id);
+      return c.json({ exceptions: await exceptionsOf(db, c.var.organisationId, projectId) });
+    })
+    .post("/:id/tool-exceptions", idParam, zValidator("json", toolExceptionInput), async (c) => {
+      const organisationId = c.var.organisationId;
+      const { projectId } = await can(db, actorOf(c.var), "manage_roles", c.req.valid("param").id);
+      const input = c.req.valid("json");
+      await assertSubject(db, organisationId, projectId, input);
+      const [made] = await db
+        .insert(projectToolExceptions)
+        .values({
+          organisationId,
+          projectId,
+          userId: input.userId ?? null,
+          guestId: input.guestId ?? null,
+          groupId: input.groupId ?? null,
+          tools: input.tools,
+          createdBy: c.var.userId,
+        })
+        .onConflictDoNothing()
+        .returning({ id: projectToolExceptions.id });
+      if (!made) throw exceptionTaken();
+      const exception = (await exceptionsOf(db, organisationId, projectId)).find(
+        (e) => e.id === made.id,
+      );
+      return c.json({ exception }, 201);
+    })
+    .patch(
+      "/:id/tool-exceptions/:exceptionId",
+      exceptionParam,
+      zValidator("json", toolExceptionUpdate),
+      async (c) => {
+        const organisationId = c.var.organisationId;
+        const { id, exceptionId } = c.req.valid("param");
+        const { projectId } = await can(db, actorOf(c.var), "manage_roles", id);
+        const { tools } = c.req.valid("json");
+        const [changed] = await db
+          .update(projectToolExceptions)
+          .set({ tools: tools satisfies PlayerTool[], updatedAt: new Date() })
+          .where(
+            inOrg(
+              projectToolExceptions,
+              organisationId,
+              eq(projectToolExceptions.id, exceptionId),
+              eq(projectToolExceptions.projectId, projectId),
+            ),
+          )
+          .returning({ id: projectToolExceptions.id });
+        if (!changed) throw new NotFound("Exception");
+        const exception = (await exceptionsOf(db, organisationId, projectId)).find(
+          (e) => e.id === changed.id,
+        );
+        return c.json({ exception });
+      },
+    )
+    .delete("/:id/tool-exceptions/:exceptionId", exceptionParam, async (c) => {
+      const { id, exceptionId } = c.req.valid("param");
+      const { projectId } = await can(db, actorOf(c.var), "manage_roles", id);
+      const [removed] = await db
+        .delete(projectToolExceptions)
+        .where(
+          inOrg(
+            projectToolExceptions,
+            c.var.organisationId,
+            eq(projectToolExceptions.id, exceptionId),
+            eq(projectToolExceptions.projectId, projectId),
+          ),
+        )
+        .returning({ id: projectToolExceptions.id });
+      if (!removed) throw new NotFound("Exception");
+      return c.body(null, 204);
+    })
     .get("/:id/members", idParam, async (c) => {
       const organisationId = c.var.organisationId;
       const { projectId } = await can(db, actorOf(c.var), choosesPeople, c.req.valid("param").id);
@@ -201,9 +409,19 @@ export const projectAccessRoutes = (db: Database) =>
           name: users.name,
           email: users.email,
           roleId: projectMembers.roleId,
+          // Their role in the workspace: owners and admins keep every tool whatever an
+          // exception says (decision 258), so the web app offers none for them.
+          workspaceRole: members.role,
         })
         .from(projectMembers)
         .innerJoin(users, eq(users.id, projectMembers.userId))
+        .leftJoin(
+          members,
+          and(
+            eq(members.userId, projectMembers.userId),
+            eq(members.organisationId, organisationId),
+          ),
+        )
         .where(inOrg(projectMembers, organisationId, eq(projectMembers.projectId, projectId)))
         .orderBy(asc(users.name));
       return c.json({ members: rows });

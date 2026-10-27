@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { boardDisplaySchema, defaultBoardDisplay } from "./board.ts";
+import { boardDisplaySchema, defaultBoardDisplay, sameBoardDisplay } from "./board.ts";
 import { playerViewSchema, viewPresetsSchema } from "./player-view.ts";
 
 /** The languages Hekate's dates and numbers can be shown in; its words are English for now. */
@@ -74,12 +74,27 @@ export const preferencesSchema = z.object({
   showLoudness: z.boolean(),
   /** Each channel in its own lane, rather than combined; the View menu changes it too. */
   splitChannels: z.boolean(),
+  /**
+   * The metadata editor on the QA view. Only the choice is kept for now: the editor itself is
+   * not built yet, and reads this when it is (see `usePreferences().showMetadataEditor`).
+   */
+  showMetadataEditor: z.boolean(),
+  /**
+   * Whether "?" alone opens the keyboard map. Off, the Help menu still opens it; a single
+   * character that does something can be turned off, as WCAG 2.1.4 asks.
+   */
+  keyboardMapOnQuestion: z.boolean(),
   /** How the player is drawn (#135); none until it is first changed, so the defaults apply. */
   playerView: playerViewSchema.nullable(),
   /** Views kept under a name. */
   viewPresets: viewPresetsSchema,
   /** How they arrange a project's board (#141): its grouping, what cards carry, hidden columns. */
   board: boardDisplaySchema,
+  /**
+   * Whether `board` is an arrangement they chose: until they do (and after Reset), a project's
+   * default arrangement applies where it has one (decision 256).
+   */
+  boardChosen: z.boolean(),
   /** How far the arrow keys move the playhead, in seconds. */
   skipSeconds: z.union(
     skipSteps.map((n) => z.literal(n)) as [z.ZodLiteral<1>, z.ZodLiteral<5>, z.ZodLiteral<10>],
@@ -97,9 +112,12 @@ export const defaultPreferences: Preferences = {
   showSpectrogram: true,
   showLoudness: true,
   splitChannels: false,
+  showMetadataEditor: false,
+  keyboardMapOnQuestion: true,
   playerView: null,
   viewPresets: [],
   board: defaultBoardDisplay,
+  boardChosen: false,
   skipSeconds: 5,
   preRoll: 1,
 };
@@ -120,6 +138,10 @@ export function preferencesOf(stored: unknown): Preferences {
       );
       if (parsed.success) (out as Record<string, unknown>)[key] = parsed.data;
     }
+    // Kept before it was recorded whether they chose it: an arrangement other than the
+    // built-in one is theirs.
+    if (!("boardChosen" in stored))
+      out.boardChosen = !sameBoardDisplay(out.board, defaultBoardDisplay);
   }
   return out;
 }

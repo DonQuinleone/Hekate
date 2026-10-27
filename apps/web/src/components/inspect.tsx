@@ -6,9 +6,10 @@ import {
   inspectTarget,
   type ReviewInspection,
   type SessionInspection,
+  type WorkflowRunInspection,
 } from "@hekate/shared";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -33,6 +34,12 @@ const inspectors: { kind: InspectKind; name: string; hint: string; placeholder: 
     placeholder: "File id or link",
   },
   {
+    kind: "run",
+    name: "A workflow run",
+    hint: "Which node an item is at, what it waits for, and every transition",
+    placeholder: "Run id, or a track's id or link",
+  },
+  {
     kind: "review",
     name: "A review",
     hint: "Its reviewers, their sessions, what they could see and when",
@@ -47,18 +54,36 @@ const inspectors: { kind: InspectKind; name: string; hint: string; placeholder: 
 ];
 
 /**
- * Debug tools' inspectors (#159): read-only views of a file, a review or a session, opened by
- * an id or a pasted link. Each look is recorded as the operator's.
+ * Debug tools' inspectors (#159): read-only views of a file, a workflow run (decision 253), a
+ * review or a session, opened by an id or a pasted link. Each look is recorded as the
+ * operator's. `request` opens one from elsewhere on the page, such as an error's file.
  */
-export function Inspect({ onReference }: { onReference: (reference: string) => void }) {
+export function Inspect({
+  onReference,
+  request,
+}: {
+  onReference: (reference: string) => void;
+  request?: { kind: InspectKind; id: string; n: number } | null;
+}) {
   const [entered, setEntered] = useState<Record<InspectKind, string>>({
     file: "",
+    run: "",
     review: "",
     session: "",
   });
   const [target, setTarget] = useState<{ kind: InspectKind; id: string; look: number } | null>(
     null,
   );
+  const section = useRef<HTMLDivElement>(null);
+  // Asked for from elsewhere: the id goes in its field, the look starts, and the card comes into
+  // view.
+  useEffect(() => {
+    if (!request) return;
+    setEntered((e) => ({ ...e, [request.kind]: request.id }));
+    setInvalid(null);
+    setTarget((t) => ({ kind: request.kind, id: request.id, look: (t?.look ?? 0) + 1 }));
+    section.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [request]);
   const [invalid, setInvalid] = useState<InspectKind | null>(null);
   const result = useQuery({
     ...instanceInspectQuery(target?.kind ?? "file", target?.id ?? "", target?.look ?? 0),
@@ -74,51 +99,62 @@ export function Inspect({ onReference }: { onReference: (reference: string) => v
   };
   const shown = target && result.data?.kind === target.kind ? result.data : null;
   return (
-    <Section
-      title="Inspect"
-      intro="Read-only views of what the system holds, for the thing that is not working. Each look is recorded as yours."
-    >
-      {inspectors.map((i) => (
-        <Row key={i.kind} name={i.name} hint={i.hint}>
-          <form className="flex min-w-0 gap-2" onSubmit={inspect(i.kind)}>
-            <Input
-              value={entered[i.kind]}
-              onChange={(e) => setEntered({ ...entered, [i.kind]: e.target.value })}
-              placeholder={i.placeholder}
-              aria-label={i.placeholder}
-              className="w-56 min-w-0"
-            />
-            <Button
-              type="submit"
-              variant="secondary"
-              size="md"
-              disabled={!entered[i.kind].trim()}
-              aria-label={`Inspect ${i.name.toLowerCase()}`}
-            >
-              Inspect
-            </Button>
-          </form>
-        </Row>
-      ))}
-      {(invalid || result.isError || (target && result.data === null) || shown) && (
-        <div className="flex flex-col gap-3 px-4 py-3">
-          {invalid && (
-            <p className="m-0 text-[13px] text-signal">
-              {invalid === "session"
-                ? "That is not a session id."
-                : `There is no ${invalid} id in that.`}
-            </p>
-          )}
-          {result.isError && <p className="m-0 text-[13px] text-signal">{result.error.message}</p>}
-          {target && result.data === null && (
-            <p className="m-0 text-[13px] text-ink-2">No {target.kind} has that id.</p>
-          )}
-          {shown?.kind === "file" && <FileCard file={shown.found} onReference={onReference} />}
-          {shown?.kind === "review" && <ReviewCard review={shown.found} />}
-          {shown?.kind === "session" && <SessionCard session={shown.found} />}
-        </div>
-      )}
-    </Section>
+    <div ref={section} className="scroll-mt-4">
+      <Section
+        title="Inspect"
+        intro="Read-only views of what the system holds, for the thing that is not working. Each look is recorded as yours."
+      >
+        {inspectors.map((i) => (
+          <Row key={i.kind} name={i.name} hint={i.hint}>
+            <form className="flex min-w-0 gap-2" onSubmit={inspect(i.kind)}>
+              <Input
+                value={entered[i.kind]}
+                onChange={(e) => setEntered({ ...entered, [i.kind]: e.target.value })}
+                placeholder={i.placeholder}
+                aria-label={i.placeholder}
+                className="w-56 min-w-0"
+              />
+              <Button
+                type="submit"
+                variant="secondary"
+                size="md"
+                disabled={!entered[i.kind].trim()}
+                aria-label={`Inspect ${i.name.toLowerCase()}`}
+              >
+                Inspect
+              </Button>
+            </form>
+          </Row>
+        ))}
+        {(invalid || result.isError || (target && result.data === null) || shown) && (
+          <div className="flex flex-col gap-3 px-4 py-3">
+            {invalid && (
+              <p className="m-0 text-[13px] text-signal">
+                {invalid === "session"
+                  ? "That is not a session id."
+                  : invalid === "run"
+                    ? "There is no run or track id in that."
+                    : `There is no ${invalid} id in that.`}
+              </p>
+            )}
+            {result.isError && (
+              <p className="m-0 text-[13px] text-signal">{result.error.message}</p>
+            )}
+            {target && result.data === null && (
+              <p className="m-0 text-[13px] text-ink-2">
+                {target.kind === "run"
+                  ? "No workflow run, nor a track with one, has that id."
+                  : `No ${target.kind} has that id.`}
+              </p>
+            )}
+            {shown?.kind === "file" && <FileCard file={shown.found} onReference={onReference} />}
+            {shown?.kind === "run" && <RunCard run={shown.found} />}
+            {shown?.kind === "review" && <ReviewCard review={shown.found} />}
+            {shown?.kind === "session" && <SessionCard session={shown.found} />}
+          </div>
+        )}
+      </Section>
+    </div>
   );
 }
 
@@ -213,6 +249,100 @@ function Access({ tally, empty }: { tally: AccessTally[]; empty: string }) {
         ))
       )}
     </Part>
+  );
+}
+
+const runStates: Record<string, string> = {
+  running: "running",
+  finished: "finished",
+  stopped: "stopped",
+  cancelled: "cancelled",
+};
+
+function RunCard({ run: r }: { run: WorkflowRunInspection }) {
+  return (
+    <Card
+      title={`${r.workflowName} · ${r.track.name}`}
+      where={`${r.workspace.name} · ${r.project.name}`}
+    >
+      <Facts>
+        <Fact term="State">{runStates[r.state] ?? r.state}</Fact>
+        <Fact term="Status">{r.status ?? "none yet"}</Fact>
+        <Fact term="Started">
+          {at(r.startedAt)}
+          {r.startedBy ? ` by ${r.startedBy}` : ""}
+        </Fact>
+        {r.endedAt && <Fact term="Ended">{at(r.endedAt)}</Fact>}
+        <Fact term="Workflow">version {r.workflowVersion}</Fact>
+        <Fact term="Run" tabular>
+          {r.id}
+        </Fact>
+      </Facts>
+      <Part title="Waits for">
+        {r.waiting.length === 0 ? (
+          <Line>Nothing: {r.state === "running" ? "it moves on by itself" : "it is over"}.</Line>
+        ) : (
+          r.waiting.map((w) => (
+            <Line key={w.nodeId}>
+              <span className="text-ink">{w.name}</span>
+              <span className="text-ink-3"> · {w.type}</span>
+            </Line>
+          ))
+        )}
+        {r.joining.map((j) => (
+          <Line key={j.nodeId}>
+            <span className="text-ink">{j.name}</span>
+            <span className="text-ink-3"> · waiting for its other branches</span>
+          </Line>
+        ))}
+      </Part>
+      <Part title="Transitions">
+        {r.steps.map((s, i) => (
+          <Line key={`${s.at}-${String(i)}`}>
+            <span className="text-ink">
+              {s.node ? `${s.node}${s.outcome ? `: ${s.outcome}` : ""}` : "Started"}
+            </span>
+            <span className="text-ink-3">
+              {" "}
+              · {at(s.at)}
+              {s.by ? ` by ${s.by}` : ""}
+              {s.effects.length > 0 ? ` · ${s.effects.join(", ")}` : ""}
+            </span>
+          </Line>
+        ))}
+      </Part>
+      <Part title="Clocks">
+        {r.jobs === null ? (
+          <Line>The job queue could not be read.</Line>
+        ) : r.jobs.length === 0 ? (
+          <Line>None in the queue.</Line>
+        ) : (
+          r.jobs.map((j) => (
+            <Line key={j.id}>
+              <span className="text-ink">{j.name}</span>
+              <span className="text-ink-3">
+                {" "}
+                · {j.state} · {at(j.createdAt)}
+              </span>
+            </Line>
+          ))
+        )}
+      </Part>
+      {r.others.length > 0 && (
+        <Part title="The track's other runs">
+          {r.others.map((o) => (
+            <Line key={o.id}>
+              <span className="text-ink">{o.workflowName}</span>
+              <span className="text-ink-3">
+                {" "}
+                · {runStates[o.state] ?? o.state} · {at(o.startedAt)} ·{" "}
+              </span>
+              <span className="tabular text-ink-3">{o.id}</span>
+            </Line>
+          ))}
+        </Part>
+      )}
+    </Card>
   );
 }
 

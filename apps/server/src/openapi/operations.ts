@@ -291,7 +291,7 @@ export const apiOperations: Record<string, ApiOperation> = {
   "DELETE /files/{id}": {
     summary: "Delete a file",
     description:
-      "A file that is part of a track's version, or under review, stays: removing it would change what reviewers were asked about.",
+      "A file that is part of a track's version stays, and so does one under review unless the project lets reviewed files go: removing it would change what reviewers were asked about.",
   },
   "POST /files/{id}/next": {
     summary: "Make another file this one's next version",
@@ -775,6 +775,11 @@ export const apiOperations: Record<string, ApiOperation> = {
     description:
       "Recording-session snippets, with an optional bar range and in and out points. Takes are reference material, never versions.",
   },
+  "GET /takes/{id}": {
+    summary: "Read a take",
+    description:
+      "With its track, the session it was recorded in, and that session's other takes of the track.",
+  },
   "PATCH /takes/{id}": { summary: "Change a take" },
   "GET /takes/{id}/history": {
     summary: "Read a take's history",
@@ -889,6 +894,11 @@ export const apiOperations: Record<string, ApiOperation> = {
   "GET /projects/{id}/board": {
     summary: "Read a project's board",
     description: "Its tracks and files in columns by status.",
+  },
+  "PUT /projects/{id}/board/display": {
+    summary: "Set how a project's board is arranged by default",
+    description:
+      "Its grouping, what the cards carry and the columns put away, for everyone who has not chosen their own. For those who may manage the project.",
   },
   "GET /projects/{id}/calendar": {
     summary: "Read a project's calendar",

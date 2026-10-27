@@ -108,6 +108,47 @@ export function channelsFor(
   return { app: chosen.app || alwaysInApp.includes(kind), mail: chosen.mail };
 }
 
+/**
+ * Who a project's workflow tells (decision 259): the people its stages name (a task's owner, a
+ * notice's roles) and those told of a track's new status, in the app and by mail, each as they
+ * choose within what the project allows; and, on a status change, the track's followers or
+ * everyone in the project.
+ */
+export const workflowNotices = z
+  .object({
+    /** The workflow's notices reach people in the app. */
+    app: z.boolean(),
+    /** And by mail. */
+    mail: z.boolean(),
+    /** Everyone in the project hears of a track's new status, not only its followers. */
+    everyoneOnStatus: z.boolean(),
+  })
+  .strict();
+export type WorkflowNotices = z.infer<typeof workflowNotices>;
+
+/** As before projects chose: in the app and by mail, and a status change to its followers. */
+export const defaultWorkflowNotices: WorkflowNotices = {
+  app: true,
+  mail: true,
+  everyoneOnStatus: false,
+};
+
+/** A project's choice as stored, or the default where it has made none. */
+export function workflowNoticesOf(stored: unknown): WorkflowNotices {
+  const parsed = workflowNotices.safeParse(stored);
+  return parsed.success ? parsed.data : defaultWorkflowNotices;
+}
+
+/**
+ * How a notice reaches someone: their own choice for its kind, within the channels its sender
+ * allows (a kind that always reaches you in the app still needs the sender to allow the app).
+ */
+export const withinChannels = (
+  chosen: NotificationChannels,
+  allowed: NotificationChannels | undefined,
+): NotificationChannels =>
+  allowed ? { app: chosen.app && allowed.app, mail: chosen.mail && allowed.mail } : chosen;
+
 export const followInput = z.union([
   z.object({ trackId: z.uuid() }).strict(),
   z.object({ reviewId: z.uuid() }).strict(),

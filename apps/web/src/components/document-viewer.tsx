@@ -15,6 +15,7 @@ import {
 } from "~/lib/pages";
 import { viewQuery } from "~/lib/queries";
 import { useShortcuts } from "~/lib/shortcuts";
+import { GoToField } from "./go-to";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
 
@@ -213,6 +214,8 @@ export function DocumentViewer({
             </Button>
           </span>
         )}
+        {/* A long document is quicker by its number than by turning, as in a PDF reader. */}
+        {count > 1 && <GoToField label="Go to page" onGo={go} className="w-24" />}
         {canDraw && (
           <Button
             size="sm"

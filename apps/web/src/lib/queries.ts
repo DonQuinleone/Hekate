@@ -3,12 +3,14 @@ import {
   type AlignmentPoints,
   type Anchor,
   type ApprovalRule,
+  type AssetPolicy,
   analysisKey,
   type BillingCredit,
   type BillingGatewayStatus,
   type BillingOverview,
   type BillingReports,
   type Board,
+  type BoardDisplay,
   type CalendarEvent,
   type CaptionFormat,
   type CaptionKind,
@@ -64,6 +66,7 @@ import {
   type InstanceOverview,
   type Plan as InstancePlan,
   type InstanceProjectRow,
+  type InstanceSender,
   type InstanceSettings,
   type InstanceWorkspaceDetail,
   type InstanceWorkspaceKeys,
@@ -87,6 +90,7 @@ import {
   type NotificationPreferences,
   narrowed,
   type OperatorRow,
+  type OrganisationRole,
   type OverviewSection,
   type PatchedChannel,
   type PatchRowChange,
@@ -112,6 +116,8 @@ import {
   permissionsOfLevels,
   type QaFinding,
   type QaSettings,
+  type QueueJobDetail,
+  type QueuesView,
   type ReviewDecision,
   type ReviewerPermissions,
   type ReviewerPermissionsChange,
@@ -154,12 +160,14 @@ import {
   type SystemInformation,
   searchResponse,
   type TakeChange,
+  type TakeDetail,
   type TakeImport,
   type TakeRow,
   type TaskChange,
   type TaskDetail,
   type TaskInput,
   type TaskSummary,
+  type ToolException,
   type TraceResult,
   type TrackState,
   type TransferConfirmation,
@@ -180,6 +188,8 @@ import {
   type Work,
   type WorkflowChange,
   type WorkflowInput,
+  type WorkflowNotices,
+  type WorkflowRunInspection,
   type WorkflowStanding,
   type WorkflowStatus,
   type WorkflowSummary,
@@ -215,6 +225,8 @@ export class SignedOutError extends Error {}
 export class SecondFactorDueError extends Error {}
 /** The workspace signs its members in only through its single sign-on. */
 export class SsoRequiredError extends Error {}
+/** The workspace does not take the way this session was signed in (decision 248). */
+export class SignInMethodRefusedError extends Error {}
 /** The instance's operators have suspended the workspace (#174). */
 export class WorkspaceSuspendedError extends Error {}
 /** A refusal with the server's code for it, for pages that answer each refusal differently. */
@@ -245,6 +257,7 @@ export async function json<T>(res: Response): Promise<T> {
     const message = quoting(body?.error?.message ?? `Request failed (${res.status})`, reference);
     if (body?.error?.code === "second_factor_required") throw new SecondFactorDueError(message);
     if (body?.error?.code === "sso_required") throw new SsoRequiredError(message);
+    if (body?.error?.code === "sign_in_method_refused") throw new SignInMethodRefusedError(message);
     if (body?.error?.code === "workspace_suspended") throw new WorkspaceSuspendedError(message);
     throw new ApiError(message, body?.error?.code, reference);
   }
@@ -454,6 +467,12 @@ export interface Project {
   normalisation?: NormalisationMode;
   /** The visible watermark: whom it marks, where and how strongly (#31). */
   watermark?: WatermarkSettings;
+  /** Downloads and deletion, and whether downloads are marked (decision 257). */
+  assetPolicy?: AssetPolicy;
+  /** For whoever edits it: whether the workspace marks recordings' downloads (decision 239). */
+  workspaceMarks?: boolean;
+  /** Who its workflows tell, and how (decision 259). */
+  workflowNotices?: WorkflowNotices;
   /** A deletion waiting for a second owner (#240); only on a single project. */
   deletion?: ProjectDeletion | null;
   /** In the list: whether they are a member of it. */
@@ -517,6 +536,8 @@ export interface ProjectMember {
   name: string;
   email: string;
   roleId: string;
+  /** Their role in the workspace: an owner or admin keeps every tool, whatever the project says. */
+  workspaceRole: OrganisationRole | null;
 }
 
 export const projectRolesQuery = (projectId: string) =>
@@ -621,6 +642,76 @@ export function useProjectAccessMutations(projectId: string) {
             param: { id: projectId, userId },
           }),
         ),
+      onSuccess: refresh,
+    }),
+  };
+}
+
+/** A project's exceptions to the player tools (decision 258). */
+export const projectToolExceptionsQuery = (projectId: string) =>
+  queryOptions({
+    queryKey: ["projects", projectId, "tool-exceptions"],
+    queryFn: async () =>
+      (
+        await json<{ exceptions: ToolException[] }>(
+          await api.projects[":id"]["tool-exceptions"].$get({ param: { id: projectId } }),
+        )
+      ).exceptions,
+  });
+
+export function useToolExceptionMutations(projectId: string) {
+  const client = useQueryClient();
+  const key = projectToolExceptionsQuery(projectId).queryKey;
+  // An exception changes what its people see on the recording page, so refresh the project.
+  const refresh = () => client.invalidateQueries({ queryKey: ["projects", projectId] });
+  return {
+    create: useMutation({
+      mutationFn: async (input: {
+        userId?: string;
+        guestId?: string;
+        groupId?: string;
+        tools: PlayerTool[];
+      }) =>
+        (
+          await json<{ exception: ToolException }>(
+            await api.projects[":id"]["tool-exceptions"].$post({
+              param: { id: projectId },
+              json: input,
+            }),
+          )
+        ).exception,
+      onSuccess: refresh,
+    }),
+    update: useMutation({
+      // One at a time, in order, as a role's changes are.
+      scope: { id: `tool-exceptions-${projectId}` },
+      mutationFn: async (input: { id: string; tools: PlayerTool[] }) =>
+        (
+          await json<{ exception: ToolException }>(
+            await api.projects[":id"]["tool-exceptions"][":exceptionId"].$patch({
+              param: { id: projectId, exceptionId: input.id },
+              json: { tools: input.tools },
+            }),
+          )
+        ).exception,
+      onMutate: async (input) => {
+        await client.cancelQueries({ queryKey: key });
+        const before = client.getQueryData(key);
+        client.setQueryData(key, (list) =>
+          list?.map((e) => (e.id === input.id ? { ...e, tools: input.tools } : e)),
+        );
+        return { before };
+      },
+      onError: (_error, _input, context) => client.setQueryData(key, context?.before),
+      onSettled: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.projects[":id"]["tool-exceptions"][":exceptionId"].$delete({
+          param: { id: projectId, exceptionId: id },
+        });
+        if (!res.ok) await json(res);
+      },
       onSuccess: refresh,
     }),
   };
@@ -887,10 +978,18 @@ export function useRenameWorkspace() {
 }
 
 /** The workspace's settings; every member reads them. */
-export const workspaceSettingsQuery = queryOptions({
+/** The workspace's settings, with the instance's limits on them (its session length). */
+export const workspaceSettingsWithLimitsQuery = queryOptions({
   queryKey: ["organisation", "settings"],
   queryFn: async () =>
-    (await json<{ settings: WorkspaceSettings }>(await api.organisation.settings.$get())).settings,
+    json<{ settings: WorkspaceSettings; instance: { sessionDays: number } }>(
+      await api.organisation.settings.$get(),
+    ),
+});
+
+export const workspaceSettingsQuery = queryOptions({
+  ...workspaceSettingsWithLimitsQuery,
+  select: (r: { settings: WorkspaceSettings }) => r.settings,
 });
 
 /** Change some workspace settings (admins). The language reaches every member, so `me` too. */
@@ -966,12 +1065,35 @@ export function useChannels() {
   };
 }
 
-/** The workspace's own mail (#161), or null where the instance's sends; admins only. */
-export const workspaceMailQuery = queryOptions({
+/**
+ * The workspace's own mail (#161), or null where the instance's sends, and the instance's
+ * sender beside it; admins only.
+ */
+export const workspaceMailSendersQuery = queryOptions({
   queryKey: ["organisation", "mail"],
   queryFn: async () =>
-    (await json<{ mail: WorkspaceMail | null }>(await api.organisation.mail.$get())).mail,
+    json<{ mail: WorkspaceMail | null; instance?: InstanceSender }>(
+      await api.organisation.mail.$get(),
+    ),
 });
+
+/** The workspace's own mail alone. */
+export const workspaceMailQuery = queryOptions({
+  ...workspaceMailSendersQuery,
+  select: (r: { mail: WorkspaceMail | null }) => r.mail,
+});
+
+/** Who the workspace's mail comes from: its own sender, or the instance's. */
+export function useMailSender() {
+  const { data } = useQuery(workspaceMailSendersQuery);
+  const from = data?.mail?.from ?? data?.instance?.from;
+  if (!data || !from) return null;
+  return {
+    from,
+    own: Boolean(data.mail),
+    logOnly: !data.mail && Boolean(data.instance?.logOnly),
+  };
+}
 
 /** Set, test, resume or remove the workspace's own mail. */
 export function useWorkspaceMail() {
@@ -1167,7 +1289,9 @@ export function useSaveWorkspaceSettings() {
         )
       ).settings,
     onSuccess: (settings, change) => {
-      client.setQueryData(workspaceSettingsQuery.queryKey, settings);
+      client.setQueryData(workspaceSettingsWithLimitsQuery.queryKey, (before) =>
+        before ? { ...before, settings } : before,
+      );
       if (change.emailSubjects) client.invalidateQueries({ queryKey: ["organisation", "email"] });
       if (change.locale !== undefined) client.invalidateQueries({ queryKey: meQuery.queryKey });
       // Every file that inherits the workspace's profile is measured afresh, in every project.
@@ -1799,6 +1923,46 @@ export function useCategoryMutations(projectId: string) {
   };
 }
 
+/** The categories every new project in the workspace starts with (decision 247). */
+export const workspaceCategoriesQuery = queryOptions({
+  queryKey: ["organisation", "categories"],
+  queryFn: async () =>
+    (await json<{ categories: CommentCategory[] }>(await api.organisation.categories.$get()))
+      .categories,
+});
+
+/** Add, change or remove one of the workspace's categories for new projects (admins). */
+export function useWorkspaceCategoryMutations(): CategoryMutations {
+  const client = useQueryClient();
+  const refresh = () => client.invalidateQueries({ queryKey: workspaceCategoriesQuery.queryKey });
+  return {
+    create: useMutation({
+      mutationFn: async (input: CategoryInput) =>
+        json<{ category: CommentCategory }>(
+          await api.organisation.categories.$post({ json: input }),
+        ),
+      onSuccess: refresh,
+    }),
+    update: useMutation({
+      mutationFn: async ({ id, ...input }: CategoryInput & { id: string }) =>
+        json<{ category: CommentCategory }>(
+          await api.organisation.categories[":id"].$patch({ param: { id }, json: input }),
+        ),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api.organisation.categories[":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+  };
+}
+
+/** Making, changing and removing categories: a project's, or the workspace's set. */
+export type CategoryMutations = ReturnType<typeof useCategoryMutations>;
+
 /** What swapping a track's score carried to the new one (#52), and what stayed. */
 export interface ScoreRehomed {
   marks: number;
@@ -2282,6 +2446,8 @@ export interface Track {
   /** In a project's track list: where it stands, and who it waits on while in review. */
   state?: TrackState;
   waitingOn?: OverviewPerson[];
+  /** In a project's track list, for those who may see takes: how many it has. */
+  takes?: number;
 }
 
 export const projectTracksQuery = (projectId: string) =>
@@ -2363,6 +2529,15 @@ export const trackTakesQuery = (trackId: string) =>
           await api.tracks[":id"].takes.$get({ param: { id: trackId }, query: {} }),
         )
       ).takes,
+  });
+
+/** One take for its page: its track, session, and the session's other takes of the track. */
+export const takeQuery = (takeId: string) =>
+  queryOptions({
+    queryKey: ["takes", takeId],
+    queryFn: async () =>
+      (await json<{ take: TakeDetail }>(await api.takes[":id"].$get({ param: { id: takeId } })))
+        .take,
   });
 
 /**
@@ -3035,8 +3210,9 @@ export function useTakeMutations(trackId: string) {
         client.setQueryData(key, (list: TakeRow[] | undefined) =>
           list?.map((t) => (t.id === take.id ? take : t)),
         );
-        // A session counts the takes recorded in it.
+        // A session counts the takes recorded in it; the take's own page shows it.
         void client.invalidateQueries({ queryKey: ["sessions"] });
+        void client.invalidateQueries({ queryKey: ["takes", take.id] });
         void client.invalidateQueries({ queryKey: ["projects"], predicate: sessionsKey });
       },
     }),
@@ -4844,6 +5020,23 @@ export const instanceHealthQuery = (range: HealthRange) =>
     refetchInterval: 15_000,
   });
 
+/** The instance's queues (decision 250), read every five seconds while the page is open. */
+export const instanceQueuesQuery = queryOptions({
+  queryKey: ["instance", "queues"],
+  queryFn: async () => json<QueuesView>(await api.instance.queues.$get()),
+  refetchInterval: 5_000,
+});
+
+/** One job in full, for its Details. */
+export const instanceQueueJobQuery = (name: string, id: string) =>
+  queryOptions({
+    queryKey: ["instance", "queues", name, "jobs", id],
+    queryFn: async () =>
+      json<QueueJobDetail>(
+        await api.instance.queues[":name"].jobs[":id"].$get({ param: { name, id } }),
+      ),
+  });
+
 /** What everyone is told about the instance: maintenance mode's notice (#154). */
 export const noticeQuery = queryOptions({
   queryKey: ["notice"],
@@ -4867,6 +5060,7 @@ export const instanceFlagsQuery = queryOptions({
  */
 export type Inspection =
   | { kind: "file"; found: FileInspection }
+  | { kind: "run"; found: WorkflowRunInspection }
   | { kind: "review"; found: ReviewInspection }
   | { kind: "session"; found: SessionInspection };
 
@@ -4881,9 +5075,11 @@ export const instanceInspectQuery = (kind: InspectKind, id: string, look: number
       const res =
         kind === "file"
           ? await inspect.file[":id"].$get(param)
-          : kind === "review"
-            ? await inspect.review[":id"].$get(param)
-            : await inspect.session[":id"].$get(param);
+          : kind === "run"
+            ? await inspect.run[":id"].$get(param)
+            : kind === "review"
+              ? await inspect.review[":id"].$get(param)
+              : await inspect.session[":id"].$get(param);
       if (res.status === 404) return null;
       return { kind, found: await json(res) } as Inspection;
     },
@@ -5134,6 +5330,29 @@ export const projectBoardQuery = (projectId: string) =>
     // Transitions made elsewhere (a decision, a stage ended) show within seconds.
     refetchInterval: 15_000,
   });
+
+/**
+ * Set the project's own arrangement of its board (decision 256), for those who may manage the
+ * project: what everyone sees until they choose theirs.
+ */
+export function useSetBoardDefault(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (display: BoardDisplay) =>
+      (
+        await json<{ display: BoardDisplay }>(
+          await api.projects[":id"].board.display.$put({
+            param: { id: projectId },
+            json: { display },
+          }),
+        )
+      ).display,
+    onSuccess: (display) =>
+      client.setQueryData(projectBoardQuery(projectId).queryKey, (board) =>
+        board ? { ...board, display } : board,
+      ),
+  });
+}
 
 /** A month of a project's calendar (#141), and whether the viewer has a feed of it. */
 export const projectCalendarQuery = (projectId: string, month: string) =>

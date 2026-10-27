@@ -8,9 +8,11 @@ import {
   type InstanceMail,
   type InstanceModules,
   type InstanceNotice,
+  type InstanceOperations,
   type MailStepInput,
   MCP_PATH,
   OPENAPI_PATH,
+  rateLimits,
   scopeFor,
   TICKET_ATTACHMENT_MAX_BYTES,
   unversioned,
@@ -31,7 +33,7 @@ import { requirePlaySession, requireViewer } from "./guests.ts";
 import { createHealthChecks } from "./health-checks.ts";
 import { type Subdomains, workspaceFromHost } from "./hosts.ts";
 import { createInstanceSettings, type InstanceSettingsStore } from "./instance-settings.ts";
-import type { Jobs } from "./jobs.ts";
+import type { Jobs, QueueAdmin } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
 import { createListeningHub, type ListeningHub } from "./listening.ts";
 import type { Mailer } from "./mail.ts";
@@ -48,7 +50,11 @@ import { projectBoardRoutes } from "./routes/board.ts";
 import { brandingRoutes, logoRoutes } from "./routes/branding.ts";
 import { calendarFeedRoutes, projectCalendarRoutes } from "./routes/calendar.ts";
 import { captionRoutes } from "./routes/captions.ts";
-import { categoryRoutes, projectCategoryRoutes } from "./routes/categories.ts";
+import {
+  categoryRoutes,
+  projectCategoryRoutes,
+  workspaceCategoryRoutes,
+} from "./routes/categories.ts";
 import { channelRoutes } from "./routes/channels.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { CROOM_PATH, projectCroomRoutes } from "./routes/croom.ts";
@@ -156,6 +162,10 @@ export interface AppDeps {
   playbackSecret: Buffer;
   /** Only queueing is needed here; workers run separately. */
   jobs: Pick<Jobs, "send">;
+  /** The queue itself, for the instance's Queues (decision 250); none in most tests. */
+  queues?: QueueAdmin;
+  /** What this process runs, for the instance's Operations (decision 251). */
+  capacity?: InstanceOperations["capacity"]["process"];
   /** Read the client address from X-Forwarded-For (behind Caddy). */
   trustProxy?: boolean;
   publicUrl: string;
@@ -197,6 +207,8 @@ export interface AppDeps {
   settings?: InstanceSettingsStore;
   /** How instance mail goes out (#71): SMTP, Microsoft 365, Mailcoach, or to the log. */
   mail?: InstanceMail;
+  /** Who instance mail comes from (MAIL_FROM), as a workspace's email templates name it. */
+  mailFrom?: string;
   /** The commit the image was built from (HEKATE_BUILD). */
   build?: string;
   /** The daily release check is on (HEKATE_UPDATE_CHECK). */
@@ -377,6 +389,8 @@ export function createApi(given: AppDeps) {
           ...links,
           keyring: deps.keyring,
           jobs: deps.jobs,
+          ...(deps.queues ? { queues: deps.queues } : {}),
+          ...(deps.capacity ? { capacity: deps.capacity } : {}),
           backends: deps.storage.backends,
           storage: deps.storage,
           audit: deps.audit,
@@ -553,6 +567,10 @@ export function createApi(given: AppDeps) {
           trustProxy: deps.trustProxy ?? false,
           publicUrl: deps.publicUrl,
           ...(deps.buildWorkspaceMailer ? { build: deps.buildWorkspaceMailer } : {}),
+          instance: {
+            from: deps.mailFrom ?? "Hekate <hekate@localhost>",
+            logOnly: (deps.mail ?? "log") === "log",
+          },
         }),
       )
       .route(
@@ -575,6 +593,7 @@ export function createApi(given: AppDeps) {
           removing: (deps.storageReconcile ?? "remove") === "remove",
         }),
       )
+      .route("/organisation/categories", workspaceCategoryRoutes(deps.db))
       .route("/organisation/exports", workspaceExportRoutes(lifecycle))
       .route("/organisation/deletion", workspaceDeletionRoutes(lifecycle))
       .route(
@@ -598,7 +617,15 @@ export function createApi(given: AppDeps) {
       .route("/home", homeRoutes(deps.db))
       .use("/projects/*", ...member)
       .use("/projects", ...member)
-      .route("/projects", projectRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
+      .route(
+        "/projects",
+        projectRoutes(
+          deps.db,
+          deps.audit,
+          deps.trustProxy ?? false,
+          (deps.modules?.billing ?? "off") !== "off",
+        ),
+      )
       .route("/projects", projectDeletionRoutes(reviewDeps))
       .route("/projects", projectStorageRoutes({ db: deps.db, storage: deps.storage }))
       .route("/projects", projectScoreDownloadRoutes(downloads))
@@ -719,15 +746,10 @@ export function createApi(given: AppDeps) {
       // Starting uploads, per member: a client in a loop is stopped before storage is.
       .post(
         "/uploads",
-        rateLimit(
-          deps.db,
-          "uploads",
-          { max: 120, windowMs: 60_000 },
-          {
-            trustProxy: deps.trustProxy ?? false,
-            by: (c) => (c.var as { userId?: string }).userId,
-          },
-        ),
+        rateLimit(deps.db, "uploads", rateLimits.uploads, {
+          trustProxy: deps.trustProxy ?? false,
+          by: (c) => (c.var as { userId?: string }).userId,
+        }),
       )
       .route(
         "/uploads",
@@ -778,14 +800,9 @@ export function createApi(given: AppDeps) {
       // Opening links and trying codes, per address: few people need many in ten minutes.
       .use(
         "/guest/sessions/*",
-        rateLimit(
-          deps.db,
-          "guest",
-          { max: 30, windowMs: 10 * 60_000 },
-          {
-            trustProxy: deps.trustProxy ?? false,
-          },
-        ),
+        rateLimit(deps.db, "guest", rateLimits.guestLinks, {
+          trustProxy: deps.trustProxy ?? false,
+        }),
       )
       .route("/guest", guestRoutes(reviewDeps))
       .use("/comments/*", ...member)

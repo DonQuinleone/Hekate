@@ -34,6 +34,7 @@ import {
   meQuery,
   SecondFactorDueError,
   SignedOutError,
+  SignInMethodRefusedError,
   SsoRequiredError,
   setupQuery,
   WorkspaceSuspendedError,
@@ -84,6 +85,7 @@ import { SessionPage, SessionsPage } from "~/routes/sessions";
 import { SignUpLinkPage, SignUpPage } from "~/routes/sign-up";
 import { StagePlanPage } from "~/routes/stage-plan";
 import { StatusPage } from "~/routes/status";
+import { TakePage } from "~/routes/take";
 import { TakeLogPage } from "~/routes/take-log";
 import { TasksPage } from "~/routes/tasks";
 import { TrackPage } from "~/routes/track";
@@ -126,6 +128,12 @@ function onSignedOut(error: unknown) {
     });
     return;
   }
+  // The workspace no longer takes the way they signed in (decision 248): sign in another way.
+  if (error instanceof SignInMethodRefusedError && !outside.test(window.location.pathname)) {
+    const here = window.location.pathname + window.location.search;
+    void router.navigate({ to: "/sign-in", search: { reason: "method", redirect: here } });
+    return;
+  }
   if (!(error instanceof SignedOutError) || outside.test(window.location.pathname)) return;
   if (!queryClient.getQueryData(meQuery.queryKey)) return;
   const here = window.location.pathname + window.location.search;
@@ -152,7 +160,7 @@ const signInSearch = z.object({
     .regex(/^\d{6}$/)
     .optional()
     .catch(undefined),
-  reason: z.enum(["expired", "sso"]).optional().catch(undefined),
+  reason: z.enum(["expired", "sso", "method"]).optional().catch(undefined),
   /** What an identity provider's sign-in came back with, when it failed. */
   error: z
     .string()
@@ -726,6 +734,15 @@ const takeLog = createRoute({
     return <TakeLogPage sessionId={sessionId} />;
   },
 });
+// One take (#21, #45): its recording, its notes and its place in the score.
+const takePage = createRoute({
+  getParentRoute: () => app,
+  path: "/takes/$takeId",
+  component: function TakeRoute() {
+    const { takeId } = takePage.useParams();
+    return <TakePage takeId={takeId} />;
+  },
+});
 // The project's settings: the section in the query string, as in the prototype.
 const projectSettings = createRoute({
   getParentRoute: () => app,
@@ -849,11 +866,16 @@ const instanceHome = createRoute({
   path: "/instance",
   component: () => <InstancePage section="overview" />,
 });
-/** A ticket open on the desk (#182), or a workspace and its tab opened from one. */
+/**
+ * A ticket open on the desk (#182), or a workspace and its tab opened from one; an error
+ * reference for Debug tools.
+ */
 const instanceSearch = z.object({
   ticket: z.uuid().optional().catch(undefined),
   workspace: z.uuid().optional().catch(undefined),
   tab: z.enum(["members"]).optional().catch(undefined),
+  /** An error reference to look up in Debug tools, from a job's Details (decision 250). */
+  reference: z.string().max(32).optional().catch(undefined),
 });
 const instanceSection = createRoute({
   getParentRoute: () => app,
@@ -1026,6 +1048,7 @@ export const router = createRouter({
       projectVenues,
       session,
       takeLog,
+      takePage,
       projectSettings,
       projectWorkflows,
       track,

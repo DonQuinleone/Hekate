@@ -362,6 +362,32 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
       }),
     );
   const lastManager = roles.filter((r) => r.permissions.includes("manage_roles")).length === 1;
+  // Exceptions to the player tools (decision 258): a person's or a group's own, in the matrix.
+  const [exceptions, setExceptions] = useState<{ id: string; label: string; tools: Tool[] }[]>([
+    { id: "x-mira", label: "Mira Solberg (guest)", tools: ["score", "loops"] },
+    {
+      id: "x-soloists",
+      label: "Soloists (group)",
+      tools: ["qa", "meters", "score", "compare", "loops", "normalise"],
+    },
+  ]);
+  const toolOrException = (column: string, t: string) =>
+    exceptions.find((x) => x.id === column)?.tools.includes(t as Tool) ?? toolOf(column, t);
+  const toggleTool = (row: string, column: string) => {
+    if (!exceptions.some((x) => x.id === column)) return toggle("tools")(row, column);
+    setExceptions((list) =>
+      list.map((x) =>
+        x.id !== column
+          ? x
+          : {
+              ...x,
+              tools: x.tools.includes(row as Tool)
+                ? x.tools.filter((t) => t !== row)
+                : [...x.tools, row as Tool],
+            },
+      ),
+    );
+  };
   return (
     <SettingsLayout
       title={sections.find((x) => x.id === sec)?.label ?? "Settings"}
@@ -754,19 +780,22 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
           >
             <Matrix
               heading="Tool"
-              columns={roles.map((r) => ({ id: r.id, label: r.name }))}
+              columns={[
+                ...roles.map((r) => ({ id: r.id, label: r.name })),
+                ...exceptions.map((x) => ({ id: x.id, label: x.label })),
+              ]}
               rows={playerTools.map((t) => ({
                 id: t,
                 label: toolCopy[t].label,
                 hint: toolCopy[t].hint,
               }))}
-              value={(row, col) => toolOf(col, row)}
-              onToggle={canRoles ? toggle("tools") : undefined}
+              value={(row, col) => toolOrException(col, row)}
+              onToggle={canRoles ? toggleTool : undefined}
               locked={() => (!canRoles ? "Managed by whoever manages roles" : null)}
             />
             <Row
               name="Exceptions"
-              hint="Mira Solberg (guest): score and loops only, through her reviews. Soloists group: takes off."
+              hint="An exception's tools replace the role's for that person or group; a guest's stay within their review's."
             >
               <Button variant="ghost" size="md">
                 Add an exception
@@ -1033,31 +1062,37 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
             <SwitchRow name="Video streams" checked />
             <SwitchRow name="Downloads" checked />
           </Section>
-          <Section title="Downloads and deletion">
+          <Section
+            title="Downloads and deletion"
+            intro="Each narrows what the roles and reviews allow. A download is still made for the person who asked, marked and logged."
+          >
             <Row name="Who may download">
-              <Select defaultValue="role" className="w-56">
+              <Select defaultValue="roles" className="w-64">
+                <option value="roles">Roles that allow downloads</option>
                 <option value="nobody">Nobody</option>
-                <option value="role">Roles with the download tool</option>
-                <option value="members">Any member</option>
               </Select>
             </Row>
             <Row
               name="Originals"
-              hint="The proxy is always what a download gives unless the person may have the original."
+              hint="A download gives the proxy unless the person may have the original."
             >
-              <Select defaultValue="producers" className="w-56">
-                <option value="nobody">Never</option>
-                <option value="producers">Producers</option>
-                <option value="role">Roles with delete</option>
+              <Select defaultValue="roles" className="w-64">
+                <option value="roles">Roles that allow originals</option>
+                <option value="owners">Workspace owners and admins</option>
+                <option value="never">Never</option>
               </Select>
             </Row>
             <Row name="Who may delete">
-              <Select defaultValue="role" className="w-56">
-                <option value="owners">Workspace owners</option>
-                <option value="role">Roles with delete</option>
+              <Select defaultValue="roles" className="w-64">
+                <option value="roles">Roles that allow deleting</option>
+                <option value="owners">Workspace owners and admins</option>
               </Select>
             </Row>
-            <SwitchRow name="Files in an open review cannot be deleted" checked />
+            <SwitchRow
+              name="Files in a review cannot be deleted"
+              hint="Open or closed, so what reviewers were asked about stays on the record."
+              checked
+            />
           </Section>
         </>
       )}

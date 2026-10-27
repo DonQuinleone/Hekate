@@ -90,6 +90,7 @@ const actionWords = {
   "project.transfer": "Project moved between workspaces",
   "project.croom_import": "ControlRoom project imported",
   "support.attachment_download": "Ticket attachment downloaded",
+  "project.asset_security": "Project downloads and deletion changed",
 } satisfies Record<AuditAction, string>;
 
 /** Plain words for what each entry records; every action has some, or this does not compile. */

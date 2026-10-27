@@ -24,6 +24,7 @@ import {
   channelsQuery,
   instanceSuppressionsQuery,
   useChannels,
+  useMailSender,
   useSendAgain,
   useWorkspaceMail,
   workspaceMailQuery,
@@ -70,6 +71,7 @@ export function ChannelsSection() {
   const [editingMail, setEditingMail] = useState(false);
   const [bounced, setBounced] = useState(false);
   const { data: mail } = useQuery(workspaceMailQuery);
+  const sender = useMailSender();
   const [tested, setTested] = useState<{ id: string; ok: boolean; result: string } | null>(null);
   if (!channels) return null;
   const toggle = (c: ChannelRow, kind: EventKind) =>
@@ -90,6 +92,12 @@ export function ChannelsSection() {
         }
       >
         <MailRow onEdit={() => setEditingMail(true)} onBounced={() => setBounced(true)} />
+        {sender?.logOnly && (
+          <Row
+            name="Log only"
+            hint="No mail is sent: the instance writes everything to its log, as in development. Give the workspace its own mail, or ask the operator to set the instance's."
+          />
+        )}
         {channels.length === 0 && (
           <Row
             name="No channels yet"

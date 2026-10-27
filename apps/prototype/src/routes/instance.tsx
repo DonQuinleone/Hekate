@@ -1073,7 +1073,10 @@ export function InstancePage({ section }: { section: string }) {
                       Scan
                     </Button>
                   </Row>
-                  <Row name="Rendition cache" hint="Rebuilt on demand; originals untouched.">
+                  <Row
+                    name="Rendition cache"
+                    hint="Made again from the originals, which are only read; each file plays its old renditions until its new ones are made."
+                  >
                     <Button variant="secondary" size="md">
                       Clear
                     </Button>
@@ -1967,7 +1970,7 @@ export function InstancePage({ section }: { section: string }) {
         <>
           <Section
             title="Queues"
-            intro="pg-boss in the database. A failed job retries three times with backoff, then waits here with an error reference."
+            intro="pg-boss in the database. A failed job is tried again with backoff, then waits here with an error reference."
             action={
               <span className="flex items-center gap-2">
                 <Button variant="secondary" size="md">
@@ -2012,7 +2015,7 @@ export function InstancePage({ section }: { section: string }) {
                   actions={[
                     { label: "Retry failed", onSelect: () => {} },
                     { label: "Pause", onSelect: () => {} },
-                    { label: "Drain", danger: true, onSelect: () => {} },
+                    { label: "Drain…", danger: true, onSelect: () => {} },
                   ]}
                 />
               </div>
@@ -2554,19 +2557,17 @@ export function InstancePage({ section }: { section: string }) {
 
       {sec === "operations" && (
         <>
-          <Section title="Backups">
+          {/* Backups are taken outside Hekate (decision 251), so it says how, never when. */}
+          <Section
+            title="Backups"
+            intro="Taken outside Hekate, so it cannot say when the last one ran: the database, the storage and the master key, the first two as of the same moment."
+          >
             <Row
-              name="Nightly"
-              hint="Database, the master key's wrapped copy, nothing of the objects (the backends keep those)."
+              name="Backing up"
+              hint="deploy/backup.sh copies the database and the storage; the master key is kept apart from both."
             >
-              <span className="text-[13px] text-ink-2">Today 02:00 · verified</span>
-              <Button variant="secondary" size="md">
-                Back up now
-              </Button>
-            </Row>
-            <Row name="Kept" hint="Seven nightly, four weekly, six monthly.">
               <Button variant="ghost" size="md">
-                Edit
+                How to
               </Button>
             </Row>
             <Row name="Restore" hint="Into a fresh instance, from a backup and the master key.">
@@ -2574,30 +2575,51 @@ export function InstancePage({ section }: { section: string }) {
                 How to
               </Button>
             </Row>
-          </Section>
-          <Section title="Capacity">
-            <Row name="Worker lanes" hint="Transcodes run one per lane; more lanes need more CPU.">
-              <Select defaultValue="4" className="w-28">
-                {["2", "4", "8"].map((n) => (
-                  <option key={n}>{n}</option>
-                ))}
-              </Select>
+            <Row
+              name="Verify a restore"
+              hint="Before anyone uses it: every workspace key opens, every file recorded is in storage, and a sample reads back and matches its checksum. It changes nothing."
+              stacked
+            >
+              <pre className="scroll-quiet m-0 w-full overflow-x-auto rounded-control border border-line bg-canvas/60 px-3 py-2 font-mono text-[12px] leading-[1.6] text-ink-2">
+                docker compose -f deploy/compose.yml run --rm app apps/server/src/cli.ts backup
+                verify
+              </pre>
             </Row>
-            <Row name="Upload limit" hint="Per file.">
-              <Select defaultValue="50" className="w-28">
-                {["20", "50", "200"].map((n) => (
-                  <option key={n}>{n} GB</option>
-                ))}
-              </Select>
+          </Section>
+          {/* Set in each process's environment and in the code: shown, not changed, here. */}
+          <Section
+            title="Capacity"
+            intro="Set in each process's environment, so shown here and changed there; a change takes a restart."
+          >
+            <Row
+              name="Worker lanes"
+              hint="Transcodes run one per lane; more lanes need more CPU. This process answers requests and runs jobs, taking every lane and WORKER_CONCURRENCY 2."
+            >
+              <span className="tabular text-[13px] text-ink-2">1 of 8 busy · 2 replicas</span>
             </Row>
             <Row
-              name="Rate limits"
-              hint="Sign-in attempts, key issues and downloads, per address and per account."
+              name="Upload limit"
+              hint="Per file: the most chunks of 8 MiB a storage backend takes for one object. Workspaces' storage quotas apply too."
             >
-              <Button variant="ghost" size="md">
-                Edit
-              </Button>
+              <span className="tabular text-[13px] text-ink-2">83.9 GB</span>
             </Row>
+          </Section>
+          <Section
+            title="Rate limits"
+            intro="Counted in the database, so every replica counts the same requests; past one, a request is answered 429 with when to try again."
+          >
+            {[
+              ["Sign-in attempts", "per address", "10 a minute"],
+              ["Guest links and codes", "per address", "30 in 10 minutes"],
+              ["Content keys", "per session", "30 a minute"],
+              ["Downloads", "per person", "20 an hour"],
+              ["Uploads started", "per member", "120 a minute"],
+              ["API calls", "per token", "600 a minute"],
+            ].map(([n, h, v]) => (
+              <Row key={n} name={n ?? ""} hint={h}>
+                <span className="tabular text-[13px] text-ink-2">{v}</span>
+              </Row>
+            ))}
           </Section>
         </>
       )}

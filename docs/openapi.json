@@ -1257,6 +1257,67 @@
                       "position",
                       "opacity"
                     ]
+                  },
+                  "assetPolicy": {
+                    "type": "object",
+                    "properties": {
+                      "downloads": {
+                        "type": "string",
+                        "enum": [
+                          "roles",
+                          "nobody"
+                        ]
+                      },
+                      "originals": {
+                        "type": "string",
+                        "enum": [
+                          "roles",
+                          "owners",
+                          "never"
+                        ]
+                      },
+                      "deletion": {
+                        "type": "string",
+                        "enum": [
+                          "roles",
+                          "owners"
+                        ]
+                      },
+                      "keepReviewed": {
+                        "type": "boolean"
+                      },
+                      "forensicDownloads": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "downloads",
+                      "originals",
+                      "deletion",
+                      "keepReviewed",
+                      "forensicDownloads"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "workflowNotices": {
+                    "type": "object",
+                    "properties": {
+                      "app": {
+                        "type": "boolean"
+                      },
+                      "mail": {
+                        "type": "boolean"
+                      },
+                      "everyoneOnStatus": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "app",
+                      "mail",
+                      "everyoneOnStatus"
+                    ],
+                    "additionalProperties": false
                   }
                 }
               },
@@ -6689,6 +6750,156 @@
         }
       }
     },
+    "/projects/{id}/board/display": {
+      "put": {
+        "operationId": "putProjectsIdBoardDisplay",
+        "tags": [
+          "Tasks"
+        ],
+        "summary": "Set how a project's board is arranged by default",
+        "description": "Its grouping, what the cards carry and the columns put away, for everyone who has not chosen their own. For those who may manage the project.\n\nNeeds the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "display": {
+                    "type": "object",
+                    "properties": {
+                      "groupBy": {
+                        "type": "string",
+                        "enum": [
+                          "status",
+                          "stage"
+                        ]
+                      },
+                      "tasks": {
+                        "type": "boolean"
+                      },
+                      "comments": {
+                        "type": "boolean"
+                      },
+                      "decisions": {
+                        "type": "boolean"
+                      },
+                      "fields": {
+                        "type": "object",
+                        "properties": {
+                          "version": {
+                            "type": "boolean"
+                          },
+                          "stage": {
+                            "type": "boolean"
+                          },
+                          "reviewers": {
+                            "type": "boolean"
+                          },
+                          "due": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "version",
+                          "stage",
+                          "reviewers",
+                          "due"
+                        ]
+                      },
+                      "hidden": {
+                        "maxItems": 50,
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "maxLength": 120
+                        }
+                      }
+                    },
+                    "required": [
+                      "groupBy",
+                      "tasks",
+                      "comments",
+                      "decisions",
+                      "fields",
+                      "hidden"
+                    ]
+                  }
+                },
+                "required": [
+                  "display"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "display": {
+                  "groupBy": "status",
+                  "tasks": true,
+                  "comments": true,
+                  "decisions": true,
+                  "fields": {
+                    "version": true,
+                    "stage": true,
+                    "reviewers": true,
+                    "due": true
+                  },
+                  "hidden": [
+                    "Masters"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
     "/projects/{id}/calendar": {
       "get": {
         "operationId": "getProjectsIdCalendar",
@@ -11380,6 +11591,61 @@
       }
     },
     "/takes/{id}": {
+      "get": {
+        "operationId": "getTakesId",
+        "tags": [
+          "Takes and sessions"
+        ],
+        "summary": "Read a take",
+        "description": "With its track, the session it was recorded in, and that session's other takes of the track.\n\nNeeds the `files:read` scope.",
+        "security": [
+          {
+            "token": [
+              "files:read"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      },
       "patch": {
         "operationId": "patchTakesId",
         "tags": [
@@ -14654,7 +14920,7 @@
           "Files"
         ],
         "summary": "Delete a file",
-        "description": "A file that is part of a track's version, or under review, stays: removing it would change what reviewers were asked about.\n\nNeeds the `files:write` scope.",
+        "description": "A file that is part of a track's version stays, and so does one under review unless the project lets reviewed files go: removing it would change what reviewers were asked about.\n\nNeeds the `files:write` scope.",
         "security": [
           {
             "token": [

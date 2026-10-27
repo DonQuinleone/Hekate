@@ -364,6 +364,8 @@ setup("seed", async ({ page, browser }) => {
       page: 1,
       rating: 2,
       notes: "Warm-up run. Tempo settles after the repeat.",
+      timecodeIn: "10:08:30:00",
+      timecodeOut: "10:12:01:00",
     },
     {
       barFrom: 1,
@@ -372,6 +374,9 @@ setup("seed", async ({ page, browser }) => {
       rating: 4,
       starred: true,
       notes: "Good opening, pedal noise at bar 5.",
+      timecodeIn: "10:14:02:00",
+      timecodeOut: "10:19:40:00",
+      falseStarts: 1,
     },
     {
       barFrom: 25,
@@ -381,6 +386,9 @@ setup("seed", async ({ page, browser }) => {
       starred: true,
       label: "Insert",
       notes: "Keeper into the trio. Lovely rubato.",
+      timecodeIn: "10:26:11:00",
+      timecodeOut: "10:30:52:00",
+      falseStarts: 2,
     },
     { rating: 3, notes: "Safety through the coda." },
   ];
@@ -779,12 +787,22 @@ setup("seed", async ({ page, browser }) => {
   );
 
   // A group of guests the request form can ask together (#130).
-  await api(page, "POST", `/api/projects/${music.id}/groups`, {
-    name: "Soloists",
-    members: [
-      { name: "Mira Solberg", email: "mira@example.test", label: "Violin" },
-      { name: "Ines Arlow", email: "ines@example.test", label: "Piano" },
-    ],
+  const soloists = await api<{ group: { id: string } }>(
+    page,
+    "POST",
+    `/api/projects/${music.id}/groups`,
+    {
+      name: "Soloists",
+      members: [
+        { name: "Mira Solberg", email: "mira@example.test", label: "Violin" },
+        { name: "Ines Arlow", email: "ines@example.test", label: "Piano" },
+      ],
+    },
+  );
+  // Their own player tools in this project (decision 258): the score, compare and loops.
+  await api(page, "POST", `/api/projects/${music.id}/tool-exceptions`, {
+    groupId: soloists.group.id,
+    tools: ["score", "compare", "loops"],
   });
 
   // The repertoire and venues (#48): the rags as one work, numbered as the score prints them.
@@ -1849,6 +1867,7 @@ setup("seed", async ({ page, browser }) => {
     videoProjectId: video.id,
     trackId: track.id,
     sessionId: dayTwo.id,
+    takeId: takes[2]?.id ?? "",
     dryFileId: dry,
     scoreFileId: score,
     cutFileId: cutFile.id,

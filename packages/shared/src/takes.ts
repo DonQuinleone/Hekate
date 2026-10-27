@@ -340,6 +340,19 @@ export interface TakeRow extends TakePlace {
   createdAt: string;
 }
 
+/**
+ * One take on its own page: the take, the track it belongs to (with the score it follows),
+ * the session it was recorded in, and the takes of the same track from that session, which
+ * the page switches between. A take recorded in no session switches among the track's other
+ * takes from no session.
+ */
+export interface TakeDetail extends TakeRow {
+  track: { id: string; name: string; projectId: string; scoreFileId: string | null };
+  session: { id: string; name: string } | null;
+  /** In take order, this take among them. */
+  siblings: Pick<TakeRow, "id" | "number" | "starred">[];
+}
+
 /** A take shared on a thread: what a reviewer is shown of it, and the file to hear. */
 export type SharedTake = Pick<
   TakeRow,

@@ -11,6 +11,7 @@ import {
   formatBytes,
   type GuestVerification,
   guestLinkDays,
+  handlingWords,
   locales,
   mayExportWorkspace,
   type ProfileRef,
@@ -18,16 +19,26 @@ import {
   playerTools,
   profiles,
   type SecondFactorPolicy,
+  type SignInMethod,
   type SupportMode,
   secondFactorPolicies,
+  sessionDayChoices,
+  signInMethodLabels,
+  signInMethods,
   type WorkspaceSettingsInput,
 } from "@hekate/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { ScopesSection, TokensSection, WorkspaceApiLogSection } from "~/components/api-tokens";
+import {
+  ApiAndMcpSection,
+  ScopesSection,
+  TokensSection,
+  WorkspaceApiLogSection,
+} from "~/components/api-tokens";
 import { Avatar } from "~/components/avatar";
 import { BillingSection } from "~/components/billing";
 import { BrandingSection } from "~/components/branding";
+import { CategoryDialog } from "~/components/category-dialog";
 import { deliveryHint, ProfileEditor, ProfileOptions } from "~/components/delivery-profiles";
 import { DirectorySection } from "~/components/directory";
 import { EmailTemplatesSection } from "~/components/email-templates";
@@ -43,6 +54,7 @@ import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/se
 import { SsoSection } from "~/components/sso";
 import { type AskedFrom, SupportSection } from "~/components/support";
 import { Button } from "~/components/ui/button";
+import { ToggleChip } from "~/components/ui/chip";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
@@ -58,12 +70,15 @@ import { formatDates, languageNames } from "~/lib/locale";
 import {
   type AccessEvent,
   accessLogQuery,
+  type CommentCategory,
   customProfilesQuery,
+  directoryQuery,
   invitationsQuery,
   type Member,
   membersQuery,
   meQuery,
   type StorageUsage,
+  ssoQuery,
   storageUsageQuery,
   useCustomProfileMutations,
   useOrganisationMutations,
@@ -71,10 +86,13 @@ import {
   useRenameWorkspace,
   useRevokeGuest,
   useSaveWorkspaceSettings,
+  useWorkspaceCategoryMutations,
   useWorkspaceStorage,
+  workspaceCategoriesQuery,
   workspaceGuestsQuery,
   workspaceOperationsQuery,
   workspaceSettingsQuery,
+  workspaceSettingsWithLimitsQuery,
   workspaceStorageQuery,
 } from "~/lib/queries";
 
@@ -117,6 +135,13 @@ const allSections: SectionSpec[] = [
     group: "Workspace",
     from: "admin",
     intro: "What reviews and new projects get unless someone says otherwise.",
+  },
+  {
+    id: "categories",
+    label: "Comment categories",
+    group: "Workspace",
+    from: "admin",
+    intro: "The categories a comment can carry, and how each kind is handled.",
   },
   {
     id: "delivery",
@@ -430,12 +455,73 @@ const policyLabel: Record<SecondFactorPolicy, string> = {
   everyone: "Everyone",
 };
 
-/** Who must sign in with a second factor. Asking it of others starts with having one. */
+/** "1 day", "7 days". */
+const daysWords = (n: number) => (n === 1 ? "1 day" : `${n} days`);
+
+/**
+ * The ways members may sign in (decision 248), as chips that turn on and off: a password and a
+ * passkey always, single sign-on and the directory once the workspace has them on. The last one
+ * allowed stays on. Single sign-on and the directory, set further down, come and go as they do.
+ */
+function MethodsAllowed({
+  allowed,
+  disabled,
+  onChange,
+}: {
+  allowed: SignInMethod[];
+  disabled: boolean;
+  onChange: (methods: SignInMethod[]) => void;
+}) {
+  const { data: sso } = useQuery(ssoQuery);
+  const { data: directory } = useQuery(directoryQuery);
+  const offered = signInMethods.filter(
+    (m) => (m !== "sso" || sso?.sso.enabled) && (m !== "directory" || directory?.directory.enabled),
+  );
+  return (
+    <fieldset className="m-0 flex flex-wrap gap-1.5 border-0 p-0">
+      <legend className="sr-only">Methods allowed</legend>
+      {offered.map((m) => {
+        const on = allowed.includes(m);
+        const last = on && allowed.filter((a) => offered.includes(a)).length === 1;
+        return (
+          <ToggleChip
+            key={m}
+            pressed={on}
+            disabled={disabled || last}
+            title={last ? "One way in stays allowed" : undefined}
+            onClick={() =>
+              onChange(signInMethods.filter((x) => (x === m ? !on : allowed.includes(x))))
+            }
+          >
+            {signInMethodLabels[m]}
+          </ToggleChip>
+        );
+      })}
+    </fieldset>
+  );
+}
+
+/**
+ * How members sign in: the ways allowed, who must add a second factor (asking it of others
+ * starts with having one), and how long a session lasts here, within the instance's own length.
+ */
 function Security() {
   const { settings, change, pending, error } = useSettings();
+  const { data: limits } = useQuery(workspaceSettingsWithLimitsQuery);
   if (!settings) return null;
+  const instanceDays = limits?.instance.sessionDays ?? 14;
   return (
-    <Section title="Sign-in">
+    <Section title="Sign-in policy">
+      <Row
+        name="Methods allowed"
+        hint="Members pick from these; guests always use their link. An owner keeps a password or passkey when only single sign-on or a directory is allowed."
+      >
+        <MethodsAllowed
+          allowed={settings.signInMethods}
+          disabled={pending}
+          onChange={(signInMethods) => change({ signInMethods })}
+        />
+      </Row>
       <Row
         name="Second factor required of"
         hint="A code app, with recovery codes. People without one are asked at their next sign-in and cannot carry on until they add one. Guests use their link."
@@ -460,8 +546,123 @@ function Security() {
         checked={settings.securityKeyForAdmins}
         onChange={(securityKeyForAdmins) => change({ securityKeyForAdmins })}
       />
+      <Row
+        name="Sessions end after"
+        hint={`Counted from signing in, however much it is used. The instance ends any session unused for ${daysWords(instanceDays)}.`}
+      >
+        <Select
+          aria-label="Sessions end after"
+          className="w-48"
+          disabled={pending}
+          value={settings.sessionDays === null ? "" : String(settings.sessionDays)}
+          onChange={(e) =>
+            change({
+              sessionDays: e.target.value
+                ? (Number(e.target.value) as (typeof sessionDayChoices)[number])
+                : null,
+            })
+          }
+        >
+          <option value="">As the instance has it</option>
+          {sessionDayChoices
+            .filter((d) => d < instanceDays)
+            .map((d) => (
+              <option key={d} value={d}>
+                {daysWords(d)}
+              </option>
+            ))}
+        </Select>
+      </Row>
       {error}
     </Section>
+  );
+}
+
+/**
+ * The comment categories every new project starts with (decision 247): copied when a project is
+ * made, so a change here reaches only projects made after it. Each project adds its own.
+ */
+function WorkspaceCategories() {
+  const { data: categories } = useQuery(workspaceCategoriesQuery);
+  const mutations = useWorkspaceCategoryMutations();
+  const { remove } = mutations;
+  const [editing, setEditing] = useState<CommentCategory | "new" | null>(null);
+  const [deleting, setDeleting] = useState<CommentCategory | null>(null);
+  return (
+    <>
+      <Section
+        title="Comment categories"
+        intro="The set every new project starts with. A project may add its own."
+        action={
+          <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
+            <Icon name="plus" size={14} />
+            Category
+          </Button>
+        }
+      >
+        {!categories && <Row name="Loading" />}
+        {categories?.length === 0 && (
+          <Row
+            name="No categories"
+            hint="New projects start without any; triage works without one, and each project can add its own."
+          />
+        )}
+        {categories?.map((c) => (
+          <Row
+            key={c.id}
+            name={c.name}
+            inline
+            hint={
+              c.handling === "deferred"
+                ? `Deferred to a stage named ${c.stage}`
+                : handlingWords[c.handling]
+            }
+          >
+            <ActionMenu
+              always
+              label={c.name}
+              actions={[
+                { label: "Rename or change handling…", onSelect: () => setEditing(c) },
+                "divider",
+                { label: "Delete…", danger: true, onSelect: () => setDeleting(c) },
+              ]}
+            />
+          </Row>
+        ))}
+      </Section>
+      {editing && (
+        <CategoryDialog
+          mutations={mutations}
+          category={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
+      {deleting && (
+        <Dialog
+          title={`Delete ${deleting.name}?`}
+          description="New projects start without it. Projects that have it keep theirs."
+          onClose={() => setDeleting(null)}
+          width="sm"
+          footer={
+            <>
+              <Button variant="ghost" size="md" onClick={() => setDeleting(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
+                disabled={remove.isPending}
+                onClick={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
+              >
+                Delete
+              </Button>
+            </>
+          }
+        >
+          {remove.error && <p className="text-[13px] text-signal">{remove.error.message}</p>}
+        </Dialog>
+      )}
+    </>
   );
 }
 
@@ -805,86 +1006,105 @@ function Members({ role: myRole }: { role: Role }) {
   const [inviting, setInviting] = useState(false);
   const error = setRole.error ?? remove.error ?? revoke.error;
   const owners = members?.filter((m) => m.role === "owner").length ?? 0;
+  // Nobody else yet, and nobody invited: say what to do next, as the prototype does.
+  const alone =
+    members?.length === 1 &&
+    members[0]?.userId === me?.user.id &&
+    (!elevated || invitations?.length === 0);
   return (
     <>
       {inviting && <InviteDialog myRole={myRole} onClose={() => setInviting(false)} />}
-      <Section
-        title={`Members${members ? ` · ${members.length}` : ""}`}
-        action={
-          elevated && (
-            <Button variant="primary" onClick={() => setInviting(true)}>
-              <Icon name="plus" size={14} />
-              Invite
-            </Button>
-          )
-        }
-      >
-        {error && <p className="px-4 py-2 text-[13px] text-signal">{error.message}</p>}
-        {members?.map((m) => {
-          const isSelf = m.userId === me?.user.id;
-          // Owners manage everyone; admins everyone but owners; the last owner stays an owner.
-          const canEdit =
-            elevated &&
-            (myRole === "owner" || m.role !== "owner") &&
-            !(m.role === "owner" && owners === 1);
-          return (
-            <div
-              key={m.id}
-              className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-raised/30"
-            >
-              <Avatar id={m.userId} name={m.name} size={28} />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[14px] text-ink">
-                  {m.name}
-                  {isSelf && <span className="text-ink-3"> · you</span>}
+      {alone ? (
+        <Empty
+          title="Just you so far"
+          text="Invite the people you work with. They get an email with a link that works once."
+          action={
+            elevated && (
+              <Button variant="primary" onClick={() => setInviting(true)}>
+                Invite
+              </Button>
+            )
+          }
+        />
+      ) : (
+        <Section
+          title={`Members${members ? ` · ${members.length}` : ""}`}
+          action={
+            elevated && (
+              <Button variant="primary" onClick={() => setInviting(true)}>
+                <Icon name="plus" size={14} />
+                Invite
+              </Button>
+            )
+          }
+        >
+          {error && <p className="px-4 py-2 text-[13px] text-signal">{error.message}</p>}
+          {members?.map((m) => {
+            const isSelf = m.userId === me?.user.id;
+            // Owners manage everyone; admins everyone but owners; the last owner stays an owner.
+            const canEdit =
+              elevated &&
+              (myRole === "owner" || m.role !== "owner") &&
+              !(m.role === "owner" && owners === 1);
+            return (
+              <div
+                key={m.id}
+                className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-raised/30"
+              >
+                <Avatar id={m.userId} name={m.name} size={28} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[14px] text-ink">
+                    {m.name}
+                    {isSelf && <span className="text-ink-3"> · you</span>}
+                  </span>
+                  <span className="block truncate text-[13px] text-ink-3">{m.email}</span>
                 </span>
-                <span className="block truncate text-[13px] text-ink-3">{m.email}</span>
-              </span>
-              {canEdit ? (
-                <Select
-                  aria-label={`Role of ${m.name}`}
-                  value={m.role}
-                  onChange={(e) => setRole.mutate({ id: m.id, role: e.target.value as Role })}
-                  className="h-8 w-32 text-[13px]"
-                >
-                  {roles
-                    .filter((r) => r !== "owner" || myRole === "owner")
-                    .map((r) => (
-                      <option key={r} value={r}>
-                        {roleLabel[r]}
-                      </option>
-                    ))}
-                </Select>
-              ) : (
-                <span
-                  className="w-32 text-right text-[13px] text-ink-2"
-                  title={
-                    m.role === "owner" && owners === 1
-                      ? "The last owner cannot change role"
-                      : undefined
-                  }
-                >
-                  {roleLabel[m.role]}
-                </span>
-              )}
-              {canEdit || isSelf ? (
-                <ActionMenu
-                  label={m.name}
-                  actions={[
-                    {
-                      label: isSelf ? "Leave the workspace" : "Remove from the workspace",
-                      danger: true,
-                      onSelect: () => remove.mutate(m.id),
-                    },
-                  ]}
-                />
-              ) : (
-                <span className="size-7 shrink-0" />
-              )}
-            </div>
-          );
-        })}
-      </Section>
+                {canEdit ? (
+                  <Select
+                    aria-label={`Role of ${m.name}`}
+                    value={m.role}
+                    onChange={(e) => setRole.mutate({ id: m.id, role: e.target.value as Role })}
+                    className="h-8 w-32 text-[13px]"
+                  >
+                    {roles
+                      .filter((r) => r !== "owner" || myRole === "owner")
+                      .map((r) => (
+                        <option key={r} value={r}>
+                          {roleLabel[r]}
+                        </option>
+                      ))}
+                  </Select>
+                ) : (
+                  <span
+                    className="w-32 text-right text-[13px] text-ink-2"
+                    title={
+                      m.role === "owner" && owners === 1
+                        ? "The last owner cannot change role"
+                        : undefined
+                    }
+                  >
+                    {roleLabel[m.role]}
+                  </span>
+                )}
+                {canEdit || isSelf ? (
+                  <ActionMenu
+                    label={m.name}
+                    actions={[
+                      {
+                        label: isSelf ? "Leave the workspace" : "Remove from the workspace",
+                        danger: true,
+                        onSelect: () => remove.mutate(m.id),
+                      },
+                    ]}
+                  />
+                ) : (
+                  <span className="size-7 shrink-0" />
+                )}
+              </div>
+            );
+          })}
+        </Section>
+      )}
       {elevated && invitations && invitations.length > 0 && (
         <Section title={`Invited · ${invitations.length}`}>
           {invitations.map((i) => (
@@ -1341,6 +1561,7 @@ export function WorkspaceSettingsPage({
       >
         {current.id === "general" && <General role={role} />}
         {current.id === "defaults" && <Defaults />}
+        {current.id === "categories" && <WorkspaceCategories />}
         {current.id === "delivery" && <DeliveryProfiles />}
         {current.id === "branding" && <BrandingSection />}
         {current.id === "email" && <EmailTemplatesSection />}
@@ -1352,7 +1573,12 @@ export function WorkspaceSettingsPage({
             <DirectorySection />
           </>
         )}
-        {current.id === "notifications" && <ChannelsSection />}
+        {current.id === "notifications" && (
+          <>
+            <ChannelsSection />
+            <ApiAndMcpSection />
+          </>
+        )}
         {current.id === "api" && (
           <>
             <OAuthClientsSection />

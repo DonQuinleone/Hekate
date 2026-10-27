@@ -7,10 +7,13 @@ import {
   emailTemplateId,
   emailTestInput,
   inviteInput,
+  methodsFor,
   organisationRole,
   organisationStorageInput,
   organisationUpdateInput,
   secondFactorRequired,
+  sessionMethod,
+  signInMethodWords,
   workspaceSettingsInput,
   workspaceSettingsOf,
 } from "@hekate/shared";
@@ -20,6 +23,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { revokeMemberTokens } from "../api-tokens.ts";
 import { type Audit, csvHeader, csvRow, requestInfo } from "../audit.ts";
+import { SESSION_DAYS } from "../auth.ts";
 import { brandingOf, emailBrandOf } from "../branding.ts";
 import { assertProfileRef, customProfilesOf, deleteCustomProfile } from "../delivery-profiles.ts";
 import { render } from "../email/render.ts";
@@ -112,7 +116,11 @@ export const organisationRoutes = (
         .from(organisations)
         .where(eq(organisations.id, c.var.organisationId));
       if (!row) throw new NotFound("Workspace");
-      return c.json({ settings: workspaceSettingsOf(row.settings) });
+      // With the instance's session length, which the workspace's own may only shorten.
+      return c.json({
+        settings: workspaceSettingsOf(row.settings),
+        instance: { sessionDays: SESSION_DAYS },
+      });
     })
     .patch(
       "/settings",
@@ -146,6 +154,27 @@ export const organisationRoutes = (
           if (asksFactor && !user?.enabled && keys.length === 0)
             throw new HTTPException(422, {
               message: "Add a second factor to your own account first.",
+            });
+        }
+        // Within the instance's own length (decision 248): a workspace may end sessions sooner.
+        if (change.sessionDays && change.sessionDays > SESSION_DAYS)
+          throw new HTTPException(422, {
+            message: `Sessions on this instance end after ${SESSION_DAYS} days unused; choose that or less.`,
+          });
+        // Nobody locks themselves out: the way the one changing it signed in stays allowed.
+        if (change.signInMethods) {
+          const [session] = await db
+            .select({
+              method: schema.authSessions.method,
+              factor: schema.authSessions.factor,
+              ssoProviderId: schema.authSessions.ssoProviderId,
+            })
+            .from(schema.authSessions)
+            .where(eq(schema.authSessions.id, c.var.sessionId));
+          const mine = session ? sessionMethod(session) : null;
+          if (mine && !methodsFor(change.signInMethods, c.var.organisationRole).includes(mine))
+            throw new HTTPException(422, {
+              message: `You signed in with ${signInMethodWords[mine]}: keep it allowed, or sign in another way first.`,
             });
         }
         const who = await audit.member(c.var.userId);

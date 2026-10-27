@@ -1,7 +1,16 @@
 import { passkey } from "@better-auth/passkey";
 import { sso } from "@better-auth/sso";
 import { type Database, schema } from "@hekate/db";
-import { entitled, notEntitledMessage, type SessionFactor } from "@hekate/shared";
+import {
+  entitled,
+  methodsFor,
+  notEntitledMessage,
+  rateLimits,
+  type SessionFactor,
+  type SignInMethod,
+  signInMethodWords,
+  workspaceSettingsOf,
+} from "@hekate/shared";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getSessionFromCtx, isAPIError } from "better-auth/api";
@@ -20,6 +29,7 @@ import {
   factorFor,
   hashedRecoveryCodes,
   hashRecoveryCode,
+  methodFor,
   newRecoveryCodes,
 } from "./second-factor.ts";
 import {
@@ -94,6 +104,29 @@ const appBase = (baseURL: string) => baseURL.replace(/\/$/, "");
 
 /** How long a session lasts without use, in days. */
 export const SESSION_DAYS = 14;
+
+/**
+ * Why signing in this way is refused, when it is: the account belongs to workspaces and none of
+ * them takes this way in for it (decision 248). An account in no workspace yet (an operator, or
+ * one being made) is never refused here.
+ */
+async function refusedEverywhere(
+  db: Database,
+  userId: string,
+  method: SignInMethod,
+): Promise<string | null> {
+  const memberships = await db
+    .select({ role: schema.members.role, settings: schema.organisations.settings })
+    .from(schema.members)
+    .innerJoin(schema.organisations, eq(schema.organisations.id, schema.members.organisationId))
+    .where(eq(schema.members.userId, userId));
+  if (memberships.length === 0) return null;
+  const taken = memberships.some((m) =>
+    methodsFor(workspaceSettingsOf(m.settings).signInMethods, m.role).includes(method),
+  );
+  if (taken) return null;
+  return `Your workspace does not take signing in with ${signInMethodWords[method]}. Sign in another way.`;
+}
 
 /**
  * Better Auth with email and password. Public sign-up is closed: the first account is created by
@@ -456,20 +489,29 @@ export function createAuth(options: AuthOptions) {
               .from(schema.users)
               .where(eq(schema.users.id, session.userId));
             const current = ctx?.context.session?.session as
-              | { factor?: SessionFactor; ssoProviderId?: string | null }
+              | { factor?: SessionFactor; ssoProviderId?: string | null; method?: SignInMethod }
               | undefined;
             const via = ctx ? ssoProviderIn(ctx) : undefined;
             const signedInTo = via
               ? (await providerState(options.db, via))?.organisationId
               : undefined;
+            const factor = factorFor(
+              ctx?.path,
+              { twoFactorEnabled: account?.twoFactorEnabled ?? false },
+              current?.factor,
+            );
+            const method = methodFor(ctx?.path, factor, Boolean(via), current?.method);
+            // Signing in a way none of their workspaces takes (decision 248) is refused here,
+            // with why; one that some take signs in, and the others refuse it as it acts there.
+            if (ctx?.path && signInMethodOf(ctx.path)) {
+              const refusal = await refusedEverywhere(options.db, session.userId, method);
+              if (refusal) throw new APIError("FORBIDDEN", { message: refusal });
+            }
             return {
               data: {
                 ...session,
-                factor: factorFor(
-                  ctx?.path,
-                  { twoFactorEnabled: account?.twoFactorEnabled ?? false },
-                  current?.factor,
-                ),
+                factor,
+                method,
                 // Which single sign-on made it, for a workspace that takes members only so.
                 ssoProviderId: via ?? current?.ssoProviderId ?? null,
                 // Signed in through a workspace's provider: in that workspace (#176).
@@ -509,6 +551,7 @@ export function createAuth(options: AuthOptions) {
         activeOrganisationId: { type: "string", required: false, input: false },
         factor: { type: "string", required: false, input: false, defaultValue: "password" },
         ssoProviderId: { type: "string", required: false, input: false },
+        method: { type: "string", required: false, input: false },
       },
     },
     advanced: {
@@ -528,7 +571,11 @@ export function createAuth(options: AuthOptions) {
       window: 60,
       max: 100,
       customRules: {
-        "/sign-in/email": { window: 60, max: 10 },
+        // Shown in the instance's Operations from the same rule (decision 251).
+        "/sign-in/email": {
+          window: rateLimits.signIn.windowMs / 1000,
+          max: rateLimits.signIn.max,
+        },
         // A reset code is a key to the account: few to ask for, fewer to try.
         "/email-otp/request-password-reset": { window: 15 * 60, max: 5 },
         "/email-otp/reset-password": { window: 15 * 60, max: 10 },

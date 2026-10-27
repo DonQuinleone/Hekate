@@ -7,6 +7,7 @@ import {
   isFollowingPart,
   marks,
   type PlayerTool,
+  rateLimits,
   spectrumAnalysisSchema,
   watermarkOf,
 } from "@hekate/shared";
@@ -47,6 +48,7 @@ import type { Storage } from "../storage.ts";
 import {
   assertOpen,
   assertSecondFactor,
+  assertSessionAllowed,
   assertSignedInThrough,
   membershipOf,
   type SecondFactorRule,
@@ -795,6 +797,11 @@ export const playRoutes = (deps: PlaybackDeps) => {
       // A workspace suspended, or that has come to ask for a second factor or for single
       // sign-on, ends playback at once too.
       await assertOpen(deps.db, claims.organisationId);
+      // So does a session the workspace has since ended, or no longer lets in.
+      await assertSessionAllowed(deps.db, claims.sessionId, {
+        organisationId: claims.organisationId,
+        role: membership.role,
+      });
       await assertSignedInThrough(deps.db, claims.sessionId, {
         organisationId: claims.organisationId,
         role: membership.role,
@@ -1092,10 +1099,11 @@ export const playRoutes = (deps: PlaybackDeps) => {
     .get("/:token/r/:rid/key", ridParam, async (c) => {
       const claims = c.var.playback;
       // Thirty a minute per session, counted where every replica sees it.
-      const { allowed, retryAfter } = await admit(deps.db, `key:${c.var.sessionId}`, {
-        max: 30,
-        windowMs: 60_000,
-      });
+      const { allowed, retryAfter } = await admit(
+        deps.db,
+        `key:${c.var.sessionId}`,
+        rateLimits.contentKeys,
+      );
       if (!allowed) return tooMany(c, retryAfter, "Too many key requests; wait a minute");
       const rendition = await renditionOf(claims, c.req.valid("param").rid);
       const [file] = await deps.db

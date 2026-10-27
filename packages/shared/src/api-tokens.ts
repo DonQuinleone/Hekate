@@ -144,14 +144,15 @@ const reviews = { read: "reviews:read", write: "reviews:write" } as const;
 /**
  * Paths a token never reaches, whatever it holds: playback and pages (session-bound, and media
  * never leaves except as a logged download), deleting and moving projects, calendar feed links,
- * project roles and members, archiving, and listening rooms (#200), which are people's own.
+ * project roles, members and tool exceptions, archiving, and listening rooms (#200), which are
+ * people's own.
  */
 const refused: readonly RegExp[] = [
   new RegExp(`^/files/${id}/(playback|view|spectrograms)(/|$)`),
   /^\/play(\/|$)/,
   /^\/listening-rooms(\/|$)/,
   new RegExp(
-    `^/projects/${id}/(deletion|transfer|calendar/feed|roles|members|archive|unarchive|listening-rooms)(/|$)`,
+    `^/projects/${id}/(deletion|transfer|calendar/feed|roles|members|tool-exceptions|archive|unarchive|listening-rooms)(/|$)`,
   ),
   /^\/transfers(\/|$)/,
 ];

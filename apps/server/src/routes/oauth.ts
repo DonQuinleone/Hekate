@@ -46,6 +46,7 @@ import { rateLimit } from "../rate-limit.ts";
 import {
   assertOpen,
   assertSecondFactor,
+  assertSessionAllowed,
   assertSignedInThrough,
   membershipOf,
   requireRole,
@@ -424,6 +425,7 @@ export function oauthAuthorizeRoutes(deps: OAuthDeps) {
       );
     const role = { organisationId, role: membership.role };
     await assertOpen(db, organisationId);
+    await assertSessionAllowed(db, c.var.sessionId, role);
     await assertSignedInThrough(db, c.var.sessionId, role);
     await assertSecondFactor(db, c.var.sessionId, role, deps.secondFactor);
     const [workspace] = await db

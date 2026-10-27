@@ -1002,6 +1002,34 @@
       "when": 1792890644146,
       "tag": "0142_croom",
       "breakpoints": true
+    },
+    {
+      "idx": 143,
+      "version": "7",
+      "when": 1793050533080,
+      "tag": "0143_workspace_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 144,
+      "version": "7",
+      "when": 1793050601955,
+      "tag": "0144_instance-ops",
+      "breakpoints": true
+    },
+    {
+      "idx": 145,
+      "version": "7",
+      "when": 1793050732679,
+      "tag": "0145_files_rows",
+      "breakpoints": true
+    },
+    {
+      "idx": 146,
+      "version": "7",
+      "when": 1793050847861,
+      "tag": "0146_project_settings",
+      "breakpoints": true
     }
   ]
 }

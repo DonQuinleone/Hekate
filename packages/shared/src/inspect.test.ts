@@ -22,6 +22,14 @@ describe("what to inspect", () => {
     expect(inspectTarget("review", file)).toBe(file);
   });
 
+  it("takes a workflow run by its id, or a track by its id or its page (decision 253)", () => {
+    expect(inspectTarget("run", file)).toBe(file);
+    expect(
+      inspectTarget("run", `https://review.example/projects/${project}/tracks/${file}?v=3`),
+    ).toBe(file);
+    expect(inspectTarget("run", "Maple Leaf Rag")).toBeNull();
+  });
+
   it("takes a member's sign-in id or a guest's session", () => {
     expect(inspectTarget("session", "Q2xLzE9Vf0mT3xYa8bPq1cR7dS5eW4uH")).toBe(
       "Q2xLzE9Vf0mT3xYa8bPq1cR7dS5eW4uH",

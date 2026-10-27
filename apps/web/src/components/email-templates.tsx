@@ -5,9 +5,11 @@ import {
   unknownPlaceholders,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import {
   emailPreviewQuery,
+  useMailSender,
   useSaveWorkspaceSettings,
   useSendTestEmail,
   workspaceSettingsQuery,
@@ -118,6 +120,7 @@ export function EmailTemplatesSection() {
   const [template, setTemplate] = useState<EmailTemplateId>("review_requested");
   const [view, setView] = useState<View>("light");
   const test = useSendTestEmail();
+  const sender = useMailSender();
   return (
     <>
       <Section
@@ -160,6 +163,26 @@ export function EmailTemplatesSection() {
           template={template}
           current={settings?.emailSubjects[template]}
         />
+        {sender && (
+          <Row
+            name="Sent from"
+            hint={
+              <>
+                {sender.own ? "The workspace's own mail" : "The instance's mail"}, set in{" "}
+                <Link
+                  to="/settings/$section"
+                  params={{ section: "notifications" }}
+                  className="text-ink-2 underline decoration-line-strong underline-offset-2 transition-colors hover:text-ink hover:decoration-ink"
+                >
+                  Notifications and integrations
+                </Link>
+                {sender.logOnly ? "; written to the log, not sent" : ""}
+              </>
+            }
+          >
+            <span className="tabular min-w-0 truncate text-[13px] text-ink-2">{sender.from}</span>
+          </Row>
+        )}
         <Row name="Try it" hint="This message, with sample content, to your own address.">
           <Button
             variant="secondary"

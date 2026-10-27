@@ -52,6 +52,15 @@ export interface WorkspaceMail {
   lastError: string | null;
 }
 
+/**
+ * The instance's own mail, as a workspace's admins are told of it: who its messages come from
+ * (MAIL_FROM), and whether it only writes them to the server's log, as in development.
+ */
+export interface InstanceSender {
+  from: string;
+  logOnly: boolean;
+}
+
 /** A workspace's mail fails this many times in a row, and pauses. */
 export const MAIL_PAUSE_AFTER = 5;
 /** For this long; the instance's mail sends meanwhile. */

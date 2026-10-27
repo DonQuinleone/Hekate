@@ -188,9 +188,17 @@ export function probeHandler(deps: MediaWorkerDeps): JobHandler<"media-probe"> {
 /**
  * Make a file playable: package HLS renditions, encrypt every segment under a fresh
  * content key per rendition, store the segments as blobs and record the renditions.
- * Idempotent: a file that already has renditions is left alone.
+ * Idempotent: a file that already has renditions is left alone, unless `replace` (the
+ * rendition cache cleared, decision 255): then new ones are made from the original and take
+ * the old ones' place in one transaction, so the file plays throughout, and the old segments
+ * are removed after. The original is only read.
  */
-export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
+export function proxyHandler(
+  deps: MediaWorkerDeps,
+  options: { replace?: boolean; job?: "media-proxy" | "media-reproxy" } = {},
+): JobHandler<"media-proxy"> {
+  const replace = options.replace ?? false;
+  const retryLimit = jobDefinitions[options.job ?? "media-proxy"].options.retryLimit;
   const markFailed = async (organisationId: string, fileId: string) => {
     await deps.db
       .update(files)
@@ -210,11 +218,13 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
       .from(renditions)
       .where(inOrg(renditions, organisationId, eq(renditions.fileId, fileId)))
       .limit(1);
-    if (existing.length > 0) return;
+    if (existing.length > 0 && !replace) return;
+    // Made again over renditions that play: a failure leaves them, and the file, as they were.
+    const playing = existing.length > 0;
 
     const plans = planRenditions(file.kind, file.mediaInfo, deps.videoLadder);
     if (plans.length === 0) {
-      await markFailed(organisationId, fileId);
+      if (!playing) await markFailed(organisationId, fileId);
       return;
     }
 
@@ -281,7 +291,35 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
         return { results, filmstrip };
       });
 
+      // The blobs the old renditions and filmstrip used, removed once the new ones are in.
+      const replaced: string[] = [];
       await deps.db.transaction(async (tx) => {
+        if (replace) {
+          const old = await tx
+            .select({ id: renditions.id, initBlobId: renditions.initBlobId })
+            .from(renditions)
+            .where(inOrg(renditions, organisationId, eq(renditions.fileId, fileId)))
+            .for("update");
+          if (old.length > 0) {
+            const ids = old.map((r) => r.id);
+            const segments = await tx
+              .select({ blobId: renditionSegments.blobId })
+              .from(renditionSegments)
+              .where(
+                inOrg(
+                  renditionSegments,
+                  organisationId,
+                  inArray(renditionSegments.renditionId, ids),
+                ),
+              );
+            replaced.push(...old.map((r) => r.initBlobId), ...segments.map((s) => s.blobId));
+            // The segments go with their renditions.
+            await tx
+              .delete(renditions)
+              .where(inOrg(renditions, organisationId, inArray(renditions.id, ids)));
+          }
+          if (packaged.filmstrip && file.filmstripBlobId) replaced.push(file.filmstripBlobId);
+        }
         for (const { id, wrappedKey, rendition } of packaged.results) {
           await tx.insert(renditions).values({
             id,
@@ -328,10 +366,11 @@ export function proxyHandler(deps: MediaWorkerDeps): JobHandler<"media-proxy"> {
           })
           .where(inOrg(files, organisationId, eq(files.id, fileId)));
       });
+      await discard(deps.storage, organisationId, replaced, `old renditions of file ${fileId}`);
     } catch (error) {
       // Nothing records these segments; remove them so a retry starts clean.
       await discard(deps.storage, organisationId, stored, `segments of file ${fileId}`);
-      if (job.retryCount >= jobDefinitions["media-proxy"].options.retryLimit) {
+      if (job.retryCount >= retryLimit && !playing) {
         await markFailed(organisationId, fileId);
       }
       throw error;
@@ -1010,6 +1049,9 @@ export async function startWorkers(jobs: Jobs, deps: MediaWorkerDeps, concurrenc
   setInterval(sweep, 60 * 60_000).unref();
   await jobs.work("media-probe", probeHandler(deps), { concurrency });
   await jobs.work("media-proxy", proxyHandler(deps), {
+    concurrency: Math.max(1, Math.floor(concurrency / 2)),
+  });
+  await jobs.work("media-reproxy", proxyHandler(deps, { replace: true, job: "media-reproxy" }), {
     concurrency: Math.max(1, Math.floor(concurrency / 2)),
   });
   await jobs.work("media-analysis", analysisHandler(deps), { concurrency });

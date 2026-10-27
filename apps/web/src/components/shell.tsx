@@ -52,10 +52,12 @@ const instanceIcons: Record<InstanceSection, IconName> = {
   billing: "chart",
   support: "comment",
   health: "pulse",
+  queues: "clock",
   logs: "list",
   settings: "settings",
   system: "server",
   debug: "sliders",
+  operations: "database",
 };
 
 /** The lamps in the room: slow, warm and cool, behind the chrome. */
@@ -481,7 +483,12 @@ function HelpMenu() {
         <MenuList
           onClose={() => setOpen(false)}
           actions={[
-            { label: "Keyboard shortcuts", hint: "?", onSelect: openShortcutMap },
+            {
+              label: "Keyboard shortcuts",
+              // "?" opens it only for those who keep it on (Account, Appearance).
+              ...(me?.user.preferences?.keyboardMapOnQuestion === false ? {} : { hint: "?" }),
+              onSelect: openShortcutMap,
+            },
             {
               label: "View documentation",
               hint: docs.replace(/^https?:\/\//, "").replace(/\/$/, ""),

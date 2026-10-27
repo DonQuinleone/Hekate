@@ -3,11 +3,13 @@ import {
   type Anchor,
   type ApiScope,
   type ApiTokenKind,
+  type AssetPolicy,
   approvalRules,
   auditActions,
   auditActorTypes,
   authMethods,
   authResults,
+  type BoardDisplay,
   type CaptionCue,
   type CaptionFormat,
   type CaptionKind,
@@ -60,6 +62,7 @@ import {
   reviewStatuses,
   type SearchRequest,
   type SessionFactor,
+  type SignInMethod,
   type SsoProtocol,
   type StandingGrant,
   type StatusService,
@@ -77,6 +80,7 @@ import {
   type WatermarkSettings,
   type WorkflowDefinition,
   type WorkflowEffect,
+  type WorkflowNotices,
   type WorkflowRun,
   type WorkflowStatus,
   type WorkspaceExportStatus,
@@ -200,6 +204,11 @@ export const organisations = pgTable("organisations", {
   memberLimit: integer("member_limit"),
   /** Projects (#177), the same way: from its plan, or an operator. */
   projectLimit: integer("project_limit"),
+  /**
+   * Its default comment categories (`workspace_categories`) have been made: from then on an
+   * empty set is the workspace's choice, not a set never made (decision 247).
+   */
+  categoriesSeeded: boolean("categories_seeded").notNull().default(false),
   ...timestamps,
 });
 
@@ -249,6 +258,12 @@ export const authSessions = pgTable(
     factor: text("factor").$type<SessionFactor>().notNull().default("password"),
     /** The single sign-on provider that signed the session in, if one did (#37). */
     ssoProviderId: text("sso_provider_id"),
+    /**
+     * The way in it was signed in with: a password, a passkey, single sign-on or a workspace's
+     * directory (decision 248), which a workspace's allowed methods are checked against. Null
+     * for a session from before it was kept, read from `factor` and `ssoProviderId` instead.
+     */
+    method: text("method").$type<SignInMethod>(),
     ...timestamps,
   },
   (t) => [index("auth_sessions_user_idx").on(t.userId)],
@@ -507,6 +522,13 @@ export const projects = pgTable(
     /** The visible watermark (#31): whom it marks, where and how strongly; null is the default. */
     watermark: jsonb("watermark").$type<WatermarkSettings>(),
     /**
+     * Downloads and deletion (decision 257): who may download, originals, who may delete,
+     * whether a reviewed file stays, and whether downloads are marked; null is the default.
+     */
+    assetPolicy: jsonb("asset_policy").$type<AssetPolicy>(),
+    /** Who its workflows tell, and how (decision 259); null is the default. */
+    workflowNotices: jsonb("workflow_notices").$type<WorkflowNotices>(),
+    /**
      * Whether its comment categories have been made: a new project gets the defaults at once,
      * one made before categories existed the first time its categories are read.
      */
@@ -520,6 +542,11 @@ export const projects = pgTable(
       .$type<WorkflowStatus[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    /**
+     * How its board is arranged for those who have not chosen their own (decision 256); null
+     * leaves them the built-in arrangement.
+     */
+    boardDisplay: jsonb("board_display").$type<BoardDisplay>(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     ...timestamps,
   },
@@ -1501,6 +1528,26 @@ export const commentCategories = pgTable(
     index("comment_categories_project_idx").on(t.organisationId, t.projectId),
     uniqueIndex("comment_categories_name_idx").on(t.projectId, sql`lower(${t.name})`),
   ],
+);
+
+/**
+ * The comment categories every new project in a workspace starts with (decision 247): copied
+ * into the project's own `comment_categories` when it is made, never linked, so changing the
+ * set changes no project that already exists.
+ */
+export const workspaceCategories = pgTable(
+  "workspace_categories",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    name: text("name").notNull(),
+    handling: categoryHandlingEnum("handling").notNull().default("normal"),
+    /** Deferred categories only: the stage their comments wait for. */
+    stage: text("stage"),
+    position: integer("position").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("workspace_categories_name_idx").on(t.organisationId, sql`lower(${t.name})`)],
 );
 
 /**
@@ -2491,6 +2538,37 @@ export const projectReviewerGrants = pgTable(
   ],
 );
 
+/**
+ * Exceptions to the player tools (decision 258): for one member, guest or group of a project,
+ * the tools they have there in place of their role's (for a guest, within their reviews').
+ */
+export const projectToolExceptions = pgTable(
+  "project_tool_exceptions",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** A member, a guest or one of the project's groups: exactly one. */
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    guestId: uuid("guest_id").references(() => guests.id, { onDelete: "cascade" }),
+    groupId: uuid("group_id").references(() => groups.id, { onDelete: "cascade" }),
+    tools: text("tools").array().notNull(),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("project_tool_exceptions_user_idx").on(t.organisationId, t.projectId, t.userId),
+    uniqueIndex("project_tool_exceptions_guest_idx").on(t.organisationId, t.projectId, t.guestId),
+    uniqueIndex("project_tool_exceptions_group_idx").on(t.organisationId, t.projectId, t.groupId),
+    check(
+      "project_tool_exceptions_one_subject",
+      sql`num_nonnulls(${t.userId}, ${t.guestId}, ${t.groupId}) = 1`,
+    ),
+  ],
+);
+
 /** Which items of a review each reviewer has opened, and when they first did. */
 export const reviewItemOpens = pgTable(
   "review_item_opens",
@@ -3275,6 +3353,9 @@ export const errorReports = pgTable(
     }),
     userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    /** An operator marked it known (decision 252): seen, understood, nothing more to look into. */
+    knownAt: timestamp("known_at", { withTimezone: true }),
+    knownBy: text("known_by").references(() => users.id, { onDelete: "set null" }),
   },
   (t) => [index("error_reports_occurred_idx").on(t.occurredAt)],
 );

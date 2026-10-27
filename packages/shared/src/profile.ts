@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { AnchorKind } from "./anchor.ts";
+import { assetPolicy } from "./asset-policy.ts";
 import { normalisationMode } from "./normalisation.ts";
+import { workflowNotices } from "./notifications.ts";
 import { profileRef } from "./qa.ts";
 import { qaSettings } from "./qa-rules.ts";
 import { commentReferences } from "./references.ts";
@@ -96,6 +98,10 @@ export const updateProjectInput = z
     normalisation: normalisationMode.optional(),
     /** The visible watermark: whom it marks, where and how strongly (#31). */
     watermark: watermarkSettings.optional(),
+    /** Downloads and deletion, and whether downloads carry the inaudible mark (decision 257). */
+    assetPolicy: assetPolicy.optional(),
+    /** Who the workflow tells, and how (decision 259). */
+    workflowNotices: workflowNotices.optional(),
   })
   .refine(
     (u) =>
@@ -109,7 +115,9 @@ export const updateProjectInput = z
       u.qaSettings !== undefined ||
       u.references !== undefined ||
       u.normalisation !== undefined ||
-      u.watermark !== undefined,
+      u.watermark !== undefined ||
+      u.assetPolicy !== undefined ||
+      u.workflowNotices !== undefined,
     { message: "Nothing to change" },
   );
 export type UpdateProjectInput = z.infer<typeof updateProjectInput>;

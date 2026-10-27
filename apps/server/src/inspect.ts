@@ -7,6 +7,8 @@ import {
   type ReviewInspection,
   readGrant,
   type SessionInspection,
+  type WorkflowEffect,
+  type WorkflowRunInspection,
 } from "@hekate/shared";
 import { and, asc, count, desc, eq, gte, inArray, max, type SQL, sql } from "drizzle-orm";
 
@@ -53,13 +55,15 @@ async function placeOf(db: Database, organisationId: string, projectId: string) 
 }
 
 /**
- * The queue's jobs whose data names this file in its workspace; null when the queue cannot be
- * read. Both ids are matched, so another workspace's job naming the same id is never shown.
+ * The queue's jobs whose data names this file (or run) in its workspace; null when the queue
+ * cannot be read. Both ids are matched, so another workspace's job naming the same id is never
+ * shown.
  */
 async function jobsOf(
   db: Database,
   organisationId: string,
   fileId: string,
+  key: "fileId" | "runId" = "fileId",
 ): Promise<InspectedJob[] | null> {
   try {
     const rows = await db.execute<{
@@ -71,7 +75,7 @@ async function jobsOf(
       completed_on: Date | string | null;
     }>(
       sql`select id, name, state, retry_count, created_on, completed_on from pgboss.job
-          where data->>'fileId' = ${fileId} and data->>'organisationId' = ${organisationId}
+          where data->>${key} = ${fileId} and data->>'organisationId' = ${organisationId}
           order by created_on desc limit 50`,
     );
     return rows.map((r) => ({
@@ -145,6 +149,7 @@ export async function inspectFile(db: Database, id: string): Promise<FileInspect
       source: schema.errorReports.source,
       location: schema.errorReports.location,
       message: schema.errorReports.message,
+      knownAt: schema.errorReports.knownAt,
     })
     .from(schema.errorReports)
     .where(
@@ -190,9 +195,118 @@ export async function inspectFile(db: Database, id: string): Promise<FileInspect
       ...e,
       source: e.source as ErrorSource,
       occurredAt: iso(e.occurredAt),
+      knownAt: isoOrNull(e.knownAt),
       workspace: null,
     })),
     access: await accessTally(db, org, eq(schema.accessEvents.fileId, id)),
+  };
+}
+
+/** An effect of a step in words: what it did, and to which node. */
+function effectWords(effect: WorkflowEffect, nodeName: (id: string) => string): string {
+  switch (effect.kind) {
+    case "start":
+      return `started ${nodeName(effect.nodeId)} (${effect.type})`;
+    case "listen":
+      return `listened at ${nodeName(effect.nodeId)} for ${effect.type}`;
+    case "do":
+      return `did ${effect.type} at ${nodeName(effect.nodeId)}`;
+    case "status":
+      return `set the status to ${effect.status}`;
+    case "cancel":
+      return `cancelled ${nodeName(effect.nodeId)}`;
+    case "finish":
+      return effect.status ? `finished, ${effect.status}` : "finished";
+    case "stopped":
+      return "stopped";
+  }
+}
+
+/**
+ * A workflow run (decision 253), by its id, or a track's latest run by the track's id: where it
+ * is, what it waits for, and every move it made.
+ */
+export async function inspectRun(db: Database, id: string): Promise<WorkflowRunInspection | null> {
+  const runs = schema.workflowRuns;
+  let [held] = await db
+    .select({ organisationId: runs.organisationId, trackId: runs.trackId, id: runs.id })
+    .from(runs)
+    .where(eq(runs.id, id));
+  if (!held) {
+    const [track] = await db
+      .select({ organisationId: schema.tracks.organisationId })
+      .from(schema.tracks)
+      .where(eq(schema.tracks.id, id));
+    if (!track) return null;
+    [held] = await db
+      .select({ organisationId: runs.organisationId, trackId: runs.trackId, id: runs.id })
+      .from(runs)
+      .where(inOrg(runs, track.organisationId, eq(runs.trackId, id)))
+      .orderBy(desc(runs.createdAt), desc(runs.id))
+      .limit(1);
+    if (!held) return null;
+  }
+  const org = held.organisationId;
+  const [row] = await db
+    .select({ run: runs, track: schema.tracks.name, startedBy: schema.users.name })
+    .from(runs)
+    .innerJoin(schema.tracks, eq(schema.tracks.id, runs.trackId))
+    .leftJoin(schema.users, eq(schema.users.id, runs.startedBy))
+    .where(inOrg(runs, org, eq(runs.id, held.id)));
+  if (!row) return null;
+  const r = row.run;
+  const nodes = new Map(r.definition.nodes.map((n) => [n.id, n]));
+  const nodeName = (nodeId: string) => nodes.get(nodeId)?.name ?? nodeId;
+  const steps = await db
+    .select({ step: schema.workflowSteps, by: schema.users.name })
+    .from(schema.workflowSteps)
+    .leftJoin(schema.users, eq(schema.users.id, schema.workflowSteps.byUserId))
+    .where(inOrg(schema.workflowSteps, org, eq(schema.workflowSteps.runId, r.id)))
+    .orderBy(asc(schema.workflowSteps.createdAt), asc(schema.workflowSteps.id));
+  const others = await db
+    .select({
+      id: runs.id,
+      workflowName: runs.workflowName,
+      state: runs.state,
+      createdAt: runs.createdAt,
+    })
+    .from(runs)
+    .where(inOrg(runs, org, eq(runs.trackId, r.trackId)))
+    .orderBy(desc(runs.createdAt), desc(runs.id))
+    .limit(20);
+  return {
+    ...(await placeOf(db, org, r.projectId)),
+    id: r.id,
+    workflowName: r.workflowName,
+    workflowVersion: r.workflowVersion,
+    track: { id: r.trackId, name: row.track },
+    state: r.state,
+    status: r.engine.status,
+    startedAt: iso(r.createdAt),
+    startedBy: row.startedBy,
+    endedAt: isoOrNull(r.endedAt),
+    waiting: r.engine.active.map((nodeId) => ({
+      nodeId,
+      name: nodeName(nodeId),
+      type: nodes.get(nodeId)?.type ?? "",
+    })),
+    joining: r.engine.joining.map((nodeId) => ({ nodeId, name: nodeName(nodeId) })),
+    steps: steps.map(({ step, by }) => ({
+      at: iso(step.createdAt),
+      node: step.nodeId ? nodeName(step.nodeId) : null,
+      outcome: step.outcome,
+      by,
+      effects: step.effects.map((e) => effectWords(e, nodeName)),
+    })),
+    others: others
+      .filter((o) => o.id !== r.id)
+      .map((o) => ({
+        id: o.id,
+        workflowName: o.workflowName,
+        state: o.state,
+        startedAt: iso(o.createdAt),
+      })),
+    jobs: await jobsOf(db, org, r.id, "runId"),
   };
 }
 

@@ -1,5 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  assetPolicyOf,
   createProjectInput,
   creatorRole,
   type DefaultRoleName,
@@ -12,6 +13,7 @@ import {
   referencesOf,
   updateProjectInput,
   watermarkOf,
+  workflowNoticesOf,
   workspaceSettingsOf,
 } from "@hekate/shared";
 import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
@@ -22,6 +24,7 @@ import { actorOf, can, projectAccess, visibleProjects } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { assertProfileRef } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
+import { marksAudio } from "../forensic.ts";
 import { zValidator } from "../openapi/validator.ts";
 import { projectFigures } from "../project-figures.ts";
 import type { TenantVariables } from "../tenancy.ts";
@@ -57,12 +60,17 @@ function shown<
     references: referencesOf(commentReferences, project.profile),
     // The visible watermark as it applies: the default until the project chooses (#31).
     ...("watermark" in project ? { watermark: watermarkOf(project.watermark) } : {}),
+    // Downloads and deletion, and who the workflow tells, as they apply (decisions 257, 259).
+    ...("assetPolicy" in project ? { assetPolicy: assetPolicyOf(project.assetPolicy) } : {}),
+    ...("workflowNotices" in project
+      ? { workflowNotices: workflowNoticesOf(project.workflowNotices) }
+      : {}),
   };
 }
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
-export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =>
+export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean, billing = false) =>
   new Hono<{ Variables: TenantVariables }>()
     // The projects this member may see: those in use, or (`archived=1`) those archived. With
     // `figures=1`, each carries what its card shows. Each says whether it is one of yours and
@@ -140,6 +148,8 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
                 commentReferences: projects.commentReferences,
                 normalisation: projects.normalisation,
                 watermark: projects.watermark,
+                assetPolicy: projects.assetPolicy,
+                workflowNotices: projects.workflowNotices,
               })
               .from(projects)
               .where(inOrg(projects, organisationId, eq(projects.id, access.projectId)));
@@ -183,6 +193,16 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
               ...new Set(workspaceSettings?.roleTools[role.name as DefaultRoleName] ?? role.tools),
             ],
           }));
+      // Only the workspace's owners stop marking a project's downloads (decision 257), so a
+      // template that stopped it starts a project marked unless an owner makes it.
+      const settings = template?.settings && {
+        ...template.settings,
+        ...(template.settings.assetPolicy &&
+        !template.settings.assetPolicy.forensicDownloads &&
+        c.var.organisationRole !== "owner"
+          ? { assetPolicy: { ...template.settings.assetPolicy, forensicDownloads: true } }
+          : {}),
+      };
       const project = await db.transaction(async (tx) => {
         // Room under the workspace's project limit (#177), as it is made.
         await assertProjectRoom(tx, organisationId);
@@ -192,7 +212,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
             ...input,
             description: input.description || null,
             ...defaults,
-            ...template?.settings,
+            ...settings,
             organisationId,
           })
           .returning();
@@ -344,6 +364,11 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
           mayArchive: mayDelete,
           // A deletion waiting for its second person, and what this one may do about it (#240).
           deletion: project ? await deletionView(db, c.var, project, mayDelete) : null,
+          // For whoever edits its settings: whether the workspace marks recordings' downloads,
+          // which the project's own switch can only narrow (decision 257).
+          ...(access.permissions.has("edit_project")
+            ? { workspaceMarks: await marksAudio(db, c.var.organisationId, billing) }
+            : {}),
         },
       });
     })
@@ -358,17 +383,58 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean) =
         input.carriedCommentsShown !== undefined ||
         input.references !== undefined ||
         input.normalisation !== undefined ||
-        input.watermark !== undefined;
+        input.watermark !== undefined ||
+        input.assetPolicy !== undefined;
       const workflow =
         input.deliveryProfile !== undefined ||
         input.checkTruePeak !== undefined ||
         input.requireEdl !== undefined ||
-        input.qaSettings !== undefined;
+        input.qaSettings !== undefined ||
+        input.workflowNotices !== undefined;
       const id = c.req.valid("param").id;
       if (workflow) await can(db, actorOf(c.var), "edit_workflows", id);
       const access = await can(db, actorOf(c.var), general ? "edit_project" : "edit_workflows", id);
+      const who = input.assetPolicy ? await audit.member(c.var.userId) : null;
       const project = await db.transaction(async (tx) => {
         await assertProfileRef(tx, c.var.organisationId, input.deliveryProfile);
+        if (input.assetPolicy && who) {
+          // Held, so two changes at once are each logged against what the other left.
+          const [current] = await tx
+            .select({ assetPolicy: projects.assetPolicy })
+            .from(projects)
+            .where(inOrg(projects, c.var.organisationId, eq(projects.id, access.projectId)))
+            .for("update");
+          const before = assetPolicyOf(current?.assetPolicy);
+          const after = input.assetPolicy;
+          // Marking is the owners' choice for the workspace (decision 239): only they stop it
+          // for a project; anyone who edits the project may bring it back (decision 257).
+          if (
+            before.forensicDownloads &&
+            !after.forensicDownloads &&
+            c.var.organisationRole !== "owner"
+          ) {
+            throw new HTTPException(403, {
+              message: "Only the workspace's owners can stop marking this project's downloads",
+            });
+          }
+          const change = Object.fromEntries(
+            (Object.keys(after) as (keyof typeof after)[])
+              .filter((k) => after[k] !== before[k])
+              .map((k) => [k, after[k]]),
+          );
+          if (Object.keys(change).length > 0)
+            await audit.record(
+              c.var.organisationId,
+              who,
+              {
+                action: "project.asset_security",
+                projectId: access.projectId,
+                details: { change },
+              },
+              requestInfo(c, trustProxy),
+              tx,
+            );
+        }
         const { references, ...rest } = input;
         const [row] = await tx
           .update(projects)
