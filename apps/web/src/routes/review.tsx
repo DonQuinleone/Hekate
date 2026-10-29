@@ -6,6 +6,7 @@ import {
   reviewKindNames,
   reviewSteps,
   type StepState,
+  stepTitle,
   versionLabel,
   withinWindow,
 } from "@hekate/shared";
@@ -38,6 +39,7 @@ import {
   type ReviewActivity,
   type ReviewDetail,
   reviewQuery,
+  useProjectCan,
   useReviewActions,
 } from "~/lib/queries";
 import { shareLine, shareNote } from "~/lib/shares";
@@ -169,7 +171,7 @@ function Steps({ review }: { review: ReviewDetail }) {
           icon={review.kind === "approval" ? "review" : "comment"}
           title={
             review.order === "sequence"
-              ? `Step ${i + 1}: ${label(s.reviewers)}`
+              ? `${stepTitle(review.stepNames?.[s.step], i + 1)}: ${label(s.reviewers)}`
               : label(s.reviewers)
           }
           sub={`${s.responded} of ${s.reviewers.length} responded`}
@@ -230,7 +232,7 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
             <li key={s.step} className="border-b border-line last:border-b-0">
               {review.order === "sequence" && (
                 <div className="flex h-8 items-center gap-2 bg-raised/20 px-4 text-[12px] text-ink-3">
-                  Step {i + 1}
+                  {stepTitle(review.stepNames?.[s.step], i + 1)}
                   {s.reviewers.find((r) => r.group)?.group?.name && (
                     <span>· {s.reviewers.find((r) => r.group)?.group?.name}</span>
                   )}
@@ -808,6 +810,7 @@ export function ReviewBody({
     enabled: Boolean(review) && !guest,
   });
   const { viewed, cancel, remind } = useReviewActions(reviewId);
+  const can = useProjectCan(guest ? undefined : review?.projectId);
   const navigate = useNavigate();
   const [notice, setNotice] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
@@ -926,6 +929,21 @@ export function ReviewBody({
                                 void navigate({
                                   to: "/reviews/$reviewId",
                                   params: { reviewId: review.id },
+                                }),
+                            },
+                          ]
+                        : []),
+                      // A new review with everything filled in from this one (#502).
+                      ...(!sharing && can("request_reviews")
+                        ? [
+                            {
+                              label: "Duplicate",
+                              hint: "The same items, reviewers, deadline and message, to tweak before sending",
+                              onSelect: () =>
+                                void navigate({
+                                  to: "/projects/$projectId/reviews/new",
+                                  params: { projectId: review.projectId },
+                                  search: { from: review.id },
                                 }),
                             },
                           ]

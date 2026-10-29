@@ -585,6 +585,8 @@ const requestReviewSearch = z.object({
     .union([z.iso.datetime({ offset: true }), z.literal("never")])
     .optional()
     .catch(undefined),
+  // A review to duplicate (#502): everything filled in from it, nothing sent until Send.
+  from: z.uuid().optional().catch(undefined),
 });
 const requestReview = createRoute({
   getParentRoute: () => app,
@@ -592,7 +594,7 @@ const requestReview = createRoute({
   validateSearch: requestReviewSearch,
   component: function RequestReviewRoute() {
     const { projectId } = requestReview.useParams();
-    const { kind, item, items, version, people, download, until } = requestReview.useSearch();
+    const { kind, item, items, version, people, download, until, from } = requestReview.useSearch();
     return (
       <RequestReviewPage
         projectId={projectId}
@@ -603,6 +605,7 @@ const requestReview = createRoute({
         people={people}
         download={download}
         until={until}
+        from={from}
       />
     );
   },

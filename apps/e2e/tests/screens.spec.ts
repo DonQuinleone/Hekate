@@ -250,7 +250,7 @@ const screens: Screen[] = [
   {
     name: "project-people-empty",
     path: (s) => `/projects/${s.videoProjectId}/people`,
-    ready: "main >> text=No guests yet",
+    ready: "main >> text=No reviewers yet",
   },
   {
     name: "project-settings",
@@ -1486,6 +1486,25 @@ test("workflows-copy", async ({ page }) => {
     .selectOption({ label: "Joplin Rags" });
   await expect(dialog.getByRole("button", { name: "Copy Album review" })).toBeVisible();
   await saveScreen(page, "workflows-copy");
+  await checkScreen(page);
+});
+
+// Inviting a reviewer from the People page (#502): a small dialog, no review started. Looked
+// at only, so the seeded workspace keeps its people.
+test("project-people-invite", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/people`);
+  await settle(page, "main >> text=Ines Arlow");
+  await page.getByRole("button", { name: "Invite a reviewer" }).click();
+  const dialog = page.getByRole("dialog", { name: "Invite a reviewer" });
+  await dialog.getByRole("textbox", { name: "Name", exact: true }).fill("Mira Solberg");
+  await dialog
+    .getByRole("textbox", { name: "Email", exact: true })
+    .fill("mira.solberg@example.test");
+  await dialog.getByRole("textbox", { name: /^Role/ }).fill("Conductor");
+  await dialog.getByRole("combobox", { name: /^Group/ }).selectOption({ label: "Soloists" });
+  await dialog.getByRole("textbox", { name: /^Note/ }).fill("Conducts the spring programme.");
+  await expect(dialog.getByRole("button", { name: "Add reviewer" })).toBeEnabled();
+  await saveScreen(page, "project-people-invite");
   await checkScreen(page);
 });
 
@@ -4060,28 +4079,52 @@ test("request-review", async ({ page }) => {
   await checkScreen(page);
 });
 
+// One Reviewers section (#500): people, groups and a new guest by address go straight into
+// it; in steps, each step is its own list with a name of its own.
 test("request-review-filled", async ({ page }) => {
   const { musicProjectId, trackId } = seeded();
   await page.goto(`/projects/${musicProjectId}/reviews/new?kind=approval&item=track:${trackId}`);
   const form = page.getByRole("form", { name: "Request a review" });
-  await form.getByRole("button", { name: /Soloists/ }).click();
-  await form.getByRole("checkbox", { name: "Alex Rivera" }).check();
-  // In turn: Alex first, the soloists after.
-  await form.getByRole("button", { name: "In turn" }).click();
+  const pick = async (field: string, query: string, option: RegExp) => {
+    await form.getByRole("combobox", { name: field }).fill(query);
+    await page.getByRole("option", { name: option }).click();
+  };
+  await pick("Add reviewers", "Solo", /Soloists/);
+  await pick("Add reviewers", "Alex", /Alex Rivera/);
+  // An address no one here answers to is offered as a new guest.
+  await pick("Add reviewers", "conductor@example.test", /New guest/);
+  // In steps: Alex first, the soloists and the guest after, each step named.
+  await form.getByRole("button", { name: "In steps" }).click();
   await form.getByRole("button", { name: "Add a step" }).click();
-  await form.getByRole("button", { name: "Step 1" }).first().click();
+  await form.getByRole("button", { name: "Step for Soloists" }).click();
   await page.getByRole("menuitemradio", { name: "Step 2" }).click();
+  await form.getByRole("button", { name: "Step for Conductor" }).click();
+  await page.getByRole("menuitemradio", { name: "Step 2" }).click();
+  await form.getByLabel("Name of step 1").fill("Producer");
+  await form.getByLabel("Name of step 2").fill("Stakeholders");
+  await expect(form.getByRole("button", { name: "Step for Alex Rivera" })).toContainText(
+    "Producer",
+  );
   await form.getByRole("button", { name: "a share" }).click();
   await form.getByRole("button", { name: "A week" }).click();
-  // A guest needs an email: the form says so rather than sending a link nowhere.
-  await form.getByRole("button", { name: "Someone new" }).click();
-  await form.getByLabel("Name", { exact: true }).fill("Tomas Varga");
-  await form.getByRole("button", { name: "Add", exact: true }).click();
-  const error = form.getByText("An email is needed: their link goes there.");
-  await expect(error).toBeVisible();
-  await error.evaluate((el) => el.scrollIntoView({ block: "center" }));
   await expect(form.getByRole("button", { name: "Send the review" })).toBeEnabled();
+  await form
+    .getByRole("heading", { name: "Reviewers" })
+    .evaluate((el) => el.scrollIntoView({ block: "start" }));
   await saveScreen(page, "request-review-filled");
+  await checkScreen(page);
+});
+
+// Duplicating a review (#502): the page opens with everything filled in from it.
+test("request-review-duplicate", async ({ page }) => {
+  const { musicProjectId, reviewStates } = seeded();
+  await page.goto(`/projects/${musicProjectId}/reviews/new?from=${reviewStates.waiting}`);
+  const form = page.getByRole("form", { name: "Request a review" });
+  await expect(form.getByText(/Filled in from Producer's listen/)).toBeVisible();
+  await expect(form.getByLabel("Name of step 1")).toHaveValue("Engineer");
+  await expect(form.getByLabel("Name of step 2")).toHaveValue("Producer");
+  await settle(page, "form li");
+  await saveScreen(page, "request-review-duplicate");
   await checkScreen(page);
 });
 

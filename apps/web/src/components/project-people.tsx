@@ -8,7 +8,8 @@ import { Icon } from "~/components/icons";
 import { Card, SectionHead } from "~/components/page";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
-import { Input, Select } from "~/components/ui/input";
+import { Field } from "~/components/ui/field";
+import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { StatusDot } from "~/components/ui/status";
 import { formatDates } from "~/lib/locale";
@@ -17,6 +18,7 @@ import {
   type KnownGuest,
   membersQuery,
   meQuery,
+  projectGroupsQuery,
   projectGuestsQuery,
   projectMembersQuery,
   projectReviewerGrantsQuery,
@@ -244,12 +246,13 @@ function AddMember({ projectId, onClose }: { projectId: string; onClose: () => v
   );
 }
 
-/** Guests this project has asked: in its reviews, or kept in its groups. */
+/** Guests this project has asked: in its reviews, kept in its groups, or invited from here (#502). */
 function Reviewers({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
   const manage = can("manage_reviewers");
   const { data: guests, error: loadError } = useQuery(projectGuestsQuery(projectId));
   const { sendLink, revoke } = useProjectGuestMutations(projectId);
+  const [inviting, setInviting] = useState(false);
   const [labelling, setLabelling] = useState<KnownGuest | null>(null);
   const [revoking, setRevoking] = useState<KnownGuest | null>(null);
   const [granting, setGranting] = useState<Grantee | null>(null);
@@ -262,12 +265,10 @@ function Reviewers({ projectId }: { projectId: string }) {
         title="Reviewers"
         hint="guests, who reach a review by link"
         action={
-          can("request_reviews") && (
-            <Button variant="secondary" size="md" asChild>
-              <Link to="/projects/$projectId/reviews/new" params={{ projectId }}>
-                <Icon name="mail" size={14} />
-                Invite a reviewer
-              </Link>
+          manage && (
+            <Button variant="secondary" size="md" onClick={() => setInviting(true)}>
+              <Icon name="userPlus" size={14} />
+              Invite a reviewer
             </Button>
           )
         }
@@ -279,7 +280,7 @@ function Reviewers({ projectId }: { projectId: string }) {
           {!guests && !loadError && <li className="px-4 py-4 text-[13px] text-ink-3">Loading</li>}
           {guests?.length === 0 && (
             <li className="px-4 py-4 text-[13px] text-ink-3">
-              No guests yet. Reviewers are invited when a review is requested.
+              No reviewers yet. Invite one here, or ask someone by email in a review.
             </li>
           )}
           {guests?.map((g) => (
@@ -296,7 +297,10 @@ function Reviewers({ projectId }: { projectId: string }) {
                     <span className="text-ink-3"> · own review permissions</span>
                   )}
                 </span>
-                <span className="block truncate text-[13px] text-ink-3">{g.email}</span>
+                <span className="block truncate text-[13px] text-ink-3">
+                  {g.email}
+                  {g.note ? ` · ${g.note}` : ""}
+                </span>
               </span>
               <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
                 <StatusDot state={g.live ? "approved" : "cancelled"} />
@@ -310,7 +314,7 @@ function Reviewers({ projectId }: { projectId: string }) {
               </span>
               <span className="tabular hidden text-[13px] text-ink-3 @3xl/app:block">
                 {g.reviews === 0
-                  ? "In a group only"
+                  ? "Not asked yet"
                   : `${g.openReviews} open of ${g.reviews} ${g.reviews === 1 ? "review" : "reviews"}`}
               </span>
               {manage ? (
@@ -352,6 +356,15 @@ function Reviewers({ projectId }: { projectId: string }) {
         A guest reaches only the items of the open reviews that ask them, for as long as each
         allows.
       </p>
+      {inviting && (
+        <InviteDialog
+          projectId={projectId}
+          onClose={() => setInviting(false)}
+          onInvited={(name) =>
+            setSent(`${name} is under Reviewers now; a review can ask them whenever it is ready.`)
+          }
+        />
+      )}
       {labelling && (
         <LabelDialog projectId={projectId} guest={labelling} onClose={() => setLabelling(null)} />
       )}
@@ -384,6 +397,113 @@ function Reviewers({ projectId }: { projectId: string }) {
         </Dialog>
       )}
     </section>
+  );
+}
+
+/**
+ * Invite a reviewer without starting a review (#502): a guest of the project, kept under
+ * Reviewers so a review can ask them later. Nothing is sent: a guest's link opens a review,
+ * and there is none yet.
+ */
+function InviteDialog({
+  projectId,
+  onClose,
+  onInvited,
+}: {
+  projectId: string;
+  onClose: () => void;
+  onInvited: (name: string) => void;
+}) {
+  const { invite } = useProjectGuestMutations(projectId);
+  const { data: groups = [] } = useQuery(projectGroupsQuery(projectId));
+  const [form, setForm] = useState({ name: "", email: "", label: "", note: "", groupId: "" });
+  const set = (field: keyof typeof form) => (value: string) => setForm({ ...form, [field]: value });
+  const valid = form.name.trim() !== "" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (!valid) return;
+    invite.mutate(
+      {
+        name: form.name.trim(),
+        email: form.email.trim(),
+        label: form.label.trim() || undefined,
+        note: form.note.trim() || undefined,
+        groupId: form.groupId || undefined,
+      },
+      {
+        onSuccess: () => {
+          onInvited(form.name.trim());
+          onClose();
+        },
+      },
+    );
+  };
+  return (
+    <Dialog
+      title="Invite a reviewer"
+      description="A guest of this project, reached by link when a review asks them. Nothing is sent until then."
+      onClose={onClose}
+      width="sm"
+    >
+      <form onSubmit={submit} aria-label="Invite a reviewer" className="flex flex-col gap-3">
+        <div className="grid gap-3 @md:grid-cols-2">
+          <Field label="Name">
+            <Input
+              value={form.name}
+              maxLength={120}
+              autoComplete="off"
+              onChange={(event) => set("name")(event.target.value)}
+            />
+          </Field>
+          <Field label="Email">
+            <Input
+              type="email"
+              value={form.email}
+              maxLength={254}
+              autoComplete="off"
+              onChange={(event) => set("email")(event.target.value)}
+            />
+          </Field>
+        </div>
+        <Field label="Role" hint="Shown beside their name: Conductor, Composer, Label. Optional.">
+          <Input
+            value={form.label}
+            maxLength={60}
+            autoComplete="off"
+            onChange={(event) => set("label")(event.target.value)}
+          />
+        </Field>
+        {groups.length > 0 && (
+          <Field label="Group" hint="A group a review can ask as one. Optional.">
+            <Select value={form.groupId} onChange={(event) => set("groupId")(event.target.value)}>
+              <option value="">None</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        <Field label="Note" hint="Who they are to the project; kept here, for the team. Optional.">
+          <Textarea
+            rows={2}
+            value={form.note}
+            maxLength={500}
+            onChange={(event) => set("note")(event.target.value)}
+          />
+        </Field>
+        {invite.error && <p className="m-0 text-[13px] text-signal">{invite.error.message}</p>}
+        <div className="mt-1 flex justify-end gap-2">
+          <Button type="button" variant="ghost" size="md" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" size="md" disabled={!valid || invite.isPending}>
+            Add reviewer
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 

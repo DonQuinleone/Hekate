@@ -23,7 +23,8 @@ const emailOf = (person: Person) =>
  * People, groups and guests in one field (#489): those chosen sit in it as chips, and the
  * rest are offered as you type, floated under it as a menu is. An email address no one
  * answers to is offered as a new guest. Enter takes the offer in hand, the arrows move it,
- * Backspace on an empty field lets the last one go.
+ * Backspace on an empty field lets the last one go. Where the chosen are listed beneath the
+ * field instead (a step of a review, #500), `chips` is off: the field only adds.
  */
 export function PeoplePicker({
   id,
@@ -33,6 +34,8 @@ export function PeoplePicker({
   onChange,
   placeholder = "Names, groups or email addresses",
   autoFocus = false,
+  chips = true,
+  size = "md",
 }: {
   id?: string;
   /** What the field asks, for a screen reader: its visible label is beside it. */
@@ -42,6 +45,10 @@ export function PeoplePicker({
   onChange: (next: Person[]) => void;
   placeholder?: string;
   autoFocus?: boolean;
+  /** Whether the chosen sit in the field; off, the field adds and Backspace removes nobody. */
+  chips?: boolean;
+  /** Quiet, without a box of its own, where the field sits inside a card's row. */
+  size?: "md" | "quiet";
 }) {
   const own = useId();
   const listId = `${id ?? own}-list`;
@@ -114,7 +121,7 @@ export function PeoplePicker({
     } else if (event.key === "Escape" && open) {
       event.stopPropagation();
       setFocused(false);
-    } else if (event.key === "Backspace" && query === "" && chosen.length > 0) {
+    } else if (chips && event.key === "Backspace" && query === "" && chosen.length > 0) {
       drop(chosen[chosen.length - 1]?.key ?? "");
     }
   };
@@ -124,31 +131,36 @@ export function PeoplePicker({
       <div
         ref={box}
         className={cn(
-          "flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-control border border-line-strong bg-ground/70 px-1.5 py-1 shadow-1 transition-colors hover:border-edge",
-          focused && "border-edge-strong",
+          "flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-control px-1.5 py-1 transition-colors",
+          size === "md" && "border border-line-strong bg-ground/70 shadow-1 hover:border-edge",
+          size === "md" && focused && "border-edge-strong",
+          size === "quiet" && "border border-transparent hover:bg-raised/40",
+          size === "quiet" && focused && "bg-raised/40",
         )}
       >
-        {chosen.map((person) => (
-          <span
-            key={person.key}
-            className="flex h-7 max-w-full items-center gap-1.5 rounded-chip border border-line bg-raised/50 pr-0.5 pl-1 text-[13px] text-ink"
-          >
-            {person.kind === "group" ? (
-              <Icon name="users" size={13} className="mx-1 shrink-0 text-ink-3" />
-            ) : (
-              <Avatar id={person.key} name={person.name} size={18} />
-            )}
-            <span className="min-w-0 truncate">{person.name}</span>
-            <button
-              type="button"
-              aria-label={`Remove ${person.name}`}
-              onClick={() => drop(person.key)}
-              className="flex size-6 shrink-0 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
+        {chips &&
+          chosen.map((person) => (
+            <span
+              key={person.key}
+              className="flex h-7 max-w-full items-center gap-1.5 rounded-chip border border-line bg-raised/50 pr-0.5 pl-1 text-[13px] text-ink"
             >
-              <Icon name="close" size={11} />
-            </button>
-          </span>
-        ))}
+              {person.kind === "group" ? (
+                <Icon name="users" size={13} className="mx-1 shrink-0 text-ink-3" />
+              ) : (
+                <Avatar id={person.key} name={person.name} size={18} />
+              )}
+              <span className="min-w-0 truncate">{person.name}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${person.name}`}
+                onClick={() => drop(person.key)}
+                className="flex size-6 shrink-0 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
+              >
+                <Icon name="close" size={11} />
+              </button>
+            </span>
+          ))}
+        {size === "quiet" && <Icon name="plus" size={13} className="ml-1 shrink-0 text-ink-3" />}
         <Input
           ref={input}
           id={id}
@@ -173,7 +185,7 @@ export function PeoplePicker({
           }}
           onClick={() => setAsked(true)}
           onKeyDown={onKeyDown}
-          placeholder={chosen.length === 0 ? placeholder : undefined}
+          placeholder={!chips || chosen.length === 0 ? placeholder : undefined}
           // The box around it is the field: the control inside draws no edge of its own.
           className="h-7 w-auto min-w-32 flex-1 border-0 bg-transparent px-1.5 shadow-none hover:border-0 focus:border-0"
         />
