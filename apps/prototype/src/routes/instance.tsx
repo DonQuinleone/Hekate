@@ -2233,7 +2233,7 @@ export function InstancePage({ section }: { section: string }) {
           </Section>
           <Section
             title="Inspect"
-            intro="Read-only views of what the system holds, for the thing that is not working."
+            intro="Read-only views of what the system holds, for the thing that is not working. Each look is recorded as yours."
           >
             {[
               [
@@ -2567,7 +2567,10 @@ export function InstancePage({ section }: { section: string }) {
                 Turn on
               </Button>
             </Row>
-            <Row name="Notice" hint="Shown to everyone while it is on, beside that it is.">
+            <Row
+              name="Notice"
+              hint="Shown to everyone while maintenance mode is on, under the line saying that it is."
+            >
               <Input placeholder="Back by 18:00" className="w-full @3xl/app:w-96" />
             </Row>
           </Danger>
