@@ -151,7 +151,8 @@ export function ShareDialog({
         version: item.kind === "version" ? item.id : undefined,
         people: chosen.map((p) => p.key),
         download: request.permissions?.download,
-        until: request.permissions?.expiresAt ?? undefined,
+        // Null is a choice too (until withdrawn): it travels as "never", not as nothing.
+        until: request.permissions ? (request.permissions.expiresAt ?? "never") : undefined,
       },
     });
   };
