@@ -20,6 +20,8 @@ if [ "$2" != "-" ]; then
   [ -f "$storage" ] || { echo "No storage archive at $2" >&2; exit 2; }
 fi
 export COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose.yml}"
+# Compose fills its file in from the .env beside the checkout, not from deploy/ (its project directory).
+export COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-.env}"
 media="${COMPOSE_PROJECT_NAME:-hekate}_media"
 
 echo "Stopping Hekate"

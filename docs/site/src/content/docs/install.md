@@ -23,8 +23,8 @@ Set two things in `.env`:
 Then start it and read the setup code from its log:
 
 ```sh
-docker compose -f deploy/compose.yml up -d
-docker compose -f deploy/compose.yml logs app
+docker compose --env-file .env -f deploy/compose.yml up -d
+docker compose --env-file .env -f deploy/compose.yml logs app
 ```
 
 The log says `Hekate is not set up yet` and gives a code such as `7KQ2-M9XD-4HPW`. Only someone who can read the server's log has it, so nobody who finds a fresh instance first can claim it.
@@ -43,7 +43,23 @@ Open `https://` and your domain, and enter the code. The installer tests each st
 
 The installer keeps what it is given in `/config/hekate.env`, on a volume of its own (`settings`), readable by the server alone. Anything also set in `.env` (the database URL and the address, in the Compose file) is shown as fixed and never overwritten; set `MASTER_KEY` and `AUTH_SECRET` in `.env` too, if you would rather keep every setting there.
 
-If a setting is wrong once installed, Hekate does not start: `docker compose -f deploy/compose.yml logs app` lists every problem at once, with what would be valid. Every setting is in [Configuration](configuration/).
+If a setting is wrong once installed, Hekate does not start: `docker compose --env-file .env -f deploy/compose.yml logs app` lists every problem at once, with what would be valid. Every setting is in [Configuration](configuration/).
+
+## Try it on a laptop
+
+To look around before installing it anywhere, run it on one machine with no domain, Caddy or certificate. With Docker Desktop (or Docker and the Compose plugin):
+
+```sh
+git clone https://github.com/DonQuinleone/Hekate.git
+cd Hekate
+cp .env.example .env    # then set POSTGRES_PASSWORD in it
+docker compose --env-file .env -f deploy/compose.yml -f deploy/compose.build.yml -f deploy/compose.laptop.yml up -d --build
+docker compose --env-file .env -f deploy/compose.yml logs app    # the setup code
+```
+
+Open `http://localhost:3000` and enter the code. Choose **Log only (development)** for mail: invitations and guest links are then written to the app's log (`logs -f app`) rather than sent, so you can open them yourself in a private window. The installer warns that the address is not HTTPS, which is expected here.
+
+`down` stops it and keeps what you made; `down -v` forgets everything, back to the installer. Passkeys, and links opened on other devices, need HTTPS on a real domain, as above.
 
 ## The image
 

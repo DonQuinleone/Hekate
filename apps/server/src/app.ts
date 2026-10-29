@@ -480,7 +480,7 @@ export function createApi(given: AppDeps) {
       .use("/oauth/authorize", requireSession(deps.auth))
       .route("/oauth/authorize", oauthAuthorizeRoutes(oauthDeps))
       .route("/oauth", oauthTokenRoutes(oauthDeps))
-      .route("/invitations", invitationRoutes(deps.db, deps.auth))
+      .route("/invitations", invitationRoutes(deps.db, deps.auth, deps.passwordLeakCheck ?? false))
       // Making a workspace without an operator (#184), as the instance's registration allows.
       .route(
         "/sign-up",

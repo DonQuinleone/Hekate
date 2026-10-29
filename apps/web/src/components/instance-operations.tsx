@@ -9,7 +9,7 @@ import { json } from "~/lib/queries";
 
 /** Checks a restore before anyone uses it (docs/backup.md), in a Compose install. */
 const VERIFY =
-  "docker compose -f deploy/compose.yml run --rm app apps/server/src/cli.ts backup verify";
+  "docker compose --env-file .env -f deploy/compose.yml run --rm app apps/server/src/cli.ts backup verify";
 
 const roleCopy: Record<InstanceOperations["capacity"]["process"]["role"], string> = {
   all: "answers requests and runs jobs",

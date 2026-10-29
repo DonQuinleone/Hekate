@@ -1,10 +1,10 @@
 # Self-hosted Hekate: the app, PostgreSQL and Caddy (automatic HTTPS).
 # Usage: cp .env.example .env, set HEKATE_DOMAIN and POSTGRES_PASSWORD, then:
-#   docker compose -f deploy/compose.yml up -d
-# and open https://HEKATE_DOMAIN with the setup code from: docker compose -f deploy/compose.yml logs app
+#   docker compose --env-file .env -f deploy/compose.yml up -d
+# and open https://HEKATE_DOMAIN with the setup code from: docker compose --env-file .env -f deploy/compose.yml logs app
 # The installer does the rest; anything also set in .env is shown as fixed and never overwritten.
 # The app is the released, signed image. To build it from this checkout instead:
-#   docker compose -f deploy/compose.yml -f deploy/compose.build.yml up -d --build
+#   docker compose --env-file .env -f deploy/compose.yml -f deploy/compose.build.yml up -d --build
 name: hekate
 
 services:
