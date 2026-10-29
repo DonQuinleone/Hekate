@@ -89,11 +89,14 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
           [left, bottom],
           [right, bottom],
         ] as const;
-        if (corners.some(([x, y]) => !backdrop.contains(document.elementFromPoint(x, y)))) {
+        for (const [x, y] of corners) {
+          const hit = document.elementFromPoint(x, y);
+          if (hit && backdrop.contains(hit)) continue;
           problems.push({
             check: "uncovered-by-modal",
-            what: `${nameOf(modal)} leaves part of the main area uncovered`,
+            what: `${nameOf(modal)} leaves the main area uncovered at ${Math.round(x)},${Math.round(y)}${hit ? `, where ${nameOf(hit)} shows` : ""}`,
           });
+          break;
         }
       }
     }
