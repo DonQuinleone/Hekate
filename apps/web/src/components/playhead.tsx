@@ -24,7 +24,15 @@ export function usePlayheadFrames(
     const tick = (now: number) => {
       const current = media.currentTime;
       if (current !== sample.time) sample = { time: current, at: now };
-      const moving = playing && !media.paused && !media.ended;
+      // Carried on only while the media really advances: not paused, ended, seeking or
+      // waiting for the next segment (readyState below HAVE_FUTURE_DATA), so a stall holds
+      // the playhead where the media holds it, and nothing jumps back when it resumes.
+      const moving =
+        playing &&
+        !media.paused &&
+        !media.ended &&
+        !media.seeking &&
+        media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA;
       let seconds = interpolatePosition(sample.time, sample.at, now, rate, moving);
       if (duration > 0) seconds = Math.min(duration, seconds);
       frame.current(duration > 0 ? seconds / duration : 0, seconds);

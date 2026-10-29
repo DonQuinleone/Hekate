@@ -11,6 +11,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type WaveSurfer from "wavesurfer.js";
+import { backingWidth } from "~/lib/canvas";
 import { cn } from "~/lib/cn";
 import { envelopeColumns, envelopeOutline } from "~/lib/envelope";
 import { peakLevelQuery, peaksQuery } from "~/lib/queries";
@@ -65,11 +66,10 @@ export function paintOverlay(
   channels: Float32Array[],
   look: WaveLook,
   colours: { fill: string; outline: string },
-  width: number,
+  columns: number,
   rowHeight: number,
   ratio: number,
 ) {
-  const columns = Math.max(1, Math.round(width * ratio));
   context.clearRect(0, 0, columns, Math.round(rowHeight * ratio * channels.length));
   const half = (rowHeight * ratio) / 2;
   const amp = half * (look.height / defaultWaveLook.height);
@@ -197,14 +197,17 @@ export function Waveform({
     if (!overlay || !element || !context || !shown || width === 0) return;
     const ratio = window.devicePixelRatio || 1;
     const rowHeight = Math.floor(height / shown.channels);
-    element.width = Math.max(1, Math.round(width * ratio));
+    // Zoomed far in, the plane is wider than a canvas may be: it is drawn at the most a
+    // canvas allows and stretched to its place, as the spectrogram beneath it is.
+    const columns = backingWidth(width, ratio);
+    element.width = columns;
     element.height = Math.max(1, Math.round(rowHeight * shown.channels * ratio));
     paintOverlay(
       context,
       toChannelArrays(shown),
       look,
       { fill: token(waveTokens[look.colour]), outline: token("--hk-ground") },
-      width,
+      columns,
       rowHeight,
       ratio,
     );

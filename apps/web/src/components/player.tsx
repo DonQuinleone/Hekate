@@ -527,7 +527,12 @@ export function Player({
   const mostZoom = maxZoom(duration, info?.audio?.sampleRate ?? 0, surfaceWidth);
   const zoom = Math.min(chosenZoom, mostZoom);
   /** Where the view was when the zoom changed, to keep the same moment under the anchor. */
-  const zooming = useRef<{ from: number; scroll: number; anchor: number } | null>(null);
+  const zooming = useRef<{
+    from: number;
+    scroll: number;
+    anchor: number;
+    pointer?: boolean;
+  } | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: each file opens whole.
   useEffect(() => setZoom(1), [fileId]);
   useEffect(() => {
@@ -556,14 +561,18 @@ export function Player({
    * goes on from the last asked rather than the last drawn.
    */
   const requested = useRef<number | null>(null);
+  /** A zoom about the pointer keeps its point: the next follow of the playhead stands down. */
+  const anchoredToPointer = useRef(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: only a new zoom moves the view.
   useLayoutEffect(() => {
     const element = surface;
     const from = zooming.current;
     zooming.current = null;
     requested.current = null;
-    if (element && from)
+    if (element && from) {
       element.scrollLeft = anchoredScroll(from.scroll, from.anchor, from.from, zoom);
+      anchoredToPointer.current = from.pointer === true;
+    }
   }, [zoom]);
   /** Zoom by a factor about a point across the view (#494): a pinch, or a wheel with the key. */
   const zoomAround = (factor: number, fraction: number) => {
@@ -586,6 +595,7 @@ export function Player({
       from: zoom,
       scroll: element.scrollLeft,
       anchor: fraction * element.clientWidth,
+      pointer: true,
     };
     setZoom(next.zoom);
   };
@@ -650,6 +660,12 @@ export function Player({
   useEffect(() => {
     const element = surface;
     if (!element || zoom <= 1 || !(duration > 0)) return;
+    // A pinch or a wheel zoomed about the pointer: the view stays where it was put, and the
+    // playhead is followed again from the next move.
+    if (anchoredToPointer.current) {
+      anchoredToPointer.current = false;
+      return;
+    }
     const next = followScroll(
       element.scrollLeft,
       element.clientWidth,
