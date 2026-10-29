@@ -14,6 +14,7 @@ import {
   type CaptionFormat,
   type CaptionKind,
   type ChannelKind,
+  type CommentAssignment,
   type CommentMention,
   type CommentReferences,
   type CustomProfileInput,
@@ -538,6 +539,8 @@ export const projects = pgTable(
     assetPolicy: jsonb("asset_policy").$type<AssetPolicy>(),
     /** Who its workflows tell, and how (decision 259); null is the default. */
     workflowNotices: jsonb("workflow_notices").$type<WorkflowNotices>(),
+    /** Whom a comment opened on its tracks is for (decision 279); null is nobody. */
+    commentAssignment: jsonb("comment_assignment").$type<CommentAssignment>(),
     /**
      * Whether its comment categories have been made: a new project gets the defaults at once,
      * one made before categories existed the first time its categories are read.
@@ -1462,6 +1465,8 @@ export const tracks = pgTable(
     commentReferences: jsonb("comment_references").$type<CommentReferences>(),
     /** How its recordings play normalised, over the project's; null keeps the project's (#98). */
     normalisation: text("normalisation").$type<NormalisationMode>(),
+    /** Whom a comment opened on it is for, over the project's; null keeps the project's (#499). */
+    commentAssignment: jsonb("comment_assignment").$type<CommentAssignment>(),
     /** Where it stands in its workflow ("Editing"), as the last action to set one left it (#25). */
     workflowStatus: text("workflow_status"),
     position: integer("position").notNull().default(0),
