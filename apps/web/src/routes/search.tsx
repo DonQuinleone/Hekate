@@ -25,6 +25,7 @@ import { PageHeader } from "~/components/page-header";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
+import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
 import { usePopover } from "~/components/ui/menu";
 import {
@@ -334,11 +335,15 @@ function FieldsMenu({
         )}
       </Button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="start"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="dialog"
           aria-label="Search by field"
           data-e2e-overlap
-          className="rise-in absolute left-0 z-30 mt-1 w-80 max-w-[calc(100vw-32px)] rounded-panel-lg bg-overlay p-3 shadow-4"
+          className="rise-in w-80 max-w-[calc(100vw-32px)] rounded-panel-lg bg-overlay p-3 shadow-4"
         >
           <form onSubmit={apply} className="flex flex-col gap-3">
             <fieldset className="m-0 grid grid-cols-2 gap-2 border-0 p-0">
@@ -410,7 +415,7 @@ function FieldsMenu({
               </Button>
             </div>
           </form>
-        </div>
+        </Floating>
       )}
     </div>
   );

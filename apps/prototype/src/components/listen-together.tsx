@@ -4,6 +4,7 @@ import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { usePageHeader } from "~/components/page-header";
 import { Button } from "~/components/ui/button";
+import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
 import { personById } from "~/data";
 import { cn } from "~/lib/cn";
@@ -99,11 +100,15 @@ export function ListenTogether({ fileId }: { fileId: string }) {
         <span className="hidden @5xl/app:inline">{label}</span>
       </Button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="dialog"
           aria-label="Listen together"
           data-e2e-overlap
-          className="rise-in absolute top-full right-0 z-40 mt-1.5 flex w-80 flex-col gap-3 rounded-panel-lg bg-overlay p-4 shadow-4"
+          className="rise-in flex w-80 flex-col gap-3 rounded-panel-lg bg-overlay p-4 shadow-4"
         >
           {idle && (
             <>
@@ -248,7 +253,7 @@ export function ListenTogether({ fileId }: { fileId: string }) {
               You are on another file; the room plays {liveRoom.label}.
             </p>
           )}
-        </div>
+        </Floating>
       )}
     </div>
   );

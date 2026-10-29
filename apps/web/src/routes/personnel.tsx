@@ -12,7 +12,7 @@ import { type FormEvent, Fragment, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
-import { ProductionNav } from "~/components/production-nav";
+import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
 import { Choice } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
@@ -45,8 +45,7 @@ export function PersonnelPage({ projectId }: { projectId: string }) {
   return (
     <ProjectFrame projectId={projectId} title="Personnel">
       {(project) => (
-        <div className="fade-in mx-auto flex w-full max-w-[1100px] flex-col gap-5 px-5 py-6 @3xl/app:px-10">
-          <ProductionNav projectId={projectId} current="personnel" can={can} />
+        <ProductionBody projectId={projectId} current="personnel" can={can}>
           {!can("view_production") ? (
             <Empty
               title="Not among what your role shows"
@@ -64,7 +63,7 @@ export function PersonnelPage({ projectId }: { projectId: string }) {
               canEdit={can("edit_production") && !project.archivedAt}
             />
           )}
-        </div>
+        </ProductionBody>
       )}
     </ProjectFrame>
   );

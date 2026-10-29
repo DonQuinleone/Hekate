@@ -7,6 +7,7 @@ import { Label } from "~/components/label";
 import { Card } from "~/components/page";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
+import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import {
@@ -61,7 +62,13 @@ function Customise({ display, set }: { display: Display; set: (d: Display) => vo
         Customise
       </Button>
       {open && (
-        <div className="rise-in absolute right-0 z-30 mt-1 w-72 rounded-panel-lg bg-overlay p-3 shadow-4">
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
+          className="rise-in w-72 rounded-panel-lg bg-overlay p-3 shadow-4"
+        >
           <div className="flex flex-col gap-1.5">
             <Label>Group by</Label>
             <div className="flex rounded-control border border-line bg-raised/40 p-0.5">
@@ -148,7 +155,7 @@ function Customise({ display, set }: { display: Display; set: (d: Display) => vo
               </button>
             )}
           </div>
-        </div>
+        </Floating>
       )}
     </div>
   );

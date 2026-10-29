@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "~/components/ui/button";
+import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
 import { usePopover } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
@@ -77,11 +78,15 @@ export function RecorderControl() {
         <span className="tabular">{label}</span>
       </button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="dialog"
           aria-label="Recorder"
           data-e2e-overlap
-          className="rise-in absolute top-full right-0 z-40 mt-1.5 flex w-[340px] max-w-[calc(100vw-32px)] flex-col gap-3 rounded-panel-lg bg-overlay p-4 shadow-4"
+          className="rise-in flex w-[340px] max-w-[calc(100vw-32px)] flex-col gap-3 rounded-panel-lg bg-overlay p-4 shadow-4"
         >
           <div className="flex flex-col gap-1">
             <span className="text-[14px] font-medium text-ink">Recorder</span>
@@ -214,7 +219,7 @@ export function RecorderControl() {
               </span>
             )}
           </div>
-        </div>
+        </Floating>
       )}
     </div>
   );

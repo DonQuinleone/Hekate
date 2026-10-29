@@ -1,5 +1,6 @@
 import type { BrowserFilter } from "@hekate/shared";
 import { type FormEvent, useState } from "react";
+import { Floating } from "~/components/ui/floating";
 import type { BrowserFilters } from "~/lib/browser";
 import { cn } from "~/lib/cn";
 import type { Tag } from "~/lib/queries";
@@ -85,12 +86,16 @@ export function FilterMenu({
         )}
       </button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="start"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="dialog"
           aria-label="Filter files"
           data-e2e-overlap
           // On a phone the Filter control starts its row, so the menu opens to the right of it.
-          className="rise-in absolute left-0 z-30 mt-1 w-64 rounded-panel-lg bg-overlay p-1.5 shadow-4 @3xl/app:right-0 @3xl/app:left-auto"
+          className="rise-in w-64 rounded-panel-lg bg-overlay p-1.5 shadow-4"
         >
           <p className="eyebrow m-0 px-2 pt-1 pb-1 text-ink-3">Show only</p>
           {order.map((f) => (
@@ -133,7 +138,7 @@ export function FilterMenu({
               </button>
             </div>
           )}
-        </div>
+        </Floating>
       )}
     </div>
   );

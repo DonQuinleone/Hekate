@@ -4,7 +4,7 @@ import { Kbd, Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
 import { Button } from "~/components/ui/button";
 import { Input, Select } from "~/components/ui/input";
-import { Dropdown } from "~/components/ui/menu";
+import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import {
   type ActionType,
@@ -1753,10 +1753,9 @@ function NodeInspector({
         hint={`${node.kind === "event" ? (isTrigger ? "Event, starts the workflow" : "Event, waited for") : "Action"} · ${meta.label}`}
         onClose={onClose}
       >
-        <Dropdown
-          size="sm"
-          align="right"
-          value={<Icon name="more" size={14} />}
+        <ActionMenu
+          always
+          label="this step"
           actions={[{ label: "Delete", danger: true, onSelect: onDelete }]}
         />
       </PanelHead>
@@ -1964,10 +1963,9 @@ function ConnectorInspector({
         hint={`${from?.name} → ${to?.name}`}
         onClose={onClose}
       >
-        <Dropdown
-          size="sm"
-          align="right"
-          value={<Icon name="more" size={14} />}
+        <ActionMenu
+          always
+          label="this connection"
           actions={[{ label: "Remove", danger: true, onSelect: onDelete }]}
         />
       </PanelHead>

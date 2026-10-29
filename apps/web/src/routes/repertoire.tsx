@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
-import { ProductionNav } from "~/components/production-nav";
+import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
@@ -35,8 +35,7 @@ function Frame({
   return (
     <ProjectFrame projectId={projectId} title={title}>
       {(project) => (
-        <div className="fade-in mx-auto flex w-full max-w-[1100px] flex-col gap-5 px-5 py-6 @3xl/app:px-10">
-          <ProductionNav projectId={projectId} current={current} can={can} />
+        <ProductionBody projectId={projectId} current={current} can={can}>
           {!can("view_production") ? (
             <Empty
               title="Not among what your role shows"
@@ -52,7 +51,7 @@ function Frame({
               repertoire: data,
             })
           )}
-        </div>
+        </ProductionBody>
       )}
     </ProjectFrame>
   );

@@ -1401,6 +1401,33 @@ test("track-standing", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Menus float over everything (#476). The collapsed sidebar's project switcher opens over the
+// pane rather than inside the rail that clipped it; the last item takes the pointer, so none of
+// it lies under anything.
+test("sidebar-collapsed-switcher", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "A phone has no sidebar to collapse");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.addInitScript(() => localStorage.setItem("hekate.sidebar", "collapsed"));
+  await page.goto(`/projects/${seeded().musicProjectId}`);
+  await settle(page, "main section[aria-label='Needs attention'] li");
+  await page.getByRole("button", { name: /Switch project/ }).click();
+  const menu = page.getByRole("menu", { name: "Switch project" });
+  await menu.getByRole("menuitemradio").last().hover({ timeout: 5_000 });
+  await saveScreen(page, "sidebar-collapsed-switcher");
+  await checkScreen(page);
+});
+
+// The template menu on the empty Workflows page, out of the card that clipped it (#476).
+test("workflows-templates", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().videoProjectId}/workflow?view=basic`);
+  await settle(page, "main >> text=No workflows yet");
+  await page.getByRole("button", { name: "From a template" }).click();
+  await page.getByRole("menuitem", { name: "From another project…" }).hover({ timeout: 5_000 });
+  await saveScreen(page, "workflows-templates");
+  await checkScreen(page);
+});
+
 // A workflow copied from another project (#26): chosen from those the member may see there.
 test("workflows-copy", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
@@ -2397,7 +2424,7 @@ test("file-channels-levels", async ({ page }, info) => {
   // one channel.
   const comments = page.getByRole("region", { name: "Comments" });
   await comments.getByRole("button", { name: /^Show / }).click();
-  await comments.getByRole("menuitemradio", { name: /^Deferred/ }).click();
+  await page.getByRole("menuitemradio", { name: /^Deferred/ }).click();
   await expect(
     comments
       .getByRole("listitem")
@@ -3717,10 +3744,11 @@ test("file-export-comments", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Export comments" });
   // Each application by its own mark, in a list a native select could not draw.
   await dialog.getByRole("button", { name: "For" }).click();
-  await expect(dialog.getByRole("menuitemradio", { name: "Avid Media Composer" })).toBeVisible();
+  // Its menu floats over the dialog, so its items are found from the page.
+  await expect(page.getByRole("menuitemradio", { name: "Avid Media Composer" })).toBeVisible();
   await saveScreen(page, "file-export-comments-for");
   await checkScreen(page);
-  await dialog.getByRole("menuitemradio", { name: "DaVinci Resolve" }).click();
+  await page.getByRole("menuitemradio", { name: "DaVinci Resolve" }).click();
   // The same threads on paper (#134), whatever the application.
   await expect(dialog.getByRole("link", { name: "Printable sheet" })).toHaveAttribute(
     "href",

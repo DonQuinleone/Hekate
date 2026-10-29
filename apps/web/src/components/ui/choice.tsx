@@ -6,7 +6,8 @@ type BoxProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "size">;
 
 /**
  * A checkbox for picking things inside a form or a list; a setting that takes effect at once
- * is a Switch. The box is drawn on the tokens; the native input stays underneath for focus,
+ * is a Switch. The box is drawn on the tokens, checked in the signal colour as the switch is;
+ * the native input stays underneath for focus,
  * keyboard and forms.
  */
 export function Checkbox({ className, ...props }: BoxProps) {
@@ -14,7 +15,7 @@ export function Checkbox({ className, ...props }: BoxProps) {
     <span className={cn("relative inline-flex size-4 shrink-0", className)}>
       <input
         type="checkbox"
-        className="peer size-4 cursor-pointer appearance-none rounded-[4px] border border-edge-strong bg-ground/70 transition-colors checked:border-ink checked:bg-ink hover:border-ink-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-3 disabled:cursor-not-allowed disabled:opacity-50"
+        className="peer size-4 cursor-pointer appearance-none rounded-[4px] border border-edge-strong bg-ground/70 transition-colors checked:border-signal checked:bg-signal hover:border-ink-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-3 disabled:cursor-not-allowed disabled:opacity-50"
         {...props}
       />
       <Icon
@@ -33,12 +34,12 @@ export function Radio({ className, ...props }: BoxProps) {
     <span className={cn("relative inline-flex size-4 shrink-0", className)}>
       <input
         type="radio"
-        className="peer size-4 cursor-pointer appearance-none rounded-full border border-edge-strong bg-ground/70 transition-colors checked:border-ink hover:border-ink-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-3 disabled:cursor-not-allowed disabled:opacity-50"
+        className="peer size-4 cursor-pointer appearance-none rounded-full border border-edge-strong bg-ground/70 transition-colors checked:border-signal hover:border-ink-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-3 disabled:cursor-not-allowed disabled:opacity-50"
         {...props}
       />
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 m-auto size-2 rounded-full bg-ink opacity-0 peer-checked:opacity-100"
+        className="pointer-events-none absolute inset-0 m-auto size-2 rounded-full bg-signal opacity-0 peer-checked:opacity-100"
       />
     </span>
   );

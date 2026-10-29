@@ -28,6 +28,7 @@ export function PanelPlacement({
       </Button>
       {open && (
         <MenuList
+          anchor={box}
           onClose={() => setOpen(false)}
           actions={[
             {
@@ -40,7 +41,6 @@ export function PanelPlacement({
               checked: layout.comments === "below",
               onSelect: () => onChange({ comments: "below" }),
             },
-            { label: "Hide comments", onSelect: () => onChange({ comments: "hidden" }) },
           ]}
         />
       )}

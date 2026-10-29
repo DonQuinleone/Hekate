@@ -44,7 +44,7 @@ Cool near-black, one signal.
 | `edge` | `#2E2E33` | control borders, focus outlines at rest |
 | `ink` | `#F4F4F5` | primary text, the mark |
 | `ink-2` | `#A1A1AA` | secondary text |
-| `ink-3` | `#80808B` | labels, metadata (4.5:1 on ground) |
+| `ink-3` | `#86868F` | labels, metadata (4.5:1 on every surface, overlays included) |
 | `signal` | `#F0762E` | the one colour: playhead, anchors, primary action, the point |
 | `paper` | `#E9E8E3` | score pages and documents rendered in the viewer |
 

@@ -57,6 +57,7 @@ import { Button } from "~/components/ui/button";
 import { ToggleChip } from "~/components/ui/chip";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
+import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
 import { StatusDot } from "~/components/ui/status";
@@ -1493,11 +1494,15 @@ function AccessLogFilterMenu({
         )}
       </Button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="dialog"
           aria-label="Filter entries"
           data-e2e-overlap
-          className="rise-in absolute right-0 z-30 mt-1 flex w-72 flex-col gap-3 rounded-panel-lg bg-overlay p-3 shadow-4"
+          className="rise-in flex w-72 flex-col gap-3 rounded-panel-lg bg-overlay p-3 shadow-4"
         >
           <Field label="Action">
             <Select value={filters.action ?? ""} onChange={(e) => set("action", e.target.value)}>
@@ -1576,7 +1581,7 @@ function AccessLogFilterMenu({
               </Button>
             </div>
           )}
-        </div>
+        </Floating>
       )}
     </div>
   );

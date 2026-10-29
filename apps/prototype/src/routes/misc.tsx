@@ -8,6 +8,7 @@ import { notificationIcon } from "~/components/notifications";
 import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { Button } from "~/components/ui/button";
+import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
 import { usePopover } from "~/components/ui/menu";
 import { comments, notifications, people, personById } from "~/data";
@@ -198,10 +199,14 @@ function FieldsMenu({ fields, onApply }: { fields: Fields; onApply: (next: Field
         )}
       </Button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="dialog"
           aria-label="Search by field"
-          className="rise-in absolute right-0 z-30 mt-1 w-80 rounded-panel-lg bg-overlay p-3 shadow-4"
+          className="rise-in w-80 rounded-panel-lg bg-overlay p-3 shadow-4"
         >
           <form
             className="flex flex-col gap-3"
@@ -278,7 +283,7 @@ function FieldsMenu({ fields, onApply }: { fields: Fields; onApply: (next: Field
               </Button>
             </div>
           </form>
-        </div>
+        </Floating>
       )}
     </div>
   );

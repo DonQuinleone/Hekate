@@ -11,6 +11,7 @@ import { Trail, useCurrentHeader } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-card";
 import { Dot, reviewDot } from "~/components/status";
 import { DialogLayer } from "~/components/ui/dialog";
+import { Floating } from "~/components/ui/floating";
 import { MenuList, usePopover } from "~/components/ui/menu";
 import {
   env,
@@ -128,7 +129,13 @@ function WorkspaceMenu({ collapsed }: { collapsed: boolean }) {
         )}
       </button>
       {open && (
-        <div className="rise-in absolute bottom-full left-0 z-40 mb-1.5 w-64 rounded-panel-lg bg-overlay p-1 shadow-4">
+        <Floating
+          anchor={box}
+          align="start"
+          side="top"
+          onClose={() => setOpen(false)}
+          className="rise-in w-64 rounded-panel-lg bg-overlay p-1 shadow-4"
+        >
           <div className="flex items-center gap-2.5 px-2.5 py-2">
             <Avatar personId={viewer.personId} size={30} />
             <div className="min-w-0">
@@ -196,7 +203,7 @@ function WorkspaceMenu({ collapsed }: { collapsed: boolean }) {
               { label: "Sign out", onSelect: () => navigate({ to: "/sign-in" }) },
             ]}
           />
-        </div>
+        </Floating>
       )}
     </div>
   );
@@ -235,7 +242,13 @@ function ProjectSwitcher({ project, collapsed }: { project: Project; collapsed: 
         )}
       </button>
       {open && (
-        <div className="rise-in absolute top-full left-0 z-40 mt-1 w-64 rounded-panel-lg bg-overlay p-1 shadow-4">
+        <Floating
+          anchor={box}
+          align="start"
+          side="bottom"
+          onClose={() => setOpen(false)}
+          className="rise-in w-64 rounded-panel-lg bg-overlay p-1 shadow-4"
+        >
           <div className="eyebrow px-2.5 pt-1.5 pb-1">Projects</div>
           {mine.map((p) => (
             <button
@@ -269,7 +282,7 @@ function ProjectSwitcher({ project, collapsed }: { project: Project; collapsed: 
               },
             ]}
           />
-        </div>
+        </Floating>
       )}
     </div>
   );
@@ -307,6 +320,7 @@ function HelpMenu() {
       </button>
       {open && (
         <MenuList
+          anchor={box}
           onClose={() => setOpen(false)}
           actions={[
             {
@@ -450,7 +464,13 @@ function Connection({ collapsed, offline }: { collapsed: boolean; offline: boole
         collapsed && "justify-center px-0",
       )}
     >
-      <Dot state={offline ? "changes_requested" : "passed"} />
+      <span
+        aria-hidden="true"
+        className={cn(
+          "inline-block size-[7px] shrink-0 rounded-full",
+          offline ? "bg-signal" : "bg-ok",
+        )}
+      />
       {collapsed ? (
         <span className="sr-only">{words}</span>
       ) : (
@@ -500,7 +520,6 @@ export function Shell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [collapsed, setCollapsed, navigate, palette]);
 
-  const projects = viewer.projects();
   const _elevated =
     viewer.persona.organisationRole === "owner" || viewer.persona.organisationRole === "admin";
   const current = useCurrentProject();
@@ -564,6 +583,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className={cn("flex flex-col gap-0.5", collapsed && "items-stretch")}>
             <NavItem to="/" icon="dashboard" label="Home" collapsed={collapsed} exact />
             <NavItem to="/inbox" icon="inbox" label="Inbox" collapsed={collapsed} count={waiting} />
+            <NavItem to="/projects" icon="folder" label="Projects" collapsed={collapsed} />
             {current ? (
               <>
                 <div className="mt-4 mb-1">
@@ -632,24 +652,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   </Link>
                 ))}
               </>
-            ) : (
-              <NavItem to="/projects" icon="folder" label="Projects" collapsed={collapsed} />
-            )}
-            {!current && !atInstance && !collapsed && projects.length > 0 && (
-              <ul className="mb-1 ml-[21px] flex flex-col gap-px border-l border-line pl-2.5">
-                {projects.slice(0, 8).map((p) => (
-                  <li key={p.id}>
-                    <Link
-                      to="/projects/$projectId"
-                      params={{ projectId: p.id }}
-                      className="flex h-7 items-center truncate rounded-control px-2 text-[13px] text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink data-[status=active]:text-ink"
-                    >
-                      <span className="truncate">{p.name}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
+            ) : null}
           </div>
           {waitingHere.length > 0 && (
             <SideSection title="Waiting on you" count={waitingHere.length} collapsed={collapsed}>

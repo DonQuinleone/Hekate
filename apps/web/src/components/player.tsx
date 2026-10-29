@@ -35,6 +35,7 @@ import type Hls from "hls.js";
 import {
   type KeyboardEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -81,6 +82,7 @@ import { SpectrogramLook, SpectrogramSettings } from "./spectrogram-settings";
 import { nativeSource, StreamPart, wholeRendition } from "./stream-part";
 import { CaptionLine, CaptionsMenu } from "./transcript";
 import { Button } from "./ui/button";
+import { Floating } from "./ui/floating";
 import { Input, Select } from "./ui/input";
 import { Dropdown, usePopover } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
@@ -869,7 +871,7 @@ export function Player({
 
   // The View menu: how the recording is drawn, and normalised playback (#240).
   const viewPanel = settingsOpen && (
-    <StripPanel>
+    <StripPanel anchor={settingsBox} onClose={() => setSettingsOpen(false)}>
       <section id="player-view" aria-label="View" className="flex flex-col gap-3">
         <div className="flex flex-col gap-2.5">
           {/* No waveform drawn, nothing to choose about it. */}
@@ -1126,7 +1128,7 @@ export function Player({
             onToggle={() => setChannelsOpen(!channelsOpen)}
           />
           {channelsOpen && (
-            <StripPanel>
+            <StripPanel anchor={channelsBox} onClose={() => setChannelsOpen(false)}>
               <ChannelsPanel
                 names={names}
                 mix={heardMix}
@@ -1816,15 +1818,26 @@ export function PlayerStrip({ lead, children }: { lead?: ReactNode; children?: R
   );
 }
 
-/** A menu's panel, opened from the strip: over the player, at the right, within the window. */
-function StripPanel({ children }: { children: ReactNode }) {
+/** A menu's panel, opened from the strip: floating from its control, at the right, within the window. */
+function StripPanel({
+  anchor,
+  onClose,
+  children,
+}: {
+  anchor: RefObject<HTMLElement | null>;
+  onClose: () => void;
+  children: ReactNode;
+}) {
   return (
-    <div
+    <Floating
+      anchor={anchor}
+      align="end"
+      onClose={onClose}
       data-e2e-layer
-      className="rise-in scroll-quiet absolute top-full right-0 z-30 mt-1 max-h-[min(70vh,560px)] w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-panel bg-overlay p-4 text-left shadow-3"
+      className="rise-in scroll-quiet max-h-[min(70vh,560px)] w-[min(22rem,calc(100vw-2rem))] rounded-panel bg-overlay p-4 text-left shadow-3"
     >
       {children}
-    </div>
+    </Floating>
   );
 }
 

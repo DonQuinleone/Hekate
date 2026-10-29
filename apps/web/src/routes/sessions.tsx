@@ -5,7 +5,7 @@ import { type FormEvent, useState } from "react";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
-import { ProductionNav } from "~/components/production-nav";
+import { ProductionBody } from "~/components/production-nav";
 import { TakeImportDialog } from "~/components/take-import";
 import { Rating } from "~/components/takes";
 import { Button } from "~/components/ui/button";
@@ -28,6 +28,7 @@ import { slotMoment, slotTime } from "~/lib/take-log";
 import { coverageLabel, falseStartsLabel, timecodeSpan, usedInLabel } from "~/lib/take-page";
 import { ProjectFrame } from "~/routes/project";
 
+/** A session's own page, framed as the other pages of the project are. */
 const body =
   "fade-in mx-auto flex w-full max-w-[1360px] flex-col gap-6 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8";
 
@@ -79,8 +80,7 @@ export function SessionsPage({ projectId }: { projectId: string }) {
       }
     >
       {(project) => (
-        <div className={body}>
-          <ProductionNav projectId={projectId} current="sessions" can={can} />
+        <ProductionBody projectId={projectId} current="sessions" can={can}>
           {!can("view_takes") ? (
             <Empty
               title="Not among what your role shows"
@@ -152,7 +152,7 @@ export function SessionsPage({ projectId }: { projectId: string }) {
           {importing && (
             <TakeImportDialog projectId={project.id} onClose={() => setImporting(false)} />
           )}
-        </div>
+        </ProductionBody>
       )}
     </ProjectFrame>
   );
