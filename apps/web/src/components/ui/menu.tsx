@@ -1,8 +1,16 @@
-import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { cn } from "~/lib/cn";
 import { Icon } from "../icons";
 import { Button } from "./button";
-import { Floating, withinOrFloatingFrom } from "./floating";
+import { Floating, type Point, withinOrFloatingFrom } from "./floating";
 import { fieldClass } from "./input";
 
 /** Opens on its control, closes on a click elsewhere or Escape. */
@@ -39,9 +47,29 @@ export interface MenuAction {
   onSelect: () => void;
 }
 
+/** The arrows move between a menu's items, as they do in every native menu; Home and End jump. */
+function menuKeys(event: ReactKeyboardEvent<HTMLElement>) {
+  const { key } = event;
+  if (key !== "ArrowDown" && key !== "ArrowUp" && key !== "Home" && key !== "End") return;
+  const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[role^=menuitem]"));
+  if (items.length === 0) return;
+  event.preventDefault();
+  const at = items.indexOf(document.activeElement as HTMLElement);
+  const next =
+    key === "Home"
+      ? 0
+      : key === "End"
+        ? items.length - 1
+        : key === "ArrowDown"
+          ? (at + 1) % items.length
+          : (at - 1 + items.length) % items.length;
+  items[next]?.focus();
+}
+
 /**
- * The list itself. Given its anchor it floats from it, over everything; without one (a group
- * inside a larger menu) it sits where it is declared.
+ * The list itself. Given its anchor (an element, or a point where a context menu opens) it
+ * floats from it, over everything; without one (a group inside a larger menu) it sits where
+ * it is declared.
  */
 export function MenuList({
   actions,
@@ -51,23 +79,39 @@ export function MenuList({
   side = "bottom",
   className,
   role = "menu",
+  label,
+  autoFocus = false,
 }: {
   actions: (MenuAction | "divider")[];
   onClose: () => void;
-  anchor?: RefObject<HTMLElement | null>;
+  anchor?: RefObject<HTMLElement | null> | Point;
   /** Its right edge on the anchor's, its left edge on the anchor's, or as wide as the anchor. */
   align?: "left" | "right" | "stretch";
   side?: "top" | "bottom";
   className?: string;
   /** "group" when the list sits inside a larger menu. */
   role?: "menu" | "group";
+  /** What the menu is for, to a screen reader, where no control names it. */
+  label?: string;
+  /** Focus its first item as it opens: for a menu opened from the keyboard. */
+  autoFocus?: boolean;
 }) {
+  const first = useRef<HTMLButtonElement>(null);
+  // On the next frame, once it is placed: a floated list starts out of sight, where focus
+  // cannot land.
+  useEffect(() => {
+    if (!autoFocus) return;
+    const frame = requestAnimationFrame(() => first.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocus]);
+  const firstItem = actions.findIndex((a) => a !== "divider");
   const items = actions.map((a, i) =>
     a === "divider" ? (
       <div key={`d-${String(i)}`} className="mx-2 my-1 h-px bg-line" />
     ) : (
       <button
         key={a.label}
+        ref={i === firstItem ? first : undefined}
         type="button"
         {...(a.checked === undefined
           ? { role: "menuitem" }
@@ -98,17 +142,90 @@ export function MenuList({
         align={align === "right" ? "end" : align === "left" ? "start" : "stretch"}
         side={side}
         onClose={onClose}
+        onKeyDown={menuKeys}
         data-e2e-overlap
         role={role}
+        aria-label={label}
         className={cn(look, className)}
       >
         {items}
       </Floating>
     );
   return (
-    <div data-e2e-overlap role={role} className={cn(look, "relative", className)}>
+    // biome-ignore lint/a11y/noStaticElementInteractions: its role is a menu or a group, given as a prop.
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the same.
+    <div
+      data-e2e-overlap
+      role={role}
+      aria-label={label}
+      onKeyDown={menuKeys}
+      className={cn(look, "relative", className)}
+    >
       {items}
     </div>
+  );
+}
+
+/**
+ * A menu opened on something rather than from a control: by a right click (at the pointer), a
+ * long press, the Menu key or Shift+F10 (on the element that had focus). It closes on Escape,
+ * on a click elsewhere and once an action is chosen; opened from the keyboard, its first item
+ * takes focus, and focus goes back where it was when it shuts.
+ */
+export function ContextMenu({
+  at,
+  actions,
+  label,
+  onClose,
+}: {
+  at: Point | RefObject<HTMLElement | null>;
+  actions: (MenuAction | "divider")[];
+  label: string;
+  onClose: () => void;
+}) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const was = document.activeElement;
+    const away = (event: PointerEvent) => {
+      const inMenu = event
+        .composedPath()
+        .some((el) => el instanceof Element && el.getAttribute("role") === "menu");
+      if (!inMenu) close.current();
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      close.current();
+    };
+    // Another right click inside it is not a request for the browser's own menu.
+    const native = (event: MouseEvent) => {
+      if (
+        event
+          .composedPath()
+          .some((el) => el instanceof Element && el.getAttribute("role") === "menu")
+      )
+        event.preventDefault();
+    };
+    window.addEventListener("pointerdown", away);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("contextmenu", native);
+    return () => {
+      window.removeEventListener("pointerdown", away);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("contextmenu", native);
+      if (document.activeElement === document.body && was instanceof HTMLElement) was.focus();
+    };
+  }, []);
+  return (
+    <MenuList
+      anchor={at}
+      actions={actions}
+      onClose={onClose}
+      align="left"
+      label={label}
+      autoFocus={!("x" in at)}
+    />
   );
 }
 

@@ -2036,13 +2036,32 @@ test("project-files-columns", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/files`);
   await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
   await page.getByRole("button", { name: "Columns", exact: true }).click();
+  // The track, not the score beside it (a favourite, so listed first).
   await page
     .getByRole("button", { name: /^Maple Leaf Rag/ })
+    .filter({ hasNotText: ".pdf" })
     .first()
     .click();
   await page.getByRole("button", { name: /^V2/ }).click();
   await settle(page, "main dl >> text=Variations");
   await saveScreen(page, "project-files-columns");
+  await checkScreen(page);
+});
+
+// A track row hovered: its quick actions have a cell of their own, clear of the comments count
+// in the column before them (#488). A phone has no hover, and no quick actions.
+test("files-row-hover", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "A phone shows no hover actions");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  const row = page
+    .locator("main ul[aria-label=Contents] li")
+    .filter({ has: page.getByRole("link", { name: "Open in the player" }) })
+    .first();
+  await row.hover();
+  await expect(row.getByRole("link", { name: "Open in the player" })).toBeVisible();
+  await saveScreen(page, "files-row-hover");
   await checkScreen(page);
 });
 
@@ -2060,15 +2079,58 @@ test("project-files-filtered", async ({ page }, info) => {
   await checkScreen(page);
 });
 
+// A file's tags edited over its row: its pills, and the workspace's other tags offered.
 test("project-files-tags", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/files`);
   await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
   await page.getByRole("button", { name: "Actions for Maple Leaf Rag - Score.pdf" }).click();
   await page.getByRole("menuitem", { name: "Tags…" }).click();
-  await settle(page, "main fieldset >> text=Reference");
+  await settle(page, "[role=listbox] >> text=Reference");
   await saveScreen(page, "project-files-tags");
   await checkScreen(page);
+});
+
+// The context menu on a row: the same actions as its "…" menu, at the pointer.
+test("files-context-menu", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  const name = page.getByRole("link", { name: /^Maple Leaf Rag - Score\.pdf/ });
+  const clicked = await name.boundingBox();
+  await name.click({ button: "right" });
+  const menu = page.getByRole("menu", { name: "Actions for Maple Leaf Rag - Score.pdf" });
+  await settle(page, "[role=menu][aria-label='Actions for Maple Leaf Rag - Score.pdf']");
+  await expect(menu.getByRole("menuitem", { name: "Rename" })).toBeVisible();
+  // At the pointer: its left edge where the click was (it may open above, where there is
+  // no room below).
+  const at = await menu.boundingBox();
+  const placed = await menu.evaluate(
+    (el) => `${el.getAttribute("style")} ${el.getBoundingClientRect().width}`,
+  );
+  expect(at?.x, `menu placed with: ${placed}`).toBeGreaterThanOrEqual(
+    (clicked?.x ?? 0) + (clicked?.width ?? 0) / 2 - 1,
+  );
+  await saveScreen(page, "files-context-menu");
+  await checkScreen(page);
+});
+
+// A name edited in its row, from F2: the name selected without its extension, no dialog.
+test("files-rename", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("link", { name: /^Maple Leaf Rag - Score\.pdf/ }).focus();
+  await page.keyboard.press("F2");
+  const field = page.getByRole("textbox", { name: "Rename Maple Leaf Rag - Score.pdf" });
+  await expect(field).toBeFocused();
+  await expect(field).toHaveValue("Maple Leaf Rag - Score.pdf");
+  await saveScreen(page, "files-rename");
+  await checkScreen(page);
+  // Escape keeps the old name.
+  await page.keyboard.press("Escape");
+  await expect(field).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /^Maple Leaf Rag - Score\.pdf/ })).toBeVisible();
 });
 
 test("project-files-grid", async ({ page }) => {
@@ -3178,6 +3240,19 @@ test("file-details", async ({ page }) => {
   await settle(page, "aside[aria-label=Details] >> text=Renditions");
   await settle(page, "aside[aria-label=Details] >> text=Access");
   await saveScreen(page, "file-details");
+  await checkScreen(page);
+});
+
+// The checksum copied from the details: the button says so for a moment (#491).
+test("file-details-copied", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "Once is enough");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto(`/files/${seeded().dryFileId}?sheet=details`);
+  await settle(page, "aside[aria-label=Details] >> text=Access");
+  await page.getByRole("button", { name: "Copy the checksum" }).click();
+  await settle(page, "aside[aria-label=Details] >> text=Copied");
+  await saveScreen(page, "file-details-copied");
   await checkScreen(page);
 });
 

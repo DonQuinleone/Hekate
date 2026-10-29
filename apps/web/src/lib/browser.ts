@@ -13,7 +13,7 @@ import {
   replacedFiles,
   versionLabel,
 } from "@hekate/shared";
-import type { Folder, ProjectFile, Track, Version } from "./queries";
+import type { Folder, ProjectFile, Tag, Track, Version } from "./queries";
 
 /** What a folder holds: folders, tracks (a folder of a piece's versions) and loose files. */
 export type Item =
@@ -159,7 +159,6 @@ export function trackNext(
 
 /** Someone's marks, by `kind:id`, for quick lookups. */
 export interface MarkIndex {
-  pinned: Set<string>;
   favourite: Set<string>;
   viewed: Set<string>;
 }
@@ -167,11 +166,12 @@ export interface MarkIndex {
 export const markKey = (item: { kind: string; id: string }) => `${item.kind}:${item.id}`;
 
 export function indexMarks(marks: Mark[]): MarkIndex {
-  const index: MarkIndex = { pinned: new Set(), favourite: new Set(), viewed: new Set() };
+  const index: MarkIndex = { favourite: new Set(), viewed: new Set() };
   for (const m of marks) {
     const key = markKey(m);
-    if (m.pinned) index.pinned.add(key);
-    if (m.favourite) index.favourite.add(key);
+    // One mark (decision 269): a pin kept from before reads as a favourite until it is written
+    // again, which writes both.
+    if (m.favourite || m.pinned) index.favourite.add(key);
     if (m.viewed) index.viewed.add(key);
   }
   return index;
@@ -181,10 +181,10 @@ export function indexMarks(marks: Mark[]): MarkIndex {
 export const unviewed = (file: ProjectFile, me: string | undefined, marks: MarkIndex) =>
   file.uploadedById !== me && !marks.viewed.has(markKey({ kind: "file", id: file.id }));
 
-/** Pinned things first, otherwise in the order given. */
-export const pinnedFirst = (items: Item[], marks: MarkIndex): Item[] => [
-  ...items.filter((i) => marks.pinned.has(markKey(i))),
-  ...items.filter((i) => !marks.pinned.has(markKey(i))),
+/** Favourites first, otherwise in the order given. */
+export const favouritesFirst = (items: Item[], marks: MarkIndex): Item[] => [
+  ...items.filter((i) => marks.favourite.has(markKey(i))),
+  ...items.filter((i) => !marks.favourite.has(markKey(i))),
 ];
 
 /** What narrows the file browser: ways of looking, and tags (any of them). */
@@ -270,22 +270,38 @@ export function filterProject(
       .filter((f) => !inTracks.has(f.id))
       .map((file): Item => ({ kind: "file", id: file.id, file })),
   ];
-  return pinnedFirst(
+  return favouritesFirst(
     candidates.filter(passes).sort((a, b) => name(a).localeCompare(name(b), "en-GB")),
     marks,
   );
 }
 
+/** The row's cell for its quick actions (three at most, 28px each, 2px apart) and the one for its menu. */
+export const quickCellWidth = 88;
+export const menuCellWidth = 28;
+
 /** The list's grid: the icon, the name taking what is left, each chosen column, the actions. */
 export const gridTemplate = (columns: FileColumnLayout) =>
-  ["20px", "minmax(0,1fr)", ...columns.map((c) => `${c.width}px`), "88px"].join(" ");
+  [
+    "20px",
+    "minmax(0,1fr)",
+    ...columns.map((c) => `${c.width}px`),
+    `${quickCellWidth}px`,
+    `${menuCellWidth}px`,
+  ].join(" ");
 
 /**
  * The narrowest the list may be before it scrolls sideways: the icon, a readable name, each
- * column, the actions, the gaps between them and the padding either side.
+ * column, the quick actions, the menu, the gaps between them and the padding either side.
  */
 export const listMinWidth = (columns: FileColumnLayout) =>
-  20 + 240 + columns.reduce((w, c) => w + c.width, 0) + 88 + 12 * (columns.length + 2) + 24;
+  20 +
+  240 +
+  columns.reduce((w, c) => w + c.width, 0) +
+  quickCellWidth +
+  menuCellWidth +
+  12 * (columns.length + 3) +
+  24;
 
 /**
  * The columns that fit a list of the given width, in the member's order: those at the end are
@@ -371,6 +387,80 @@ export function movableTo(folders: Folder[], moving: Item[]): Folder[] {
     }
   }
   return folders.filter((f) => !out.has(f.id));
+}
+
+/** Where something sits: its folder, or null at the top of the project. */
+export const parentIdOf = (item: Item): string | null =>
+  item.kind === "folder"
+    ? item.folder.parentId
+    : item.kind === "track"
+      ? item.track.folderId
+      : item.kind === "file"
+        ? item.file.folderId
+        : null;
+
+/**
+ * What a drop, a paste or a Move does: everything moving that is not there already and may go
+ * there (a folder never into itself or anything inside it; a version is not moved on its own).
+ */
+export function movesInto(folders: Folder[], moving: Item[], to: string | null): Item[] {
+  const allowed = new Set(movableTo(folders, moving).map((f) => f.id));
+  return moving.filter(
+    (i) => i.kind !== "version" && parentIdOf(i) !== to && (to === null || allowed.has(to)),
+  );
+}
+
+/**
+ * The files a track takes when rows are dropped on it: it is a folder of a piece's versions,
+ * so loose files go in as its next version. A folder or another track makes it no target.
+ */
+export function droppableOnTrack(moving: Item[]): ProjectFile[] | null {
+  const files = moving.flatMap((i) => (i.kind === "file" ? [i.file] : []));
+  return files.length > 0 && files.length === moving.length ? files : null;
+}
+
+/** How much of a name to select for renaming: a file's, without its extension, as the Finder does. */
+export function nameStem(name: string, file: boolean): number {
+  if (!file) return name.length;
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? dot : name.length;
+}
+
+/**
+ * The tags offered as one is typed: the workspace's that are not on the thing already and
+ * whose names contain what was typed, most used first; and what was typed as a new tag,
+ * unless a tag has that name.
+ */
+export function tagSuggestions(
+  tags: Tag[],
+  chosen: string[],
+  typed: string,
+): { matches: Tag[]; create: string | null } {
+  const wanted = typed.trim();
+  const q = wanted.toLowerCase();
+  const matches = tags
+    .filter((t) => !chosen.includes(t.id) && (!q || t.name.toLowerCase().includes(q)))
+    .sort((a, b) => b.files - a.files || a.name.localeCompare(b.name, "en-GB"));
+  const create = q && !tags.some((t) => t.name.toLowerCase() === q) ? wanted : null;
+  return { matches, create };
+}
+
+/** A project's folders as a tree reads, top to bottom, each with its depth, for a picker. */
+export function folderTree(folders: Folder[]): { folder: Folder; depth: number }[] {
+  const out: { folder: Folder; depth: number }[] = [];
+  const seen = new Set<string>();
+  const walk = (parentId: string | null, depth: number) => {
+    const children = folders
+      .filter((f) => f.parentId === parentId && !seen.has(f.id))
+      .sort((a, b) => a.name.localeCompare(b.name, "en-GB"));
+    for (const f of children) {
+      seen.add(f.id);
+      out.push({ folder: f, depth });
+      walk(f.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  return out;
 }
 
 /** Tags to put on a file when many are tagged at once: those chosen, less those taken off all. */

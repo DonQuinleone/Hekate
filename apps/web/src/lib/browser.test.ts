@@ -6,11 +6,14 @@ import {
   type BrowserFilters,
   bulkTags,
   columnsFor,
+  droppableOnTrack,
+  favouritesFirst,
   filterProject,
   filtersFrom,
   filtersTo,
   fitColumns,
   folderCount,
+  folderTree,
   freshPath,
   gridTemplate,
   indexMarks,
@@ -19,18 +22,20 @@ import {
   listMinWidth,
   movableTo,
   moveColumn,
+  movesInto,
+  nameStem,
   noFilters,
-  pinnedFirst,
   processingStage,
   rangeBetween,
   resizeColumn,
+  tagSuggestions,
   toggleColumn,
   trackNext,
   variationNameFor,
   versionSummary,
   versionsOf,
 } from "./browser";
-import type { Folder, ProjectFile, Track } from "./queries";
+import type { Folder, ProjectFile, Tag, Track } from "./queries";
 
 const folder = (id: string, parentId: string | null): Folder =>
   ({ id, parentId, name: id }) as Folder;
@@ -174,12 +179,16 @@ describe("marks and filters", () => {
     expect(filtersTo(noFilters)).toEqual({});
   });
 
-  it("puts pinned things first", () => {
+  it("puts favourites first, a pin from before counting as one", () => {
     const items = itemsIn(folders, [], [mine, theirs], null);
     const marks = indexMarks([
-      { kind: "file", id: "Mine.wav", pinned: true, favourite: false, viewed: false },
+      { kind: "file", id: "Mine.wav", pinned: false, favourite: true, viewed: false },
     ]);
-    expect(pinnedFirst(items, marks).map((i) => i.id)).toEqual(["Mine.wav", "Mixes"]);
+    expect(favouritesFirst(items, marks).map((i) => i.id)).toEqual(["Mine.wav", "Mixes"]);
+    const pinned = indexMarks([
+      { kind: "folder", id: "Mixes", pinned: true, favourite: false, viewed: false },
+    ]);
+    expect(favouritesFirst(items, pinned).map((i) => i.id)).toEqual(["Mixes", "Mine.wav"]);
   });
 
   it("finds what is unseen, with comments, mine, a favourite or tagged, anywhere", () => {
@@ -210,12 +219,12 @@ describe("columns", () => {
   ] as const;
 
   it("lays out the grid from the columns shown", () => {
-    expect(gridTemplate([...cols])).toBe("20px minmax(0,1fr) 150px 100px 88px");
-    // 20 + 240 + 250 + 88, four gaps of 12 and 24 of padding.
-    expect(listMinWidth([...cols])).toBe(670);
+    expect(gridTemplate([...cols])).toBe("20px minmax(0,1fr) 150px 100px 88px 28px");
+    // 20 + 240 + 250 + 88 + 28, five gaps of 12 and 24 of padding.
+    expect(listMinWidth([...cols])).toBe(710);
     // What does not fit is left off from the end, never the page made wider.
-    expect(fitColumns([...cols], 670)).toEqual(cols);
-    expect(fitColumns([...cols], 600).map((c) => c.id)).toEqual(["status"]);
+    expect(fitColumns([...cols], 710)).toEqual(cols);
+    expect(fitColumns([...cols], 680).map((c) => c.id)).toEqual(["status"]);
     expect(fitColumns([...cols], 100)).toEqual([]);
   });
 
@@ -260,6 +269,32 @@ describe("selection", () => {
     expect(movableTo(folders, [mixes]).map((f) => f.id)).toEqual([]);
     const all = [...folders, folder("Elsewhere", null)];
     expect(movableTo(all, [mixes]).map((f) => f.id)).toEqual(["Elsewhere"]);
+  });
+
+  it("moves what is not there already and may go there", () => {
+    const mixes = { kind: "folder", id: "Mixes", folder: folders[0] } as Item;
+    const bass = { kind: "file", id: "bass.wav", file: files[4] } as Item;
+    const score = { kind: "file", id: "Score.pdf", file: files[3] } as Item;
+    const all = [...folders, folder("Elsewhere", null)];
+    // Everything goes to Elsewhere; nothing into Stems, which is inside the moving Mixes.
+    expect(movesInto(all, [mixes, bass, score], "Elsewhere").map((i) => i.id)).toEqual([
+      "Mixes",
+      "bass.wav",
+      "Score.pdf",
+    ]);
+    expect(movesInto(all, [mixes, bass, score], "Stems")).toEqual([]);
+    // To the top: the bass comes up; the score and Mixes are at the top already.
+    expect(movesInto(all, [mixes, bass, score], null).map((i) => i.id)).toEqual(["bass.wav"]);
+    // The score alone goes into Stems.
+    expect(movesInto(all, [score], "Stems").map((i) => i.id)).toEqual(["Score.pdf"]);
+  });
+
+  it("drops loose files on a track, and nothing else", () => {
+    const bass = { kind: "file", id: "bass.wav", file: files[4] } as Item;
+    const mixes = { kind: "folder", id: "Mixes", folder: folders[0] } as Item;
+    expect(droppableOnTrack([bass])?.map((f) => f.id)).toEqual(["bass.wav"]);
+    expect(droppableOnTrack([bass, mixes])).toBeNull();
+    expect(droppableOnTrack([])).toBeNull();
   });
 
   it("tags many files, keeping what each had", () => {
@@ -329,5 +364,54 @@ describe("a track's next step", () => {
     expect(trackNext(at("changes_requested"), all)).toBe("review");
     expect(trackNext(at("in_review"), all)).toBeNull();
     expect(trackNext(at("not_reviewed"), none)).toBeNull();
+  });
+});
+
+describe("nameStem", () => {
+  it("selects a file's name without its extension, and a folder's whole", () => {
+    expect(nameStem("Maple Leaf Rag - Score.pdf", true)).toBe(22);
+    expect(nameStem(".env", true)).toBe(4);
+    expect(nameStem("README", true)).toBe(6);
+    expect(nameStem("Mixes v2.1", false)).toBe(10);
+  });
+});
+
+describe("tagSuggestions", () => {
+  const tag = (id: string, files: number): Tag => ({ id, name: id, files });
+  const tags = [tag("Reference", 0), tag("Masters", 2), tag("For print", 1)];
+
+  it("offers every tag not on the thing, most used first", () => {
+    const { matches, create } = tagSuggestions(tags, ["Masters"], "");
+    expect(matches.map((t) => t.id)).toEqual(["For print", "Reference"]);
+    expect(create).toBeNull();
+  });
+
+  it("narrows by what is typed, anywhere in the name, and offers a new tag", () => {
+    expect(tagSuggestions(tags, [], "print").matches.map((t) => t.id)).toEqual(["For print"]);
+    expect(tagSuggestions(tags, [], "Print ").create).toBe("Print");
+    // A name a tag already has is not offered as new, however it is cased.
+    expect(tagSuggestions(tags, [], "masters").create).toBeNull();
+    expect(tagSuggestions(tags, ["Masters"], "masters").create).toBeNull();
+  });
+});
+
+describe("folderTree", () => {
+  it("reads top to bottom, children under their parents, by name", () => {
+    const all = [
+      folder("Stems", "Mixes"),
+      folder("Mixes", null),
+      folder("Artwork", null),
+      folder("Day 2", "Sessions"),
+      folder("Day 1", "Sessions"),
+      folder("Sessions", null),
+    ];
+    expect(folderTree(all).map((n) => `${n.depth}:${n.folder.id}`)).toEqual([
+      "0:Artwork",
+      "0:Mixes",
+      "1:Stems",
+      "0:Sessions",
+      "1:Day 1",
+      "1:Day 2",
+    ]);
   });
 });
