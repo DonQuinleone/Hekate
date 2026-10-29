@@ -87,6 +87,7 @@ export * from "./take-import.ts";
 export * from "./takes.ts";
 export * from "./tasks.ts";
 export * from "./templates.ts";
+export * from "./time-entry.ts";
 export * from "./tool-exceptions.ts";
 export * from "./tracks.ts";
 export * from "./upload-requests.ts";
