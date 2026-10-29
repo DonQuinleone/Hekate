@@ -3,7 +3,7 @@ import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/input";
-import { ActionMenu } from "~/components/ui/menu";
+import { ActionMenu, type MenuAction } from "~/components/ui/menu";
 import { type Comment, categories, type Project, personById } from "~/data";
 import { cn } from "~/lib/cn";
 import { ago, formatAnchor, formatClock, formatReference } from "~/lib/format";
@@ -12,6 +12,23 @@ import type { Playback } from "../player/playback.ts";
 import { OtherTakes, SharedTakes } from "./takes.tsx";
 
 const carryCopy = { open: "Open", fixed: "Fixed", not_fixed: "Not fixed", wont_fix: "Won't fix" };
+
+/**
+ * A category's colour, by its place among the project's categories (#496): the bar at the
+ * thread's left edge. Six tones, then round again.
+ */
+const tones = [
+  "bg-category-1",
+  "bg-category-2",
+  "bg-category-3",
+  "bg-category-4",
+  "bg-category-5",
+  "bg-category-6",
+] as const;
+export const categoryTone = (id: string) => {
+  const at = categories.findIndex((c) => c.id === id);
+  return at < 0 ? null : tones[at % tones.length];
+};
 
 export interface ThreadProps {
   comment: Comment;
@@ -30,9 +47,14 @@ export interface ThreadProps {
   onSelect: () => void;
 }
 
-const tag = "rounded-chip bg-raised px-1.5 text-[12px] leading-5 text-ink-3";
+/** A quiet word in the action row: a state the thread is in, not something to press. */
+const quiet = "text-[12px] text-ink-3";
 
-/** One thread: who, where, what, the replies, and what the viewer may do with it. */
+/**
+ * One thread, laid out as Frame.io and Figma lay theirs (#496): who and when, with where
+ * (the anchor) as a chip at the line's end; the words; what is attached; then one row of
+ * actions, always there and quiet. Its category is the bar at its left edge, never a pill.
+ */
 export function Thread({
   comment,
   replies,
@@ -55,11 +77,15 @@ export function Thread({
   const [resolved, setResolved] = useState(Boolean(comment.resolved));
   const author = personById(comment.authorId);
   const category = categories.find((c) => c.id === comment.categoryId);
+  const tone = category ? categoryTone(category.id) : null;
   const carry = comment.carries?.find((c) => c.versionNumber === versionNumber);
   const carriedFrom = comment.carries?.[0]?.versionNumber;
   const reference = formatReference(comment.reference, project.references);
   const anchorText =
     comment.anchor.kind === "whole" ? "" : formatAnchor(comment.anchor, { video, fps });
+  // Where it points, in one chip: the bar or page, then the moment it was heard at (#496),
+  // then the channel it is about.
+  const where = [reference, anchorText, comment.channel].filter(Boolean).join(" · ");
   const canTriage = access.triage;
   const mine = comment.authorId === personId;
   const seekTo = () => {
@@ -85,6 +111,44 @@ export function Thread({
   };
   const bar = comment.reference?.bar;
   const action = "rounded-chip px-1 text-[12px] text-ink-3 transition-colors hover:text-ink";
+  const canLoop = Boolean(playback && access.tools.has("loops") && comment.anchor.kind !== "whole");
+  const hasTakes = Boolean(
+    trackId && bar !== undefined && (access.tools.has("takes") || canTriage),
+  );
+  // Everything but Reply and Resolve: the passage, the takes, triage, and the words themselves.
+  const actions: (MenuAction | "divider")[] = [
+    ...(canLoop ? [{ label: "Loop the passage", onSelect: loopIt }] : []),
+    ...(hasTakes
+      ? [
+          {
+            label: takesOpen ? "Hide other takes" : `Other takes for bar ${bar}`,
+            onSelect: () => setTakesOpen((o) => !o),
+          },
+        ]
+      : []),
+    ...(mine ? [{ label: "Edit", onSelect: () => {} }] : []),
+    ...(canTriage
+      ? [
+          "divider" as const,
+          ...categories.map((c) => ({
+            label: `Mark as ${c.name}`,
+            checked: c.id === comment.categoryId,
+            onSelect: () => {},
+          })),
+          "divider" as const,
+          {
+            label: comment.deferredToStage ? "Undefer" : "Defer to a stage…",
+            onSelect: () => {},
+          },
+          { label: "Assign to…", onSelect: () => {} },
+          { label: "Make a task", onSelect: () => {} },
+          { label: "Move the anchor to the loop", onSelect: () => {} },
+          { label: "Copy link", onSelect: () => {} },
+        ]
+      : []),
+    ...(mine ? ["divider" as const, { label: "Delete", danger: true, onSelect: () => {} }] : []),
+  ];
+  while (actions[0] === "divider") actions.shift();
   return (
     <article
       aria-current={active ? "true" : undefined}
@@ -95,71 +159,36 @@ export function Thread({
         resolved && !active && "opacity-60",
       )}
     >
-      {active && (
+      {tone && category && (
         <span
           aria-hidden="true"
-          className="absolute top-3 bottom-3 left-0 w-0.5 rounded-full bg-signal"
+          title={category.name}
+          className={cn("absolute top-3 bottom-3 left-0 w-[3px] rounded-full", tone)}
         />
       )}
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 items-center gap-2">
         <Avatar personId={comment.authorId} size={22} />
         <span className="truncate text-[13px] font-medium text-ink">
           {isGuest && !mine ? author.name.split(" ")[0] : author.name}
         </span>
-        <span className="tabular text-[12px] text-ink-3">{ago(comment.createdAt)}</span>
+        <span className="tabular shrink-0 text-[12px] text-ink-3">{ago(comment.createdAt)}</span>
         {comment.importedFrom && (
           <span className="min-w-0 truncate text-[12px] text-ink-3">
             from {comment.importedFrom}
           </span>
         )}
-        <span className="ml-auto flex items-center gap-1">
-          {number !== null ? (
-            <span className="tabular text-[12px] text-ink-3">#{number}</span>
-          ) : (
-            <Icon name="check" size={13} className="text-ink-3" />
-          )}
-        </span>
-      </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        {anchorText && (
+        {where && (
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               seekTo();
             }}
-            className="tabular rounded-chip bg-signal/15 px-1.5 text-[12px] leading-5 font-medium text-signal transition-colors hover:bg-signal/25"
+            className="tabular ml-auto flex h-6 shrink-0 items-center gap-1 rounded-chip bg-signal/15 px-1.5 text-[12px] font-medium text-signal transition-colors hover:bg-signal/25"
           >
-            {anchorText}
+            {number !== null && <span>#{number}</span>}
+            {where}
           </button>
-        )}
-        {reference && <span className={cn(tag, "text-ink-2")}>{reference}</span>}
-        {!anchorText && !reference && <span className={tag}>Whole file</span>}
-        {comment.channel && <span className={tag}>{comment.channel}</span>}
-        {category && <span className={tag}>{category.name}</span>}
-        {comment.deferredToStage && (
-          <span className={tag}>deferred to {comment.deferredToStage}</span>
-        )}
-        {carriedFrom !== undefined && versionNumber !== null && carriedFrom !== versionNumber && (
-          <span className={tag}>from V{carriedFrom}</span>
-        )}
-        {comment.assigneeId && (
-          <span className={cn(tag, "flex items-center gap-1")}>
-            <Avatar personId={comment.assigneeId} size={12} />
-            {personById(comment.assigneeId).name.split(" ")[0]}
-          </span>
-        )}
-        {comment.todo && (
-          <span
-            className={cn(
-              "rounded-chip px-1.5 text-[12px] leading-5",
-              comment.todo.done
-                ? "bg-raised text-ink-3 line-through"
-                : "border border-signal/50 text-signal",
-            )}
-          >
-            to do
-          </span>
         )}
       </div>
       <p className="text-[14px] leading-[21px] text-ink">{comment.body}</p>
@@ -253,15 +282,9 @@ export function Thread({
           onClose={() => setTakesOpen(false)}
         />
       )}
-      <div
-        className={cn(
-          "-mb-1 flex flex-wrap items-center gap-2.5 transition-opacity",
-          active
-            ? "opacity-100"
-            : "opacity-0 group-hover/thread:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100",
-        )}
-      >
-        {access.comment && (
+      {/* One row of actions, always there and quiet, as Frame.io and Figma have it. */}
+      <div className="-mb-1 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        {access.comment && !resolved && (
           <button
             type="button"
             onClick={(e) => {
@@ -271,30 +294,6 @@ export function Thread({
             className={action}
           >
             Reply
-          </button>
-        )}
-        {playback && access.tools.has("loops") && comment.anchor.kind !== "whole" && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              loopIt();
-            }}
-            className={action}
-          >
-            Loop
-          </button>
-        )}
-        {trackId && bar !== undefined && (access.tools.has("takes") || canTriage) && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setTakesOpen((o) => !o);
-            }}
-            className={action}
-          >
-            Other takes
           </button>
         )}
         {(canTriage || mine) && (
@@ -309,31 +308,38 @@ export function Thread({
             {resolved ? "Reopen" : "Resolve"}
           </button>
         )}
-        {canTriage && (
+        {resolved && (
+          <span className={cn(quiet, "flex items-center gap-1")}>
+            <Icon name="check" size={12} /> Resolved
+          </span>
+        )}
+        {comment.deferredToStage && (
+          <span className={quiet}>deferred to {comment.deferredToStage}</span>
+        )}
+        {carriedFrom !== undefined && versionNumber !== null && carriedFrom !== versionNumber && (
+          <span className={quiet}>from V{carriedFrom}</span>
+        )}
+        {comment.assigneeId && (
+          <span className={cn(quiet, "flex items-center gap-1")}>
+            <Avatar personId={comment.assigneeId} size={12} />
+            {personById(comment.assigneeId).name.split(" ")[0]}
+          </span>
+        )}
+        {comment.todo && (
+          <span
+            className={cn(
+              "rounded-chip px-1.5 text-[11px] leading-5",
+              comment.todo.done
+                ? "bg-raised text-ink-3 line-through"
+                : "border border-signal/50 text-signal",
+            )}
+          >
+            to do
+          </span>
+        )}
+        {actions.length > 0 && (
           <span className="ml-auto" onClick={(e) => e.stopPropagation()}>
-            <ActionMenu
-              always
-              label="comment"
-              actions={[
-                ...categories.map((c) => ({ label: `Mark as ${c.name}`, onSelect: () => {} })),
-                "divider" as const,
-                {
-                  label: comment.deferredToStage ? "Undefer" : "Defer to a stage…",
-                  onSelect: () => {},
-                },
-                { label: "Assign to…", onSelect: () => {} },
-                { label: "Make a task", onSelect: () => {} },
-                { label: "Move the anchor to the loop", onSelect: () => {} },
-                { label: "Copy link", onSelect: () => {} },
-                ...(mine
-                  ? [
-                      "divider" as const,
-                      { label: "Edit", onSelect: () => {} },
-                      { label: "Delete", danger: true, onSelect: () => {} },
-                    ]
-                  : []),
-              ]}
-            />
+            <ActionMenu always label="comment" actions={actions} />
           </span>
         )}
       </div>

@@ -1091,3 +1091,132 @@ export function SharedTakes({
     </>
   );
 }
+
+/**
+ * The track's takes to put on a comment (#497): number, session, bars and rating, each
+ * heard in its own player; several can be ticked. Attached, they are heard at the comment's
+ * bar as from Other takes (#46).
+ */
+export function TakePicker({
+  trackId,
+  projectId,
+  chosen,
+  onPick,
+  onClose,
+}: {
+  trackId: string;
+  projectId: string;
+  /** Those already picked, ticked from the start. */
+  chosen: string[];
+  onPick: (takes: TakeRow[]) => void;
+  onClose: () => void;
+}) {
+  const { data: takes, error } = useQuery(trackTakesQuery(trackId));
+  const { data: sessions = [] } = useQuery(projectSessionsQuery(projectId));
+  const [ticked, setTicked] = useState<Set<string>>(new Set(chosen));
+  const tick = (id: string) =>
+    setTicked((was) => {
+      const next = new Set(was);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const sessionName = (id: string | null) => sessions.find((s) => s.id === id)?.name ?? null;
+  return (
+    <Dialog
+      title="Takes from this track"
+      description="They go on the comment for whoever reads it to hear, at its bar where it has one."
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={ticked.size === 0}
+            onClick={() => {
+              onPick((takes ?? []).filter((t) => ticked.has(t.id)));
+              onClose();
+            }}
+          >
+            {ticked.size > 0 ? `Attach ${ticked.size}` : "Attach"}
+          </Button>
+        </>
+      }
+    >
+      {error ? (
+        <p className="m-0 text-[13px] text-signal">{error.message}</p>
+      ) : !takes ? (
+        <p className="m-0 text-[13px] text-ink-3">Loading</p>
+      ) : takes.length === 0 ? (
+        <p className="m-0 text-[13px] text-ink-3">
+          This track has no takes yet. They are added from the track's takes.
+        </p>
+      ) : (
+        <ul
+          className="m-0 flex list-none flex-col rounded-panel border border-line p-0"
+          aria-label="The track's takes"
+        >
+          {takes.map((t) => (
+            <li
+              key={t.id}
+              className="flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0"
+            >
+              <Checkbox
+                checked={ticked.has(t.id)}
+                onChange={() => tick(t.id)}
+                aria-label={`Attach take ${t.number}`}
+              />
+              {t.file ? (
+                <Link
+                  to="/files/$fileId"
+                  params={{ fileId: t.file.id }}
+                  target="_blank"
+                  rel="noopener"
+                  aria-label={`Hear take ${t.number} in a new tab`}
+                  title="Hear it in a new tab"
+                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-raised text-ink no-underline hover:bg-edge"
+                >
+                  <Icon name="play" size={10} fill="currentColor" strokeWidth={0} />
+                </Link>
+              ) : (
+                <span
+                  aria-hidden="true"
+                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-raised text-ink-3"
+                >
+                  <Icon name="play" size={10} fill="currentColor" strokeWidth={0} />
+                </span>
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-1.5 text-[13px] text-ink">
+                  <span className="tabular font-medium">T{t.number}</span>
+                  {t.starred && (
+                    <Icon
+                      name="star"
+                      size={11}
+                      fill="currentColor"
+                      aria-label="Starred"
+                      className="text-ink-2"
+                    />
+                  )}
+                  <Rating value={t.rating} />
+                </span>
+                <span className="block truncate text-[12px] text-ink-3">
+                  {[sessionName(t.sessionId), barsLabel(t), t.label, t.notes]
+                    .filter(Boolean)
+                    .join(" · ") || "No session, no bars"}
+                </span>
+              </span>
+              {t.file?.duration != null && (
+                <span className="tabular text-[12px] text-ink-3">
+                  {formatDuration(t.file.duration)}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Dialog>
+  );
+}

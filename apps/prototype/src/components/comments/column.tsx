@@ -248,6 +248,8 @@ export function CommentsColumn({
             : { page: kind === "document", bar: false, beat: false }
         }
         canCategorise={access.triage}
+        // Takes go on a comment from the track's own (#497), by those who triage and see takes.
+        takesFrom={access.triage && access.tools.has("takes") ? trackId : null}
         channels={
           kind === "media" && file.kind === "audio" && (file.media.channels ?? 0) >= 2
             ? channelNames(file.media.channels ?? 0)
