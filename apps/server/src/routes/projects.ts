@@ -27,6 +27,7 @@ import { NotFound } from "../errors.ts";
 import { marksAudio } from "../forensic.ts";
 import { zValidator } from "../openapi/validator.ts";
 import { projectFigures } from "../project-figures.ts";
+import { listedFile } from "../take-files.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { assertProjectRoom } from "../usage.ts";
 import { categoriesOf, seedCategories } from "./categories.ts";
@@ -483,7 +484,8 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean, b
         })
         .from(files)
         .leftJoin(users, eq(files.uploadedBy, users.id))
-        .where(inOrg(files, organisationId, eq(files.projectId, project.id)))
+        // A take's file is the take's, not the folder's (decision 274).
+        .where(inOrg(files, organisationId, eq(files.projectId, project.id), listedFile))
         .orderBy(asc(files.name), desc(files.createdAt));
       return c.json({ files: rows });
     });
