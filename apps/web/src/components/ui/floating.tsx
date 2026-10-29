@@ -96,7 +96,9 @@ export function Floating({
       const H = host.getBoundingClientRect();
       const A = a.getBoundingClientRect();
       const w = align === "stretch" ? A.width : f.offsetWidth;
-      const h = f.offsetHeight;
+      // Its height unconstrained: once capped, it scrolls, and measuring the cap would say it
+      // fits, lift the cap, and measure again, without end.
+      const h = f.scrollHeight + (f.offsetHeight - f.clientHeight);
       let left = align === "end" ? A.right - H.left - w : A.left - H.left;
       left = Math.max(MARGIN, Math.min(left, H.width - w - MARGIN));
       const below = A.bottom - H.top + gap;

@@ -269,21 +269,25 @@ export function GoTo({ onGo }: { onGo: (seconds: number) => void }) {
           align="end"
           side="bottom"
           onClose={() => setOpen(false)}
-          className="rise-in flex items-center gap-2 rounded-panel bg-overlay p-2 shadow-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const [h = 0, m = 0, s = 0, f = 0] = value.split(":").map(Number);
-            onGo(h * 3600 + m * 60 + s + f / 25);
-            setOpen(false);
-          }}
+          className="rise-in rounded-panel bg-overlay p-2 shadow-3"
         >
-          <input
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            aria-label="Timecode"
-            className="tabular h-8 w-32 rounded-control border border-line bg-ground/60 px-2 text-[13px] text-ink focus:border-edge-strong focus:outline-none"
-          />
-          <Kbd>↵</Kbd>
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const [h = 0, m = 0, s = 0, f = 0] = value.split(":").map(Number);
+              onGo(h * 3600 + m * 60 + s + f / 25);
+              setOpen(false);
+            }}
+          >
+            <input
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              aria-label="Timecode"
+              className="tabular h-8 w-32 rounded-control border border-line bg-ground/60 px-2 text-[13px] text-ink focus:border-edge-strong focus:outline-none"
+            />
+            <Kbd>↵</Kbd>
+          </form>
         </Floating>
       )}
     </div>
