@@ -45,21 +45,31 @@ The installer keeps what it is given in `/config/hekate.env`, on a volume of its
 
 If a setting is wrong once installed, Hekate does not start: `docker compose --env-file .env -f deploy/compose.yml logs app` lists every problem at once, with what would be valid. Every setting is in [Configuration](configuration/).
 
-## Try it on a laptop
+## Try the demo
 
-To look around before installing it anywhere, run it on one machine with no domain, Caddy or certificate. With Docker Desktop (or Docker and the Compose plugin):
+To look around before installing it anywhere, run the demo on one machine: no domain, Caddy or certificate, and a studio's work already in it. With Docker Desktop (or Docker and the Compose plugin), and nothing to write first:
 
 ```sh
 git clone https://github.com/DonQuinleone/Hekate.git
 cd Hekate
-cp .env.example .env    # then set POSTGRES_PASSWORD in it
-docker compose --env-file .env -f deploy/compose.yml -f deploy/compose.build.yml -f deploy/compose.laptop.yml up -d --build
-docker compose --env-file .env -f deploy/compose.yml logs app    # the setup code
+docker compose --env-file deploy/demo.env -f deploy/compose.yml -f deploy/compose.build.yml -f deploy/compose.demo.yml up -d --build
 ```
 
-Open `http://localhost:3000` and enter the code. Choose **Log only (development)** for mail: invitations and guest links are then written to the app's log (`logs -f app`) rather than sent, so you can open them yourself in a private window. The installer warns that the address is not HTTPS, which is expected here.
+The image builds, PostgreSQL and the app start, and a one-off `seed` container fills the instance through its API, which takes a few minutes while the sample media is made and measured; `docker compose --env-file deploy/demo.env -f deploy/compose.yml -f deploy/compose.demo.yml logs -f seed` follows it and ends with the sign-ins. Then open `http://localhost:3000`.
 
-`down` stops it and keeps what you made; `down -v` forgets everything, back to the installer. Passkeys, and links opened on other devices, need HTTPS on a real domain, as above.
+It seeds a label, Endless Hall Records: a music project (Joplin Rags) with a track in two versions, a dry and a wet mix, its score with the producer's marks, session takes and their log, a stage plan and patch list, a schedule, personnel and repertoire, comments of every kind, tasks, workflows and reviews in every state; a video project (Opening titles) with a cut, captions and a deliverable in two renditions; a general project with a booklet signed off in two proofs; other workspaces on the instance, one of them suspended; and, for the owner as the instance's operator, plans and invoices, support tickets, incidents on the status page, API tokens and OAuth clients, all dated to mid-October 2026.
+
+Sign in as:
+
+| Who | Email | Password |
+| --- | --- | --- |
+| Alex Rivera, owner of Endless Hall Records and the instance's operator | `producer@example.test` | `correct horse battery` |
+| Tomas Varga, owner of Saltmarsh Films | `owner@saltmarsh.example` | `correct horse battery` |
+| Mira Solberg, owner of Lantern Pictures, which is suspended | `mira@lantern.example` | `correct horse battery` |
+
+There is no mail server: invitations and guest links are written to the app's log (`docker compose --env-file deploy/demo.env -f deploy/compose.yml -f deploy/compose.demo.yml logs app`), so open them yourself in a private window. The demo's settings are published in `deploy/demo.env`, and `HEKATE_DEMO` makes the server refuse any address but `localhost`, so they can never run a real instance.
+
+`down` stops it and keeps what you made; `down -v` forgets everything, and the next `up` seeds it again. Passkeys, and links opened on other devices, need HTTPS on a real domain, as above.
 
 ## The image
 

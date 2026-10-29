@@ -1,0 +1,67 @@
+# The demo (decision 266): Hekate on one machine, at http://localhost:3000, with no domain,
+# Caddy or certificate, filled with a studio's sample data the moment it is up. No .env to
+# write, built from this checkout:
+#   docker compose --env-file deploy/demo.env -f deploy/compose.yml -f deploy/compose.build.yml -f deploy/compose.demo.yml up -d --build
+# Its keys and passwords are published (deploy/demo.env), so HEKATE_DEMO makes the server
+# refuse any address but localhost: this can never be a real instance. `down -v` forgets it all.
+# The address it serves on is one the app can also reach from inside its own container, which
+# the installer's address check needs; https://localhost through Caddy would be Caddy's, not
+# the app's. Passkeys and links from other devices need HTTPS on a real domain: see Install.
+
+# What the demo sets, for the app and the seed alike.
+x-demo-environment: &demo
+  PUBLIC_URL: http://localhost:3000
+  HEKATE_DEMO: "1"
+  # Fixed, so the seed can open POST /api/setup; the server prints no code of its own.
+  HEKATE_SETUP_CODE: DEMO-HALL-2026
+  # No SMTP_URL: mail is written to the app's log, where invitations and guest links are read.
+  # The sample passwords are published, and so known to be: the breach check would refuse them.
+  PASSWORD_LEAK_CHECK: "false"
+  # The seed fills billing, support and the status page, so those screens have something to show.
+  HEKATE_BILLING: manual
+  HEKATE_SUPPORT: app
+  # The owner operates the instance from a password session: a laptop has no security key to hand.
+  OPERATOR_SECURITY_KEY: "false"
+
+services:
+  app:
+    build: { context: .., dockerfile: Dockerfile }
+    image: hekate:local
+    ports: ["127.0.0.1:3000:3000"]
+    # demo.env in place of the checkout's .env, which need not exist.
+    env_file: !override
+      - demo.env
+    environment: *demo
+    # The image's own check, asked sooner, so the seed starts as soon as the app answers; and
+    # given time for the first start's migrations.
+    healthcheck:
+      interval: 5s
+      retries: 24
+      start_period: 120s
+
+  # Fills the instance through its API once the app answers, then exits: the same image, with
+  # the same settings. A second `up` finds the instance set up and does nothing.
+  seed:
+    image: hekate:local
+    pull_policy: never
+    command: [apps/server/src/cli.ts, demo, seed]
+    restart: "no"
+    # On the app's own network, so PUBLIC_URL reaches it there as it does from the browser.
+    network_mode: service:app
+    env_file:
+      - demo.env
+    environment:
+      <<: *demo
+      DATABASE_URL: postgres://hekate:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@db:5432/hekate
+    # The sample media is made in memory and gone when it exits.
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      app: { condition: service_healthy }
+
+  # Not started here (it needs a domain and ports 80 and 443); `--profile https` brings it back.
+  caddy:
+    profiles: [https]

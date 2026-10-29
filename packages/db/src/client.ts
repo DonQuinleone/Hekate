@@ -17,3 +17,12 @@ export function createDb(url: string, options: { max?: number; connectTimeout?: 
 }
 
 export type Database = ReturnType<typeof createDb>["db"];
+
+/**
+ * A bare connection, with none of Drizzle's parsers and serialisers on it (Drizzle makes
+ * postgres.js pass dates and JSON through as they are, and serialises them itself): for SQL
+ * written by hand with postgres.js's own values, as the demo's seed writes it.
+ */
+export function createSql(url: string, options: { max?: number } = {}) {
+  return postgres(url, { max: options.max ?? 2, onnotice: () => {}, prepare: false });
+}
