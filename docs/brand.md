@@ -50,6 +50,8 @@ Cool near-black, one signal.
 
 Status is shown by dot shape and fill (open ring for in review, signal dot for changes requested, ink dot for approved), not by a traffic-light palette.
 
+A comment's category (Noise, Edit, Balance, Performance, Information, or whatever the project names) is a 3 px bar at the thread's left edge, never a pill: `category-1` to `category-6`, given by the category's place among the project's categories and coming round again after six. They are drawn from the families above (`signal`, the workflow node colours, `wave-warm`), so a theme covers them with nothing more. The category's name is in the thread's menu and on the bar's hover.
+
 ### Themes
 
 The palette above is the brand, and the default. People may choose another in Appearance, or follow their device, which is dark or light (`apps/web/src/styles/themes.css`):

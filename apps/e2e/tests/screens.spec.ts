@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import postgres from "postgres";
 import { waveBytes } from "../../../packages/shared/src/fixtures/wave.ts";
 import { croomFixtureBytes } from "../../server/src/croom/fixture.ts";
@@ -2909,6 +2909,49 @@ test("player-spectrogram-analysis", async ({ page }, info) => {
   await checkScreen(page);
 });
 
+/** Other takes for a bar thread (#46), from the thread's menu (#496). */
+async function openOtherTakes(thread: Locator) {
+  await thread.getByRole("button", { name: "Actions for this thread" }).click();
+  await thread
+    .page()
+    .getByRole("menuitem", { name: /^Other takes for bar/ })
+    .click();
+}
+
+// The comment list as Frame.io and Figma lay theirs (#496): a hovered thread, its one row of
+// actions always there, its category a bar at its edge rather than a pill, and the anchor a
+// chip at the end of its first line with the moment a bar thread was heard at.
+test("file-comment-hover", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "Nothing hovers on a phone");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  const rushes = page
+    .getByRole("listitem")
+    .filter({ hasText: "The left hand rushes through these bars." });
+  // Its category is the bar at its edge, named on hover, not a pill in the stack.
+  await expect(rushes.getByText("Performance", { exact: true })).toHaveCount(0);
+  await expect(rushes.locator("[title=Performance]")).toHaveCount(1);
+  await expect(rushes.getByRole("button", { name: /^Play bars 9–12 from 0:14/ })).toBeVisible();
+  await expect(rushes.getByRole("button", { name: "Resolve" })).toBeVisible();
+  await expect(rushes.getByRole("button", { name: "Reply" })).toBeVisible();
+  await expect(rushes.getByRole("button", { name: "Actions for this thread" })).toBeVisible();
+  // A thread with a category, an anchor and a channel is no taller than one with none: the
+  // pedal thread (Noise, deferred, left channel) against the resolved lift, both one line.
+  await page.getByRole("button", { name: "Show Open" }).click();
+  await page.getByRole("menuitemradio", { name: /^All/ }).click();
+  const height = async (text: string) =>
+    (await page.getByRole("listitem").filter({ hasText: text }).first().boundingBox())?.height ?? 0;
+  expect(await height("Pedal noise on the left")).toBeLessThanOrEqual(
+    await height("Lovely lift into the trio."),
+  );
+  await page.getByRole("button", { name: "Show All" }).click();
+  await page.getByRole("menuitemradio", { name: /^Open/ }).click();
+  await rushes.hover();
+  await saveScreen(page, "file-comment-hover");
+  await checkScreen(page);
+});
+
 // "Any other options for these bars?" (#46): the takes covering a bar thread's first bar.
 test("file-comment-other-takes", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
@@ -2917,7 +2960,7 @@ test("file-comment-other-takes", async ({ page }) => {
   const thread = page
     .getByRole("listitem")
     .filter({ hasText: "The left hand rushes through these bars." });
-  await thread.getByRole("button", { name: "Other takes" }).click();
+  await openOtherTakes(thread);
   const panel = page.getByRole("region", { name: "Other takes for bar 9" });
   await expect(panel.getByRole("listitem")).toHaveCount(2);
   await expect(panel).toContainText("Good opening");
@@ -2943,7 +2986,7 @@ test("file-comment-audition-take", async ({ page }) => {
   const thread = page
     .getByRole("listitem")
     .filter({ hasText: "The left hand rushes through these bars." });
-  await thread.getByRole("button", { name: "Other takes" }).click();
+  await openOtherTakes(thread);
   const panel = page.getByRole("region", { name: "Other takes for bar 9" });
   const audition = panel.getByRole("button", { name: /^Audition take \d+ at bar 9$/ }).first();
   const name = (await audition.getAttribute("aria-label")) ?? "";

@@ -41,6 +41,7 @@ import { cn } from "~/lib/cn";
 import {
   ago,
   arrangeThreads,
+  categoryTone,
   filterHolding,
   historyLabel,
   passageLoop,
@@ -468,33 +469,47 @@ function Words({ comment }: { comment: Comment }) {
 function CommentBody({
   comment,
   own,
-  editable,
+  editing,
+  onEditing,
   onEdit,
   onDownload,
   onRemove,
+  end,
+  attached,
 }: {
   comment: Comment;
   /** Written by the viewer, member or guest: they may take their own files off it. */
   own: boolean;
-  /** They may change its words, which a guest may not. */
-  editable: boolean;
+  /** Its words are being changed, from the thread's or the reply's menu. */
+  editing: boolean;
+  onEditing: (on: boolean) => void;
   onEdit: (id: string, body: string, mentions: string[]) => Promise<unknown>;
   /** A one-time download of one of its files, made for this person (#133). */
   onDownload: (attachmentId: string) => void;
   /** Taking one of your own files off it. */
   onRemove: (attachmentId: string) => void;
+  /** At the end of its first line: where a thread points, or a reply's menu. */
+  end?: ReactNode;
+  /** Beside its files: the takes shared on a thread (#133). */
+  attached?: ReactNode;
 }) {
-  const [editing, setEditing] = useState(false);
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline gap-2 text-xs">
-        <span className="font-medium text-ink">{comment.authorName ?? "Former member"}</span>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex min-w-0 items-center gap-2 text-xs">
+        <Avatar
+          id={comment.authorId ?? comment.authorName ?? "former"}
+          name={comment.authorName ?? "Former member"}
+          size={20}
+        />
+        <span className="truncate font-medium text-ink">
+          {comment.authorName ?? "Former member"}
+        </span>
         {comment.authorGuest && (
-          <span className="text-ink-3">
+          <span className="shrink-0 text-ink-3">
             {comment.authorLabel ? `${comment.authorLabel}, guest` : "Guest"}
           </span>
         )}
-        <span className="text-ink-3" title={fullTime.format(new Date(comment.createdAt))}>
+        <span className="shrink-0 text-ink-3" title={fullTime.format(new Date(comment.createdAt))}>
           {ago(comment.createdAt)}
           {comment.editedAt && " · edited"}
         </span>
@@ -506,15 +521,7 @@ function CommentBody({
             from {comment.importedFrom}
           </span>
         )}
-        {editable && !editing && (
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="ml-auto inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-          >
-            Edit
-          </button>
-        )}
+        {end && <span className="ml-auto flex min-w-0 shrink-0 items-center gap-1">{end}</span>}
       </div>
       {editing ? (
         <Composer
@@ -525,44 +532,89 @@ function CommentBody({
           pending={false}
           onSubmit={async (body, mentions) => {
             await onEdit(comment.id, body, mentions);
-            setEditing(false);
+            onEditing(false);
             return undefined;
           }}
-          onCancel={() => setEditing(false)}
+          onCancel={() => onEditing(false)}
         />
       ) : (
         <Words comment={comment} />
       )}
-      {comment.attachments.length > 0 && (
-        <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Attached files">
-          {comment.attachments.map((a) => (
-            <li key={a.id} className="flex items-center">
-              <Button
-                size="sm"
-                variant="secondary"
-                className="h-7 max-w-full gap-1.5 text-[12px]"
-                onClick={() => onDownload(a.id)}
-              >
-                <Icon name="download" size={12} />
-                <span className="sr-only">Download </span>
-                <span className="max-w-48 truncate">{a.name}</span>{" "}
-                <span className="text-ink-3">{formatBytes(a.byteSize)}</span>
-              </Button>
-              {own && (
-                <Button
-                  size="iconSm"
-                  variant="quiet"
-                  aria-label={`Remove ${a.name}`}
-                  onClick={() => onRemove(a.id)}
-                >
-                  <Icon name="close" size={12} />
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
+      {(comment.attachments.length > 0 || attached) && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {comment.attachments.length > 0 && (
+            <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Attached files">
+              {comment.attachments.map((a) => (
+                <li key={a.id} className="flex items-center">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-7 max-w-full gap-1.5 text-[12px]"
+                    onClick={() => onDownload(a.id)}
+                  >
+                    <Icon name="download" size={12} />
+                    <span className="sr-only">Download </span>
+                    <span className="max-w-48 truncate">{a.name}</span>{" "}
+                    <span className="text-ink-3">{formatBytes(a.byteSize)}</span>
+                  </Button>
+                  {own && (
+                    <Button
+                      size="iconSm"
+                      variant="quiet"
+                      aria-label={`Remove ${a.name}`}
+                      onClick={() => onRemove(a.id)}
+                    >
+                      <Icon name="close" size={12} />
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {attached}
+        </div>
       )}
     </div>
+  );
+}
+
+/** A reply under a thread: the same body, its own menu holding Edit where its writer may. */
+function Reply({
+  comment,
+  own,
+  editable,
+  onEdit,
+  onDownload,
+  onRemove,
+}: {
+  comment: Comment;
+  own: boolean;
+  editable: boolean;
+  onEdit: (id: string, body: string, mentions: string[]) => Promise<unknown>;
+  onDownload: (attachmentId: string) => void;
+  onRemove: (attachmentId: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <CommentBody
+      comment={comment}
+      own={own}
+      editing={editing}
+      onEditing={setEditing}
+      onEdit={onEdit}
+      onDownload={onDownload}
+      onRemove={onRemove}
+      end={
+        editable &&
+        !editing && (
+          <ActionMenu
+            always
+            label="this reply"
+            actions={[{ label: "Edit", onSelect: () => setEditing(true) }]}
+          />
+        )
+      }
+    />
   );
 }
 
@@ -712,6 +764,7 @@ function ThreadView({
   const time = useContext(TimeFormatting);
   const label = (a: Anchor) => anchorLabel(a, time);
   const [replying, setReplying] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [takesOpen, setTakesOpen] = useState(false);
   const [asking, setAsking] = useState<"defer" | "assign" | null>(null);
   const { comment, replies } = thread;
@@ -750,6 +803,7 @@ function ThreadView({
   /** The region drawn on the page, which a carried thread can be moved to. */
   const draft = pages?.focus.draft;
   const category = categories.find((c) => c.id === comment.categoryId);
+  const tone = comment.categoryId ? categoryTone(categories, comment.categoryId) : null;
   const triage = (change: Omit<TriageInput, "commentIds">) =>
     mutations.triage.mutate({ commentIds: [comment.id], ...change });
   // Triage (#36): its kind, deferring it to a stage or back, and who is to act on it.
@@ -781,212 +835,190 @@ function ThreadView({
   const doneWords = comment.todoDoneAt
     ? `done${comment.todoDoneByName ? ` by ${comment.todoDoneByName}` : ""}`
     : "to do";
+  /** The moment a thread on a bar or a drawing was at, read beside its place (#496). */
+  const moment = (at: number) => label({ kind: "time", start: at, end: at });
+  const chip =
+    "tabular inline-flex h-6 min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal";
+  /** Where it points, as one chip at the end of its first line; nothing for the whole file. */
+  const where = anchor ? (
+    anchor.kind === "time" ? (
+      <button
+        type="button"
+        onClick={() => onSeek(anchor.start)}
+        className={chip}
+        aria-label={`Play from ${label(anchor)}`}
+      >
+        <span className="truncate">{label(anchor)}</span>
+      </button>
+    ) : anchor.kind === "bar" && anchor.at !== undefined ? (
+      <button
+        type="button"
+        onClick={() => onSeek(anchor.at ?? 0)}
+        className={chip}
+        aria-label={`Play ${label(anchor).toLowerCase()} from ${moment(anchor.at)}`}
+      >
+        <span className="truncate">
+          {label(anchor)}
+          <span className="text-ink-3"> · {moment(anchor.at)}</span>
+        </span>
+      </button>
+    ) : anchor.kind === "region" && pages ? (
+      <button
+        type="button"
+        onClick={() =>
+          pages.onFocus({
+            ...(anchor.page !== undefined && { page: anchor.page }),
+            selected: picked ? null : comment.id,
+            draft: null,
+          })
+        }
+        aria-pressed={picked}
+        className={cn(chip, picked && "border-signal")}
+        aria-label={`Show ${marker ? `thread ${marker.n}, ` : ""}${label(anchor)}`}
+      >
+        {marker && <span className="text-signal">{marker.n}</span>}
+        <span className="truncate">{label(anchor)}</span>
+      </button>
+    ) : anchor.kind === "region" && anchor.at !== undefined ? (
+      // A drawing on a video's frame (#146): back to its frame, as the prototype does.
+      <button
+        type="button"
+        onClick={() => onSeek(anchor.at ?? 0)}
+        className={chip}
+        aria-label={`Show the drawing, ${label(anchor)}`}
+      >
+        <span className="truncate">{label(anchor)}</span>
+      </button>
+    ) : (
+      <span className="label">{formatAnchor(anchor, time ? { time } : {})}</span>
+    )
+  ) : null;
+  /** Everything but Reply and Resolve: the passage, the takes, the words, triage. */
+  const actions: (MenuAction | "divider")[] = [
+    ...(anchor?.kind === "time" && onLoop && anchor.end - anchor.start >= MIN_LOOP
+      ? [
+          {
+            label: "Loop the passage",
+            onSelect: () => onLoop({ start: anchor.start, end: anchor.end }),
+          },
+        ]
+      : []),
+    ...(takesOf && anchor?.kind === "bar"
+      ? [
+          {
+            label: takesOpen ? "Hide other takes" : `Other takes for bar ${anchor.from.bar}`,
+            onSelect: () => setTakesOpen((open) => !open),
+          },
+        ]
+      : []),
+    ...(carry && onBeforeAfter && from?.kind === "time" && anchor?.kind === "time"
+      ? [
+          {
+            label: "Before and after",
+            onSelect: () =>
+              onBeforeAfter({
+                fileId: carry.from.fileId,
+                shift: anchorShift(from, anchor),
+                loop: passageLoop(anchor),
+              }),
+          },
+        ]
+      : []),
+    ...(canComment && comment.mine && !guest
+      ? [{ label: "Edit", onSelect: () => setEditing(true) }]
+      : []),
+    ...(carry && canTriage
+      ? [
+          "divider" as const,
+          ...(draft && pages
+            ? [
+                {
+                  label: "Move to the drawn region",
+                  onSelect: () => {
+                    setCarry({
+                      anchor: {
+                        kind: "region",
+                        ...(pages.paged && { page: pages.focus.page }),
+                        ...draft,
+                      },
+                    });
+                    pages.onFocus({ draft: null, selected: comment.id });
+                  },
+                },
+              ]
+            : []),
+          ...(loop
+            ? [
+                {
+                  label: "Move to the loop",
+                  onSelect: () =>
+                    setCarry({ anchor: { kind: "time", start: loop.start, end: loop.end } }),
+                },
+              ]
+            : []),
+          {
+            label: carry.visible ? "Hide on this version" : "Show on this version",
+            onSelect: () => setCarry({ visible: !carry.visible }),
+          },
+        ]
+      : []),
+    ...(triageActions.length > 0 ? ["divider" as const, ...triageActions] : []),
+  ];
+  while (actions[0] === "divider") actions.shift();
+  /** A state the thread is in, said quietly in the action row, not something to press. */
+  const quiet = "text-[11px] text-ink-3";
   return (
     <li
       ref={row}
       data-thread={comment.id}
       className={cn(
-        "group flex flex-col gap-3 border-b border-hairline py-row-loose",
+        "group relative -mx-3 flex flex-col gap-2 border-b border-hairline px-3 py-row-loose transition-colors hover:bg-raised/40 lg:-mx-4 lg:px-4",
         comment.resolvedAt && "opacity-70",
-        picked && "-mx-3 rounded-panel border-transparent bg-raised px-3",
+        picked && "rounded-panel border-transparent bg-raised",
       )}
     >
-      <div className="flex items-center gap-2">
-        {anchor ? (
-          anchor.kind === "time" ? (
-            <button
-              type="button"
-              onClick={() => onSeek(anchor.start)}
-              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal"
-              aria-label={`Play from ${label(anchor)}`}
-            >
-              {label(anchor)}
-            </button>
-          ) : anchor.kind === "bar" && anchor.at !== undefined ? (
-            <button
-              type="button"
-              onClick={() => onSeek(anchor.at ?? 0)}
-              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal"
-              aria-label={`Play ${label(anchor).toLowerCase()} from ${label({ kind: "time", start: anchor.at, end: anchor.at })}`}
-            >
-              {label(anchor)}
-            </button>
-          ) : anchor.kind === "region" && pages ? (
-            <button
-              type="button"
-              onClick={() =>
-                pages.onFocus({
-                  ...(anchor.page !== undefined && { page: anchor.page }),
-                  selected: picked ? null : comment.id,
-                  draft: null,
-                })
-              }
-              aria-pressed={picked}
-              className={cn(
-                "tabular flex h-6 cursor-pointer items-center gap-1.5 rounded-chip border bg-transparent px-2 text-[11px] text-ink hover:border-signal",
-                picked ? "border-signal" : "border-edge",
-              )}
-              aria-label={`Show ${marker ? `thread ${marker.n}, ` : ""}${label(anchor)}`}
-            >
-              {marker && <span className="text-signal">{marker.n}</span>} {label(anchor)}
-            </button>
-          ) : anchor.kind === "region" && anchor.at !== undefined ? (
-            // A drawing on a video's frame (#146): back to its frame, as the prototype does.
-            <button
-              type="button"
-              onClick={() => onSeek(anchor.at ?? 0)}
-              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal"
-              aria-label={`Show the drawing, ${label(anchor)}`}
-            >
-              {label(anchor)}
-            </button>
-          ) : (
-            <span className="label">{formatAnchor(anchor, time ? { time } : {})}</span>
-          )
-        ) : (
-          <span className="label">Whole file</span>
-        )}
-        {anchor?.kind === "time" && onLoop && anchor.end - anchor.start >= MIN_LOOP && (
-          <button
-            type="button"
-            onClick={() => onLoop({ start: anchor.start, end: anchor.end })}
-            className="inline-flex min-h-6 min-w-6 cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-xs text-ink-3 hover:text-ink"
-            aria-label={`Loop ${label(anchor)}`}
-          >
-            Loop
-          </button>
-        )}
-        {carry ? (
-          // A carried thread is settled by its status on this version.
-          canTriage ? (
-            <span className="ml-auto flex items-center gap-1">
-              <Select
-                size="sm"
-                aria-label="Status on this version"
-                value={carry.status}
-                onChange={(e) => setCarry({ status: e.target.value as CarryStatus })}
-                className="w-auto"
-              >
-                {carryStatuses.map((s) => (
-                  <option key={s} value={s}>
-                    {carryStatusLabel(s, here ?? 0, versionName)}
-                  </option>
-                ))}
-              </Select>
-              <ActionMenu
-                label="this thread"
-                actions={[
-                  ...(draft && pages
-                    ? [
-                        {
-                          label: "Move to the drawn region",
-                          onSelect: () => {
-                            setCarry({
-                              anchor: {
-                                kind: "region",
-                                ...(pages.paged && { page: pages.focus.page }),
-                                ...draft,
-                              },
-                            });
-                            pages.onFocus({ draft: null, selected: comment.id });
-                          },
-                        },
-                      ]
-                    : []),
-                  ...(loop
-                    ? [
-                        {
-                          label: "Move to the loop",
-                          onSelect: () =>
-                            setCarry({
-                              anchor: { kind: "time", start: loop.start, end: loop.end },
-                            }),
-                        },
-                      ]
-                    : []),
-                  {
-                    label: carry.visible ? "Hide on this version" : "Show on this version",
-                    onSelect: () => setCarry({ visible: !carry.visible }),
-                  },
-                  ...(triageActions.length > 0 ? ["divider" as const, ...triageActions] : []),
-                ]}
-              />
-            </span>
-          ) : (
-            carry.status !== "open" && (
-              <span className="ml-auto text-xs text-ink-3">
-                {carryStatusLabel(carry.status, here ?? 0, versionName)}
-              </span>
-            )
-          )
-        ) : (
-          <>
-            {comment.resolvedAt && (
-              <span className="text-xs text-ink-3">
-                Resolved{comment.resolvedByName ? ` by ${comment.resolvedByName}` : ""}
-              </span>
-            )}
-            {canTriage && (
-              <button
-                type="button"
-                onClick={() =>
-                  mutations.resolve.mutate({ id: comment.id, resolved: !comment.resolvedAt })
-                }
-                className={cn(textButton, "ml-auto")}
-              >
-                {comment.resolvedAt ? "Reopen" : "Resolve"}
-              </button>
-            )}
-            {canTriage && <ActionMenu label="this thread" actions={triageActions} />}
-          </>
-        )}
-      </div>
-      {(category ||
-        comment.channel !== null ||
-        comment.deferredTo ||
-        comment.assigneeName ||
-        comment.todo) && (
-        <p className="m-0 -mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-3">
-          {comment.channel !== null && (
-            <Chip title="The channel it is about">{speakerOf(channelNames, comment.channel)}</Chip>
-          )}
-          {category && <Chip>{category.name}</Chip>}
-          {comment.todo &&
-            (mayFinish ? (
-              <ToggleChip
-                pressed={!!comment.todoDoneAt}
-                aria-label={comment.todoDoneAt ? "Done; mark as to do" : "To do; mark as done"}
-                onClick={() =>
-                  mutations.todo.mutate({ id: comment.id, todo: true, done: !comment.todoDoneAt })
-                }
-                className={cn(
-                  "h-6 px-2 text-[11px]",
-                  comment.todoDoneAt ? "text-ink-3 line-through" : "border-signal/50 text-signal",
-                )}
-              >
-                {doneWords}
-              </ToggleChip>
-            ) : (
-              <Chip
-                className={cn(comment.todoDoneAt ? "line-through" : "border-signal/50 text-signal")}
-              >
-                {doneWords}
-              </Chip>
-            ))}
-          {comment.taskId && projectId && !guest && (
-            <Link
-              to="/projects/$projectId/tasks"
-              params={{ projectId }}
-              search={{ task: comment.taskId }}
-              className="text-ink-3 underline-offset-2 hover:text-ink hover:underline"
-            >
-              Open the task
-            </Link>
-          )}
-          {comment.deferredTo && <span>deferred to {comment.deferredTo}</span>}
-          {comment.assigneeName && <span>for {comment.assigneeName}</span>}
-        </p>
+      {/* Its category is the bar at its left edge, in the category's colour (#496). */}
+      {category && tone && (
+        <span
+          aria-hidden="true"
+          title={category.name}
+          className={cn("absolute top-3 bottom-3 left-0 w-[3px] rounded-full", tone)}
+        />
       )}
+      <CommentBody
+        comment={comment}
+        own={canComment && comment.mine}
+        editing={editing}
+        onEditing={setEditing}
+        onEdit={edit}
+        onDownload={download}
+        onRemove={remove}
+        end={
+          <>
+            {where}
+            {comment.channel !== null && (
+              <Chip title="The channel it is about" className="h-6 shrink-0">
+                {speakerOf(channelNames, comment.channel)}
+              </Chip>
+            )}
+          </>
+        }
+        attached={
+          comment.takes.length > 0 && (
+            <SharedTakes
+              takes={comment.takes}
+              bar={anchor?.kind === "bar" ? anchor.from.bar : undefined}
+              guest={guest}
+              onAudition={audition}
+              onUnshare={
+                canTriage && takesOf
+                  ? (takeId) => mutations.unshareTake.mutate({ commentId: comment.id, takeId })
+                  : undefined
+              }
+            />
+          )
+        }
+      />
       {asking === "defer" && (
         <DeferDialog
           stages={[...new Set(categories.flatMap((c) => (c.stage ? [c.stage] : [])))]}
@@ -1008,40 +1040,11 @@ function ThreadView({
           onClose={() => setAsking(null)}
         />
       )}
-      {path && (
-        <p
-          className="tabular m-0 -mt-1.5 text-[11px] text-ink-3"
-          title="Versions this thread has been on"
-        >
-          {path}
-        </p>
-      )}
-      <CommentBody
-        comment={comment}
-        own={canComment && comment.mine}
-        editable={canComment && comment.mine && !guest}
-        onEdit={edit}
-        onDownload={download}
-        onRemove={remove}
-      />
-      {comment.takes.length > 0 && (
-        <SharedTakes
-          takes={comment.takes}
-          bar={anchor?.kind === "bar" ? anchor.from.bar : undefined}
-          guest={guest}
-          onAudition={audition}
-          onUnshare={
-            canTriage && takesOf
-              ? (takeId) => mutations.unshareTake.mutate({ commentId: comment.id, takeId })
-              : undefined
-          }
-        />
-      )}
       {replies.length > 0 && (
         <ul className="m-0 flex list-none flex-col gap-3 border-l border-hairline p-0 pl-3">
           {replies.map((reply) => (
             <li key={reply.id}>
-              <CommentBody
+              <Reply
                 comment={reply}
                 own={canComment && reply.mine}
                 editable={canComment && reply.mine && !guest}
@@ -1091,36 +1094,99 @@ function ThreadView({
           onCancel={() => setReplying(false)}
         />
       ) : (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        // One row of actions, always there and quiet, as Frame.io and Figma have it (#496):
+        // Reply, Resolve (or a carried thread's status), the states it is in, and the menu.
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           {!comment.resolvedAt && canComment && (
             <button type="button" onClick={() => setReplying(true)} className={textButton}>
               Reply
             </button>
           )}
-          {takesOf && anchor?.kind === "bar" && (
-            <button
-              type="button"
-              aria-expanded={takesOpen}
-              onClick={() => setTakesOpen((open) => !open)}
-              className={textButton}
-            >
-              Other takes
-            </button>
+          {carry ? (
+            canTriage ? (
+              <Select
+                size="sm"
+                aria-label="Status on this version"
+                value={carry.status}
+                onChange={(e) => setCarry({ status: e.target.value as CarryStatus })}
+                className="w-auto"
+              >
+                {carryStatuses.map((s) => (
+                  <option key={s} value={s}>
+                    {carryStatusLabel(s, here ?? 0, versionName)}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              carry.status !== "open" && (
+                <span className={quiet}>
+                  {carryStatusLabel(carry.status, here ?? 0, versionName)}
+                </span>
+              )
+            )
+          ) : (
+            <>
+              {canTriage && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    mutations.resolve.mutate({ id: comment.id, resolved: !comment.resolvedAt })
+                  }
+                  className={textButton}
+                >
+                  {comment.resolvedAt ? "Reopen" : "Resolve"}
+                </button>
+              )}
+              {comment.resolvedAt && (
+                <span className={quiet}>
+                  Resolved{comment.resolvedByName ? ` by ${comment.resolvedByName}` : ""}
+                </span>
+              )}
+            </>
           )}
-          {carry && onBeforeAfter && from?.kind === "time" && anchor?.kind === "time" && (
-            <button
-              type="button"
-              onClick={() =>
-                onBeforeAfter({
-                  fileId: carry.from.fileId,
-                  shift: anchorShift(from, anchor),
-                  loop: passageLoop(anchor),
-                })
-              }
-              className={textButton}
+          {comment.todo &&
+            (mayFinish ? (
+              <ToggleChip
+                pressed={!!comment.todoDoneAt}
+                aria-label={comment.todoDoneAt ? "Done; mark as to do" : "To do; mark as done"}
+                onClick={() =>
+                  mutations.todo.mutate({ id: comment.id, todo: true, done: !comment.todoDoneAt })
+                }
+                className={cn(
+                  "h-6 px-2 text-[11px]",
+                  comment.todoDoneAt ? "text-ink-3 line-through" : "border-signal/50 text-signal",
+                )}
+              >
+                {doneWords}
+              </ToggleChip>
+            ) : (
+              <Chip
+                className={cn(comment.todoDoneAt ? "line-through" : "border-signal/50 text-signal")}
+              >
+                {doneWords}
+              </Chip>
+            ))}
+          {comment.taskId && projectId && !guest && (
+            <Link
+              to="/projects/$projectId/tasks"
+              params={{ projectId }}
+              search={{ task: comment.taskId }}
+              className={cn(quiet, "underline-offset-2 hover:text-ink hover:underline")}
             >
-              Before and after
-            </button>
+              Open the task
+            </Link>
+          )}
+          {comment.deferredTo && <span className={quiet}>deferred to {comment.deferredTo}</span>}
+          {comment.assigneeName && <span className={quiet}>for {comment.assigneeName}</span>}
+          {path && (
+            <span className={cn(quiet, "tabular")} title="Versions this thread has been on">
+              {path}
+            </span>
+          )}
+          {actions.length > 0 && (
+            <span className="ml-auto">
+              <ActionMenu always label="this thread" actions={actions} />
+            </span>
           )}
         </div>
       )}

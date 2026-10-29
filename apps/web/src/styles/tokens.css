@@ -30,6 +30,18 @@
   --hk-wave-cool: #7cc1e9;
   --hk-wave-warm: #e7bc81;
 
+  /*
+   * Comment categories (#496): the bar at a thread's left edge, by the category's place among
+   * the project's categories; after six they come round again. Drawn from the families above,
+   * so every theme covers them.
+   */
+  --hk-category-1: var(--hk-signal);
+  --hk-category-2: var(--hk-node-review);
+  --hk-category-3: var(--hk-node-work);
+  --hk-category-4: var(--hk-node-comm);
+  --hk-category-5: var(--hk-node-flow);
+  --hk-category-6: var(--hk-wave-warm);
+
   /* Project covers: each profile has its own lit and deep tone, and one sheen for all. */
   --hk-cover-music-lit: oklch(0.46 0.08 40);
   --hk-cover-music-deep: oklch(0.2 0.04 60);
