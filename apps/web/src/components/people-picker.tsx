@@ -49,6 +49,9 @@ export function PeoplePicker({
   const input = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
+  // Everyone is offered on a click or ArrowDown; typing offers who matches. The field opens
+  // with the sheet, and a list opening with it would cover the fields under it.
+  const [asked, setAsked] = useState(false);
   const [index, setIndex] = useState(0);
 
   const taken = new Set(chosen.map((p) => p.key));
@@ -83,18 +86,22 @@ export function PeoplePicker({
         ]
       : []),
   ];
-  const open = focused && offered.length > 0;
+  const open = focused && offered.length > 0 && (needle !== "" || asked);
   const current = Math.min(index, Math.max(0, offered.length - 1));
 
   const pick = (person: Person) => {
     onChange([...chosen, person]);
     setQuery("");
     setIndex(0);
+    setAsked(false);
     input.current?.focus();
   };
   const drop = (key: string) => onChange(chosen.filter((p) => p.key !== key));
   const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (open && event.key === "ArrowDown") {
+    if (!open && event.key === "ArrowDown") {
+      event.preventDefault();
+      setAsked(true);
+    } else if (open && event.key === "ArrowDown") {
       event.preventDefault();
       setIndex((current + 1) % offered.length);
     } else if (open && event.key === "ArrowUp") {
@@ -160,7 +167,11 @@ export function PeoplePicker({
             setFocused(true);
           }}
           onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          onBlur={() => {
+            setFocused(false);
+            setAsked(false);
+          }}
+          onClick={() => setAsked(true)}
           onKeyDown={onKeyDown}
           placeholder={chosen.length === 0 ? placeholder : undefined}
           // The box around it is the field: the control inside draws no edge of its own.

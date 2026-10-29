@@ -1384,11 +1384,13 @@ test("file-share", async ({ page }) => {
   await page.getByRole("button", { name: "Share", exact: true }).click();
   await settle(page, "[role=dialog] >> text=Link works for 7 days");
   const who = page.getByRole("combobox", { name: "Who" });
+  const offered = page.getByRole("listbox", { name: "Who" }).getByRole("option");
   await who.fill("mira");
-  await page.getByRole("option").first().click();
-  await expect(page.getByRole("button", { name: /^Remove / })).toHaveCount(1);
+  await offered.first().click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: /^Remove / })).toHaveCount(1);
+  // A click on the field offers everyone else.
   await who.click();
-  await expect(page.getByRole("option").first()).toBeVisible();
+  await expect(offered.first()).toBeVisible();
   await saveScreen(page, "file-share");
   await checkScreen(page);
 });
