@@ -946,7 +946,18 @@ export const apiOperations: Record<string, ApiOperation> = {
   },
   "GET /projects/{id}/calendar": {
     summary: "Read a project's calendar",
-    description: "A month of its sessions, schedule, reviews and tasks.",
+    description:
+      "A month (or a range of days) of its sessions, schedule, entries, and the reviews, tracks and tasks due.",
+  },
+  "POST /projects/{id}/calendar/entries": {
+    summary: "Add an entry to a project's calendar",
+    description:
+      "A session, a delivery, a meeting or anything else dated. A session entry books a recording session as well. For those who edit the schedule.",
+  },
+  "PATCH /calendar-entries/{id}": { summary: "Change a calendar entry" },
+  "DELETE /calendar-entries/{id}": {
+    summary: "Remove a calendar entry",
+    description: "A session it booked stays.",
   },
 
   // Tags and categories.

@@ -48,7 +48,11 @@ import { billingRoutes } from "./routes/billing.ts";
 import { billingHookRoutes } from "./routes/billing-hooks.ts";
 import { projectBoardRoutes } from "./routes/board.ts";
 import { brandingRoutes, logoRoutes } from "./routes/branding.ts";
-import { calendarFeedRoutes, projectCalendarRoutes } from "./routes/calendar.ts";
+import {
+  calendarEntryRoutes,
+  calendarFeedRoutes,
+  projectCalendarRoutes,
+} from "./routes/calendar.ts";
 import { captionRoutes } from "./routes/captions.ts";
 import {
   categoryRoutes,
@@ -657,6 +661,9 @@ export function createApi(given: AppDeps) {
       .route("/projects", projectBoardRoutes(deps.db))
       .route("/projects", projectCalendarRoutes(deps.db, deps.publicUrl))
       .route("/projects", projectListeningRoutes(listening))
+      // Calendar entries (#505): a member's own session, as the project routes are.
+      .use("/calendar-entries/*", ...member)
+      .route("/calendar-entries", calendarEntryRoutes(deps.db))
       // Listening rooms (#200): a member's own session, never a token or a guest.
       .use("/listening-rooms/*", ...member)
       .route("/listening-rooms", listeningRoutes(listening))
