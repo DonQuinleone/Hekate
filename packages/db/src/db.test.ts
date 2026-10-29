@@ -36,6 +36,8 @@ describe("tenancy", () => {
       "billing_accounts",
       "billing_credits",
       "blobs",
+      "calendar_attendees",
+      "calendar_entries",
       "calendar_feeds",
       "caption_tracks",
       "channels",

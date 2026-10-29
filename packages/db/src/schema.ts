@@ -10,6 +10,7 @@ import {
   authMethods,
   authResults,
   type BoardDisplay,
+  type CalendarEntryKind,
   type CaptionCue,
   type CaptionFormat,
   type CaptionKind,
@@ -1469,6 +1470,8 @@ export const tracks = pgTable(
     commentAssignment: jsonb("comment_assignment").$type<CommentAssignment>(),
     /** Where it stands in its workflow ("Editing"), as the last action to set one left it (#25). */
     workflowStatus: text("workflow_status"),
+    /** Its deadline (#505): on the calendar and the timeline, and marked once past. */
+    dueAt: timestamp("due_at", { withTimezone: true }),
     position: integer("position").notNull().default(0),
     ...timestamps,
   },
@@ -3780,6 +3783,58 @@ export const calendarFeeds = pgTable(
     index("calendar_feeds_org_idx").on(t.organisationId),
     uniqueIndex("calendar_feeds_token_idx").on(t.tokenHash),
     uniqueIndex("calendar_feeds_owner_idx").on(t.organisationId, t.userId, t.projectId),
+  ],
+);
+
+/**
+ * An entry on a project's calendar (#505, decision 283): a dated thing that is no review, track
+ * or task deadline, such as a session, a delivery or a listening meeting. Whole days for now,
+ * kept as instants (midnight UTC) so a time can follow without a new column. A session entry
+ * books a recording session under Production as it is made, and keeps pointing at it.
+ */
+export const calendarEntries = pgTable(
+  "calendar_entries",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    /** `session`, `delivery`, `meeting` or `other` (`calendarEntryKinds` in `packages/shared`). */
+    kind: text("kind").$type<CalendarEntryKind>().notNull().default("other"),
+    title: text("title").notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    /** The start of its last day; null for a single day. */
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    trackId: uuid("track_id").references(() => tracks.id, { onDelete: "set null" }),
+    reviewId: uuid("review_id").references((): AnyPgColumn => reviews.id, {
+      onDelete: "set null",
+    }),
+    sessionId: uuid("session_id").references(() => sessions.id, { onDelete: "set null" }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    index("calendar_entries_org_idx").on(t.organisationId),
+    index("calendar_entries_project_idx").on(t.organisationId, t.projectId, t.startsAt),
+    check("calendar_entries_kind", sql`${t.kind} in ('session', 'delivery', 'meeting', 'other')`),
+  ],
+);
+
+/** Who is expected at an entry: members, each once. */
+export const calendarAttendees = pgTable(
+  "calendar_attendees",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    entryId: uuid("entry_id")
+      .notNull()
+      .references(() => calendarEntries.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    index("calendar_attendees_org_idx").on(t.organisationId),
+    uniqueIndex("calendar_attendees_pair_idx").on(t.entryId, t.userId),
   ],
 );
 
