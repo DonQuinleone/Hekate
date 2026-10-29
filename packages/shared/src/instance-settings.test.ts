@@ -23,6 +23,15 @@ describe("instance settings", () => {
       memberLimit: null,
     });
     expect(instanceSettingsOf({ defaults: { guestLinkDays: 30 } }).defaults.guestLinkDays).toBe(30);
+    // Written before dates had a format (#481): ISO 8601 and the 24-hour clock.
+    expect(instanceSettingsOf({ logs: {} }).dates).toEqual({
+      dateFormat: "iso",
+      timeFormat: "24h",
+    });
+    expect(instanceSettingsOf({ dates: { dateFormat: "month-day-year" } }).dates).toEqual({
+      dateFormat: "month-day-year",
+      timeFormat: "24h",
+    });
   });
 
   it("records one event for each thing that changed", () => {
@@ -39,6 +48,7 @@ describe("instance settings", () => {
         updates: { channel: "beta" },
         maintenance: { on: false, message: "" },
         defaults: { guestLinkDays: 14, storageQuota: 1e12, memberLimit: 25 },
+        dates: { dateFormat: "day-month-year", timeFormat: "12h" },
         logs: { audit: 730, auth: 365, mail: 90, webhooks: 90, api: 30 },
         billing: {
           currency: "EUR",
@@ -56,6 +66,7 @@ describe("instance settings", () => {
       { action: "defaults.guest_link_days", details: { days: 14 } },
       { action: "defaults.storage_quota", details: { bytes: 1e12 } },
       { action: "defaults.member_limit", details: { members: 25 } },
+      { action: "dates.format", details: { dateFormat: "day-month-year", timeFormat: "12h" } },
       { action: "billing.currency", details: { currency: "EUR" } },
       { action: "billing.dunning", details: { warn: 5, warnAgain: 14, suspend: 30 } },
       { action: "billing.trial_days", details: { days: 30 } },
@@ -116,6 +127,13 @@ describe("instance settings", () => {
     const { queues: ____, ...beforeQueues } = older;
     expect(withStored(beforeQueues, paused).queues).toEqual({ paused: ["media-proxy"] });
     expect(instanceSettingsOf({ logs: {} }).queues).toEqual({ paused: [] });
+    // A client from before dates had a format (#481) leaves the instance's choice as stored.
+    const dated = {
+      ...defaultInstanceSettings,
+      dates: { dateFormat: "day-month-year" as const, timeFormat: "12h" as const },
+    };
+    const { dates: _____, ...beforeDates } = older;
+    expect(withStored(beforeDates, dated).dates).toEqual(dated.dates);
   });
 
   it("reads billing's rules over the defaults, and keeps them through an older client's save (#180)", () => {
