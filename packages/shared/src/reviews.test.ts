@@ -3,9 +3,11 @@ import {
   activeReviewers,
   approvalsNeeded,
   createReviewInput,
+  foldersBeneath,
   gateCounts,
   gateState,
   groupInput,
+  mayCoverWorkspace,
   type ReviewDecision,
   type ReviewerFacts,
   type ReviewerState,
@@ -341,5 +343,63 @@ describe("review steps and the gate", () => {
       toCome: 1,
     });
     expect(gateCounts("feedback", reviewers).toCome).toBe(1);
+  });
+});
+
+describe("a review's scope (#501)", () => {
+  const folders = [
+    { id: "mixes", parentId: null },
+    { id: "stems", parentId: "mixes" },
+    { id: "day-2", parentId: "stems" },
+    { id: "artwork", parentId: null },
+  ];
+
+  it("reaches a folder and every folder beneath it, and nothing beside", () => {
+    expect([...foldersBeneath(folders, "mixes")].sort()).toEqual(["day-2", "mixes", "stems"]);
+    expect([...foldersBeneath(folders, "stems")].sort()).toEqual(["day-2", "stems"]);
+    expect([...foldersBeneath(folders, "artwork")]).toEqual(["artwork"]);
+  });
+
+  it("reaches nothing from a folder that is not among those given", () => {
+    expect(foldersBeneath(folders, "elsewhere").size).toBe(0);
+  });
+
+  it("survives a cycle in the parents", () => {
+    const looped = [
+      { id: "a", parentId: "b" },
+      { id: "b", parentId: "a" },
+    ];
+    expect([...foldersBeneath(looped, "a")].sort()).toEqual(["a", "b"]);
+  });
+
+  it("lets owners and admins cover the workspace, and members who manage reviews everywhere", () => {
+    const manage = ["view", "request_reviews", "manage_reviewers"];
+    const request = ["view", "request_reviews"];
+    expect(mayCoverWorkspace("owner", [null])).toBe(true);
+    expect(mayCoverWorkspace("admin", [])).toBe(true);
+    expect(mayCoverWorkspace("member", [manage, manage])).toBe(true);
+    expect(mayCoverWorkspace("member", [manage, request])).toBe(false);
+    expect(mayCoverWorkspace("member", [manage, null])).toBe(false);
+    expect(mayCoverWorkspace("member", [])).toBe(false);
+  });
+
+  it("takes a folder or the workspace as an item, the workspace alone", () => {
+    const base = { kind: "feedback", reviewers: ["u1"] };
+    const folder = createReviewInput.safeParse({
+      ...base,
+      items: [{ folderId: "0193a4c8-0000-7000-8000-000000000001" }],
+    });
+    expect(folder.success).toBe(true);
+    expect(createReviewInput.safeParse({ ...base, items: [{ workspace: true }] }).success).toBe(
+      true,
+    );
+    const mixed = createReviewInput.safeParse({
+      ...base,
+      items: [{ workspace: true }, { fileId: "0193a4c8-0000-7000-8000-000000000002" }],
+    });
+    expect(mixed.success).toBe(false);
+    expect(createReviewInput.safeParse({ ...base, items: [{ workspace: false }] }).success).toBe(
+      false,
+    );
   });
 });

@@ -16,6 +16,7 @@ import {
   groups,
   guests,
   latestVersion,
+  type Project,
   personById,
   projectById,
   type ReviewKind,
@@ -67,27 +68,50 @@ function Section({
   );
 }
 
-/** The project's folders and tracks as a tree with boxes to tick; files inside a track are its versions. */
+/** The key under which "Everything in this workspace" is chosen, beside item ids. */
+export const WORKSPACE = "workspace";
+
+/** Everything beneath a folder, by id: its folders, tracks and files, however deep. */
+function beneath(project: Project, folderId: string): string[] {
+  return itemsIn(project, folderId).flatMap((item) =>
+    item.kind === "folder"
+      ? [item.id, ...beneath(project, item.id)]
+      : item.kind === "version"
+        ? []
+        : [item.id],
+  );
+}
+
+/**
+ * The project's folders, tracks and loose files as a tree with boxes to tick. A folder ticked
+ * covers everything beneath it, files added later included; one with only some of its
+ * contents ticked shows a dash. "Everything in this workspace" is offered to whoever may ask
+ * it of every project (#501).
+ */
 function ItemPicker({
   projectId,
   chosen,
   onToggle,
+  workspace,
 }: {
   projectId: string;
   chosen: Set<string>;
   onToggle: (id: string) => void;
+  /** Whether the whole workspace may be chosen: Reviews: Manage on every project, or an admin. */
+  workspace: boolean;
 }) {
   const project = projectById(projectId);
   const [openFolders, setOpenFolders] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   if (!project) return null;
+  const all = chosen.has(WORKSPACE);
   const toggleFolder = (id: string) => {
     const n = new Set(openFolders);
     if (n.has(id)) n.delete(id);
     else n.add(id);
     setOpenFolders(n);
   };
-  const row = (item: Item, depth: number): ReactNode => {
+  const row = (item: Item, depth: number, covered: boolean): ReactNode => {
     if (item.kind === "version") return null;
     const name =
       item.kind === "folder"
@@ -97,18 +121,22 @@ function ItemPicker({
           : item.file.name;
     if (query && !name.toLowerCase().includes(query.toLowerCase()) && item.kind !== "folder")
       return null;
-    const pickable =
-      item.kind === "track" ? Boolean(latestVersion(item.track)) : item.kind === "file";
+    const folder = item.kind === "folder";
+    const under = folder ? beneath(project, item.id) : [];
+    const ticked = covered || chosen.has(item.id);
+    const within = under.filter((id) => chosen.has(id)).length;
+    const partly = folder && !ticked && within > 0;
+    const pickable = folder || (item.kind === "track" ? Boolean(latestVersion(item.track)) : true);
     return (
       <li key={item.id}>
         <div
           className={cn(
             "flex h-9 items-center gap-2.5 rounded-control pr-2 hover:bg-raised/50",
-            chosen.has(item.id) && "bg-raised/40",
+            ticked && !covered && "bg-raised/40",
           )}
           style={{ paddingLeft: 8 + depth * 20 }}
         >
-          {item.kind === "folder" ? (
+          {folder ? (
             <button
               type="button"
               aria-label={openFolders.has(item.id) ? "Collapse" : "Expand"}
@@ -122,14 +150,18 @@ function ItemPicker({
               />
             </button>
           ) : (
-            <input
-              type="checkbox"
-              checked={chosen.has(item.id)}
-              disabled={!pickable}
-              onChange={() => onToggle(item.id)}
-              aria-label={name}
-            />
+            <span className="size-5 shrink-0" />
           )}
+          <input
+            type="checkbox"
+            ref={(el) => {
+              if (el) el.indeterminate = partly;
+            }}
+            checked={ticked}
+            disabled={covered || !pickable}
+            onChange={() => onToggle(item.id)}
+            aria-label={name}
+          />
           <Icon
             name={
               item.kind === "folder"
@@ -144,11 +176,16 @@ function ItemPicker({
           <span
             className={cn(
               "min-w-0 flex-1 truncate text-[14px]",
-              pickable || item.kind === "folder" ? "text-ink" : "text-ink-3",
+              pickable ? "text-ink" : "text-ink-3",
             )}
           >
             {name}
           </span>
+          {folder && (ticked || partly) && (
+            <span className="text-[12px] text-ink-3">
+              {ticked ? "everything in it" : `${within} of ${under.length}`}
+            </span>
+          )}
           {item.kind === "track" && (
             <span className="text-[12px] text-ink-3">
               {latestVersion(item.track) ? `V${latestVersion(item.track)?.number}` : "no version"}
@@ -156,7 +193,7 @@ function ItemPicker({
           )}
         </div>
         {item.kind === "folder" && openFolders.has(item.id) && (
-          <ul>{itemsIn(project, item.folder.id).map((child) => row(child, depth + 1))}</ul>
+          <ul>{itemsIn(project, item.folder.id).map((child) => row(child, depth + 1, ticked))}</ul>
         )}
       </li>
     );
@@ -172,8 +209,28 @@ function ItemPicker({
           className="h-7 flex-1 bg-transparent text-[14px] text-ink placeholder:text-ink-3 focus:outline-none"
         />
       </div>
+      {workspace && (
+        <label
+          className={cn(
+            "flex h-10 cursor-pointer items-center gap-2.5 border-b border-line px-3",
+            all && "bg-raised/40",
+          )}
+        >
+          <input
+            type="checkbox"
+            checked={all}
+            onChange={() => onToggle(WORKSPACE)}
+            aria-label="Everything in this workspace"
+          />
+          <Icon name="globe" size={15} className="text-ink-3" />
+          <span className="min-w-0 flex-1 truncate text-[14px] text-ink">
+            Everything in this workspace
+          </span>
+          <span className="text-[12px] text-ink-3">every project, now and later</span>
+        </label>
+      )}
       <ul className="scroll-quiet max-h-[320px] overflow-auto p-1.5">
-        {itemsIn(project, null).map((item) => row(item, 0))}
+        {itemsIn(project, null).map((item) => row(item, 0, all))}
       </ul>
     </Card>
   );
@@ -224,10 +281,22 @@ export function RequestReviewPage({
 
   const people = steps.flat();
   const has = (id: string) => people.includes(id);
+  // Whoever may manage reviews in every project, or runs the workspace, may ask about all of it.
+  const wholeWorkspace = viewer.projects().every((p) => viewer.can(p.id, "manage_reviewers"));
   const toggleItem = (id: string) => {
     const n = new Set(chosen);
-    if (n.has(id)) n.delete(id);
-    else n.add(id);
+    if (n.has(id)) {
+      n.delete(id);
+    } else {
+      // The workspace covers everything, and a folder everything beneath it: what was ticked
+      // there is ticked no more.
+      if (id === WORKSPACE) n.clear();
+      else {
+        n.delete(WORKSPACE);
+        for (const under of beneath(project, id)) n.delete(under);
+      }
+      n.add(id);
+    }
     setChosen(n);
   };
   const togglePerson = (id: string) => {
@@ -342,25 +411,40 @@ export function RequestReviewPage({
           <Section
             n={2}
             title="What"
-            hint="Tracks at their latest version or a chosen one, and files."
+            hint="Tracks at their latest version or a chosen one, files, or whole folders."
           >
-            <ItemPicker projectId={project.id} chosen={chosen} onToggle={toggleItem} />
+            <ItemPicker
+              projectId={project.id}
+              chosen={chosen}
+              onToggle={toggleItem}
+              workspace={wholeWorkspace}
+            />
             {chosenItems.length > 0 && (
               <ul className="flex flex-wrap gap-1.5">
                 {chosenItems.map((id) => {
                   const track = trackById(id);
+                  const folder = folders.find((f: Folder) => f.id === id);
                   const name =
-                    track?.name ??
-                    folders.find((f: Folder) => f.id === id)?.name ??
-                    itemsIn(project, null).find((i) => i.id === id && i.kind === "file")?.id ??
-                    id;
+                    id === WORKSPACE
+                      ? "Everything in this workspace"
+                      : (track?.name ??
+                        folder?.name ??
+                        itemsIn(project, null).find((i) => i.id === id && i.kind === "file")?.id ??
+                        id);
                   return (
                     <li
                       key={id}
                       className="flex h-8 items-center gap-2 rounded-chip border border-line bg-raised/40 pr-1 pl-2.5 text-[13px] text-ink"
                     >
-                      <Icon name={track ? "track" : "file"} size={13} className="text-ink-3" />
+                      <Icon
+                        name={
+                          id === WORKSPACE ? "globe" : track ? "track" : folder ? "folder" : "file"
+                        }
+                        size={13}
+                        className="text-ink-3"
+                      />
                       {track ? track.name : name.replace(/^file-/, "")}
+                      {folder && <span className="text-ink-3">everything in it</span>}
                       {track && (
                         <Dropdown
                           size="sm"
@@ -396,6 +480,16 @@ export function RequestReviewPage({
                 })}
               </ul>
             )}
+            {chosen.has(WORKSPACE) ? (
+              <p className="text-[12px] text-ink-3">
+                Covers every project you may share, now and those made later. The invitation says
+                so.
+              </p>
+            ) : chosenItems.some((id) => folders.some((f: Folder) => f.id === id)) ? (
+              <p className="text-[12px] text-ink-3">
+                A folder covers everything in it, files added later included.
+              </p>
+            ) : null}
           </Section>
 
           <Section
@@ -669,7 +763,14 @@ export function RequestReviewPage({
               {(
                 [
                   ["Kind", kinds.find((k) => k.id === kind)?.label ?? ""],
-                  ["Items", chosen.size ? `${chosen.size} chosen` : "none yet"],
+                  [
+                    "Items",
+                    chosen.has(WORKSPACE)
+                      ? "everything"
+                      : chosen.size
+                        ? `${chosen.size} chosen`
+                        : "none yet",
+                  ],
                   [
                     "People",
                     people.length

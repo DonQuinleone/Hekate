@@ -4115,6 +4115,27 @@ test("request-review", async ({ page }) => {
   await checkScreen(page);
 });
 
+// What a review covers (#501): a folder opened with one file in it ticked, so the folder's
+// box reads mixed, a whole folder ticked, and "Everything in this workspace" offered to the
+// owner at the head of the tree.
+test("request-review-scope", async ({ page }) => {
+  const { musicProjectId } = seeded();
+  await page.goto(`/projects/${musicProjectId}/reviews/new?kind=feedback`);
+  const form = page.getByRole("form", { name: "Request a review" });
+  await expect(form.getByRole("checkbox", { name: "Everything in this workspace" })).toBeVisible();
+  await form.getByRole("checkbox", { name: "Venue" }).check();
+  await form.getByRole("button", { name: "Open Session takes" }).click();
+  await form.getByRole("checkbox", { name: "Maple Leaf Rag - V2.edl" }).check();
+  await expect(form.getByRole("checkbox", { name: "Session takes" })).toHaveJSProperty(
+    "indeterminate",
+    true,
+  );
+  await expect(form.getByRole("list", { name: "Chosen" })).toBeVisible();
+  await settle(page, "form li");
+  await saveScreen(page, "request-review-scope");
+  await checkScreen(page);
+});
+
 test("request-review-filled", async ({ page }) => {
   const { musicProjectId, trackId } = seeded();
   await page.goto(`/projects/${musicProjectId}/reviews/new?kind=approval&item=track:${trackId}`);

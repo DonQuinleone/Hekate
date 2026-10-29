@@ -18848,6 +18848,212 @@ describe.runIf(url)("api", () => {
           return { ...s, review, token, cookie: cookieOf(res) };
         };
 
+        describe("what a review covers (#501)", () => {
+          /** A file put straight into a project's folder, as an upload would leave it. */
+          const fileIn = async (
+            organisationId: string,
+            projectId: string,
+            name: string,
+            folderId: string | null,
+          ) => {
+            const blob = await storage.put(organisationId, Buffer.from(name));
+            const [row] = await db
+              .insert(schema.files)
+              .values({
+                organisationId,
+                projectId,
+                folderId,
+                name,
+                kind: "audio",
+                blobId: blob.id,
+                contentType: "audio/wav",
+                byteSize: blob.byteSize,
+                mediaInfo: {
+                  duration: 60,
+                  audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000 },
+                },
+              })
+              .returning();
+            return row?.id ?? "";
+          };
+          const folderIn = async (cookie: string, projectId: string, body: object) => {
+            const res = await app.request(`/api/projects/${projectId}/folders`, json(body, cookie));
+            expect(res.status).toBe(201);
+            return ((await res.json()) as { folder: { id: string } }).folder.id;
+          };
+          type Scoped = {
+            id: string;
+            kind: string;
+            name: string;
+            covers: { fileId: string; projectName: string; track: { name: string } | null }[];
+          };
+          const coversOf = (review: ReviewBody) =>
+            (review.items[0] as unknown as Scoped).covers.map((c) => c.fileId).sort();
+          const scopeOf = async (cookie: string) =>
+            (await (await getAs("/api/reviews/scope", cookie)).json()) as {
+              workspace: { allowed: boolean; projects: number };
+            };
+
+          it("covers a folder as it is when opened: a file added to it later is part of the review, for members and the guest", async () => {
+            const s = await studio();
+            // Mixes holds the track and, in Stems beneath it, the artwork; a file stays outside.
+            const mixes = await folderIn(s.owner, s.projectId, { name: "Mixes" });
+            const stems = await folderIn(s.owner, s.projectId, { name: "Stems", parentId: mixes });
+            await db
+              .update(schema.tracks)
+              .set({ folderId: mixes })
+              .where(eq(schema.tracks.id, s.trackId));
+            await db
+              .update(schema.files)
+              .set({ folderId: stems })
+              .where(eq(schema.files.id, s.artwork));
+            const outside = await fileIn(s.organisationId, s.projectId, "Notes.wav", null);
+            // Another project's folder is not one of this project's items.
+            const elsewhere = (
+              (await (
+                await app.request("/api/projects", json({ name: "Film", profile: "video" }, s.owner))
+              ).json()) as { project: { id: string } }
+            ).project.id;
+            const theirs = await folderIn(s.owner, elsewhere, { name: "Reels" });
+            const refused = await request(s.owner, s.projectId, {
+              kind: "feedback",
+              items: [{ folderId: theirs }],
+              reviewers: [s.ids.composer],
+            });
+            expect(refused.status).toBe(422);
+
+            mailer.sent.length = 0;
+            const review = await reviewOf(
+              await request(s.owner, s.projectId, {
+                kind: "feedback",
+                items: [{ folderId: mixes }],
+                reviewers: [s.ids.composer, guest],
+              }),
+            );
+            expect(review.items).toHaveLength(1);
+            const item = review.items[0] as unknown as Scoped;
+            expect(item).toMatchObject({ kind: "folder", name: "Mixes" });
+            expect(coversOf(review)).toEqual([s.mix, s.artwork].sort());
+            expect(item.covers.find((c) => c.fileId === s.mix)?.track?.name).toBe(
+              "Maple Leaf Rag",
+            );
+            // A review named after its folder; the invitation says the folder is covered as it grows.
+            const mail = [...mailer.sent].reverse().find((m) => m.to === "conductor@example.test");
+            expect(mail?.text.replace(/\s+/g, " ")).toContain(
+              "files added to them later are part of it too",
+            );
+
+            // A file added to Stems afterwards is covered; one outside the folder never is.
+            const later = await fileIn(s.organisationId, s.projectId, "Mix v2.wav", stems);
+            const seen = await reviewOf(await getAs(`/api/reviews/${review.id}`, s.composer));
+            expect(coversOf(seen)).toEqual([s.mix, s.artwork, later].sort());
+            const cookie = cookieOf(await signIn(linkFor("conductor@example.test")));
+            expect((await getAs(`/api/files/${later}`, cookie)).status).toBe(200);
+            expect((await getAs(`/api/files/${s.mix}`, cookie)).status).toBe(200);
+            expect((await getAs(`/api/files/${outside}`, cookie)).status).toBe(404);
+            // Opening a covered file counts as opening the folder.
+            expect((await getAs(`/api/reviews/${review.id}`, cookie)).status).toBe(200);
+            const opened = await db
+              .select({ itemId: schema.reviewItemOpens.itemId })
+              .from(schema.reviewItemOpens)
+              .where(eq(schema.reviewItemOpens.itemId, item.id));
+            expect(opened).toHaveLength(1);
+          }, 30_000);
+
+          it("covers everything in the workspace for an admin or whoever manages reviews in every project, within the workspace alone", async () => {
+            const s = await studio();
+            // A second project, with a file of its own, that the composer is not in.
+            const film = (
+              (await (
+                await app.request("/api/projects", json({ name: "Film", profile: "video" }, s.owner))
+              ).json()) as { project: { id: string } }
+            ).project.id;
+            const reel = await fileIn(s.organisationId, film, "Reel 1.wav", null);
+            // Another workspace's project and file.
+            const [other] = await db
+              .insert(schema.organisations)
+              .values({ name: "Elsewhere", slug: "elsewhere-scope" })
+              .returning({ id: schema.organisations.id });
+            const [foreign] = await db
+              .insert(schema.projects)
+              .values({ organisationId: other?.id ?? "", name: "Not yours", profile: "music" })
+              .returning({ id: schema.projects.id });
+            const foreignFile = await fileIn(other?.id ?? "", foreign?.id ?? "", "Theirs.wav", null);
+
+            // Who may: the owner; not a producer of one project, until they produce both.
+            const body = {
+              kind: "feedback",
+              items: [{ workspace: true }],
+              reviewers: [s.ids.composer, guest],
+            };
+            expect(await scopeOf(s.owner)).toEqual({ workspace: { allowed: true, projects: 2 } });
+            expect((await scopeOf(s.composer)).workspace.allowed).toBe(false);
+            const producer = await joinAs(s.owner, "producer-scope@example.test");
+            await grantRole(s.owner, s.projectId, producer, "Producer");
+            expect((await scopeOf(producer)).workspace).toEqual({ allowed: false, projects: 2 });
+            const refused = await request(producer, s.projectId, body);
+            expect(refused.status).toBe(403);
+            expect(((await refused.json()) as { error: { message: string } }).error.message).toContain(
+              "every project",
+            );
+            await grantRole(s.owner, film, producer, "Producer");
+            expect((await scopeOf(producer)).workspace).toEqual({ allowed: true, projects: 2 });
+            // Nothing else may stand beside it.
+            expect(
+              (
+                await request(producer, s.projectId, {
+                  ...body,
+                  items: [{ workspace: true }, { fileId: s.artwork }],
+                })
+              ).status,
+            ).toBe(400);
+            mailer.sent.length = 0;
+            const review = await reviewOf(await request(producer, s.projectId, body));
+            const item = review.items[0] as unknown as Scoped;
+            expect(item).toMatchObject({ kind: "workspace", name: "Everything in this workspace" });
+            expect(coversOf(review)).toEqual([s.mix, s.artwork, reel].sort());
+            expect(item.covers.find((c) => c.fileId === reel)?.projectName).toBe("Film");
+            const mail = [...mailer.sent].reverse().find((m) => m.to === "conductor@example.test");
+            expect(mail?.text.replace(/\s+/g, " ")).toContain(
+              "every project, those made later included",
+            );
+
+            // A member sees what they may: the composer is not in Film.
+            const composerSees = await reviewOf(
+              await getAs(`/api/reviews/${review.id}`, s.composer),
+            );
+            expect(coversOf(composerSees)).toEqual([s.mix, s.artwork].sort());
+            // A project made later is covered too, and an archived one no longer.
+            const concert = (
+              (await (
+                await app.request(
+                  "/api/projects",
+                  json({ name: "Concert", profile: "music" }, s.owner),
+                )
+              ).json()) as { project: { id: string } }
+            ).project.id;
+            const encore = await fileIn(s.organisationId, concert, "Encore.wav", null);
+            expect(coversOf(await reviewOf(await getAs(`/api/reviews/${review.id}`, s.owner)))).toEqual(
+              [s.mix, s.artwork, reel, encore].sort(),
+            );
+            await db
+              .update(schema.projects)
+              .set({ archivedAt: new Date() })
+              .where(eq(schema.projects.id, film));
+            expect(coversOf(await reviewOf(await getAs(`/api/reviews/${review.id}`, s.owner)))).toEqual(
+              [s.mix, s.artwork, encore].sort(),
+            );
+            // The guest reaches every covered file, and never another workspace's.
+            const cookie = cookieOf(await signIn(linkFor("conductor@example.test")));
+            expect((await getAs(`/api/files/${encore}`, cookie)).status).toBe(200);
+            expect((await getAs(`/api/files/${s.mix}`, cookie)).status).toBe(200);
+            expect((await getAs(`/api/files/${foreignFile}`, cookie)).status).toBe(404);
+            expect((await getAs(`/api/files/${foreignFile}`, s.owner)).status).toBe(404);
+            // A guest has no workspace to ask about.
+            expect((await getAs("/api/reviews/scope", cookie)).status).toBe(403);
+          }, 30_000);
+        });
+
         it("shares without asking anything, until it ends and only so many plays (#138)", async () => {
           const s = await studio();
           await db

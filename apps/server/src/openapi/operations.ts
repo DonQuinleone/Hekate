@@ -623,6 +623,11 @@ export const apiOperations: Record<string, ApiOperation> = {
     summary: "List your reviews",
     description: "The reviews the token's member is asked to take part in, open ones first.",
   },
+  "GET /reviews/scope": {
+    summary: "Whether you may ask a review of everything in the workspace",
+    description:
+      "True for an owner or admin, or a member whose role has the Reviews: Manage level in every project not archived; with how many projects that covers.",
+  },
   "GET /reviews/{id}": {
     summary: "Read a review",
     description: "What it asks about, its reviewers in their order, and each decision recorded.",

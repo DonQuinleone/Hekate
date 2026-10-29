@@ -34,6 +34,11 @@ export interface TemplateData {
      * the decision rests with others.
      */
     follow?: { comment: boolean };
+    /**
+     * What it covers beyond named items (#501): the whole workspace, every project present and
+     * future; or whole folders, so files added to them later are part of it.
+     */
+    scope?: "folder" | "workspace";
   };
   /** A share (#138): something to listen to or look at, with nothing asked. */
   shared: {
@@ -169,6 +174,11 @@ export function workspaceEmail<T extends EmailTemplateId>(
             : d.kind === "approval"
               ? `${d.review}, in ${d.project}, is ready. Open it, leave comments where they belong, then record Approved or Changes requested.`
               : `${d.review}, in ${d.project}, is ready. Open it and leave comments where they belong, then send your feedback.`,
+          ...(d.scope === "workspace"
+            ? [`It covers everything in ${d.workspace}: every project, those made later included.`]
+            : d.scope === "folder"
+              ? ["It covers whole folders, so files added to them later are part of it too."]
+              : []),
           ...(d.message?.trim() ? [quoted(d.message)] : []),
           ...(d.dueAt ? [`Due ${mailDate(d.dueAt, dateFormat)}.`] : []),
         ],

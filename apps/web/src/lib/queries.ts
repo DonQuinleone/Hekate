@@ -3475,6 +3475,17 @@ export interface ReviewSummary {
   youReview: boolean;
 }
 
+/** One file a folder or workspace item covers now (#501), and where it is. */
+export interface CoveredFile {
+  fileId: string;
+  projectId: string;
+  projectName: string;
+  name: string;
+  kind: FileKind;
+  /** The track whose latest version it is a variant of, if any. */
+  track: { id: string; name: string; versionNumber: number } | null;
+}
+
 export interface ReviewDetail {
   id: string;
   projectId: string;
@@ -3510,8 +3521,17 @@ export interface ReviewDetail {
         version: { id: string; number: number; variants: string[] } | null;
         fileId: string | null;
       }
+    | {
+        /** A folder, or the whole workspace (#501): what it covers is read as it is now. */
+        id: string;
+        kind: "folder" | "workspace";
+        folderId: string | null;
+        name: string;
+        fileId: null;
+        covers: CoveredFile[];
+      }
   ) & {
-    /** Open threads on the item's file; null for guests. */
+    /** Open threads on the item's file (a scope's, on all it covers); null for guests. */
     openComments: number | null;
   })[];
   reviewers: {
@@ -3602,6 +3622,20 @@ export const projectReviewsQuery = (projectId: string) =>
         )
       ).reviews,
   });
+
+/**
+ * Whether the signed-in member may ask a review of everything in the workspace (#501), and
+ * of how many projects that is: the request page offers the choice only then.
+ */
+export const reviewScopeQuery = queryOptions({
+  queryKey: ["reviews", "scope"],
+  queryFn: async () =>
+    (
+      await json<{ workspace: { allowed: boolean; projects: number } }>(
+        await api.reviews.scope.$get(),
+      )
+    ).workspace,
+});
 
 export const reviewQuery = (id: string) =>
   queryOptions({

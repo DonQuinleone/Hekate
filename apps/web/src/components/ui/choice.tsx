@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, ReactNode } from "react";
+import { type InputHTMLAttributes, type ReactNode, useEffect, useRef } from "react";
 import { cn } from "~/lib/cn";
 import { Icon } from "../icons";
 
@@ -10,12 +10,25 @@ type BoxProps = Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "size">;
  * the native input stays underneath for focus,
  * keyboard and forms.
  */
-export function Checkbox({ className, ...props }: BoxProps) {
+export function Checkbox({
+  className,
+  indeterminate = false,
+  ...props
+}: BoxProps & {
+  /** Partly on: a folder with some of its contents ticked. Shown as a dash, read as mixed. */
+  indeterminate?: boolean;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate;
+  }, [indeterminate]);
   return (
     <span className={cn("relative inline-flex size-4 shrink-0", className)}>
       <input
+        ref={ref}
         type="checkbox"
-        className="peer size-4 cursor-pointer appearance-none rounded-[4px] border border-edge-strong bg-ground/70 transition-colors checked:border-signal checked:bg-signal hover:border-ink-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-3 disabled:cursor-not-allowed disabled:opacity-50"
+        aria-checked={indeterminate ? "mixed" : undefined}
+        className="peer size-4 cursor-pointer appearance-none rounded-[4px] border border-edge-strong bg-ground/70 transition-colors checked:border-signal checked:bg-signal indeterminate:border-signal indeterminate:bg-signal hover:border-ink-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-3 disabled:cursor-not-allowed disabled:opacity-50"
         {...props}
       />
       <Icon
@@ -23,6 +36,10 @@ export function Checkbox({ className, ...props }: BoxProps) {
         size={12}
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 m-auto text-ground opacity-0 peer-checked:opacity-100"
+      />
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 m-auto h-0.5 w-2 rounded-full bg-ground opacity-0 peer-indeterminate:opacity-100"
       />
     </span>
   );
