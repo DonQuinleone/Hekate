@@ -20,12 +20,15 @@ export function TakeManager({
   track,
   versionNumber,
   canEdit,
+  onAdd,
   onClose,
   page = false,
 }: {
   track: Track;
   versionNumber: number;
   canEdit: boolean;
+  /** Opens the track's Add takes dialog (#490). */
+  onAdd?: () => void;
   onClose?: () => void;
   /** On its own page the manager fills the width and keeps its rows roomier. */
   page?: boolean;
@@ -254,7 +257,7 @@ export function TakeManager({
           </span>
         )}
         {!auditioning && canEdit && (
-          <Button variant="ghost" size="sm" className="ml-auto h-6 text-[12px]">
+          <Button variant="ghost" size="sm" className="ml-auto h-6 text-[12px]" onClick={onAdd}>
             <Icon name="upload" size={12} />
             Add takes
           </Button>

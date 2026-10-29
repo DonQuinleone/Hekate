@@ -16,6 +16,7 @@ import {
   startTakeInput,
   type TakeNumbering,
   takeImportInput,
+  takeProblem,
 } from "@hekate/shared";
 import { and, asc, desc, eq, inArray, isNull, max, sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -267,6 +268,18 @@ export const projectSessionRoutes = (db: Database) =>
       const fileIds = [...new Set(wanted.map((t) => t.fileId))];
       if (fileIds.length !== wanted.length)
         throw new HTTPException(422, { message: "A file is one take" });
+      // The bars a take is given must be a range, as a take's own page would refuse otherwise.
+      for (const entry of wanted) {
+        const problem = takeProblem({
+          page: null,
+          pageTo: null,
+          barFrom: entry.barFrom ?? null,
+          barTo: entry.barTo ?? null,
+          inPoint: null,
+          outPoint: null,
+        });
+        if (problem) throw new HTTPException(422, { message: problem });
+      }
       const trackIds = [...new Set(wanted.map((t) => t.trackId))].sort();
       const sessionIds = [
         ...new Set(wanted.map((t) => t.sessionId).filter((s): s is string => s !== null)),
@@ -366,6 +379,18 @@ export const projectSessionRoutes = (db: Database) =>
                 .update(files)
                 .set({ takeId: logged.id, isTakeMix: true, updatedAt: new Date() })
                 .where(inOrg(files, organisationId, eq(files.id, entry.fileId)));
+              // The log's bars stand; the import's fill in where the log gave none.
+              if (entry.barFrom !== undefined && entry.barFrom !== null)
+                await tx
+                  .update(takes)
+                  .set({
+                    barFrom: entry.barFrom,
+                    barTo: entry.barTo ?? null,
+                    updatedAt: new Date(),
+                  })
+                  .where(
+                    inOrg(takes, organisationId, eq(takes.id, logged.id), isNull(takes.barFrom)),
+                  );
               imported += 1;
               matched += 1;
               continue;
@@ -381,6 +406,8 @@ export const projectSessionRoutes = (db: Database) =>
               sessionId: entry.sessionId,
               number,
               label: entry.label || null,
+              barFrom: entry.barFrom ?? null,
+              barTo: entry.barTo ?? null,
             })
             .returning({ id: takes.id });
           await tx

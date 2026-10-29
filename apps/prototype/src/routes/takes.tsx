@@ -19,6 +19,7 @@ import {
   projectById,
   sessions,
   type Take,
+  type Track,
   takeById,
   takes,
   trackById,
@@ -42,35 +43,59 @@ const sessionFiles = [
   ["Room tone.wav", 9_800_000],
 ].map(([name, size]) => ({ key: String(name), name: String(name), size: Number(size) }));
 
-function TakeImportDialog({ onClose }: { onClose: () => void }) {
+/** The takes of a passage, as the zone picks them from a track: one file each. */
+const trackFiles = [
+  ["Maple Leaf Rag T27.wav", 61_200_000],
+  ["Maple Leaf Rag T28.wav", 58_900_000],
+].map(([name, size]) => ({ key: String(name), name: String(name), size: Number(size) }));
+
+/**
+ * Take import (#45): a day's files from the sessions page, or, from a track (#490), the same
+ * dialog with the track settled: every file a take of it, the session and bars chosen once.
+ */
+export function TakeImportDialog({ onClose, track }: { onClose: () => void; track?: Track }) {
   const [step, setStep] = useState<0 | 1>(0);
   const [picked, setPicked] = useState(false);
   const state = useScreenState();
   const joplin = tracks.filter((x) => x.projectId === "proj-joplin");
-  const tree = [
-    {
-      session: "Day 3",
-      note: "14 October 2026 · adds to this session",
-      existing: true,
-      takes: [
-        { label: "T27 · 10:14:02:00 · 6:12 · 7 files", track: "Maple Leaf Rag", sure: 96 },
-        { label: "T28 · 10:19:40:00 · 5:58 · 7 files", track: "Maple Leaf Rag", sure: 91 },
-        { label: "Pine Apple Rag T29 · 10:26:11:00 · 2:40 · 7 files", track: null, sure: 0 },
-      ],
-    },
-    {
-      session: "Day 3, afternoon",
-      note: "a new session",
-      existing: false,
-      takes: [
-        { label: "T30 · 14:02:00:00 · 4:31 · 6 files", track: "Solace", sure: 88 },
-        { label: "T31 · 14:09:25:00 · 4:47 · 7 files", track: "Solace", sure: 94 },
-      ],
-    },
-  ];
-  const title = "Import takes";
-  const description =
-    "Drop every file of a session. Takes are grouped by take number and timecode, with their mix found among the microphones, and matched to tracks by name.";
+  const tree = track
+    ? [
+        {
+          session: "Day 2",
+          note: "adds to this session",
+          existing: true,
+          takes: [
+            { label: "T27 · 10:14:02:00 · 6:12 · 1 file", track: track.name, sure: 100 },
+            { label: "T28 · 10:19:40:00 · 5:58 · 1 file", track: track.name, sure: 100 },
+          ],
+        },
+      ]
+    : [
+        {
+          session: "Day 3",
+          note: "14 October 2026 · adds to this session",
+          existing: true,
+          takes: [
+            { label: "T27 · 10:14:02:00 · 6:12 · 7 files", track: "Maple Leaf Rag", sure: 96 },
+            { label: "T28 · 10:19:40:00 · 5:58 · 7 files", track: "Maple Leaf Rag", sure: 91 },
+            { label: "Pine Apple Rag T29 · 10:26:11:00 · 2:40 · 7 files", track: null, sure: 0 },
+          ],
+        },
+        {
+          session: "Day 3, afternoon",
+          note: "a new session",
+          existing: false,
+          takes: [
+            { label: "T30 · 14:02:00:00 · 4:31 · 6 files", track: "Solace", sure: 88 },
+            { label: "T31 · 14:09:25:00 · 4:47 · 7 files", track: "Solace", sure: 94 },
+          ],
+        },
+      ];
+  const verb = track ? "Add" : "Import";
+  const title = track ? "Add takes" : "Import takes";
+  const description = track
+    ? `Drop the takes recorded for ${track.name}: one file each, or a take's microphones together with its mix. Take numbers are read from the files.`
+    : "Drop every file of a session. Takes are grouped by take number and timecode, with their mix found among the microphones, and matched to tracks by name.";
   if (step === 0)
     return (
       <UploadDialog
@@ -78,12 +103,12 @@ function TakeImportDialog({ onClose }: { onClose: () => void }) {
         description={description}
         onClose={onClose}
         width="lg"
-        inputLabel="Session files"
-        listLabel="Files of the session"
-        prompt="Drop the session's files or folder here"
-        hint="Or choose them. Only their headers are read until you import."
+        inputLabel={track ? "Take files" : "Session files"}
+        listLabel={track ? "Files of the takes" : "Files of the session"}
+        prompt={track ? "Drop the takes here" : "Drop the session's files or folder here"}
+        hint={`Or choose them. Only their headers are read until you ${verb.toLowerCase()}.`}
         multiple
-        chosen={picked ? sessionFiles : []}
+        chosen={picked ? (track ? trackFiles : sessionFiles) : []}
         onPick={() => setPicked(true)}
         onRemove={() => setPicked(false)}
         alternatives={
@@ -93,18 +118,64 @@ function TakeImportDialog({ onClose }: { onClose: () => void }) {
           </Button>
         }
         fields={
-          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-            File-name pattern
-            <Input defaultValue="T{take} {mic}" />
-            <span className="text-[12px] text-ink-3">
-              Read where the files carry no iXML: {"{take}"}, {"{mic}"}, {"{tc}"}, {"{scene}"},{" "}
-              {"{session}"}, {"{track}"}, and * for anything.
-            </span>
-          </label>
+          <>
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              File-name pattern
+              <Input defaultValue="T{take} {mic}" />
+              <span className="text-[12px] text-ink-3">
+                Read where the files carry no iXML: {"{take}"}, {"{mic}"}, {"{tc}"}, {"{scene}"},{" "}
+                {"{session}"}, {"{track}"}, and * for anything.
+              </span>
+            </label>
+            {track && (
+              <div className="grid gap-4 @md/app:grid-cols-2">
+                <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                  Session
+                  <Select defaultValue="sess-2">
+                    <option value="proposed">As the files say</option>
+                    <option value="none">No session</option>
+                    {sessions
+                      .filter((x) => x.projectId === track.projectId)
+                      .map((x) => (
+                        <option key={x.id} value={x.id}>
+                          {x.name}
+                        </option>
+                      ))}
+                  </Select>
+                  <span className="text-[12px] text-ink-3">
+                    Where they were recorded; the files' own day makes one otherwise.
+                  </span>
+                </label>
+                <fieldset className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0 text-[13px] text-ink-2">
+                  <legend className="mb-1.5 p-0">Bars</legend>
+                  <span className="flex items-center gap-2">
+                    <Input
+                      aria-label="First bar"
+                      placeholder="From"
+                      className="w-24"
+                      defaultValue="1"
+                    />
+                    <span className="text-ink-3">to</span>
+                    <Input
+                      aria-label="Last bar"
+                      placeholder="To"
+                      className="w-24"
+                      defaultValue="16"
+                    />
+                  </span>
+                  <span className="text-[12px] text-ink-3">
+                    Where bars matter: the passage every take here covers.
+                  </span>
+                </fieldset>
+              </div>
+            )}
+          </>
         }
         what={
           picked &&
-          "7 files, 370 MB. Their headers are read here; nothing is uploaded until the takes are imported."
+          (track
+            ? "2 files, 120 MB. Their headers are read here; nothing is uploaded until the takes are added."
+            : "7 files, 370 MB. Their headers are read here; nothing is uploaded until the takes are imported.")
         }
         action="Propose the takes"
         onAction={() => setStep(1)}
@@ -123,7 +194,7 @@ function TakeImportDialog({ onClose }: { onClose: () => void }) {
           </Button>
           <Button variant="secondary">Undo</Button>
           <Button variant="primary" onClick={onClose} disabled={state === "processing"}>
-            Import 4 takes
+            {track ? "Add 2 takes" : "Import 4 takes"}
           </Button>
         </>
       }
@@ -139,8 +210,8 @@ function TakeImportDialog({ onClose }: { onClose: () => void }) {
           </div>
         )}
         <div className="flex items-center gap-2 text-[13px] text-ink-3">
-          <input type="checkbox" aria-label="Select every take" className="size-4" />5 takes in 2
-          sessions
+          <input type="checkbox" aria-label="Select every take" className="size-4" />
+          {track ? "2 takes" : "5 takes in 2 sessions"}
         </div>
         {tree.map((s) => (
           <div key={s.session} className="flex flex-col gap-1.5">
@@ -165,37 +236,47 @@ function TakeImportDialog({ onClose }: { onClose: () => void }) {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-ink">{t.label}</span>
                     <span className={cn("block", t.track ? "text-ink-3" : "text-signal")}>
-                      {t.track ? `${t.track}, ${t.sure}% sure` : "Choose a track"}
+                      {track
+                        ? "Bars 1 to 16"
+                        : t.track
+                          ? `${t.track}, ${t.sure}% sure`
+                          : "Choose a track"}
                     </span>
                   </span>
-                  <Select defaultValue="mix" className="h-7 w-36 text-[12px]" aria-label="Mix">
-                    <option value="mix">Mix</option>
-                    <option value="tree">Tree</option>
-                    <option value="spot">Spot vln</option>
-                  </Select>
-                  <Select
-                    defaultValue={joplin.find((x) => x.name === t.track)?.id ?? ""}
-                    className="h-7 w-44 text-[12px]"
-                    aria-label="Track"
-                  >
-                    <option value="">Choose a track</option>
-                    {joplin.map((x) => (
-                      <option key={x.id} value={x.id}>
-                        {x.name}
-                      </option>
-                    ))}
-                  </Select>
+                  {!track && (
+                    <>
+                      <Select defaultValue="mix" className="h-7 w-36 text-[12px]" aria-label="Mix">
+                        <option value="mix">Mix</option>
+                        <option value="tree">Tree</option>
+                        <option value="spot">Spot vln</option>
+                      </Select>
+                      <Select
+                        defaultValue={joplin.find((x) => x.name === t.track)?.id ?? ""}
+                        className="h-7 w-44 text-[12px]"
+                        aria-label="Track"
+                      >
+                        <option value="">Choose a track</option>
+                        {joplin.map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </>
+                  )}
                 </li>
               ))}
             </ul>
           </div>
         ))}
+        {!track && (
+          <p className="text-[12px] text-ink-3">
+            1 file is left out: "Room tone.wav" has no take number or timecode.
+          </p>
+        )}
         <p className="text-[12px] text-ink-3">
-          1 file is left out: "Room tone.wav" has no take number or timecode.
-        </p>
-        <p className="text-[12px] text-ink-3">
-          Each take brings its mix, uploaded into its track's folder; its other microphones stay
-          where they are for now.
+          Each take brings its mix, kept under its track rather than among the project's files; its
+          other microphones stay where they are for now.
         </p>
       </div>
     </Dialog>

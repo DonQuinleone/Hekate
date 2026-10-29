@@ -11,6 +11,7 @@ import {
   or,
   sql,
 } from "drizzle-orm";
+import { listedFile } from "./take-files.ts";
 
 const { files, tracks, versions, comments, reviews, reviewItems, projectMembers, users } = schema;
 
@@ -63,7 +64,8 @@ export async function projectFigures(db: Database, organisationId: string, ids: 
     db
       .select({ projectId: files.projectId, n: count(), last: max(files.createdAt) })
       .from(files)
-      .where(inOrg(files, organisationId, inVisible(files.projectId)))
+      // The files as the project lists them: a take's file is counted with its track's takes.
+      .where(inOrg(files, organisationId, inVisible(files.projectId), listedFile))
       .groupBy(files.projectId),
     db
       .select({ projectId: tracks.projectId, n: count() })

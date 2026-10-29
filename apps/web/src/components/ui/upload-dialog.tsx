@@ -266,6 +266,8 @@ export interface UploadDialogProps<T> {
   hint?: string | undefined;
   accept?: string | undefined;
   multiple?: boolean;
+  /** Files dropped on the page before the dialog opened (a track's takes): taken as it opens. */
+  initial?: Picked[] | undefined;
   /** The list's accessible name. */
   listLabel?: string;
   /** Offers a whole folder too, under this name for its input. */
@@ -315,6 +317,7 @@ export function UploadDialog<T = unknown>({
   hint,
   accept,
   multiple = false,
+  initial,
   listLabel,
   folderLabel,
   check,
@@ -425,6 +428,14 @@ export function UploadDialog<T = unknown>({
     setRefused([]);
     changed();
   };
+  // What was dropped before the dialog opened goes on the list once, as it opens.
+  const opened = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: taken once, as the dialog opens.
+  useEffect(() => {
+    if (opened.current) return;
+    opened.current = true;
+    if (initial && initial.length > 0) take(initial);
+  }, []);
 
   /** Every file not yet sent, a couple at a time; false if any could not be. */
   const sendAll = async (signal: AbortSignal) => {
