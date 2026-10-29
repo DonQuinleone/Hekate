@@ -4,7 +4,7 @@ import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
-import { type Take, takeById, takesCovering } from "~/data";
+import { sessions, type Take, takeById, takes, takesCovering } from "~/data";
 import { cn } from "~/lib/cn";
 import { formatDuration } from "~/lib/format";
 
@@ -318,6 +318,120 @@ export function TakeCompareDialog({
           , for those with the tool.
         </p>
       </div>
+    </Dialog>
+  );
+}
+
+/**
+ * The track's takes to put on a comment (#497): number, session, bars and rating, each with
+ * a play preview; several can be ticked. Attached, they are heard at the comment's bar as
+ * from Other takes.
+ */
+export function TakePickerDialog({
+  trackId,
+  chosen,
+  onPick,
+  onClose,
+}: {
+  trackId: string;
+  chosen: string[];
+  onPick: (ids: string[]) => void;
+  onClose: () => void;
+}) {
+  const list = takes.filter((t) => t.trackId === trackId);
+  const [ticked, setTicked] = useState<Set<string>>(new Set(chosen));
+  const [playing, setPlaying] = useState<string | null>(null);
+  const toggle = (id: string) => {
+    const next = new Set(ticked);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setTicked(next);
+  };
+  return (
+    <Dialog
+      title="Takes from this track"
+      description="They go on the comment for whoever reads it to hear, at its bar where it has one."
+      onClose={onClose}
+      width="md"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={ticked.size === 0}
+            onClick={() => {
+              onPick([...ticked]);
+              onClose();
+            }}
+          >
+            Attach {ticked.size || ""}
+          </Button>
+        </>
+      }
+    >
+      {list.length === 0 ? (
+        <p className="text-[13px] text-ink-3">This track has no takes yet.</p>
+      ) : (
+        <ul className="flex list-none flex-col divide-y divide-line rounded-panel border border-line p-0">
+          {list.map((t) => {
+            const session = sessions.find((s) => s.id === t.sessionId);
+            return (
+              <li
+                key={t.id}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2",
+                  playing === t.id && "bg-signal/10",
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={ticked.has(t.id)}
+                  onChange={() => toggle(t.id)}
+                  aria-label={`Attach take ${t.number}`}
+                />
+                <button
+                  type="button"
+                  aria-label={playing === t.id ? `Stop take ${t.number}` : `Play take ${t.number}`}
+                  aria-pressed={playing === t.id}
+                  onClick={() => setPlaying(playing === t.id ? null : t.id)}
+                  className={cn(
+                    "flex size-7 shrink-0 items-center justify-center rounded-full",
+                    playing === t.id ? "bg-signal text-ground" : "bg-raised text-ink hover:bg-edge",
+                  )}
+                >
+                  <Icon
+                    name={playing === t.id ? "pause" : "play"}
+                    size={11}
+                    fill="currentColor"
+                    strokeWidth={0}
+                  />
+                </button>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-2 text-[14px] text-ink">
+                    <span className="tabular font-medium">T{t.number}</span>
+                    {t.starred && (
+                      <Icon name="star" size={12} className="text-signal" fill="var(--hk-signal)" />
+                    )}
+                    <Rating value={t.rating} />
+                  </span>
+                  <span className="block truncate text-[13px] text-ink-3">
+                    {[
+                      session?.name,
+                      t.coverage ? `bars ${t.coverage.barFrom}–${t.coverage.barTo}` : null,
+                      t.notes || null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </span>
+                <span className="tabular text-[13px] text-ink-3">{formatDuration(t.duration)}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </Dialog>
   );
 }

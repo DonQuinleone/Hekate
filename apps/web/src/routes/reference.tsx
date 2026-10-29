@@ -34,6 +34,7 @@ import {
 } from "~/components/ui/upload-dialog";
 import { FrameGuides, GoToTimecode } from "~/components/video-frame";
 import { cn } from "~/lib/cn";
+import { categoryTones } from "~/lib/comments";
 
 /*
  * The design system as a reference for whoever builds screens: the brand, the tokens, and
@@ -692,6 +693,19 @@ function Components() {
               <span key={s} className="flex items-center gap-1.5">
                 <StatusDot state={s} />
                 {s.replace("_", " ")}
+              </span>
+            ))}
+          </span>
+        </Spec>
+        <Spec
+          name="Comment category"
+          rule="A 3 px bar at the thread's left edge, by the category's place in the project's list; six tones, then round again. Its name is in the thread's menu and on hover, never a pill."
+        >
+          <span className="flex flex-wrap items-center gap-3 text-[12px] text-ink-2">
+            {categoryTones.map((tone, i) => (
+              <span key={tone} className="flex items-center gap-2" title={`--hk-category-${i + 1}`}>
+                <span aria-hidden="true" className={cn("h-6 w-[3px] rounded-full", tone)} />
+                category-{i + 1}
               </span>
             ))}
           </span>

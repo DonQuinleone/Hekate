@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   ago,
   arrangeThreads,
+  categoryTone,
+  categoryTones,
   filterHolding,
   historyLabel,
   passageLoop,
@@ -154,5 +156,24 @@ describe("comment threads", () => {
     expect(ago("2026-10-14T11:59:50.000Z", now)).toBe("just now");
     expect(ago("2026-10-14T11:55:00.000Z", now)).toBe("5 minutes ago");
     expect(ago("2026-10-13T12:00:00.000Z", now)).toBe("yesterday");
+  });
+});
+
+describe("category tones", () => {
+  const ids = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `c${i + 1}` }));
+
+  it("gives each category the colour of its place, coming round after six", () => {
+    expect(categoryTone(ids(8), "c1")).toBe("bg-category-1");
+    expect(categoryTone(ids(8), "c6")).toBe("bg-category-6");
+    expect(categoryTone(ids(8), "c7")).toBe("bg-category-1");
+    expect(categoryTone(ids(8), "c8")).toBe("bg-category-2");
+  });
+
+  it("has none for a category the project no longer has", () => {
+    expect(categoryTone(ids(2), "gone")).toBeNull();
+  });
+
+  it("lists every tone a token names", () => {
+    expect(categoryTones).toHaveLength(6);
   });
 });

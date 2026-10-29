@@ -2,12 +2,13 @@ import { useState } from "react";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/label";
 import { Button } from "~/components/ui/button";
-import { Dropdown } from "~/components/ui/menu";
+import { Dropdown, MenuList, usePopover } from "~/components/ui/menu";
 import { type ChosenFile, UploadDialog } from "~/components/ui/upload-dialog";
-import { categories } from "~/data";
+import { categories, takeById } from "~/data";
 import { cn } from "~/lib/cn";
 import { formatClock, formatTimecode } from "~/lib/format";
 import type { Playback } from "../player/playback.ts";
+import { TakePickerDialog } from "./takes.tsx";
 
 export type Target = "playhead" | "range" | "whole" | "region" | "page";
 
@@ -28,6 +29,7 @@ export function Composer({
   fps = 25,
   references,
   canCategorise,
+  takesFrom = null,
   channels = [],
   page,
   onPost,
@@ -39,6 +41,8 @@ export function Composer({
   fps?: number;
   references: References;
   canCategorise: boolean;
+  /** The track whose takes can go on the comment (#497), for those who triage and see takes. */
+  takesFrom?: string | null;
   /** A recording's speakers: a comment can be about one of them (#74). */
   channels?: readonly string[];
   page?: number;
@@ -48,9 +52,12 @@ export function Composer({
   const [target, setTarget] = useState<Target>(kind === "media" ? "playhead" : "page");
   const [body, setBody] = useState("");
   const [focused, setFocused] = useState(false);
-  // Files to go with the comment (#133), chosen in the upload dialog (#477).
-  const [attaching, setAttaching] = useState(false);
+  // What goes with the comment: files (#133), chosen in the upload dialog (#477), and the
+  // track's takes (#497), picked from a list. Attach opens a menu in place; it never moves.
+  const [attachMenu, setAttachMenu, attachBox] = usePopover();
+  const [attaching, setAttaching] = useState<"upload" | "takes" | null>(null);
   const [attached, setAttached] = useState<ChosenFile[]>([]);
+  const [attachedTakes, setAttachedTakes] = useState<string[]>([]);
   const fmt = (t: number) => (video ? formatTimecode(t, fps) : formatClock(t));
   if (disabledReason) {
     return (
@@ -129,6 +136,36 @@ export function Composer({
           <Icon name="send" size={14} />
         </Button>
       </div>
+      {attachedTakes.length > 0 && (
+        <ul className="flex list-none flex-wrap gap-1.5 p-0" aria-label="Takes to attach">
+          {attachedTakes.map((id) => {
+            const take = takeById(id);
+            if (!take) return null;
+            return (
+              <li
+                key={id}
+                className="flex h-6 items-center gap-1.5 rounded-chip border border-line px-1.5 text-[12px] text-ink-2"
+              >
+                <Icon name="take" size={11} className="text-ink-3" />
+                <span className="tabular">T{take.number}</span>
+                {take.coverage && (
+                  <span className="text-ink-3">
+                    bars {take.coverage.barFrom}–{take.coverage.barTo}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  aria-label={`Leave out take ${take.number}`}
+                  onClick={() => setAttachedTakes((a) => a.filter((x) => x !== id))}
+                  className="-mr-0.5 flex size-5 items-center justify-center rounded-chip text-ink-3 hover:text-ink"
+                >
+                  <Icon name="close" size={11} />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {open && (
         <div className="rise-in flex flex-wrap items-center gap-2 px-0.5 text-[12px] text-ink-3">
           {anyRef && (
@@ -175,19 +212,61 @@ export function Composer({
           >
             @ Mention
           </button>
-          <button
-            type="button"
-            onClick={() => setAttaching(true)}
-            className="flex h-7 items-center gap-1 rounded-chip px-1.5 hover:bg-raised hover:text-ink"
-          >
-            <Icon name="link" size={12} /> Attach
-            {attached.length > 0 && <span className="text-ink">{attached.length}</span>}
-          </button>
-          {attaching && (
+          <span ref={attachBox} className="relative">
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={attachMenu}
+              onClick={() => setAttachMenu(!attachMenu)}
+              className={cn(
+                "flex h-7 items-center gap-1 rounded-chip px-1.5 hover:bg-raised hover:text-ink",
+                attachMenu && "bg-raised text-ink",
+              )}
+            >
+              <Icon name="link" size={12} /> Attach
+              {attached.length + attachedTakes.length > 0 && (
+                <span className="text-ink">{attached.length + attachedTakes.length}</span>
+              )}
+            </button>
+            {attachMenu && (
+              <MenuList
+                anchor={attachBox}
+                align="left"
+                side="top"
+                label="Attach"
+                onClose={() => setAttachMenu(false)}
+                actions={[
+                  ...(takesFrom
+                    ? [
+                        {
+                          label: "Takes from this track",
+                          icon: <Icon name="take" size={14} />,
+                          onSelect: () => setAttaching("takes"),
+                        },
+                      ]
+                    : []),
+                  {
+                    label: "Upload",
+                    icon: <Icon name="upload" size={14} />,
+                    onSelect: () => setAttaching("upload"),
+                  },
+                ]}
+              />
+            )}
+          </span>
+          {attaching === "takes" && takesFrom && (
+            <TakePickerDialog
+              trackId={takesFrom}
+              chosen={attachedTakes}
+              onPick={setAttachedTakes}
+              onClose={() => setAttaching(null)}
+            />
+          )}
+          {attaching === "upload" && (
             <UploadDialog
               title="Attach files"
               description="Up to 10 files of 25 MB each go with the comment."
-              onClose={() => setAttaching(false)}
+              onClose={() => setAttaching(null)}
               width="sm"
               inputLabel="Files to attach"
               listLabel="Files chosen to attach"
@@ -202,7 +281,7 @@ export function Composer({
               onRemove={(key) => setAttached((a) => a.filter((f) => f.key !== key))}
               what="They are attached once the comment is sent."
               action="Attach"
-              onAction={() => setAttaching(false)}
+              onAction={() => setAttaching(null)}
             />
           )}
           <span className="ml-auto flex items-center gap-1">
