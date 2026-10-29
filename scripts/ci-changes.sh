@@ -27,7 +27,7 @@ fi
 echo "server=$(has '^(apps/server/|packages/|tools/ear/|docs/site/scripts/|docs/openapi\.json)')"
 echo "web=$(has '^(apps/web/|apps/prototype/|packages/shared/)')"
 echo "visual=$(has '^(apps/web/|apps/e2e/|apps/server/|packages/|scripts/backup-drill\.sh)')"
-echo "image=$(has '^(Dockerfile|\.dockerignore|deploy/|scripts/image-smoke\.mjs|tools/ear/|\.trivyignore|apps/server/package\.json|apps/web/package\.json|packages/[^/]+/package\.json)')"
+echo "image=$(has '^(Dockerfile|\.dockerignore|deploy/|scripts/image-(smoke|harden)\.mjs|tools/ear/|\.trivyignore|apps/server/package\.json|apps/web/package\.json|packages/[^/]+/package\.json)')"
 echo "kubernetes=$(has '^deploy/helm/')"
 echo "docs=$(has '^(docs/|README\.md)')"
 echo "deps=$(has '(^|/)package\.json$|^pnpm-lock\.yaml$|^pnpm-workspace\.yaml$|^\.github/renovate\.json5$')"
