@@ -69,6 +69,9 @@ export function AudioUploadDialog({
   // What a run that was refused halfway already made, so trying again carries on from there.
   const made = useRef(new Map<string, string>());
   const landed = useRef(new Set<string>());
+  // Once a run has made something, the plan is fixed: a retry after a refusal carries the
+  // same grouping on, rather than splitting what landed across a different one.
+  const [frozen, setFrozen] = useState(false);
 
   const target = ordered.find((t) => t.id === trackId) ?? ordered[0];
   const audible = (c: ChosenFile<UploadedFile>) => isAudio(c.file ?? { name: c.name });
@@ -84,6 +87,7 @@ export function AudioUploadDialog({
   const versionOf = (key: string) =>
     plan.kind === "one-track" ? plan.versions.find((v) => v.key === key)?.number : undefined;
   const pick = (next: UploadChoice) => {
+    if (frozen) return;
     setChoice(next);
     rememberChoice(projectId, next);
   };
@@ -100,6 +104,7 @@ export function AudioUploadDialog({
     const trackFor = async (key: string, name: string) => {
       const known = made.current.get(key);
       if (known) return known;
+      setFrozen(true);
       const track = await createTrack.mutateAsync({ name, folderId });
       made.current.set(key, track.id);
       return track.id;
@@ -141,6 +146,7 @@ export function AudioUploadDialog({
             type="radio"
             name="upload-as"
             checked={choice === "track"}
+            disabled={frozen}
             onChange={() => pick("track")}
           >
             New track
@@ -152,6 +158,7 @@ export function AudioUploadDialog({
               type="radio"
               name="upload-as"
               checked={choice === "version"}
+              disabled={frozen}
               onChange={() => pick("version")}
             >
               New version of
@@ -160,6 +167,7 @@ export function AudioUploadDialog({
               size="sm"
               aria-label="Track"
               value={target?.id ?? ""}
+              disabled={frozen}
               onFocus={() => choice !== "version" && pick("version")}
               onChange={(e) => {
                 setTrackId(e.target.value);
@@ -179,6 +187,7 @@ export function AudioUploadDialog({
           type="radio"
           name="upload-as"
           checked={choice === "file"}
+          disabled={frozen}
           onChange={() => pick("file")}
         >
           Just a file
@@ -190,6 +199,7 @@ export function AudioUploadDialog({
             type="radio"
             name="upload-grouping"
             checked={grouping === "each"}
+            disabled={frozen}
             onChange={() => setGrouping("each")}
           >
             A track each
@@ -198,6 +208,7 @@ export function AudioUploadDialog({
             type="radio"
             name="upload-grouping"
             checked={grouping === "one"}
+            disabled={frozen}
             onChange={() => setGrouping("one")}
           >
             One track, {audio.length} versions
