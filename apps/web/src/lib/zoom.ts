@@ -21,13 +21,63 @@ export function maxZoom(duration: number, sampleRate: number, width: number): nu
   return zoom;
 }
 
-/** The next zoom in (1) or out (−1), doubling or halving, within 1 and `most`. */
+/**
+ * The next zoom in (1) or out (−1), within 1 and `most`: the next power of two, so the
+ * steps after a pinch (which lands anywhere) are the same as from the start.
+ */
 export function zoomStep(zoom: number, direction: 1 | -1, most: number): number {
-  return Math.max(1, Math.min(most, direction === 1 ? zoom * 2 : zoom / 2));
+  const power = Math.log2(Math.max(1, zoom));
+  const next =
+    direction === 1 ? 2 ** (Math.floor(power + 1e-9) + 1) : 2 ** (Math.ceil(power - 1e-9) - 1);
+  return Math.max(1, Math.min(most, next));
 }
 
-/** A zoom as the player shows it: "Fit" for the whole file, "4×" when zoomed. */
-export const zoomLabel = (zoom: number) => (zoom <= 1 ? "Fit" : `${zoom}×`);
+/** A zoom as the player shows it: "Fit" for the whole file, "4×" when zoomed, "2.5×" between steps. */
+export const zoomLabel = (zoom: number) =>
+  zoom <= 1 ? "Fit" : `${Number.isInteger(zoom) ? zoom : zoom.toFixed(1)}×`;
+
+/** The zoomed view: how far in, how far it is scrolled, how wide it is, and how far it can go. */
+export interface ZoomView {
+  zoom: number;
+  scrollLeft: number;
+  /** The visible width, in pixels. */
+  width: number;
+  /** The furthest zoom offered for this file (`maxZoom`). */
+  most: number;
+}
+
+/**
+ * Zoom by `factor` about the point `atFraction` of the way across the view (#494): a pinch or
+ * a wheel under the pointer. The moment under that point stays under it; the zoom is held
+ * within 1 and `most`, and the scroll within the content.
+ */
+export function zoomAbout(
+  view: ZoomView,
+  factor: number,
+  atFraction: number,
+): { zoom: number; scrollLeft: number } {
+  const zoom = Math.max(1, Math.min(view.most, view.zoom * factor));
+  const anchor = Math.max(0, Math.min(1, atFraction)) * view.width;
+  const furthest = Math.max(0, view.width * zoom - view.width);
+  const scrollLeft = Math.min(furthest, anchoredScroll(view.scrollLeft, anchor, view.zoom, zoom));
+  return { zoom, scrollLeft };
+}
+
+/** How far apart two fingers are, for a pinch: the distance between the first two points. */
+export function fingerSpan(points: Iterable<{ x: number; y: number }>): number {
+  const [a, b] = [...points];
+  if (!a || !b) return 0;
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+/**
+ * How much a wheel event zooms (#494): a trackpad pinch arrives as a wheel with the control
+ * key and small deltas; a mouse wheel with the key held, in notches of about a hundred. Each
+ * is held to doubling or halving at most, so no single event leaps.
+ */
+export function wheelZoomFactor(deltaY: number): number {
+  return Math.max(0.5, Math.min(2, Math.exp(-deltaY * 0.01)));
+}
 
 /**
  * Where to scroll after a zoom, so the moment at `anchor` pixels into the view stays under

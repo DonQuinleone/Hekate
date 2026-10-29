@@ -35,6 +35,7 @@ import type Hls from "hls.js";
 import {
   type KeyboardEvent,
   type ReactNode,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
   useCallback,
   useEffect,
@@ -63,7 +64,17 @@ import { readView, type SpectrogramView } from "~/lib/spectrogram";
 import { holdRate } from "~/lib/speed";
 import { familyOf, type VideoFamily, videoFamilyFor } from "~/lib/video-family";
 import { useViewer } from "~/lib/viewer";
-import { anchoredScroll, followScroll, maxZoom, panScroll, zoomLabel, zoomStep } from "~/lib/zoom";
+import {
+  anchoredScroll,
+  fingerSpan,
+  followScroll,
+  maxZoom,
+  panScroll,
+  wheelZoomFactor,
+  zoomAbout,
+  zoomLabel,
+  zoomStep,
+} from "~/lib/zoom";
 import { ChannelsButton, ChannelsPanel } from "./channels";
 import { CutVideo } from "./cut-video";
 import {
@@ -524,9 +535,96 @@ export function Player({
     const element = surface;
     const from = zooming.current;
     zooming.current = null;
+    requested.current = null;
     if (element && from)
       element.scrollLeft = anchoredScroll(from.scroll, from.anchor, from.from, zoom);
   }, [zoom]);
+  /**
+   * The zoom asked for but not yet drawn: a pinch sends several changes a frame, and each
+   * goes on from the last asked rather than the last drawn.
+   */
+  const requested = useRef<number | null>(null);
+  /** Zoom by a factor about a point across the view (#494): a pinch, or a wheel with the key. */
+  const zoomAround = (factor: number, fraction: number) => {
+    const element = surface;
+    if (!element) return;
+    const next = zoomAbout(
+      {
+        zoom: requested.current ?? zoom,
+        scrollLeft: element.scrollLeft,
+        width: element.clientWidth,
+        most: mostZoom,
+      },
+      factor,
+      fraction,
+    );
+    if (next.zoom === zoom) return;
+    requested.current = next.zoom;
+    // Measured against what is drawn now, which the pending zoom has not changed yet.
+    zooming.current ??= {
+      from: zoom,
+      scroll: element.scrollLeft,
+      anchor: fraction * element.clientWidth,
+    };
+    setZoom(next.zoom);
+  };
+  const zoomAroundNow = useRef(zoomAround);
+  zoomAroundNow.current = zoomAround;
+  const zoomNow = useRef({ zoom, mostZoom });
+  zoomNow.current = { zoom, mostZoom };
+  // A trackpad pinch arrives as a wheel with the control key, and must not zoom the page: a
+  // listener that is not passive, so it can say so. Plain scrolling pans a zoomed waveform.
+  useEffect(() => {
+    if (!surface) return;
+    const onWheel = (event: WheelEvent) => {
+      const { zoom, mostZoom } = zoomNow.current;
+      if (mostZoom <= 1) return;
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        const box = surface.getBoundingClientRect();
+        zoomAroundNow.current(
+          wheelZoomFactor(event.deltaY),
+          fractionAt(event.clientX, box.left, box.width),
+        );
+      } else if (zoom > 1 && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+        event.preventDefault();
+        surface.scrollLeft += event.deltaY;
+      }
+    };
+    surface.addEventListener("wheel", onWheel, { passive: false });
+    return () => surface.removeEventListener("wheel", onWheel);
+  }, [surface]);
+  /** Two fingers on the waveform (#494): where each is, and how far apart they were last. */
+  const fingers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<number | null>(null);
+  const pinchHandlers = {
+    onPointerDownCapture: (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.pointerType !== "touch") return;
+      fingers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      pinch.current = fingers.current.size === 2 ? fingerSpan(fingers.current.values()) : null;
+    },
+    onPointerMoveCapture: (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!fingers.current.has(event.pointerId)) return;
+      fingers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      const before = pinch.current;
+      if (fingers.current.size !== 2 || before === null) return;
+      const span = fingerSpan(fingers.current.values());
+      pinch.current = span;
+      if (!(before > 0) || !(span > 0)) return;
+      const box = event.currentTarget.getBoundingClientRect();
+      const [a, b] = [...fingers.current.values()];
+      const centre = ((a?.x ?? 0) + (b?.x ?? 0)) / 2;
+      zoomAround(span / before, fractionAt(centre, box.left, box.width));
+    },
+    onPointerUpCapture: (event: ReactPointerEvent<HTMLDivElement>) => {
+      fingers.current.delete(event.pointerId);
+      if (fingers.current.size < 2) pinch.current = null;
+    },
+    onPointerCancelCapture: (event: ReactPointerEvent<HTMLDivElement>) => {
+      fingers.current.delete(event.pointerId);
+      if (fingers.current.size < 2) pinch.current = null;
+    },
+  };
   // The playhead stays in view as it plays or is moved, a page at a time.
   useEffect(() => {
     const element = surface;
@@ -688,6 +786,13 @@ export function Player({
     if (element) element.currentTime = Math.max(0, Math.min(duration, seconds));
   };
 
+  /** A double-click where the loop is on (#494): off, and the playhead goes there. */
+  const clearLoop = (at: number) => {
+    setLooping(false);
+    seek(at);
+    say("Loop off");
+  };
+
   /** A new loop starts playing from its entry, so it can be heard at once. */
   const setLoop = (next: Loop | null) => {
     onLoop(next);
@@ -847,6 +952,11 @@ export function Player({
             run: () => zoomTo(zoomStep(zoom, -1, mostZoom)),
           },
           { keys: ["0"], label: "Fit the whole file", run: () => zoomTo(1) },
+          {
+            keys: ["Mod+Scroll", "Pinch"],
+            label: "Zoom about the pointer",
+            where: "On the waveform; plain scrolling moves along it once zoomed",
+          },
         ]
       : []),
     ...(canLoop
@@ -863,6 +973,12 @@ export function Player({
                 return !on;
               });
             },
+          },
+          {
+            keys: ["Double-click"],
+            label: "Loop off, and the playhead there",
+            where:
+              kind === "video" ? "On the picture or its lanes" : "On the waveform or spectrogram",
           },
         ]
       : []),
@@ -1303,12 +1419,13 @@ export function Player({
           active={active}
           onSeek={seek}
           onLoop={canLoop ? setLoop : undefined}
+          onClear={active ? clearLoop : undefined}
           label={
             playback.filmstrip
               ? canLoop
-                ? "Filmstrip: click to move the playhead, drag to loop a passage"
+                ? "Filmstrip: click to move the playhead, drag to loop a passage, double-click to stop looping"
                 : "Filmstrip: click to move the playhead"
-              : "Loop lane: drag to loop a passage"
+              : "Loop lane: drag to loop a passage, double-click to stop looping"
           }
           className={cn("shrink-0", playback.filmstrip ? "h-12" : "h-7")}
         >
@@ -1355,6 +1472,8 @@ export function Player({
           ref={media}
           playsInline
           onClick={toggle}
+          // A double-click where the loop is on ends it (#494); the two clicks play and pause.
+          onDoubleClick={active ? () => clearLoop(media.current?.currentTime ?? time) : undefined}
           className={cn(
             "aspect-video w-full cursor-pointer bg-ground",
             comparing !== "side" && "rounded-panel",
@@ -1510,10 +1629,11 @@ export function Player({
       )}
       style={{ maxHeight: surfaceCap(view, display, edits.length > 0) }}
       // Zoomed in, it scrolls, so the keyboard can reach it and move along it.
+      {...pinchHandlers}
       {...(zoom > 1 && {
         tabIndex: 0,
         role: "group",
-        "aria-label": `Waveform, zoomed ${zoom} times: the arrow keys move along it`,
+        "aria-label": `Waveform, zoomed ${zoomLabel(zoom).replace("×", "")} times: the arrow keys move along it, and scrolling does; pinch, or hold Ctrl and scroll, to zoom`,
         onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
           const box = event.currentTarget;
           const next = panScroll(event.key, box.scrollLeft, box.clientWidth, box.scrollWidth);
@@ -1540,9 +1660,10 @@ export function Player({
           active={active}
           onSeek={seek}
           onLoop={canLoop ? setLoop : undefined}
+          onClear={active ? clearLoop : undefined}
           label={
             canLoop
-              ? "Waveform: click to move the playhead, drag to loop a passage"
+              ? "Waveform: click to move the playhead, drag to loop a passage, double-click to stop looping"
               : "Waveform: click to move the playhead"
           }
           className="flex min-h-0 flex-1 flex-col gap-3"

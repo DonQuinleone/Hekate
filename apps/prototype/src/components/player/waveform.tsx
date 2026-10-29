@@ -153,6 +153,10 @@ export function Waveform({
         onPointerMove={(e) => {
           if (drag) setDrag({ from: drag.from, to: tAt(e.clientX) });
         }}
+        onDoubleClick={() => {
+          // With the loop on, a double-click ends it (#494); the clicks before it seeked.
+          if (playback.looping) playback.setLooping(false);
+        }}
         onPointerUp={(e) => {
           if (!drag) return;
           const to = tAt(e.clientX);
