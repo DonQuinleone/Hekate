@@ -580,7 +580,7 @@ export function DeferDialog({
   return (
     <Dialog
       title="Defer to a stage"
-      description="It leaves this round's list, stays open, and comes back for that stage."
+      description="The comment stays open but leaves this round's list, and comes back when that stage starts."
       onClose={onClose}
       width="sm"
       footer={
@@ -628,7 +628,7 @@ export function AssignDialog({
   return (
     <Dialog
       title="Assign"
-      description="Who is to act on it. Send them their list once triage is done."
+      description="The person who is to act on it. It joins their list; send them the list once triage is done."
       onClose={onClose}
       width="sm"
       footer={

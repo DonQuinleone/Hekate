@@ -39,8 +39,10 @@ export { profileIcon };
 const profileHint: Record<ProjectProfile, string> = {
   music:
     "Tracks with versions and variations, takes, scores, bars in comments, QA against a delivery profile.",
-  video: "Cuts and versions, frame-accurate comments, regions on the picture.",
-  general: "Folders and files of any kind. Documents and pictures as pages.",
+  video:
+    "Deliverables with cuts and renditions, frame-accurate comments, timecode, regions on the picture, broadcast checks.",
+  general:
+    "Folders and files of any kind with simple version chains. Documents and pictures as pages.",
 };
 
 /**

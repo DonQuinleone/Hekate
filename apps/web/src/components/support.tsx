@@ -319,7 +319,10 @@ export function SupportSection({
           ? support.address
           : null;
     return (
-      <Section title="Support" intro="This instance answers elsewhere.">
+      <Section
+        title="Support"
+        intro="The people who run this instance take questions outside Hekate. Here is where to reach them."
+      >
         <Row
           name="Where"
           hint={

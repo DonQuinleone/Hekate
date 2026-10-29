@@ -260,7 +260,7 @@ function Reviewers({ projectId }: { projectId: string }) {
     <section aria-label="Reviewers" className="flex flex-col gap-3">
       <SectionHead
         title="Reviewers"
-        hint="guests, by link"
+        hint="guests, who reach a review by link"
         action={
           can("request_reviews") && (
             <Button variant="secondary" size="md" asChild>
@@ -406,7 +406,7 @@ function LabelDialog({
   return (
     <Dialog
       title={`Label for ${guest.name}`}
-      description="Shown beside their name wherever the workspace shows them."
+      description="Such as Conductor. It is shown beside their name in reviews, comments and lists, so people know who is speaking."
       onClose={onClose}
       width="sm"
     >

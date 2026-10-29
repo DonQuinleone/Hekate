@@ -35,7 +35,7 @@ export function CroomImportPage({ projectId }: { projectId: string }) {
           {!can("edit_project") ? (
             <Empty
               title="Not among what your role allows"
-              text="Importing a ControlRoom project is for those who manage the project."
+              text="Importing a ControlRoom project needs the permission to edit the project. Ask whoever runs it."
             />
           ) : project.archivedAt ? (
             <Empty

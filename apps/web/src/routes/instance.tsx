@@ -1431,7 +1431,11 @@ function Settings() {
             {maintenance.on ? "Turn off" : "Turn on"}
           </Button>
         </Row>
-        <Row name="Notice" hint="Shown to everyone while it is on, beside that it is." stacked>
+        <Row
+          name="Notice"
+          hint="Shown to everyone while maintenance mode is on, under the line saying that it is."
+          stacked
+        >
           <div className="flex w-full flex-col gap-2 @xl/app:flex-row">
             <Input
               aria-label="Maintenance notice"
@@ -3342,7 +3346,11 @@ function SuspendWorkspace({
       }
     >
       <form id="suspend-workspace" onSubmit={submit} className="flex flex-col gap-3">
-        <Field label="Why" hint="Its members read this." error={error}>
+        <Field
+          label="Why"
+          hint="Its members read this on the page that tells them the workspace is suspended."
+          error={error}
+        >
           <Textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}

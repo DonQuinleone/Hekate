@@ -270,7 +270,10 @@ export function UploadRequestDialog({
                 onChange={(e) => setName(e.target.value)}
               />
             </Field>
-            <Field label="What you want" hint="Shown to them on the upload page.">
+            <Field
+              label="What you want"
+              hint="Shown to them on the upload page, so they know what to send."
+            >
               <Textarea
                 rows={2}
                 value={wanted}

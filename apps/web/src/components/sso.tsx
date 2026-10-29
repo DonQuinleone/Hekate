@@ -155,7 +155,7 @@ function SsoForm({
                 onChange={(e) => set("entryPoint", e.target.value)}
               />
             </Row>
-            <Row name="Entity ID" hint="The identity provider's own.">
+            <Row name="Entity ID" hint="As the identity provider's metadata states it.">
               <Input
                 aria-label="Entity ID"
                 className="w-full @3xl/app:w-96"

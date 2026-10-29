@@ -2388,7 +2388,7 @@ export function WorkflowRoute({ projectId }: { projectId: string }) {
     return (
       <Refused
         title="Not for your role"
-        text="Workflows are edited by whoever may edit workflows in this project."
+        text="Editing workflows needs the permission in a project role. Ask whoever runs the project."
       />
     );
   return <WorkflowPage project={project} />;

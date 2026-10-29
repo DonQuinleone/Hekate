@@ -392,7 +392,7 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
         {rows.length === 0 ? (
           <Empty
             title="No takes from this session yet"
-            text="A take says which session it was recorded in, set where it is edited among the track's takes."
+            text="Takes stay with their tracks. To list one here, open it among its track's takes and set its session to this one."
           />
         ) : (
           // A wide table scrolls on its own on a phone; the page does not.

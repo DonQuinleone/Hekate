@@ -748,7 +748,10 @@ function EditTake({
           />
         </Field>
         {(sessions.length > 0 || session) && (
-          <Field label="Session" hint="The day it was recorded; it stays this track's take">
+          <Field
+            label="Session"
+            hint="The session it was recorded in. Whichever you choose, it stays this track's take"
+          >
             <Select value={session} onChange={(e) => setSession(e.target.value)}>
               <option value="">None</option>
               {sessions.map((s) => (

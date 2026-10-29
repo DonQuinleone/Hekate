@@ -138,7 +138,7 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
     <section aria-label="Groups" className="flex flex-col gap-3">
       <SectionHead
         title="Groups"
-        hint="asked as one step"
+        hint="people a review or a tool exception can name as one"
         action={
           manage && (
             <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
@@ -153,7 +153,9 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
       )}
       {groups && groups.length === 0 && (
         <Card className="px-4 py-4 text-[13px] text-ink-3">
-          No groups yet. A group, such as Soloists, is asked as one step of a review.
+          No groups yet. A group such as Soloists is a set of people, members and reviewers alike,
+          that a review or a tool exception can name as one: ask the group, and everyone in it is
+          asked together.
         </Card>
       )}
       {groups && groups.length > 0 && (
@@ -193,7 +195,7 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
       {editing && (
         <Dialog
           title={editing === "new" ? "New group" : `Edit ${editing.name}`}
-          description="A group is one step of a review: everyone in it is asked together."
+          description="A set of people, members and reviewers alike, that a review or a tool exception can name as one. Ask the group, and everyone in it is asked together."
           onClose={close}
           width="md"
         >

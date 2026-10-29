@@ -160,14 +160,16 @@ const allSections: SectionSpec[] = [
     label: "Defaults",
     group: "Workspace",
     from: "admin",
-    intro: "What reviews and new projects get unless someone says otherwise.",
+    intro:
+      "What a review grants its reviewers, and what a new project starts with, unless the request or the project says otherwise.",
   },
   {
     id: "categories",
     label: "Comment categories",
     group: "Workspace",
     from: "admin",
-    intro: "The categories a comment can carry, and how each kind is handled.",
+    intro:
+      "The labels a comment can carry, such as Noise or Balance, and where triage sends each kind. Every new project starts with these.",
   },
   {
     id: "delivery",
@@ -205,7 +207,8 @@ const allSections: SectionSpec[] = [
     label: "Security",
     group: "Access",
     from: "admin",
-    intro: "How members sign in to this workspace.",
+    intro:
+      "How members sign in: the ways allowed, the second factor, single sign-on or a directory, and how long a session lasts.",
     docs: "/security/model/",
   },
   {
@@ -277,7 +280,8 @@ const allSections: SectionSpec[] = [
     label: "Operations",
     group: "Operations",
     from: "owner",
-    intro: "What the instance is doing for this workspace.",
+    intro:
+      "The instance's version, worker, jobs, keys and backups, as they stand for this workspace. Read-only: the operators change them.",
     docs: "/operate/upgrades/",
   },
 ];
@@ -1290,7 +1294,11 @@ function Operations() {
                 : `Key v${e.keyVersion} since ${dateFormat.format(new Date(e.keySince ?? ""))}`}
           </span>
         </Row>
-        <Row name="Metrics" hint="For Prometheus." inline>
+        <Row
+          name="Metrics"
+          hint="Exported for Prometheus at /metrics, when the instance turns it on."
+          inline
+        >
           <span className="tabular text-[13px] text-ink-2">
             {!m.on
               ? "Off"
