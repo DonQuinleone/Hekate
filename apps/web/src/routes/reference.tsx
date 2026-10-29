@@ -26,6 +26,12 @@ import {
 } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Switch } from "~/components/ui/toggle";
+import {
+  type ChosenFile,
+  ChosenList,
+  UploadDialog,
+  UploadZone,
+} from "~/components/ui/upload-dialog";
 import { FrameGuides, GoToTimecode } from "~/components/video-frame";
 import { cn } from "~/lib/cn";
 
@@ -117,6 +123,72 @@ const states: ReviewState[] = [
   "submitted",
   "cancelled",
 ];
+
+/** Files on an upload dialog's list, one in each state it can be in. */
+const chosenFiles: ChosenFile<string>[] = [
+  {
+    key: "dry",
+    name: "Maple Leaf Rag - V3 dry.wav",
+    size: 52_400_000,
+    file: null,
+    folder: "",
+    state: "waiting",
+    share: 0,
+    error: null,
+    result: null,
+  },
+  {
+    key: "wet",
+    name: "Maple Leaf Rag - V3 wet.wav",
+    size: 52_400_000,
+    file: null,
+    folder: "",
+    state: "sending",
+    share: 0.42,
+    error: null,
+    result: null,
+  },
+  {
+    key: "edl",
+    name: "Maple Leaf Rag - V3.edl",
+    size: 4_100,
+    file: null,
+    folder: "",
+    state: "sent",
+    share: 1,
+    error: null,
+    result: "edl",
+  },
+  {
+    key: "score",
+    name: "Maple Leaf Rag - Score.pdf",
+    size: 2_300_000,
+    file: null,
+    folder: "",
+    state: "failed",
+    share: 0,
+    error: "The connection dropped",
+    result: null,
+  },
+];
+
+/** An upload that goes nowhere, for the live dialog here: it takes two seconds and succeeds. */
+const pretendToSend = (file: File, onProgress: (share: number) => void, signal: AbortSignal) =>
+  new Promise<string>((resolve, reject) => {
+    let share = 0;
+    const tick = setInterval(() => {
+      share = Math.min(1, share + 0.1);
+      onProgress(share);
+      if (share >= 1) {
+        clearInterval(tick);
+        resolve(file.name);
+      }
+    }, 200);
+    signal.addEventListener("abort", () => {
+      clearInterval(tick);
+      reject(new DOMException("Upload cancelled", "AbortError"));
+    });
+  });
 
 /** One component: its name and rule at the left, the component in its states at the right. */
 function Spec({ name, rule, children }: { name: string; rule: string; children: ReactNode }) {
@@ -257,6 +329,7 @@ function Components() {
   const [level, setLevel] = useState(60);
   const [profile, setProfile] = useState("music");
   const [dialog, setDialog] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const noop = () => {};
   return (
     <>
@@ -542,6 +615,41 @@ function Components() {
               <Input defaultValue="Mixes" aria-label="Folder name" />
             </Dialog>
           )}
+        </Spec>
+        <Spec
+          name="Upload dialog"
+          rule="Wherever a file is chosen in a dialog: a drop zone that is the file picker, the files chosen with their size and a way off the list, the field or two the job needs, one line on what will happen, and the action named for the job. Each file's progress shows on its row; what went wrong sits under the file it concerns."
+        >
+          <div className="flex w-full max-w-[460px] flex-col gap-4">
+            <UploadZone
+              prompt="Drop the files of this version here, or choose them"
+              hint="One file per variation."
+              inputLabel="Example files"
+              multiple
+              onPick={noop}
+            />
+            <ChosenList chosen={chosenFiles} label="Example files chosen" onRemove={noop} />
+            <p className="m-0 text-[13px] text-ink-2">
+              Uploaded into the track's folder as Version 3.
+            </p>
+            <div>
+              <Button onClick={() => setUploading(true)}>Open an upload dialog</Button>
+            </div>
+            {uploading && (
+              <UploadDialog<string>
+                title="Add a variation to V2"
+                description="Another treatment of the same edit, such as a wet mix beside the dry one."
+                onClose={() => setUploading(false)}
+                inputLabel="The variation's file"
+                prompt="Drop the file here, or choose it"
+                accept="audio/*,video/*"
+                send={pretendToSend}
+                what="Uploaded into the track's folder, beside the other variations of V2."
+                action="Add variation"
+                onSubmit={() => setUploading(false)}
+              />
+            )}
+          </div>
         </Spec>
         <Spec
           name="Empty state"

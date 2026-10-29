@@ -11,6 +11,7 @@ import { TakeManager } from "~/components/take-manager";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { type ChosenFile, UploadDialog } from "~/components/ui/upload-dialog";
 import {
   comments,
   fileById,
@@ -30,6 +31,12 @@ import { formatDateTime, plural } from "~/lib/format";
 import { useViewer } from "~/viewer/context";
 import { Empty, Refused, StateGate, useScreenState } from "~/viewer/state-gate";
 
+/** The files of the next version, as the zone picks them here. */
+const versionFiles = [
+  { key: "dry", name: "Maple Leaf Rag - V3 dry.wav", size: 52_400_000, variation: "Dry" },
+  { key: "wet", name: "Maple Leaf Rag - V3 wet.wav", size: 52_400_000, variation: "Wet" },
+];
+
 function NewVersion({
   next,
   onClose,
@@ -41,152 +48,146 @@ function NewVersion({
 }) {
   const state = useScreenState();
   const refused = state === "failed";
+  const [chosen, setChosen] = useState<ChosenFile[]>(versionFiles);
   return (
-    <form
-      className="flex flex-col gap-5 rounded-panel-lg border border-line bg-raised/40 p-5 shadow-1"
-      onSubmit={(e) => {
-        e.preventDefault();
-        onClose();
-      }}
-    >
-      <div className="flex items-baseline justify-between">
-        <h2 className="text-[16px] font-medium">Version {next}</h2>
-        <span className="text-[13px] text-ink-3">
-          A new edit is a new version, never a replacement.
-        </span>
-      </div>
-      <div className="flex flex-col gap-2 rounded-panel border border-edge border-dashed p-4">
-        <p className="text-[14px] text-ink-2">
-          Drop the files of this version here, or choose them. One file per variation.
-        </p>
-        <ul className="flex list-none flex-col gap-1 p-0">
-          {[
-            { name: "Maple Leaf Rag - V3 dry.wav", variation: "Dry", primary: true },
-            { name: "Maple Leaf Rag - V3 wet.wav", variation: "Wet", primary: false },
-          ].map((f) => (
-            <li
-              key={f.name}
-              className="grid grid-cols-[auto_minmax(0,1fr)_120px_auto] items-center gap-3 rounded-control bg-ground px-3 py-2"
-            >
-              <Icon name="music" className="text-ink-3" />
-              <span className="truncate text-[14px] text-ink">{f.name}</span>
-              <Input defaultValue={f.variation} aria-label="Variation name" className="h-7" />
-              <label className="flex items-center gap-1.5 text-[13px] text-ink-2">
-                <input type="radio" name="primary" defaultChecked={f.primary} /> Primary
-              </label>
-            </li>
-          ))}
-        </ul>
-        <Button variant="ghost" size="sm" className="self-start">
-          Choose files
+    <UploadDialog
+      title={`Version ${next}`}
+      description="A new edit is a new version, never a replacement. One file per variation; one of them is the primary."
+      onClose={onClose}
+      width="lg"
+      inputLabel="Version files"
+      listLabel="Files of this version"
+      prompt="Drop the files of this version here, or choose them"
+      hint="One file per variation."
+      multiple
+      chosen={chosen}
+      onPick={() => setChosen(versionFiles)}
+      onRemove={(key) => setChosen((c) => c.filter((f) => f.key !== key))}
+      alternatives={
+        <Button variant="ghost" size="sm">
+          From the project
         </Button>
-      </div>
-      {refused && (
-        <p className="flex items-start gap-2 rounded-panel border border-signal/50 bg-signal/10 px-3 py-2 text-[14px] text-ink">
-          <Icon name="warning" className="mt-0.5 shrink-0 text-signal" />
-          <span>
-            The upload workflow refused Maple Leaf Rag - V3 dry.wav: true peak +0.2 dBTP is over the
-            −1.0 dBTP ceiling of Apple Digital Masters. Fix the export and upload again, or ask a
-            producer to let it through. This project asks for an edit decision list with every
-            version. Attach the EDL, or ask a producer to let it through.
-          </span>
-        </p>
-      )}
-      {refused && (
-        <div className="-mt-3 flex gap-2 pl-6">
-          <Button variant="secondary" size="sm">
-            Let it through
-          </Button>
+      }
+      row={(c) => (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <Input
+            defaultValue={versionFiles.find((f) => f.key === c.key)?.variation ?? ""}
+            aria-label={`Variation name for ${c.name}`}
+            className="h-7 w-48 text-[13px]"
+          />
+          <label className="flex items-center gap-1.5 text-[13px] text-ink-2">
+            <input type="radio" name="primary" defaultChecked={c.key === "dry"} /> Primary
+          </label>
         </div>
       )}
-      <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
-        What changed
-        <textarea
-          rows={2}
-          placeholder="Pedal noise cleaned at bar 5; tighter join at 17."
-          className="rounded-control border border-edge bg-ground px-3 py-2 text-[14px] text-ink placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
-        />
-      </label>
-      <div className="grid gap-4 @3xl/app:grid-cols-2">
-        <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0 @3xl/app:col-span-2">
-          <legend className="mb-1 text-[14px] text-ink-2">
-            The 3 open comments from V{next - 1}
-            <span className="block text-[13px] text-ink-3">
-              Each carries over unless you say otherwise. Anchors follow the music once the versions
-              are aligned; you can move any by hand.
-            </span>
-          </legend>
-          <ul className="flex flex-col">
-            {[
-              ["Pedal noise on the left, just before the downbeat.", "Tomas Varga · Dry · 0:06"],
-              ["The left hand rushes through these bars.", "Ines Arlow · Dry · bars 9 to 12"],
-              ["The reverb tail could be a touch shorter.", "Mira Solberg · Wet"],
-            ].map(([body, meta], i) => (
-              <li
-                key={body}
-                className="flex items-center gap-3 border-b border-line py-2 last:border-b-0"
-              >
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] text-ink">{body}</span>
-                  <span className="block truncate text-[12px] text-ink-3">{meta}</span>
-                </span>
-                <select
-                  defaultValue={i === 2 ? "fixed" : "open"}
-                  aria-label={`What becomes of "${body}"`}
-                  className="h-8 w-36 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
-                >
-                  <option value="open">Carry over</option>
-                  <option value="hidden">Carry, hidden</option>
-                  <option value="fixed">Fixed</option>
-                  <option value="wont_fix">Won't fix</option>
-                </select>
-              </li>
-            ))}
-          </ul>
-        </fieldset>
-        <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
-          Edit decision list
-          <span className="flex items-center gap-2">
-            <Button variant="secondary" size="sm">
-              Attach EDL
-            </Button>
-            <span className="text-[13px] text-ink-3">
-              CMX 3600, Pyramix or Sequoia. Optional here, unless the project asks for one.
-            </span>
-          </span>
-        </label>
-        <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
-          Restart the workflow from
-          <select
-            defaultValue="st-conductor-2"
-            className="h-8 rounded-control border border-edge bg-ground px-2 text-[14px] text-ink"
-          >
-            <option value="none">Keep the current stage</option>
-            <option value="st-conductor-1">Conductor, round one</option>
-            <option value="st-triage">Producer triages</option>
-            <option value="st-conductor-2">Conductor, round two</option>
-            <option value="st-approve">Label approval</option>
-          </select>
-        </label>
-        {hasScore && (
-          <label className="flex items-start gap-2 text-[14px] text-ink-2">
-            <input type="checkbox" defaultChecked className="mt-1" />
-            <span>
-              Keep the score beside this version
-              <span className="block text-[13px] text-ink-3">Maple Leaf Rag - Score.pdf</span>
-            </span>
+      fields={
+        <>
+          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            What changed
+            <textarea
+              rows={2}
+              placeholder="Pedal noise cleaned at bar 5; tighter join at 17."
+              className="rounded-control border border-edge bg-ground px-3 py-2 text-[14px] text-ink placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
+            />
           </label>
-        )}
-      </div>
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button variant="primary" type="submit">
-          Add version {next}
-        </Button>
-      </div>
-    </form>
+          <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
+            <legend className="mb-1 text-[14px] text-ink-2">
+              The 3 open comments from V{next - 1}
+              <span className="block text-[13px] text-ink-3">
+                Each carries over unless you say otherwise. Anchors follow the music once the
+                versions are aligned; you can move any by hand.
+              </span>
+            </legend>
+            <ul className="flex flex-col">
+              {[
+                ["Pedal noise on the left, just before the downbeat.", "Tomas Varga · Dry · 0:06"],
+                ["The left hand rushes through these bars.", "Ines Arlow · Dry · bars 9 to 12"],
+                ["The reverb tail could be a touch shorter.", "Mira Solberg · Wet"],
+              ].map(([body, meta], i) => (
+                <li
+                  key={body}
+                  className="flex items-center gap-3 border-b border-line py-2 last:border-b-0"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[14px] text-ink">{body}</span>
+                    <span className="block truncate text-[12px] text-ink-3">{meta}</span>
+                  </span>
+                  <select
+                    defaultValue={i === 2 ? "fixed" : "open"}
+                    aria-label={`What becomes of "${body}"`}
+                    className="h-8 w-36 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
+                  >
+                    <option value="open">Carry over</option>
+                    <option value="hidden">Carry, hidden</option>
+                    <option value="fixed">Fixed</option>
+                    <option value="wont_fix">Won't fix</option>
+                  </select>
+                </li>
+              ))}
+            </ul>
+          </fieldset>
+          <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            Edit decision list
+            <span className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" size="sm">
+                Attach EDL
+              </Button>
+              <span className="text-[13px] text-ink-3">
+                CMX 3600, Pyramix or Sequoia. Optional here, unless the project asks for one.
+              </span>
+            </span>
+          </div>
+          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            Restart the workflow from
+            <select
+              defaultValue="st-conductor-2"
+              className="h-9 rounded-control border border-edge bg-ground px-2 text-[14px] text-ink @3xl/app:w-80"
+            >
+              <option value="none">Keep the current stage</option>
+              <option value="st-conductor-1">Conductor, round one</option>
+              <option value="st-triage">Producer triages</option>
+              <option value="st-conductor-2">Conductor, round two</option>
+              <option value="st-approve">Label approval</option>
+            </select>
+          </label>
+          {hasScore && (
+            <label className="flex items-start gap-2 text-[14px] text-ink-2">
+              <input type="checkbox" defaultChecked className="mt-1" />
+              <span>
+                Keep the score beside this version
+                <span className="block text-[13px] text-ink-3">Maple Leaf Rag - Score.pdf</span>
+              </span>
+            </label>
+          )}
+        </>
+      }
+      what={`Uploaded into the track's folder as Version ${next}; the open comments from V${next - 1} follow as chosen above.`}
+      error={
+        refused && (
+          <div
+            role="alert"
+            className="flex flex-col gap-2 rounded-panel border border-signal/50 bg-signal/10 px-3 py-2 text-[14px] text-ink"
+          >
+            <p className="m-0 flex items-start gap-2">
+              <Icon name="warning" className="mt-0.5 shrink-0 text-signal" />
+              <span>
+                The upload workflow refused Maple Leaf Rag - V3 dry.wav: true peak +0.2 dBTP is over
+                the −1.0 dBTP ceiling of Apple Digital Masters. Fix the export and upload again, or
+                ask a producer to let it through. This project asks for an edit decision list with
+                every version. Attach the EDL, or ask a producer to let it through.
+              </span>
+            </p>
+            <div className="flex gap-2 pl-6">
+              <Button variant="secondary" size="sm">
+                Let it through
+              </Button>
+            </div>
+          </div>
+        )
+      }
+      action={`Upload version ${next}`}
+      onAction={onClose}
+    />
   );
 }
 

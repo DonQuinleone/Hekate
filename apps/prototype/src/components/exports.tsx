@@ -4,6 +4,7 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Select } from "~/components/ui/input";
 import { Dropdown, type MenuAction } from "~/components/ui/menu";
+import { UploadDialog } from "~/components/ui/upload-dialog";
 import { type Comment, categories, type File, personById } from "~/data";
 import { cn } from "~/lib/cn";
 import { formatClock } from "~/lib/format";
@@ -179,86 +180,79 @@ export function ImportCommentsDialog({ onClose }: { onClose: () => void }) {
     { time: "0:17.600", text: "rubato keep", colour: "Green", ok: true },
     { time: "0:52.000", text: "??", colour: "Yellow", ok: false },
   ];
+  const usable = rows.filter((r) => r.ok).length;
   return (
-    <Dialog
+    <UploadDialog
       title="Import a marker list"
       description="Pro Tools, Nuendo, Reaper, Final Cut Pro, DaVinci Resolve, Premiere Pro, Avid, CSV or plain text."
       onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" disabled={!dropped} onClick={onClose}>
-            Import {rows.filter((r) => r.ok).length} comments
-          </Button>
-        </>
-      }
-    >
-      {!dropped ? (
-        <button
-          type="button"
-          onClick={() => setDropped(true)}
-          className="flex w-full flex-col items-center gap-2 rounded-panel-lg border border-dashed border-line-strong px-6 py-10 text-center transition-colors hover:border-edge-strong hover:bg-raised/40"
-        >
-          <Icon name="upload" size={20} className="text-ink-3" />
-          <span className="text-[14px] text-ink">Drop the marker list here, or choose it</span>
-          <span className="text-[13px] text-ink-3">The format is read from the file.</span>
-        </button>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <div className="flex items-center gap-2 text-[13px] text-ink-2">
-            <Icon name="file" size={14} className="text-ink-3" />
-            Maple V2 markers.txt · Avid Media Composer markers · {rows.length} markers
-          </div>
-          <div className="grid gap-4 @md/app:grid-cols-2">
-            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              Author
-              <Select defaultValue="p-tomas">
-                <option value="p-tomas">Tomas Varga</option>
-                <option value="p-alex">Alex Rivera</option>
-              </Select>
-            </label>
-            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              Anchor
-              <Select defaultValue="time">
-                <option value="time">At the marker's time</option>
-                <option value="whole">Whole file</option>
-              </Select>
-            </label>
-          </div>
-          <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-            Colours become categories
-            {["Red", "Green", "Yellow"].map((c, i) => (
-              <span key={c} className="flex items-center gap-3">
-                <span className="w-16 text-ink">{c}</span>
-                <Select defaultValue={categories[i]?.id} className="w-48">
-                  {categories.map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.name}
-                    </option>
-                  ))}
-                  <option value="">No category</option>
+      inputLabel="Marker list"
+      prompt="Drop the marker list here, or choose it"
+      hint="The format is read from the file."
+      chosen={dropped ? [{ key: "list", name: "Maple V2 markers.txt", size: 1_240 }] : []}
+      onPick={() => setDropped(true)}
+      onRemove={() => setDropped(false)}
+      fields={
+        dropped && (
+          <>
+            <div className="grid gap-4 @md/app:grid-cols-2">
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Author
+                <Select defaultValue="p-tomas">
+                  <option value="p-tomas">Tomas Varga</option>
+                  <option value="p-alex">Alex Rivera</option>
                 </Select>
-              </span>
-            ))}
-          </div>
-          <ul className="flex flex-col divide-y divide-line rounded-panel border border-line bg-sunken text-[12px]">
-            {rows.map((r) => (
-              <li
-                key={r.time}
-                className={cn("flex items-center gap-3 px-3 py-1.5", !r.ok && "text-signal")}
-              >
-                <span className="tabular w-16">{r.time}</span>
-                <span className="flex-1 truncate text-ink-2">{r.text}</span>
-                <span className="text-ink-3">{r.colour}</span>
-                {!r.ok && <span>past the end of the file</span>}
-              </li>
-            ))}
-          </ul>
-        </div>
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Anchor
+                <Select defaultValue="time">
+                  <option value="time">At the marker's time</option>
+                  <option value="whole">Whole file</option>
+                </Select>
+              </label>
+            </div>
+            <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              Colours become categories
+              {["Red", "Green", "Yellow"].map((c, i) => (
+                <span key={c} className="flex items-center gap-3">
+                  <span className="w-16 text-ink">{c}</span>
+                  <Select defaultValue={categories[i]?.id} className="w-48">
+                    {categories.map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.name}
+                      </option>
+                    ))}
+                    <option value="">No category</option>
+                  </Select>
+                </span>
+              ))}
+            </div>
+          </>
+        )
+      }
+      what={
+        dropped &&
+        `Avid Media Composer markers · ${rows.length} markers · ${usable} become comments by Tomas Varga at their times, each saying the list it came from.`
+      }
+      action={dropped ? `Import ${usable} comments` : "Import"}
+      onAction={onClose}
+    >
+      {dropped && (
+        <ul className="flex flex-col divide-y divide-line rounded-panel border border-line bg-sunken text-[12px]">
+          {rows.map((r) => (
+            <li
+              key={r.time}
+              className={cn("flex items-center gap-3 px-3 py-1.5", !r.ok && "text-signal")}
+            >
+              <span className="tabular w-16">{r.time}</span>
+              <span className="flex-1 truncate text-ink-2">{r.text}</span>
+              <span className="text-ink-3">{r.colour}</span>
+              {!r.ok && <span>past the end of the file</span>}
+            </li>
+          ))}
+        </ul>
       )}
-    </Dialog>
+    </UploadDialog>
   );
 }
 
