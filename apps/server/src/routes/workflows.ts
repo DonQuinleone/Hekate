@@ -13,6 +13,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can, lockLiveProject } from "../access.ts";
+import { assertDefinitionRules } from "../comment-assignment.ts";
 import { NotFound } from "../errors.ts";
 import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
@@ -120,6 +121,7 @@ export const projectWorkflowRoutes = (db: Database) =>
       const input = c.req.valid("json");
       const made = await db.transaction(async (tx) => {
         await lockLiveProject(tx, organisationId, projectId);
+        await assertDefinitionRules(tx, organisationId, projectId, input.definition);
         if (input.trackId) {
           const [track] = await tx
             .select({ id: tracks.id })
@@ -177,6 +179,8 @@ export const workflowRoutes = (db: Database) =>
             message: "Someone changed this workflow since you opened it: reload it to see theirs",
           });
         const definition = change.definition ?? current.definition;
+        if (change.definition)
+          await assertDefinitionRules(tx, organisationId, row.projectId, change.definition);
         if (change.active ?? current.active) mustRun(definition);
         const [updated] = await tx
           .update(workflows)

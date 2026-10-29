@@ -1408,6 +1408,70 @@
                       "everyoneOnStatus"
                     ],
                     "additionalProperties": false
+                  },
+                  "commentAssignment": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "assign": {
+                            "anyOf": [
+                              {
+                                "oneOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "const": "member"
+                                      },
+                                      "userId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "userId"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "const": "role"
+                                      },
+                                      "roleId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "roleId"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "assign"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               },
@@ -6078,6 +6142,63 @@
                               "minLength": 1,
                               "maxLength": 64,
                               "pattern": "^[A-Za-z0-9_-]+$"
+                            },
+                            "assign": {
+                              "type": "object",
+                              "properties": {
+                                "assign": {
+                                  "anyOf": [
+                                    {
+                                      "oneOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "member"
+                                            },
+                                            "userId": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "userId"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "role"
+                                            },
+                                            "roleId": {
+                                              "type": "string",
+                                              "format": "uuid"
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "roleId"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "assign"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
@@ -7803,6 +7924,151 @@
                   "page": true,
                   "bar": true,
                   "beat": true
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/tracks/{id}/comment-assignment": {
+      "put": {
+        "operationId": "putTracksIdCommentAssignment",
+        "tags": [
+          "Tracks"
+        ],
+        "summary": "Choose whom a track's new comments are for",
+        "description": "Over the project's rule; null keeps the project's.\n\nNeeds the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "assignment": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "assign": {
+                            "anyOf": [
+                              {
+                                "oneOf": [
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "const": "member"
+                                      },
+                                      "userId": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 64
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "userId"
+                                    ],
+                                    "additionalProperties": false
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "kind": {
+                                        "type": "string",
+                                        "const": "role"
+                                      },
+                                      "roleId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      }
+                                    },
+                                    "required": [
+                                      "kind",
+                                      "roleId"
+                                    ],
+                                    "additionalProperties": false
+                                  }
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "assign"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "assignment"
+                ],
+                "additionalProperties": false
+              },
+              "example": {
+                "assignment": {
+                  "assign": {
+                    "kind": "member",
+                    "userId": "Masters"
+                  }
                 }
               }
             }
@@ -13395,6 +13661,63 @@
                               "minLength": 1,
                               "maxLength": 64,
                               "pattern": "^[A-Za-z0-9_-]+$"
+                            },
+                            "assign": {
+                              "type": "object",
+                              "properties": {
+                                "assign": {
+                                  "anyOf": [
+                                    {
+                                      "oneOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "member"
+                                            },
+                                            "userId": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 64
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "userId"
+                                          ],
+                                          "additionalProperties": false
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "kind": {
+                                              "type": "string",
+                                              "const": "role"
+                                            },
+                                            "roleId": {
+                                              "type": "string",
+                                              "format": "uuid"
+                                            }
+                                          },
+                                          "required": [
+                                            "kind",
+                                            "roleId"
+                                          ],
+                                          "additionalProperties": false
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "assign"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
@@ -16675,6 +16998,63 @@
                   "type": "string",
                   "contentMediaType": "application/pdf"
                 }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/files/{id}/stages": {
+      "get": {
+        "operationId": "getFilesIdStages",
+        "tags": [
+          "Files"
+        ],
+        "summary": "List the stages a comment may be deferred to",
+        "description": "Those of the workflows that apply to the file's track (or its project), with the step a running workflow waits at marked.\n\nNeeds the `files:read` scope.",
+        "security": [
+          {
+            "token": [
+              "files:read"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },

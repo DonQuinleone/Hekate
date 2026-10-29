@@ -407,6 +407,10 @@ export const apiOperations: Record<string, ApiOperation> = {
     summary: "Set the references a track's comments may name",
     description: "Over the project's.",
   },
+  "PUT /tracks/{id}/comment-assignment": {
+    summary: "Choose whom a track's new comments are for",
+    description: "Over the project's rule; null keeps the project's.",
+  },
   "PUT /tracks/{id}/normalisation": {
     summary: "Choose how a track's recordings play normalised",
     description: "Over the project's choice.",
@@ -551,6 +555,11 @@ export const apiOperations: Record<string, ApiOperation> = {
   "GET /files/{id}/mentionable": {
     summary: "List whom a comment may mention",
     description: "The project's people, by name.",
+  },
+  "GET /files/{id}/stages": {
+    summary: "List the stages a comment may be deferred to",
+    description:
+      "Those of the workflows that apply to the file's track (or its project), with the step a running workflow waits at marked.",
   },
   "POST /files/{id}/comments/triage": {
     summary: "Triage comments",
