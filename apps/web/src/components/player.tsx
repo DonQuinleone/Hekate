@@ -56,6 +56,7 @@ import type { EditSegment } from "~/lib/edit-decisions";
 import { type Loop, loopEntry, loopFrom, type Rolls, roll, wrapTarget } from "~/lib/loop";
 import { adjacentMarker, markerTimes } from "~/lib/markers";
 import { usePlayerView } from "~/lib/player-view";
+import { fractionAt } from "~/lib/playhead";
 import { type Playback, type Rendition, usePreferences, useSavePreferences } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { readView, type SpectrogramView } from "~/lib/spectrogram";
@@ -77,6 +78,7 @@ import { EditLane } from "./edit-lane";
 import { Filmstrip } from "./filmstrip";
 import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
+import { usePlayheadFrames } from "./playhead";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
 import { SpectrogramLook, SpectrogramSettings } from "./spectrogram-settings";
 import { nativeSource, StreamPart, wholeRendition } from "./stream-part";
@@ -119,6 +121,12 @@ function useRolls(): [Rolls, (rolls: Rolls) => void] {
   };
   return [rolls, save];
 }
+
+/**
+ * How far the playhead's stem rises from the scrub bar's thumb: across the gap to the
+ * waveform above (12 px) and the half of the bar above the thumb, so the line meets it.
+ */
+const SCRUB_STEM = 20;
 
 /** How the audio is drawn above the transport. */
 type Display = "waveform" | "spectrogram" | "both" | "overlay";
@@ -531,6 +539,34 @@ export function Player({
     );
     if (next !== null) element.scrollLeft = next;
   }, [surface, time, zoom, duration]);
+  // The playhead over the waveform and the scrub bar's thumb and progress, moved every frame
+  // from one clock (#492), so they glide together between the media's own time updates.
+  const content = useRef<HTMLDivElement>(null);
+  const playheadLine = useRef<HTMLDivElement>(null);
+  const scrubFill = useRef<HTMLDivElement>(null);
+  const scrubThumb = useRef<HTMLDivElement>(null);
+  const previewLine = useRef<HTMLDivElement>(null);
+  const previewTime = useRef<HTMLSpanElement>(null);
+  const previewThumb = useRef<HTMLDivElement>(null);
+  usePlayheadFrames(element, playing, rate, duration, (share) => {
+    const at = `${share * 100}%`;
+    if (playheadLine.current) playheadLine.current.style.left = at;
+    if (scrubThumb.current) scrubThumb.current.style.left = at;
+    if (scrubFill.current) scrubFill.current.style.width = at;
+  });
+  /** A hover over the waveform or the scrub bar previews the moment on both; null ends it. */
+  const preview = (share: number | null) => {
+    for (const ref of [previewLine, previewThumb]) {
+      const node = ref.current;
+      if (!node) continue;
+      node.style.display = share === null ? "none" : "block";
+      if (share !== null) node.style.left = `${share * 100}%`;
+    }
+    if (previewTime.current && share !== null)
+      previewTime.current.textContent = formatDuration(share * duration);
+  };
+  const previewFrom = (clientX: number, box: DOMRect | undefined) =>
+    preview(box && duration > 0 ? fractionAt(clientX, box.left, box.width) : null);
 
   useEffect(() => {
     const element = media.current;
@@ -1164,7 +1200,13 @@ export function Player({
   );
 
   const scrub = (
-    <div className="relative h-4 shrink-0">
+    <div
+      className="relative h-4 shrink-0"
+      onPointerMove={(event) =>
+        previewFrom(event.clientX, event.currentTarget.getBoundingClientRect())
+      }
+      onPointerLeave={() => preview(null)}
+    >
       <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-hairline" />
       {loop && duration > 0 && (
         <div
@@ -1209,13 +1251,30 @@ export function Player({
         style={{ width: `${share(buffered)}%` }}
       />
       <div
+        ref={scrubFill}
         className="absolute top-1/2 left-0 h-0.5 -translate-y-1/2 rounded-full bg-signal"
         style={{ width: `${share(time)}%` }}
       />
       <div
-        className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink"
-        style={{ left: `${share(time)}%` }}
+        ref={previewThumb}
+        aria-hidden="true"
+        className="pointer-events-none absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-ink-2 bg-ground"
+        style={{ display: "none" }}
       />
+      {/* The playhead's foot: its line comes down from the waveform to meet the thumb (#492). */}
+      <div
+        ref={scrubThumb}
+        className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-signal ring-2 ring-ground"
+        style={{ left: `${share(time)}%` }}
+      >
+        {kind === "audio" && zoom <= 1 && (
+          <span
+            aria-hidden="true"
+            className="absolute bottom-1/2 left-1/2 w-px -translate-x-1/2 bg-signal"
+            style={{ height: SCRUB_STEM }}
+          />
+        )}
+      </div>
       <Slider
         aria-label="Position"
         min={0}
@@ -1465,8 +1524,16 @@ export function Player({
         },
       })}
       data-zoom={zoom}
+      onPointerMove={(event) =>
+        previewFrom(event.clientX, content.current?.getBoundingClientRect())
+      }
+      onPointerLeave={() => preview(null)}
     >
-      <div className="flex min-h-0 flex-1 flex-col" style={{ width: `${zoom * 100}%` }}>
+      <div
+        ref={content}
+        className="relative flex min-h-0 flex-1 flex-col"
+        style={{ width: `${zoom * 100}%` }}
+      >
         <LoopSurface
           duration={duration}
           loop={loop}
@@ -1488,6 +1555,7 @@ export function Player({
               layout={info?.audio?.channelLayout}
               view={view}
               look={look}
+              cursor={false}
               fill
             />
           )}
@@ -1500,6 +1568,7 @@ export function Player({
               channel={spectrumChannel}
               view={spectrum}
               height={WAVEFORM_HEIGHT}
+              playhead={false}
               fill
             />
           )}
@@ -1529,6 +1598,7 @@ export function Player({
                 view={view}
                 look={look}
                 overlay
+                cursor={false}
                 fill
               />
             </div>
@@ -1539,6 +1609,27 @@ export function Player({
             <EditLane edits={edits} duration={duration} time={time} onSeek={seek} />
           </div>
         )}
+        {/* The moment under the pointer, on the way to the scrub bar's own preview. */}
+        <div
+          ref={previewLine}
+          aria-hidden="true"
+          data-e2e-overlap
+          className="pointer-events-none absolute inset-y-0 z-20 w-px bg-ink/40"
+          style={{ display: "none" }}
+        >
+          <span
+            ref={previewTime}
+            className="tabular absolute bottom-1 left-1.5 rounded-chip bg-surface/85 px-1 text-[10px] leading-4 text-ink-2"
+          />
+        </div>
+        {/* The playhead, over everything on the surface and down to the scrub bar (#492). */}
+        <div
+          ref={playheadLine}
+          aria-hidden="true"
+          data-e2e-overlap
+          className="pointer-events-none absolute inset-y-0 z-20 w-px bg-signal"
+          style={{ left: `${share(time)}%` }}
+        />
       </div>
     </div>
   );
@@ -1729,8 +1820,8 @@ export function Player({
           ) : (
             <div className="flex min-h-0 flex-1 flex-col justify-center gap-3">
               {audioSurface}
-              {caption && <CaptionLine cues={caption.cues} time={time} />}
               {scrub}
+              {caption && <CaptionLine cues={caption.cues} time={time} />}
             </div>
           )
         ) : compact ? (

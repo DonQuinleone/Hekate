@@ -974,7 +974,7 @@ export function FilePage({
         </div>
       )}
       <Filmstrip file={file} playback={playback} markers={openThreads} />
-      <Ruler duration={duration} video className="mt-1" />
+      <Ruler duration={duration} video playhead={playback.time / duration} className="mt-1" />
     </div>
   ) : (
     <div className="flex flex-col px-3 pb-1 @3xl/app:px-4">
@@ -1039,7 +1039,7 @@ export function FilePage({
           {edits.length > 0 && (
             <EditLane edits={edits} duration={duration} playback={playback} className="mt-1.5" />
           )}
-          <Ruler duration={duration} className="mt-1" />
+          <Ruler duration={duration} playhead={playback.time / duration} className="mt-1" />
         </div>
       </div>
       {caption && <CaptionLine cues={caption.cues} time={playback.time} over={false} />}
@@ -1252,7 +1252,12 @@ export function FilePage({
             />
             <div className="flex min-w-0 flex-1 flex-col justify-end">
               <Filmstrip file={file} playback={playback} markers={openThreads} />
-              <Ruler duration={duration} video className="mt-1" />
+              <Ruler
+                duration={duration}
+                video
+                playhead={playback.time / duration}
+                className="mt-1"
+              />
             </div>
           </div>
           <div className="border-t border-line">

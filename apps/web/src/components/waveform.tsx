@@ -85,6 +85,7 @@ export function Waveform({
   view,
   overlay = false,
   look = defaultWaveLook,
+  cursor = true,
   fill = false,
 }: {
   fileId: string;
@@ -95,6 +96,8 @@ export function Waveform({
   /** Drawn see-through, over a spectrogram. */
   overlay?: boolean;
   look?: WaveLook;
+  /** Off where the player draws the playhead itself, over everything on its surface (#492). */
+  cursor?: boolean;
   /**
    * Grows with the player around it (#15), as the prototype's full-height frame draws it,
    * from the usual height up; the player decides how far.
@@ -158,7 +161,7 @@ export function Waveform({
         duration,
         ...style,
         cursorColor: token("--hk-signal"),
-        cursorWidth: 1,
+        cursorWidth: cursor ? 1 : 0,
         normalize: false,
         dragToSeek: true,
         splitChannels: Array.from({ length: shown.channels }, () => style),
@@ -172,7 +175,18 @@ export function Waveform({
       cancelled = true;
       instance?.destroy();
     };
-  }, [shown, media, duration, overlay, theme, look.colour, look.opacity, look.height, height]);
+  }, [
+    shown,
+    media,
+    duration,
+    overlay,
+    theme,
+    look.colour,
+    look.opacity,
+    look.height,
+    height,
+    cursor,
+  ]);
 
   // Nothing to wait for: no peaks are coming for this file.
   if (index && index.status !== "pending" && index.status !== "ready") return null;
