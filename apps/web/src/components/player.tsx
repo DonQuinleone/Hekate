@@ -531,6 +531,11 @@ export function Player({
     };
     setZoom(next);
   };
+  /**
+   * The zoom asked for but not yet drawn: a pinch sends several changes a frame, and each
+   * goes on from the last asked rather than the last drawn.
+   */
+  const requested = useRef<number | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: only a new zoom moves the view.
   useLayoutEffect(() => {
     const element = surface;
@@ -540,11 +545,6 @@ export function Player({
     if (element && from)
       element.scrollLeft = anchoredScroll(from.scroll, from.anchor, from.from, zoom);
   }, [zoom]);
-  /**
-   * The zoom asked for but not yet drawn: a pinch sends several changes a frame, and each
-   * goes on from the last asked rather than the last drawn.
-   */
-  const requested = useRef<number | null>(null);
   /** Zoom by a factor about a point across the view (#494): a pinch, or a wheel with the key. */
   const zoomAround = (factor: number, fraction: number) => {
     const element = surface;
@@ -661,8 +661,13 @@ export function Player({
       node.style.display = share === null ? "none" : "block";
       if (share !== null) node.style.left = `${share * 100}%`;
     }
-    if (previewTime.current && share !== null)
-      previewTime.current.textContent = formatDuration(share * duration);
+    const chip = previewTime.current;
+    if (chip && share !== null) {
+      chip.textContent = formatDuration(share * duration);
+      // On the line's right, until the edge is near; then on its left.
+      chip.style.left = share > 0.85 ? "auto" : "6px";
+      chip.style.right = share > 0.85 ? "6px" : "auto";
+    }
   };
   const previewFrom = (clientX: number, box: DOMRect | undefined) =>
     preview(box && duration > 0 ? fractionAt(clientX, box.left, box.width) : null);
@@ -1742,7 +1747,7 @@ export function Player({
         >
           <span
             ref={previewTime}
-            className="tabular absolute bottom-1 left-1.5 rounded-chip bg-surface/85 px-1 text-[10px] leading-4 text-ink-2"
+            className="tabular absolute top-1 whitespace-nowrap rounded-chip bg-surface/85 px-1 text-[10px] leading-4 text-ink-2"
           />
         </div>
         {/* The playhead, over everything on the surface and down to the scrub bar (#492). */}

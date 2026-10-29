@@ -108,10 +108,11 @@ function Plane({
           {label}
         </span>
       )}
+      {/* Above the waveform drawn over the plane (#495), on a little ground, so they stay legible. */}
       {ticks.map((t) => (
         <span
           key={t.hz}
-          className="tabular pointer-events-none absolute right-1 -translate-y-1/2 text-[9px] text-ink/70"
+          className="tabular pointer-events-none absolute right-1 z-10 -translate-y-1/2 rounded-[2px] bg-ground/60 px-0.5 text-[9px] text-ink/70"
           style={{ top: `${(1 - t.at) * 100}%` }}
           aria-hidden="true"
         >

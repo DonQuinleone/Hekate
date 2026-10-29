@@ -2873,7 +2873,7 @@ for (const [place, wave] of [
 
 // The spectrogram behind the waveform as it opens (#495): the Mel scale, the waveform drawn
 // opaque in the ink colour with its outline, and the playhead's line meeting the scrub bar's
-// thumb (#492).
+// thumb (#492), with the pointer over the waveform previewing a moment on both.
 test("file-spectrogram", async ({ page }) => {
   await page.addInitScript(() =>
     localStorage.setItem(
@@ -2884,6 +2884,12 @@ test("file-spectrogram", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "[role=img][aria-label^=Spectrogram]:not(.animate-pulse) canvas");
   await settle(page, "section[aria-label=Comments] li");
+  const surface = page.getByRole("slider", { name: /^Waveform: click/ });
+  const box = await surface.boundingBox();
+  if (!box) throw new Error("No waveform to hover");
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height / 2);
+  // 60% of the way through 40 seconds.
+  await expect(page.getByText("0:24", { exact: true })).toBeVisible();
   await saveScreen(page, "file-spectrogram");
   await checkScreen(page);
 });
