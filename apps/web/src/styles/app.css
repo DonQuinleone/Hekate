@@ -303,12 +303,14 @@
 @utility sparkle {
   animation: hk-sparkle 7s ease-in-out infinite;
 }
+/* These two fill backwards only: a transform kept once the animation ends would make the element the
+   box that a dialog inside it fills, so a dialog opened on a page covered the page, not the pane. */
 @utility rise-in {
-  animation: hk-rise 150ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: hk-rise 150ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 }
 /* A page's content settles in. */
 @utility fade-in {
-  animation: hk-fade 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: hk-fade 220ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
 }
 /* A dot that is working. */
 @utility breathe {

@@ -943,6 +943,25 @@ test("listen-room", async ({ page }) => {
   }
 });
 
+// Making someone an operator: the dialog covers the whole pane and sits in its middle, not
+// inside the box of the short page it was opened from. With motion on, as most people have it:
+// the page's entrance is what once held the dialog in.
+test("instance-operator-new", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/instance/operators");
+  await settle(page, "main >> text=producer@example.test");
+  await page.getByRole("button", { name: "Operator", exact: true }).click();
+  await settle(page, "[role=dialog] >> text=Their email address");
+  // The dialog's own entrance played out (the lamps and the like run for ever).
+  await page.waitForFunction(() =>
+    document
+      .getAnimations()
+      .every((a) => a.playState !== "running" || a.effect?.getTiming().iterations === Infinity),
+  );
+  await saveScreen(page, "instance-operator-new");
+  await checkScreen(page);
+});
+
 // The QA report to take away (#43): its formats, and what it is stamped with.
 test("file-qa-report", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}?view=qa`);
