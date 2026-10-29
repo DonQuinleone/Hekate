@@ -87,6 +87,7 @@ import {
   type Version,
 } from "~/lib/queries";
 import { swappedSummary } from "~/lib/score-swap";
+import { type ShareTarget, shareTargetOf } from "~/lib/shares";
 import { useShortcuts } from "~/lib/shortcuts";
 import { Avatar, AvatarRow } from "./avatar";
 import { DownloadDialog } from "./downloads";
@@ -419,8 +420,8 @@ export function FileBrowser({
   const [view, setView] = useState<View>(storedView);
   const [naming, setNaming] = useState<"folder" | "track" | null>(null);
   const [requesting, setRequesting] = useState(false);
-  /** What is being shared from its row (`track:<id>` or `file:<id>`), downloaded, or replaced. */
-  const [sharing, setSharing] = useState<string | null>(null);
+  /** What is being shared from its row (#489), downloaded, or replaced. */
+  const [sharing, setSharing] = useState<ShareTarget | null>(null);
   const [downloading, setDownloading] = useState<{ fileId: string; name: string } | null>(null);
   const [replacing, setReplacing] = useState<{ track: Track; version: Version } | null>(null);
   /** What linking another score did to the marks on the old one. */
@@ -974,8 +975,13 @@ export function FileBrowser({
             },
           ]
         : []),
-      ...(item.kind !== "folder" && can("request_reviews")
-        ? [{ label: "Share…", onSelect: () => setSharing(key) }]
+      ...(can("request_reviews")
+        ? [
+            {
+              label: "Share…",
+              onSelect: () => setSharing(shareTargetOf(item, words, versionLabel)),
+            },
+          ]
         : []),
       ...(item.kind === "file"
         ? [

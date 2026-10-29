@@ -39,6 +39,7 @@ import { Empty } from "./empty";
 import { kindIcon, mediaSummary } from "./files";
 import { Icon } from "./icons";
 import { Card } from "./page";
+import { ShareDialog } from "./share";
 import { Button } from "./ui/button";
 import { Chip } from "./ui/chip";
 import { Radio } from "./ui/choice";
@@ -644,7 +645,9 @@ function VersionRow({
   const previous = [...track.versions]
     .filter((v) => v.number < version.number)
     .sort((x, y) => y.number - x.number)[0];
-  const [dialog, setDialog] = useState<"add" | "replace" | "edl" | "describe" | null>(null);
+  const [dialog, setDialog] = useState<"add" | "replace" | "edl" | "describe" | "share" | null>(
+    null,
+  );
   const pending = version.variations.some((v) => v.streamStatus === "pending");
   const failed = version.variations.some((v) => v.streamStatus === "failed");
   const actions: MenuAction[] = [
@@ -662,6 +665,8 @@ function VersionRow({
           },
         ]
       : []),
+    // This version alone (#489), where a track's share follows its latest.
+    ...(can("request_reviews") ? [{ label: "Share…", onSelect: () => setDialog("share") }] : []),
     ...(can("upload")
       ? [{ label: `Add a ${words.variation}…`, onSelect: () => setDialog("add") }]
       : []),
@@ -815,6 +820,19 @@ function VersionRow({
       )}
       {dialog === "describe" && (
         <DescribeDialog track={track} version={version} onClose={() => setDialog(null)} />
+      )}
+      {dialog === "share" && (
+        <ShareDialog
+          projectId={track.projectId}
+          item={{
+            kind: "version",
+            id: version.id,
+            trackId: track.id,
+            name: `${track.name} ${label}`,
+            what: capital(words.version),
+          }}
+          onClose={() => setDialog(null)}
+        />
       )}
     </li>
   );
