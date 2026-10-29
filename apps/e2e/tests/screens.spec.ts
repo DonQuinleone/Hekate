@@ -3215,17 +3215,15 @@ test("files-upload-audio", async ({ page }) => {
   await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
   await page.getByRole("button", { name: "Upload", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Upload", exact: true });
-  await dialog
-    .locator("input[type=file][aria-label='Files to upload']")
-    .setInputFiles(
-      ["Pine Apple Rag - V1 mix.wav", "Pine Apple Rag - V2 mix.wav", "Elite Syncopations.wav"].map(
-        (name) => ({
-          name,
-          mimeType: "audio/wav",
-          buffer: Buffer.from(waveBytes({ seconds: 0.2 })),
-        }),
-      ),
-    );
+  await dialog.locator("input[type=file][aria-label='Files to upload']").setInputFiles(
+    ["Pine Apple Rag - V1 mix.wav", "Pine Apple Rag - V2 mix.wav", "Elite Syncopations.wav"].map(
+      (name) => ({
+        name,
+        mimeType: "audio/wav",
+        buffer: Buffer.from(waveBytes({ seconds: 0.2 })),
+      }),
+    ),
+  );
   await settle(page, "[role=dialog] ul[aria-label='Files chosen'] li");
   // Three choices above the files; a new track by default, each named from its file.
   await expect(dialog.getByRole("radio", { name: "New track" })).toBeChecked();

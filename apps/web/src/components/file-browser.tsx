@@ -95,14 +95,7 @@ import { Empty } from "./empty";
 import { ColumnHeading, ColumnsMenu, columnNames } from "./file-columns";
 import { FilterChips, FilterMenu } from "./file-filters";
 import { AttachForm, MovePicker, RenameInput, ScoreForm } from "./file-forms";
-import {
-  fileSummary,
-  kindIcon,
-  UploadButton,
-  UploadList,
-  useDropAim,
-  useUploads,
-} from "./files";
+import { fileSummary, kindIcon, UploadButton, UploadList, useDropAim, useUploads } from "./files";
 import { Icon, type IconName } from "./icons";
 import { Card } from "./page";
 import { ShareDialog } from "./share";
@@ -2024,7 +2017,9 @@ export function FileBrowser({
                     (selected.has(markKey(item)) || droppedOn(item)) &&
                       "border-edge-strong bg-raised/60",
                     cut.has(markKey(item)) && "opacity-50",
-                    item.kind === "track" && aimed === item.track.id && "border-signal bg-raised/60",
+                    item.kind === "track" &&
+                      aimed === item.track.id &&
+                      "border-signal bg-raised/60",
                   )}
                 >
                   <span className="relative flex aspect-[2/1] items-center justify-center rounded-[6px] bg-sunken text-ink-3">
