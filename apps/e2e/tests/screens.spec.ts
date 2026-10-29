@@ -2932,7 +2932,7 @@ test("file-comment-hover", async ({ page }, info) => {
   // Its category is the bar at its edge, named on hover, not a pill in the stack.
   await expect(rushes.getByText("Performance", { exact: true })).toHaveCount(0);
   await expect(rushes.locator("[title=Performance]")).toHaveCount(1);
-  await expect(rushes.getByRole("button", { name: /^Play bars 9–12 from 0:14/ })).toBeVisible();
+  await expect(rushes.getByRole("button", { name: /^Play bars 9–12 · 0:14/ })).toBeVisible();
   await expect(rushes.getByRole("button", { name: "Resolve" })).toBeVisible();
   await expect(rushes.getByRole("button", { name: "Reply" })).toBeVisible();
   await expect(rushes.getByRole("button", { name: "Actions for this thread" })).toBeVisible();

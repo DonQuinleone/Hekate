@@ -855,7 +855,8 @@ function ThreadView({
         type="button"
         onClick={() => onSeek(anchor.at ?? 0)}
         className={chip}
-        aria-label={`Play ${label(anchor).toLowerCase()} from ${moment(anchor.at)}`}
+        // Named by what it shows, so its visible text is part of its name.
+        aria-label={`Play ${label(anchor).toLowerCase()} · ${moment(anchor.at)}`}
       >
         <span className="truncate">
           {label(anchor)}
