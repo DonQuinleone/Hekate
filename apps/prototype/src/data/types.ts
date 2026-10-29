@@ -315,6 +315,8 @@ export interface Review {
   requestedAt: string;
   dueAt: string | null;
   order: ReviewOrder;
+  /** In a sequence, what each step is called, by position; a step without one is "Step n". */
+  stepNames?: (string | null)[];
   rule: ApprovalRule | null;
   quorum?: number;
   items: ReviewItem[];

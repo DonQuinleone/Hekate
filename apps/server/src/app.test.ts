@@ -18519,6 +18519,164 @@ describe.runIf(url)("api", () => {
         expect(mailer.sent.some((m) => m.to === "follower@example.test")).toBe(true);
       });
 
+      it("names the steps of a sequence, and tells the next step's reviewers which step has begun (#500)", async () => {
+        const s = await studio();
+        type Named = ReviewBody & { stepNames: (string | null)[] | null };
+        const conductor = { name: "Mira Solberg", email: "conductor@example.test" };
+        const named = await request(s.owner, s.projectId, {
+          kind: "approval",
+          order: "sequence",
+          items: [{ trackId: s.trackId }],
+          reviewers: [
+            { name: " Label ", reviewers: [s.ids.composer] },
+            { reviewers: [s.ids.accompanist] },
+            { name: "Soloists", reviewers: [conductor] },
+          ],
+        });
+        expect(named.status).toBe(201);
+        const review = (await reviewOf(named)) as Named;
+        // Trimmed, by position; a step without a name is named by its place.
+        expect(review.stepNames).toEqual(["Label", null, "Soloists"]);
+        expect(review.reviewers.map((r) => r.state)).toEqual(["invited", "waiting", "waiting"]);
+        // A parallel review keeps no names, whatever the request said; nor does one unnamed.
+        const parallel = (await reviewOf(
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            items: [{ trackId: s.trackId }],
+            reviewers: [{ name: "Label", reviewers: [s.ids.composer] }],
+          }),
+        )) as Named;
+        expect(parallel.stepNames).toBeNull();
+        const plain = (await reviewOf(
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            order: "sequence",
+            items: [{ trackId: s.trackId }],
+            reviewers: [s.ids.composer, s.ids.accompanist],
+          }),
+        )) as Named;
+        expect(plain.stepNames).toBeNull();
+        // The second step has no name, so its reviewer is told only that it is their turn;
+        // the third is named, and its reviewer is told the step the review has reached.
+        const path = `/api/reviews/${review.id}/decisions`;
+        expect(
+          (await app.request(path, json({ decision: "approved" }, s.composer))).status,
+        ).toBe(200);
+        expect(
+          (await app.request(path, json({ decision: "approved" }, s.accompanist))).status,
+        ).toBe(200);
+        const told = await db
+          .select({ userId: schema.notifications.userId, detail: schema.notifications.detail })
+          .from(schema.notifications)
+          .where(
+            and(
+              eq(schema.notifications.reviewId, review.id),
+              eq(schema.notifications.kind, "review_requested"),
+            ),
+          );
+        const detailFor = (userId: string) => told.find((n) => n.userId === userId)?.detail ?? "";
+        expect(detailFor(s.ids.accompanist)).toBe("Those before you have responded; it is your turn.");
+        const lastMailTo = (to: string) => mailer.sent.filter((m) => m.to === to).at(-1)?.text ?? "";
+        expect(lastMailTo("accompanist@example.test")).toContain("it is your turn");
+        expect(lastMailTo("accompanist@example.test")).not.toContain("step");
+        // The mail wraps its lines, so the sentence is matched across them.
+        expect(lastMailTo("conductor@example.test")).toMatch(
+          /the review is at its Soloists step,\s+and it is your turn/,
+        );
+      });
+
+      it("invites a reviewer from the project's People page, before any review asks them (#502)", async () => {
+        const s = await studio();
+        const invite = (cookie: string, projectId: string, body: Record<string, unknown>) =>
+          app.request(`/api/projects/${projectId}/guests`, json(body, cookie));
+        type Known = { guests: { id: string; email: string; note: string | null; reviews: number }[] };
+        const known = async (cookie: string) =>
+          ((await (await getAs(`/api/projects/${s.projectId}/guests`, cookie)).json()) as Known)
+            .guests;
+        const group = (await (
+          await app.request(
+            `/api/projects/${s.projectId}/groups`,
+            json({ name: "Soloists", members: [s.ids.composer] }, s.owner),
+          )
+        ).json()) as { group: { id: string } };
+        // Whoever manages reviewers invites; a role that only decides cannot.
+        const body = {
+          name: "Mira Solberg",
+          email: "Conductor@Example.test",
+          label: "Conductor",
+          note: "Conducts the spring programme.",
+          groupId: group.group.id,
+        };
+        expect((await invite(s.composer, s.projectId, body)).status).toBe(403);
+        const made = await invite(s.owner, s.projectId, body);
+        expect(made.status).toBe(201);
+        const { guest } = (await made.json()) as { guest: Known["guests"][number] & { label: string } };
+        expect(guest).toMatchObject({
+          email: "conductor@example.test",
+          label: "Conductor",
+          note: "Conducts the spring programme.",
+          reviews: 0,
+        });
+        // Listed among the project's reviewers at once, and in the group they joined.
+        expect(await known(s.owner)).toEqual([expect.objectContaining({ id: guest.id })]);
+        const groups = (await (
+          await getAs(`/api/projects/${s.projectId}/groups`, s.owner)
+        ).json()) as { groups: { members: { guestId: string | null }[] }[] };
+        expect(groups.groups[0]?.members.map((m) => m.guestId)).toEqual([null, guest.id]);
+        // Their label can be changed from the People page, as any of the project's guests'.
+        expect(
+          (
+            await app.request(`/api/projects/${s.projectId}/guests/${guest.id}`, {
+              ...json({ label: "Maestra" }, s.owner),
+              method: "PATCH",
+            })
+          ).status,
+        ).toBe(204);
+        // Invited again, their note is brought up to date and nothing is doubled.
+        expect(
+          (await invite(s.owner, s.projectId, { ...body, note: "Now also the label's A&R." }))
+            .status,
+        ).toBe(201);
+        expect((await known(s.owner)).map((g) => g.note)).toEqual(["Now also the label's A&R."]);
+        // A group of another project is refused; another workspace's project is not found.
+        const elsewhere = await app.request(
+          "/api/projects",
+          json({ name: "Elsewhere", profile: "music" }, s.owner),
+        );
+        const other = ((await elsewhere.json()) as { project: { id: string } }).project.id;
+        expect(
+          (
+            await invite(s.owner, other, {
+              name: "Tomas Varga",
+              email: "tomas@example.test",
+              groupId: group.group.id,
+            })
+          ).status,
+        ).toBe(422);
+        const [foreign] = await db
+          .insert(schema.organisations)
+          .values({ name: "Foreign", slug: "foreign-invites" })
+          .returning();
+        const [theirs] = await db
+          .insert(schema.projects)
+          .values({ organisationId: foreign?.id ?? "", name: "Theirs", profile: "music" })
+          .returning();
+        expect((await invite(s.owner, theirs?.id ?? "", body)).status).toBe(404);
+        // The guest is asked into a review by address, as the project already knows them.
+        const asked = await request(s.owner, s.projectId, {
+          kind: "feedback",
+          items: [{ trackId: s.trackId }],
+          reviewers: [{ name: "Mira Solberg", email: "conductor@example.test" }],
+        });
+        expect(asked.status).toBe(201);
+        expect((await known(s.owner)).map((g) => g.reviews)).toEqual([1]);
+        // Audited, with the project.
+        const log = (await (
+          await getAs("/api/organisation/audit?action=project.guest_invite", s.owner)
+        ).json()) as { events: { projectId: string | null }[] };
+        expect(log.events.map((e) => e.projectId)).toEqual([s.projectId, s.projectId]);
+      });
+
       it("starts each person on what the project's People page says for them (#55)", async () => {
         const s = await studio();
         const put = (path: string, body: unknown, cookie = s.owner) =>

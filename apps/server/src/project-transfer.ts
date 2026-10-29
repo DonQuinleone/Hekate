@@ -87,6 +87,7 @@ export const transferTables = {
     "review_reviewers",
     "review_item_opens",
     "review_decisions",
+    "project_guests",
     "project_reviewer_grants",
     "project_tool_exceptions",
     "tasks",
@@ -484,6 +485,8 @@ async function mapGuests(tx: Tx, projectId: string, from: string, to: string) {
         where organisation_id = ${from} and project_id = ${projectId}
       union select guest_id from project_tool_exceptions
         where organisation_id = ${from} and project_id = ${projectId}
+      union select guest_id from project_guests
+        where organisation_id = ${from} and project_id = ${projectId}
     )`,
   );
   for (const guest of named) {
@@ -508,6 +511,9 @@ async function mapGuests(tx: Tx, projectId: string, from: string, to: string) {
       where organisation_id = ${from} and guest_id = ${guest.id}
         and project_id = ${projectId}`);
     await tx.execute(sql`update project_tool_exceptions set guest_id = ${there.id}
+      where organisation_id = ${from} and guest_id = ${guest.id}
+        and project_id = ${projectId}`);
+    await tx.execute(sql`update project_guests set guest_id = ${there.id}
       where organisation_id = ${from} and guest_id = ${guest.id}
         and project_id = ${projectId}`);
   }

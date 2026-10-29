@@ -111,6 +111,7 @@ import {
   type ProfileRef,
   type ProfileSource,
   type ProjectDeletion,
+  type ProjectGuestInput,
   type ProjectPermission,
   type ProjectProfile,
   type ProjectStatus,
@@ -3496,6 +3497,8 @@ export interface ReviewDetail {
   message: string | null;
   dueAt: string | null;
   order: "parallel" | "sequence";
+  /** What its steps are called (#500), by position, where a sequence named them. */
+  stepNames: (string | null)[] | null;
   rule: ApprovalRule | null;
   /** With the share rule: the percentage whose approval is enough. */
   share: number | null;
@@ -3653,6 +3656,8 @@ export interface KnownGuest {
   name: string;
   email: string;
   label: string | null;
+  /** What the People page keeps about them, where they were invited from it (#502). */
+  note: string | null;
   /** This project's reviews that ask them, and how many of those are open. */
   reviews: number;
   openReviews: number;
@@ -3683,6 +3688,19 @@ export function useProjectGuestMutations(projectId: string) {
   };
   const param = (guestId: string) => ({ id: projectId, guestId });
   return {
+    /** Invite a reviewer from the People page (#502): a guest of the project, asked later. */
+    invite: useMutation({
+      mutationFn: async (input: ProjectGuestInput) =>
+        (
+          await json<{ guest: KnownGuest | null }>(
+            await api.projects[":id"].guests.$post({ param: { id: projectId }, json: input }),
+          )
+        ).guest,
+      onSuccess: () => {
+        void refresh();
+        void client.invalidateQueries({ queryKey: ["projects", projectId, "groups"] });
+      },
+    }),
     sendLink: useMutation({
       mutationFn: async (guestId: string) =>
         ok(await api.projects[":id"].guests[":guestId"].link.$post({ param: param(guestId) })),

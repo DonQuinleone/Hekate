@@ -128,6 +128,16 @@ export const guestInput = z.object({
 });
 export type GuestInput = z.input<typeof guestInput>;
 
+/**
+ * A reviewer invited from a project's People page (#502): a guest of the project before any
+ * review asks them, with a note kept for the team and, if wanted, a group they join.
+ */
+export const projectGuestInput = guestInput.extend({
+  note: z.string().trim().max(500).optional(),
+  groupId: z.uuid().optional(),
+});
+export type ProjectGuestInput = z.input<typeof projectGuestInput>;
+
 /** A guest's label, changed from the project's People page; null takes it away. */
 export const guestLabelInput = z.object({
   label: z.string().trim().max(60).nullable(),
@@ -161,10 +171,40 @@ export const groupInput = z
   });
 export type GroupInput = z.input<typeof groupInput>;
 
-/** One step of a request: a reviewer, or several asked together. */
-export const reviewStepInput = z.union([reviewerInput, z.array(reviewerInput).min(1).max(50)]);
+/** What a step of a sequence may be called: "Producer", "Stakeholders", "Label". */
+export const stepNameInput = z.string().trim().max(80);
+
+/**
+ * One step of a request: a reviewer, several asked together, or several under a name
+ * (#500), shown in place of "Step 2" wherever the step is named.
+ */
+export const reviewStepInput = z.union([
+  reviewerInput,
+  z.array(reviewerInput).min(1).max(50),
+  z.object({
+    name: stepNameInput.optional(),
+    reviewers: z.array(reviewerInput).min(1).max(50),
+  }),
+]);
 export type ReviewStepInput = z.infer<typeof reviewStepInput>;
-const stepPeople = (step: ReviewStepInput) => (Array.isArray(step) ? step : [step]);
+
+/** Who a step asks, whichever way it was written. */
+export const stepPeople = (step: ReviewStepInput): ReviewerInput[] =>
+  Array.isArray(step)
+    ? step
+    : typeof step !== "string" && "reviewers" in step
+      ? step.reviewers
+      : [step];
+
+/** A step's name, where it was given one; null otherwise. */
+export const stepNameOf = (step: ReviewStepInput): string | null =>
+  !Array.isArray(step) && typeof step !== "string" && "reviewers" in step
+    ? step.name || null
+    : null;
+
+/** What a step is called where it is shown: its name, or "Step n" by its place in the order. */
+export const stepTitle = (name: string | null | undefined, ordinal: number): string =>
+  name?.trim() || `Step ${ordinal}`;
 
 export const createReviewInput = z
   .object({

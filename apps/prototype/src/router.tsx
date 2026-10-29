@@ -225,10 +225,17 @@ const inbox = createRoute({
 const requestReview = createRoute({
   getParentRoute: () => app,
   path: "/reviews/new",
-  validateSearch: (s: Record<string, unknown>) => pick(s, ["project", "kind", "item"]),
+  validateSearch: (s: Record<string, unknown>) => pick(s, ["project", "kind", "item", "from"]),
   component: function RequestReviewRoute() {
     const search = requestReview.useSearch();
-    return <RequestReviewPage projectId={search.project} kind={search.kind} item={search.item} />;
+    return (
+      <RequestReviewPage
+        projectId={search.project}
+        kind={search.kind}
+        item={search.item}
+        from={search.from}
+      />
+    );
   },
 });
 const review = createRoute({
