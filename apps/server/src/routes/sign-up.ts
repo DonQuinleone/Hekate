@@ -10,8 +10,6 @@ import {
   signUpTokenParam,
   trialEnd,
 } from "@hekate/shared";
-import { isAPIError } from "better-auth/api";
-import { isPasswordCompromised } from "better-auth/plugins";
 import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -23,6 +21,7 @@ import { recordInstanceEvent } from "../instance-events.ts";
 import type { InstanceSettingsStore } from "../instance-settings.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { zValidator } from "../openapi/validator.ts";
+import { newAccountPassword } from "../passwords.ts";
 import { assignPlan } from "../plans.ts";
 import { admit, type LimitRule, tooMany } from "../rate-limit.ts";
 import { claimSignUpLink, findSignUpLink, newSignUpLink, trialPlan } from "../sign-up.ts";
@@ -186,25 +185,8 @@ export const signUpRoutes = (deps: SignUpDeps) => {
                 message: "Enter your name and a password of at least 12 characters",
               });
             const ctx = await deps.auth.$context;
-            // Made here, outside the sign-up route the breach check watches: asked directly.
-            if (deps.leakCheck) {
-              const compromised = await isPasswordCompromised(input.password).catch(() => {
-                throw new HTTPException(503, {
-                  message: "The password could not be checked against known breaches. Try again.",
-                });
-              });
-              if (compromised)
-                throw new HTTPException(400, {
-                  message: "That password appears in known data breaches. Choose another one.",
-                });
-            }
-            const password = await ctx.password.hash(input.password).catch((error: unknown) => {
-              if (isAPIError(error))
-                throw new HTTPException(400, {
-                  message: error.message || "That password cannot be used. Choose another.",
-                });
-              throw error;
-            });
+            // Made here, outside Better Auth's sign-up route: checked and hashed directly.
+            const password = await newAccountPassword(input.password, deps.leakCheck);
             // The link confirmed the email: it came to that address.
             const user = await ctx.internalAdapter
               .createUser(

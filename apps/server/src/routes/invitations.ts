@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { Auth } from "../auth.ts";
 import { hashInvitationToken } from "../invitation-token.ts";
 import { zValidator } from "../openapi/validator.ts";
+import { newAccountPassword } from "../passwords.ts";
 import { assertMemberRoom } from "../usage.ts";
 
 const { invitations, organisations, users, members } = schema;
@@ -33,7 +34,7 @@ async function find(db: Database, token: string) {
 }
 
 /** Public routes for someone holding an invitation link. */
-export const invitationRoutes = (db: Database, auth: Auth) =>
+export const invitationRoutes = (db: Database, auth: Auth, leakCheck = false) =>
   new Hono()
     .get("/:token", tokenParam, async (c) => {
       const found = await find(db, c.req.valid("param").token);
@@ -81,6 +82,9 @@ export const invitationRoutes = (db: Database, auth: Auth) =>
             message: "Enter your name and a password of at least 12 characters",
           });
         }
+        // The password first: one refused must leave no account behind, or the invitation
+        // could never be accepted.
+        const password = await newAccountPassword(input.password, leakCheck);
         const ctx = await auth.$context;
         const user = await ctx.internalAdapter.createUser(
           { name: input.name, email: invitation.email, emailVerified: true },
@@ -90,7 +94,7 @@ export const invitationRoutes = (db: Database, auth: Auth) =>
           userId: user.id,
           providerId: "credential",
           accountId: user.id,
-          password: await ctx.password.hash(input.password),
+          password,
         });
         userId = user.id;
       }

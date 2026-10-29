@@ -1,13 +1,12 @@
 import { type Database, schema } from "@hekate/db";
 import { isReservedSlug } from "@hekate/shared";
-import { isAPIError } from "better-auth/api";
-import { isPasswordCompromised } from "better-auth/plugins";
 import { asc, count } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import type { Auth } from "../auth.ts";
 import { zValidator } from "../openapi/validator.ts";
+import { newAccountPassword } from "../passwords.ts";
 import { requireSetupCode, type SetupGate } from "../setup-code.ts";
 import { recordInstanceEvent } from "./instance.ts";
 
@@ -55,26 +54,8 @@ export const setupRoutes = (db: Database, auth: Auth, leakCheck: boolean, gate?:
           throw new HTTPException(409, { message: "Hekate is already set up" });
         const ctx = await auth.$context;
         // The password first: one refused (a known breach, or the check unreachable) must
-        // leave no account behind, or setup could never run again. Setup creates the account
-        // itself, outside the sign-up route the breach check watches, so it asks directly.
-        if (leakCheck) {
-          const compromised = await isPasswordCompromised(input.password).catch(() => {
-            throw new HTTPException(503, {
-              message: "The password could not be checked against known breaches. Try again.",
-            });
-          });
-          if (compromised)
-            throw new HTTPException(400, {
-              message: "That password appears in known data breaches. Choose another one.",
-            });
-        }
-        const password = await ctx.password.hash(input.password).catch((error: unknown) => {
-          if (isAPIError(error))
-            throw new HTTPException(error.statusCode === 400 ? 400 : 503, {
-              message: error.message || "That password cannot be used. Choose another.",
-            });
-          throw error;
-        });
+        // leave no account behind, or setup could never run again.
+        const password = await newAccountPassword(input.password, leakCheck);
         const user = await ctx.internalAdapter.createUser(
           { name: input.name, email: input.email.toLowerCase(), emailVerified: true },
           { method: "admin" },
