@@ -153,6 +153,10 @@ export function Waveform({
         onPointerMove={(e) => {
           if (drag) setDrag({ from: drag.from, to: tAt(e.clientX) });
         }}
+        onDoubleClick={() => {
+          // With the loop on, a double-click ends it (#494); the clicks before it seeked.
+          if (playback.looping) playback.setLooping(false);
+        }}
         onPointerUp={(e) => {
           if (!drag) return;
           const to = tAt(e.clientX);
@@ -198,7 +202,15 @@ export function Waveform({
                     stroke="var(--hk-line)"
                   />
                 )}
-                <path d={d} fill={waveColours[colour]} opacity={opacity} />
+                {/* Over a spectrogram, a thin dark outline keeps it legible on bright regions (#495). */}
+                <path
+                  d={d}
+                  fill={waveColours[colour]}
+                  opacity={opacity}
+                  stroke={overlay ? "var(--hk-ground)" : undefined}
+                  strokeWidth={overlay ? 1.5 : undefined}
+                  paintOrder="stroke"
+                />
                 {split && (
                   <text
                     x={10}
@@ -319,21 +331,34 @@ export function Waveform({
   );
 }
 
-/** The time ruler under the waveform. */
+/**
+ * The time ruler under the waveform. Given the playhead's position, its line comes down
+ * through the ruler to a thumb at the foot, so line and thumb read as one (#492).
+ */
 export function Ruler({
   duration,
   video = false,
+  playhead,
   className,
 }: {
   duration: number;
   video?: boolean;
+  /** Where the playhead is, as a share of the duration. */
+  playhead?: number;
   className?: string;
 }) {
   const step = duration > 600 ? 120 : duration > 100 ? 30 : duration > 60 ? 10 : 5;
   const ticks: number[] = [];
   for (let t = 0; t <= duration; t += step) ticks.push(t);
   return (
-    <div className={cn("tabular relative h-5 text-[11px] text-ink-3", className)}>
+    <div
+      className={cn(
+        "tabular relative text-[11px] text-ink-3",
+        // Room under the labels for the playhead's thumb to sit on.
+        playhead !== undefined ? "h-8" : "h-5",
+        className,
+      )}
+    >
       {ticks.map((t) => (
         <span
           key={t}
@@ -345,6 +370,15 @@ export function Ruler({
             : formatClock(t, false)}
         </span>
       ))}
+      {playhead !== undefined && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute top-0 bottom-0 w-px bg-signal"
+          style={{ left: `${Math.min(1, Math.max(0, playhead)) * 100}%` }}
+        >
+          <span className="absolute bottom-0 left-1/2 size-2.5 -translate-x-1/2 rounded-full bg-signal ring-2 ring-ground" />
+        </span>
+      )}
     </div>
   );
 }
