@@ -256,11 +256,13 @@ function Playback({
     </div>
   );
   if (file.streamStatus === "failed")
-    return waiting("This file could not be prepared for playback.");
+    return waiting(
+      "This file could not be prepared for playback. Upload it again, or ask whoever runs the instance.",
+    );
   if (file.mediaInfo === null) return waiting("Measuring the file.");
   if (file.streamStatus === "pending") return waiting("Preparing for playback.");
   if (file.streamStatus !== "ready")
-    return waiting("This file could not be prepared for playback.");
+    return waiting("This file is not ready for playback yet. Come back in a moment.");
   if (error) return waiting(error.message);
   if (!data) return waiting("Loading the player.");
   return (

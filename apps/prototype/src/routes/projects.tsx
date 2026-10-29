@@ -27,7 +27,7 @@ const profileCopy: Record<ProjectProfile, { label: string; hint: string }> = {
   },
   video: {
     label: "Video",
-    hint: "Deliverables with cuts and renditions, frame-accurate comments, timecode, broadcast checks.",
+    hint: "Deliverables with cuts and renditions, frame-accurate comments, timecode, regions on the picture, broadcast checks.",
   },
   general: {
     label: "General",

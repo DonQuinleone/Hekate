@@ -11,7 +11,10 @@ export const toolWords: Record<PlayerTool, { label: string; hint: string }> = {
   score: { label: "Score", hint: "The linked score beside the recording" },
   compare: { label: "Compare", hint: "Versions and variations side by side" },
   loops: { label: "Loops", hint: "A passage played round, from comments too" },
-  normalise: { label: "Normalise", hint: "Playback at the delivery target, where it is a choice" },
+  normalise: {
+    label: "Normalise",
+    hint: "Level-matched playback at the delivery profile's target, where the project leaves it a choice",
+  },
 };
 
 /** A column of the matrix: a role, or an exception for one person or group (decision 258). */

@@ -227,7 +227,12 @@ function Recording({ take, siblings }: { take: TakeDetail; siblings: number }) {
   if (file.kind !== "audio" && file.kind !== "video")
     return <Waiting>This take's file is not a recording.</Waiting>;
   if (file.streamStatus === "failed")
-    return <Waiting>This file could not be prepared for playback.</Waiting>;
+    return (
+      <Waiting>
+        This file could not be prepared for playback. Upload it again, or ask whoever runs the
+        instance.
+      </Waiting>
+    );
   if (file.mediaInfo === null) return <Waiting>Measuring the file.</Waiting>;
   if (file.streamStatus !== "ready") return <Waiting>Preparing for playback.</Waiting>;
   if (error) return <Waiting>{error.message}</Waiting>;
