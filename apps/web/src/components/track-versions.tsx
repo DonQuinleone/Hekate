@@ -13,8 +13,8 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
+import type { Picked } from "~/lib/picked-files";
 import {
-  ApiError,
   carryQuery,
   customProfilesQuery,
   type Project,
@@ -50,6 +50,7 @@ import { ActionMenu, Dropdown, type MenuAction } from "./ui/menu";
 import { ReviewerDot } from "./ui/status";
 import { type ChosenFile, UploadDialog } from "./ui/upload-dialog";
 import { useLooseMedia, VariationDialog } from "./variation-dialog";
+import { letThrough, versionProblem } from "./version-problem";
 import { WorkflowHistory } from "./workflow-history";
 
 const whenFormat = formatDates({
@@ -115,10 +116,13 @@ function useEdlPick(track: Track) {
 function NewVersion({
   track,
   project,
+  initial,
   onClose,
 }: {
   track: Track;
   project: Project;
+  /** Files dropped on the track's page, which opened this. */
+  initial?: Picked[] | undefined;
   onClose: () => void;
 }) {
   const can = useProjectCan(track.projectId);
@@ -174,7 +178,7 @@ function NewVersion({
       ),
       carry: Object.keys(choices).length ? choices : undefined,
       edlFileId: edlFile?.fileId ?? undefined,
-      letThrough: hint === "let-through" || undefined,
+      letThrough: letThrough(hint) || undefined,
       restartFrom: restart
         ? {
             workflowId: restart.slice(0, restart.indexOf(":")),
@@ -197,6 +201,7 @@ function NewVersion({
       hint={`One file per ${words.variation}.`}
       accept="audio/*,video/*"
       multiple
+      initial={initial}
       send={(file, onProgress, signal) =>
         uploadFile(file, {
           projectId: track.projectId,
@@ -377,34 +382,7 @@ function NewVersion({
       }
       disabled={edl.busy}
       onSubmit={send}
-      problem={(error, again) => {
-        const refused = error instanceof ApiError && error.code === "version_refused";
-        const measuring = error instanceof ApiError && error.code === "version_measuring";
-        if (!refused && !measuring) return null;
-        return (
-          <div
-            role="alert"
-            className="flex flex-col gap-2 rounded-panel border border-signal/50 bg-signal/10 px-3 py-2 text-[14px] text-ink"
-          >
-            <p className="m-0 flex items-start gap-2">
-              <Icon name="warning" className="mt-0.5 shrink-0 text-signal" />
-              <span>{error.message}</span>
-            </p>
-            <div className="flex gap-2 pl-6">
-              {measuring && (
-                <Button variant="secondary" size="sm" onClick={() => again()}>
-                  Try again
-                </Button>
-              )}
-              {refused && can("edit_workflows") && (
-                <Button variant="secondary" size="sm" onClick={() => again("let-through")}>
-                  Let it through
-                </Button>
-              )}
-            </div>
-          </div>
-        );
-      }}
+      problem={versionProblem(can("edit_workflows"))}
     />
   );
 }
@@ -931,12 +909,15 @@ export function TrackVersions({
   track,
   project,
   adding,
+  dropped,
   onAdding,
   aside,
 }: {
   track: Track;
   project: Project;
   adding: boolean;
+  /** Files dropped on the page, which open the new version with them chosen. */
+  dropped?: Picked[] | undefined;
   onAdding: (adding: boolean) => void;
   /** Beside the heading: the switch to the track's takes. */
   aside?: ReactNode;
@@ -962,7 +943,14 @@ export function TrackVersions({
   return (
     <div className="flex flex-col gap-6">
       <TrackHeading track={track} aside={aside} />
-      {adding && <NewVersion track={track} project={project} onClose={() => onAdding(false)} />}
+      {adding && (
+        <NewVersion
+          track={track}
+          project={project}
+          initial={dropped}
+          onClose={() => onAdding(false)}
+        />
+      )}
       {newest.length === 0 ? (
         <Empty
           title={`No ${words.versions} yet`}

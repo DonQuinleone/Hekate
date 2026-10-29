@@ -2,6 +2,7 @@ import { capital } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, Navigate, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { DropHint, usePageDrop } from "~/components/files";
 import { FollowButton } from "~/components/follow-button";
 import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
@@ -43,12 +44,25 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
   const [sharing, setSharing] = useState(false);
   /** The files dropped on the takes, or none, while the Add takes dialog is open. */
   const [addingTakes, setAddingTakes] = useState<Picked[] | null>(null);
+  /** Files dropped on the page: they open the next version with them chosen (#485). */
+  const [dropped, setDropped] = useState<Picked[] | undefined>(undefined);
+  // Takes are music's: a deliverable has its cuts and nothing beside them (#16).
+  const takes = view === "takes" && can("view_takes") && !video;
+  const mayDrop = Boolean(
+    track && project && !project.archivedAt && can("upload") && view === "versions" && !takes,
+  );
+  const over = usePageDrop({
+    enabled: mayDrop && !adding,
+    onDrop: (picked) => {
+      setDropped(picked);
+      setAdding(true);
+    },
+  });
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!track || !project) return <p className="p-8 text-ink-3">Loading</p>;
   const latest = track.versions.at(-1);
   const playable = latest && primaryOf(latest);
-  // Takes are music's: a deliverable has its cuts and nothing beside them (#16).
-  const takes = view === "takes" && can("view_takes") && !video;
+  const next = track.versions.length + 1;
   if (!view && playable) {
     return <Navigate to="/files/$fileId" params={{ fileId: playable.fileId }} replace />;
   }
@@ -116,7 +130,14 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
                   </Button>
                 )}
                 {can("upload") && !adding && !takes && (
-                  <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => {
+                      setDropped(undefined);
+                      setAdding(true);
+                    }}
+                  >
                     <Icon name="upload" size={14} />
                     Add {words.version}
                   </Button>
@@ -158,11 +179,13 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
             track={track}
             project={project}
             adding={adding}
+            dropped={dropped}
             onAdding={setAdding}
             aside={switcher}
           />
         )}
       </Page>
+      {over && <DropHint text={`Drop to add ${words.version} ${next} of ${track.name}`} />}
     </>
   );
 }
