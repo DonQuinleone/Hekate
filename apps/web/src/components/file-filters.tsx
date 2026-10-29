@@ -1,12 +1,9 @@
 import type { BrowserFilter } from "@hekate/shared";
-import { type FormEvent, useState } from "react";
 import { Floating } from "~/components/ui/floating";
 import type { BrowserFilters } from "~/lib/browser";
 import { cn } from "~/lib/cn";
 import type { Tag } from "~/lib/queries";
 import { Icon, type IconName } from "./icons";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
 import { usePopover } from "./ui/menu";
 
 export const filterNames: Record<BrowserFilter, { label: string; icon: IconName }> = {
@@ -197,92 +194,5 @@ export function FilterChips({
         </button>
       </li>
     </ul>
-  );
-}
-
-/** A file's tags, chosen from the workspace's, with a new one made on the spot. */
-export function TagEditor({
-  tags,
-  initial,
-  pending,
-  error,
-  onCreate,
-  onSave,
-  onCancel,
-}: {
-  tags: Tag[];
-  initial: string[];
-  pending: boolean;
-  error?: string;
-  onCreate: (name: string) => Promise<Tag>;
-  onSave: (tagIds: string[]) => void;
-  onCancel: () => void;
-}) {
-  const [chosen, setChosen] = useState(initial);
-  const [name, setName] = useState("");
-  const add = async (event: FormEvent) => {
-    event.preventDefault();
-    const wanted = name.trim();
-    if (!wanted) return;
-    const existing = tags.find((t) => t.name.toLowerCase() === wanted.toLowerCase());
-    const tag = existing ?? (await onCreate(wanted).catch(() => null));
-    if (!tag) return;
-    setChosen((c) => (c.includes(tag.id) ? c : [...c, tag.id]));
-    setName("");
-  };
-  const changed = chosen.length !== initial.length || chosen.some((id) => !initial.includes(id));
-  return (
-    <fieldset className="m-0 flex min-w-0 flex-col gap-2.5 border-0 p-0">
-      <legend className="sr-only">Tags</legend>
-      {tags.length > 0 && (
-        <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
-          {tags.map((t) => {
-            const on = chosen.includes(t.id);
-            return (
-              <li key={t.id}>
-                <button
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() =>
-                    setChosen((c) => (on ? c.filter((x) => x !== t.id) : [...c, t.id]))
-                  }
-                  className={cn(
-                    "flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-[12px] transition-colors",
-                    on
-                      ? "border-edge bg-raised text-ink"
-                      : "border-line text-ink-2 hover:border-edge hover:text-ink",
-                  )}
-                >
-                  {on && <Icon name="check" size={11} />}
-                  {t.name}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <form onSubmit={add} className="flex flex-wrap items-center gap-2">
-        <Input
-          aria-label="New tag"
-          placeholder="New tag"
-          maxLength={40}
-          className="w-48"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === "Escape" && onCancel()}
-        />
-        <Button size="sm" variant="ghost" type="submit" disabled={!name.trim()}>
-          Add
-        </Button>
-        <span className="flex-1" />
-        <Button size="sm" disabled={pending || !changed} onClick={() => onSave(chosen)}>
-          Save tags
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-      </form>
-      {error && <p className="m-0 text-[12px] text-signal">{error}</p>}
-    </fieldset>
   );
 }

@@ -26,16 +26,19 @@ import {
   fileDetailsQuery,
   projectFoldersQuery,
   projectTracksQuery,
+  tagsQuery,
   useCaptionMutations,
   useOrganise,
+  useTagMutations,
   useTrackMutations,
 } from "~/lib/queries";
 import { Avatar } from "./avatar";
 import { Checksum } from "./checksum";
-import { AttachForm, destinations, MoveForm, RenameForm } from "./file-forms";
+import { AttachForm, MovePicker, RenameInput } from "./file-forms";
 import { mediaSummary } from "./files";
 import { Icon } from "./icons";
 import { Property } from "./property";
+import { TagInput } from "./tag-input";
 import { Button } from "./ui/button";
 import { Field } from "./ui/field";
 import { FileInput, Input, Select } from "./ui/input";
@@ -375,6 +378,60 @@ function Captions({
   );
 }
 
+/**
+ * The workspace tags on the file, edited here as they are in the file list: each a pill a
+ * click takes off, a field offering the rest as one types. Read only for those who do not
+ * organise the project.
+ */
+function Tags({ details, projectId }: { details: FileDetails; projectId: string }) {
+  const { data: tags = [] } = useQuery(tagsQuery);
+  const tagging = useTagMutations(projectId);
+  const client = useQueryClient();
+  const ids = details.file.tagIds ?? [];
+  const names = ids.flatMap((id) => tags.find((t) => t.id === id)?.name ?? []);
+  const failure = tagging.setOnFile.error ?? tagging.create.error;
+  return (
+    <section className="flex flex-col gap-1.5">
+      <Heading>Tags</Heading>
+      {details.can.organise ? (
+        <TagInput
+          tags={tags}
+          value={ids}
+          label={`Tags on ${details.file.name}`}
+          onCreate={(name) => tagging.create.mutateAsync(name)}
+          onChange={(tagIds) =>
+            tagging.setOnFile.mutate(
+              { fileId: details.file.id, tagIds },
+              {
+                onSuccess: () =>
+                  void client.invalidateQueries({ queryKey: ["files", details.file.id] }),
+              },
+            )
+          }
+        />
+      ) : names.length > 0 ? (
+        <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
+          {names.map((n) => (
+            <li
+              key={n}
+              className="rounded-full border border-line px-2 text-[12px] leading-6 text-ink-2"
+            >
+              {n}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <span className="text-[13px] text-ink-3">None</span>
+      )}
+      {failure && (
+        <p role="alert" className="m-0 text-[12px] text-signal">
+          {failure.message}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** Where the file is used: versions of tracks, a take, reviews. */
 function UsedIn({ details }: { details: FileDetails }) {
   const { versions, take, reviews } = details.usedIn;
@@ -500,13 +557,15 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
   const { data: downloads } = useQuery(downloadsQuery(fileId));
   const client = useQueryClient();
   const navigate = useNavigate();
-  const [editing, setEditing] = useState<"rename" | "move" | "attach" | "delete" | null>(null);
+  const [editing, setEditing] = useState<"rename" | "attach" | "delete" | null>(null);
+  /** The folder picker, open. */
+  const [moving, setMoving] = useState(false);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !editing && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !editing && !moving && onClose();
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose, editing]);
+  }, [onClose, editing, moving]);
 
   const refresh = {
     onSuccess: () => {
@@ -545,7 +604,20 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
           <>
             <dl className="m-0 flex flex-col">
               <Property name="Name">
-                <span title={details.file.name}>{details.file.name}</span>
+                {editing === "rename" ? (
+                  <RenameInput
+                    initial={details.file.name}
+                    file
+                    label="Rename the file"
+                    onSave={(name) => {
+                      setEditing(null);
+                      organise.updateFile.mutate({ id: fileId, name }, refresh);
+                    }}
+                    onCancel={() => setEditing(null)}
+                  />
+                ) : (
+                  <span title={details.file.name}>{details.file.name}</span>
+                )}
               </Property>
               <Property name="Format">
                 {mediaSummary(
@@ -613,28 +685,26 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
                 canExport={downloads !== undefined && downloads.level !== "none"}
               />
             )}
+            <Tags details={details} projectId={projectId} />
             <UsedIn details={details} />
+            {moving && (
+              <MovePicker
+                title={`Move ${details.file.name}`}
+                folders={folders}
+                exclude={new Set()}
+                current={details.file.folderId}
+                pending={organise.updateFile.isPending}
+                onMove={(to) => {
+                  setMoving(false);
+                  organise.updateFile.mutate({ id: fileId, folderId: to }, refresh);
+                }}
+                onClose={() => setMoving(false)}
+              />
+            )}
             {(details.can.organise || details.can.upload) && (
               <section className="flex flex-col gap-2">
                 <Heading>Actions</Heading>
-                {editing === "rename" ? (
-                  <RenameForm
-                    initial={details.file.name}
-                    pending={organise.updateFile.isPending}
-                    onSave={(name) => organise.updateFile.mutate({ id: fileId, name }, refresh)}
-                    onCancel={() => setEditing(null)}
-                  />
-                ) : editing === "move" ? (
-                  <MoveForm
-                    options={destinations(folders, new Set())}
-                    current={details.file.folderId}
-                    pending={organise.updateFile.isPending}
-                    onMove={(to) =>
-                      organise.updateFile.mutate({ id: fileId, folderId: to }, refresh)
-                    }
-                    onCancel={() => setEditing(null)}
-                  />
-                ) : editing === "attach" ? (
+                {editing === "attach" ? (
                   <AttachForm
                     file={details.file}
                     tracks={tracks}
@@ -689,7 +759,7 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
                         <Button size="sm" variant="secondary" onClick={() => setEditing("rename")}>
                           Rename
                         </Button>
-                        <Button size="sm" variant="secondary" onClick={() => setEditing("move")}>
+                        <Button size="sm" variant="secondary" onClick={() => setMoving(true)}>
                           Move…
                         </Button>
                       </>

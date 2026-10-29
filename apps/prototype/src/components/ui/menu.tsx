@@ -97,9 +97,12 @@ export function MenuList({
   autoFocus?: boolean;
 }) {
   const first = useRef<HTMLButtonElement>(null);
-  // Once it is placed (a floated list starts out of sight), not before.
+  // On the next frame, once it is placed: a floated list starts out of sight, where focus
+  // cannot land.
   useEffect(() => {
-    if (autoFocus) first.current?.focus();
+    if (!autoFocus) return;
+    const frame = requestAnimationFrame(() => first.current?.focus());
+    return () => cancelAnimationFrame(frame);
   }, [autoFocus]);
   const firstItem = actions.findIndex((a) => a !== "divider");
   const items = actions.map((a, i) =>

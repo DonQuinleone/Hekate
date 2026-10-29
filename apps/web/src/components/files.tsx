@@ -254,6 +254,12 @@ export function UploadProvider({
 }
 
 /** Choose files to upload to the open folder; nothing for those who cannot upload. */
+/**
+ * The page's uploads, for something other than the Upload button to start one (a context
+ * menu's Upload); null where nobody may upload here.
+ */
+export const useUploads = () => useContext(UploadContext);
+
 export function UploadButton() {
   const uploads = useContext(UploadContext);
   const input = useRef<HTMLInputElement>(null);
