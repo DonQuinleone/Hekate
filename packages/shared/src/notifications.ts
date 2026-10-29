@@ -39,6 +39,82 @@ export const notificationKinds = [
 ] as const;
 export type NotificationKind = (typeof notificationKinds)[number];
 
+/**
+ * Each kind as the account's Notifications page lists it (#504): a short name for the event,
+ * and one line saying when it comes. The page reads Event, description, App, Mail; the
+ * channels' columns are named by `notificationChannelLabels`, never by these.
+ */
+export const notificationCatalogue: Record<
+  NotificationKind,
+  { title: string; description: string }
+> = {
+  review_requested: {
+    title: "Review asked of me",
+    description: "A review asks for your decision or feedback.",
+  },
+  decision: {
+    title: "Decision on a review I asked for",
+    description: "A reviewer decided, or gave feedback, on a review you asked for.",
+  },
+  reply: {
+    title: "Reply",
+    description: "Someone replied in a thread you started or took part in.",
+  },
+  mention: { title: "Mention", description: "Someone mentioned you in a comment." },
+  version: { title: "New version", description: "A new version of a track you follow." },
+  processing_failed: {
+    title: "Processing failed",
+    description: "A file you uploaded could not be processed.",
+  },
+  guest_opened: {
+    title: "Guest opened a review",
+    description: "A guest opened a review you asked for.",
+  },
+  due_soon: {
+    title: "Review due tomorrow",
+    description: "A review waiting on you is due tomorrow.",
+  },
+  deletion_requested: {
+    title: "Project deletion to confirm",
+    description: "Someone asked to delete a project, for a workspace owner to confirm.",
+  },
+  assigned: {
+    title: "Comments assigned to me",
+    description: "Someone sent you the comments assigned to you on a file.",
+  },
+  workflow: {
+    title: "Workflow notice",
+    description: "A project's workflow tells your role something, or gives it a stage to do.",
+  },
+  task: {
+    title: "Task",
+    description: "A task was given to you or is due, or one you run waits for your approval.",
+  },
+  transfer: {
+    title: "Project transfer",
+    description: "A project is moving between workspaces: asked for, waiting on you, or moved.",
+  },
+  upload_arrived: {
+    title: "Files arrived",
+    description: "Files arrived through an upload request you made.",
+  },
+  ticket: {
+    title: "Ticket answered",
+    description: "The people who run this instance answered a ticket you sent them.",
+  },
+};
+
+/** The two ways a kind reaches someone, in the order the page shows them. */
+export const notificationChannelKeys = [
+  "app",
+  "mail",
+] as const satisfies readonly (keyof NotificationChannels)[];
+/** How each channel's column is headed, beside every row. */
+export const notificationChannelLabels: Record<keyof NotificationChannels, string> = {
+  app: "App",
+  mail: "Mail",
+};
+
 /** A notification whose mail takes a workspace template's subject line, with its values. */
 export interface NotificationMail {
   template: EmailTemplateId;

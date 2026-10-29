@@ -193,10 +193,11 @@ const screens: Screen[] = [
     path: () => "/account/appearance",
     ready: "main >> text=Skip by",
   },
+  // The suite's instance writes mail to its log, so the page says so (#503), to its operator.
   {
     name: "account-notifications",
     path: () => "/account/notifications",
-    ready: "main >> text=Maple Leaf Rag",
+    ready: "main >> text=writes email to its log",
   },
   {
     name: "account-tokens",

@@ -32,6 +32,7 @@ import {
   type SessionVariables,
   type TenantVariables,
 } from "../tenancy.ts";
+import { hasWorkspaceMail } from "../workspace-mail.ts";
 
 export interface MeDeps {
   auth: Auth;
@@ -53,6 +54,8 @@ export const meRoutes = (
     billing?: boolean;
     /** How the instance answers support (#181), for the help menu and the Support page. */
     support?: () => Promise<SupportModule>;
+    /** The instance's mail goes to its log, not out (#503): the mail pages say so. */
+    mailLogOnly?: boolean;
   },
 ) =>
   new Hono<{ Variables: TenantVariables }>()
@@ -144,6 +147,12 @@ export const meRoutes = (
         // The root's address, which keeps the instance's pages, with subdomains on (#176).
         root: deps.subdomains ? rootAddress(deps.subdomains) : null,
         billing: deps.billing ?? false,
+        // Whether what is mailed for this workspace reaches a log and nothing else (#503): the
+        // instance only logs, and the workspace sends through no mail of its own (#161).
+        mail: {
+          logOnly:
+            (deps.mailLogOnly ?? false) && !(await hasWorkspaceMail(db, c.var.organisationId)),
+        },
         support: deps.support
           ? await deps.support()
           : ({

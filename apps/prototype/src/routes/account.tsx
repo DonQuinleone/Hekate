@@ -8,6 +8,7 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Switch } from "~/components/ui/toggle";
 import { personById } from "~/data";
 import { cn } from "~/lib/cn";
 import { useViewer } from "~/viewer/context";
@@ -93,6 +94,60 @@ export const themes = [
   { id: "osaka-jade", name: "Osaka Jade", colours: ["#111c18", "#5fb39b", "#d6e8e0"] },
   { id: "kanagawa", name: "Kanagawa", colours: ["#1f1f28", "#7e9cd8", "#dcd7ba"] },
   { id: "solarized", name: "Solarized", colours: ["#002b36", "#b58900", "#93a1a1"] },
+];
+
+/** Every kind of notification (#504): the event, its line, and whether it is on in the app and by mail. */
+const notificationEvents: [string, string, boolean, boolean][] = [
+  ["Review asked of me", "A review asks for your decision or feedback.", true, true],
+  [
+    "Decision on a review I asked for",
+    "A reviewer decided, or gave feedback, on a review you asked for.",
+    true,
+    true,
+  ],
+  ["Reply", "Someone replied in a thread you started or took part in.", true, true],
+  ["Mention", "Someone mentioned you in a comment.", true, true],
+  ["New version", "A new version of a track you follow.", true, false],
+  ["Processing failed", "A file you uploaded could not be processed.", true, true],
+  ["Guest opened a review", "A guest opened a review you asked for.", false, false],
+  ["Review due tomorrow", "A review waiting on you is due tomorrow.", true, true],
+  [
+    "Project deletion to confirm",
+    "Someone asked to delete a project, for a workspace owner to confirm.",
+    true,
+    true,
+  ],
+  [
+    "Comments assigned to me",
+    "Someone sent you the comments assigned to you on a file.",
+    true,
+    true,
+  ],
+  [
+    "Workflow notice",
+    "A project's workflow tells your role something, or gives it a stage to do.",
+    true,
+    true,
+  ],
+  [
+    "Task",
+    "A task was given to you or is due, or one you run waits for your approval.",
+    true,
+    true,
+  ],
+  [
+    "Project transfer",
+    "A project is moving between workspaces: asked for, waiting on you, or moved.",
+    true,
+    true,
+  ],
+  ["Files arrived", "Files arrived through an upload request you made.", true, true],
+  [
+    "Ticket answered",
+    "The people who run this instance answered a ticket you sent them.",
+    true,
+    true,
+  ],
 ];
 
 export function AccountPage({ section }: { section: string }) {
@@ -470,7 +525,25 @@ export function AccountPage({ section }: { section: string }) {
       )}
       {sec === "notifications" && (
         <>
-          <Section title="How" intro="At once, or gathered into a digest.">
+          {state === "processing" && (
+            <div
+              role="status"
+              className="flex items-start gap-2.5 rounded-panel border border-signal/30 bg-signal/[0.06] px-3.5 py-2.5 text-[13px] text-ink"
+            >
+              <Icon name="warning" size={14} className="mt-0.5 shrink-0 text-signal" />
+              <span>
+                This instance writes email to its log; nothing is sent. Set up mail under{" "}
+                <a
+                  href="/instance/settings"
+                  className="text-ink underline decoration-edge underline-offset-2 hover:decoration-ink-3"
+                >
+                  Instance, Settings
+                </a>
+                .
+              </span>
+            </div>
+          )}
+          <Section title="How" intro="By mail at once, or gathered into a digest.">
             <Row name="By mail">
               <div
                 role="radiogroup"
@@ -499,32 +572,35 @@ export function AccountPage({ section }: { section: string }) {
                 </Select>
               )}
             </Row>
-            <SwitchRow name="In the app" checked />
           </Section>
           <Section
             title="What"
-            intro="Per event. Mentions and reviews asked of you always reach you."
+            intro="Per event, in the app and by mail. Reviews asked of you and mentions always reach you in the app."
           >
-            {[
-              ["A review is requested of you", true, true],
-              ["A decision is recorded on a review you asked for", true, true],
-              ["Someone replies to you", true, true],
-              ["Someone mentions you", true, true],
-              ["A new version of a track you follow", true, false],
-              ["A stage starts in a project you are in", false, false],
-              ["Processing fails on your upload", true, true],
-              ["A guest opens a review you asked for", false, false],
-              ["The people who run this instance answer your ticket", true, true],
-            ].map(([e, app, mail]) => (
-              <Row key={String(e)} name={String(e)}>
-                <label className="flex items-center gap-1.5 text-[12px] text-ink-3">
-                  <input type="checkbox" defaultChecked={Boolean(app)} />
-                  app
-                </label>
-                <label className="flex items-center gap-1.5 text-[12px] text-ink-3">
-                  <input type="checkbox" defaultChecked={Boolean(mail)} />
-                  mail
-                </label>
+            {notificationEvents.map(([title, description, app, mail]) => (
+              <Row key={title} name={title} hint={description}>
+                {(
+                  [
+                    ["App", app, title === "Review asked of me" || title === "Mention"],
+                    ["Mail", mail, false],
+                  ] as const
+                ).map(([channel, on, locked]) => (
+                  <span
+                    key={channel}
+                    className="flex items-center gap-2 text-[12px] text-ink-3"
+                    title={locked ? "Always on" : undefined}
+                  >
+                    <Switch
+                      label={`${title}, ${channel}`}
+                      checked={on}
+                      disabled={locked}
+                      onChange={() => {}}
+                    />
+                    <span aria-hidden="true" className="w-7">
+                      {channel}
+                    </span>
+                  </span>
+                ))}
               </Row>
             ))}
           </Section>
