@@ -2484,6 +2484,61 @@ test("file-speed", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The player in a short window (#493): the waveform gives way, the transport stays directly
+// under it and nothing is pushed off; the comments keep their place beside.
+test("file-short", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "A phone's height is its own");
+  await page.setViewportSize({ width: 1440, height: 640 });
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeInViewport();
+  await expect(page.getByRole("toolbar", { name: "View" })).toBeInViewport();
+  await saveScreen(page, "file-short");
+  await checkScreen(page);
+});
+
+// The track's status from the player (#498): its chip in the strip, opened on the moves the
+// workflow allows from here. No run waits in the seed, so the answers are amended in the page.
+test("file-status-menu", async ({ page }) => {
+  const trackId = seeded().trackId;
+  await page.route(`**/api/tracks/${trackId}/workflow-standing`, (route) =>
+    route.fulfill({
+      json: { status: "Editing", category: "in_progress", stage: "Engineer edits", next: null },
+    }),
+  );
+  await page.route(`**/api/tracks/${trackId}/workflow-runs`, (route) =>
+    route.fulfill({
+      json: {
+        runs: [
+          {
+            id: "01a15000-0000-7000-8000-00000000004a",
+            workflowId: null,
+            workflowName: "Album review",
+            workflowVersion: 1,
+            trackId,
+            state: "running",
+            status: "Editing",
+            waiting: [{ nodeId: "edit", name: "Engineer edits", type: "task" }],
+            steps: [],
+            startedBy: null,
+            startedAt: "2026-10-12T09:00:00Z",
+            endedAt: null,
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Status: Editing. Move on" }).click();
+  await expect(page.getByRole("menuitem", { name: "Done" })).toBeVisible();
+  await saveScreen(page, "file-status-menu");
+  await checkScreen(page);
+  // Each move is confirmed before the step ends.
+  await page.getByRole("menuitem", { name: "Done" }).click();
+  await expect(page.getByRole("dialog", { name: "Engineer edits: done" })).toBeVisible();
+});
+
 // Zoomed into a recording (#34): two steps in, the view scrolled with the playhead.
 test("file-zoom", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/label";
 import { FollowDaw } from "~/components/recorder";
@@ -6,7 +6,7 @@ import { Dropdown, MenuList, usePopover } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { inField } from "~/lib/dom";
-import { formatClock, formatTimecode } from "~/lib/format";
+import { formatClock, formatTimecode, parseTimeEntry } from "~/lib/format";
 import type { Playback } from "./playback.ts";
 import type { ColourMap } from "./spectrogram.tsx";
 
@@ -30,7 +30,7 @@ export interface View {
     overlap: "50" | "75" | "87.5";
   };
   normalised: boolean;
-  /** The line of loudness and issues under the player. */
+  /** The meters beside the waveform, switched from the view toolbar. */
   loudness: boolean;
 }
 
@@ -59,7 +59,8 @@ export function Seg<T extends string>({
   action,
 }: {
   value: T;
-  options: { id: T; label: string; hint?: string }[];
+  /** Each choice: its words, a quiet word after them, or a count that needs a look (a badge). */
+  options: { id: T; label: string; hint?: string; badge?: number }[];
   onChange: (v: T) => void;
   label: string;
   size?: "sm" | "md";
@@ -87,6 +88,11 @@ export function Seg<T extends string>({
         >
           {o.label}
           {o.hint && <span className="text-ink-3">{o.hint}</span>}
+          {o.badge !== undefined && o.badge > 0 && (
+            <span className="tabular rounded-full bg-signal/15 px-1.5 text-[11px] leading-[16px] font-medium text-signal">
+              {o.badge}
+            </span>
+          )}
         </button>
       ))}
       {action && (
@@ -346,14 +352,6 @@ export function ViewMenu({
           ) : (
             <p className="text-[13px] text-ink-3">The spectrogram is not among your tools here.</p>
           )}
-          <div className={row}>
-            Loudness and issues
-            <Switch
-              label="Loudness and issues"
-              checked={view.loudness}
-              onChange={(v) => onView({ ...view, loudness: v })}
-            />
-          </div>
           {normaliseAllowed && (
             <div className={row}>
               <span>
@@ -407,9 +405,330 @@ const nextZoom = (zoom: number, direction: 1 | -1) =>
 const iconButton =
   "flex size-9 items-center justify-center rounded-full text-ink-2 transition-colors hover:bg-raised hover:text-ink";
 
+/** A view toolbar control: quiet, 28 px, pressed when its view is on. */
+const viewButton =
+  "flex h-7 items-center gap-1.5 rounded-control px-2 text-[12px] text-ink-3 transition-colors hover:bg-raised hover:text-ink disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ink-3";
+
+/** The circular arrow with the seconds it skips inside, as Music and YouTube draw theirs. */
+function SkipIcon({ seconds, size = 18 }: { seconds: 5 | 10; size?: number }) {
+  return (
+    <span
+      className="relative flex items-center justify-center"
+      style={{ width: size, height: size }}
+    >
+      <Icon name="back5" size={size} />
+      <span
+        aria-hidden="true"
+        className="absolute inset-0 flex items-center justify-center pt-px text-[7px] leading-none font-medium"
+      >
+        {seconds}
+      </span>
+    </span>
+  );
+}
+
+const VOLUME_KEY = "hekate.prototype.volume";
+
 /**
- * Play, seek, the readout, loop, rate, compare, volume. Keys: Space, J K L, arrows, I O, L,
- * Home and End, and Shift+up and down for the previous and next marker.
+ * The speaker: a click mutes, as YouTube and Music have it; hovering or focusing it opens a
+ * slider from 0 to 100 in steps of 5, remembered in this browser.
+ */
+function VolumeControl() {
+  const [volume, setVolume] = useState(() => {
+    try {
+      const raw = Number(localStorage.getItem(VOLUME_KEY));
+      return Number.isFinite(raw) && localStorage.getItem(VOLUME_KEY) !== null ? raw : 100;
+    } catch {
+      return 100;
+    }
+  });
+  const [muted, setMuted] = useState(false);
+  const [open, setOpen] = useState(false);
+  const closing = useRef<number | undefined>(undefined);
+  const stay = () => {
+    window.clearTimeout(closing.current);
+    setOpen(true);
+  };
+  const leave = () => {
+    window.clearTimeout(closing.current);
+    closing.current = window.setTimeout(() => setOpen(false), 250);
+  };
+  const choose = (next: number) => {
+    const v = Math.max(0, Math.min(100, Math.round(next / 5) * 5));
+    setVolume(v);
+    if (v > 0) setMuted(false);
+    try {
+      localStorage.setItem(VOLUME_KEY, String(v));
+    } catch {
+      // Not remembered.
+    }
+  };
+  const silent = muted || volume === 0;
+  return (
+    <div className="relative" onPointerEnter={stay} onPointerLeave={leave}>
+      <button
+        type="button"
+        aria-label={silent ? "Unmute" : "Mute"}
+        title={`${silent ? "Unmute" : "Mute"} · volume ${volume}%`}
+        onClick={() => setMuted((m) => !m)}
+        onFocus={stay}
+        onBlur={leave}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowUp" || e.key === "ArrowRight") {
+            e.preventDefault();
+            choose(volume + 5);
+          } else if (e.key === "ArrowDown" || e.key === "ArrowLeft") {
+            e.preventDefault();
+            choose(volume - 5);
+          }
+        }}
+        className={iconButton}
+      >
+        <Icon name={silent ? "mute" : "volume"} />
+      </button>
+      {open && (
+        <div className="rise-in absolute right-0 bottom-full z-30 mb-1 flex items-center gap-2.5 rounded-panel bg-overlay px-3 py-2 shadow-3">
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={silent ? 0 : volume}
+            aria-label="Volume"
+            aria-valuetext={`${silent ? 0 : volume}%`}
+            onChange={(e) => choose(Number(e.target.value))}
+            onFocus={stay}
+            onBlur={leave}
+            className="h-1 w-28 accent-[var(--hk-ink)]"
+          />
+          <span className="tabular w-8 text-right text-[12px] text-ink-2">
+            {silent ? 0 : volume}%
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The time, elapsed over the whole: a double-click (or Enter) turns it into a field, a typed
+ * time (seconds, m:ss, a timecode, or bar.beat where bars map to time) and Enter seeks there,
+ * Escape leaves it.
+ */
+function TimeReadout({
+  time,
+  duration,
+  video,
+  fps,
+  bars,
+  onSeek,
+}: {
+  time: number;
+  duration: number;
+  video: boolean;
+  fps: number;
+  /** Where the project maps bars to time: the moment a bar and beat start. */
+  bars?: (bar: number, beat: number) => number | null;
+  onSeek: (seconds: number) => void;
+}) {
+  const [typing, setTyping] = useState<string | null>(null);
+  const [wrong, setWrong] = useState(false);
+  const editing = typing !== null;
+  const field = useRef<HTMLInputElement>(null);
+  // The field takes focus as it appears: the double-click asked for it.
+  useEffect(() => {
+    if (editing) field.current?.focus();
+  }, [editing]);
+  const fmt = (t: number) => (video ? formatTimecode(t, fps) : formatClock(t));
+  if (typing !== null)
+    return (
+      <form
+        className="ml-2 flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          const at = parseTimeEntry(typing, { duration, fps: video ? fps : undefined, bars });
+          if (at === null) {
+            setWrong(true);
+            return;
+          }
+          onSeek(at);
+          setTyping(null);
+        }}
+      >
+        <input
+          ref={field}
+          type="text"
+          value={typing}
+          aria-label="Go to time"
+          aria-invalid={wrong}
+          title={
+            wrong
+              ? "That is not a time in this file"
+              : bars
+                ? "A bar such as 25 or 25.3, or a time such as 1:30"
+                : "A time such as 1:30, or seconds"
+          }
+          spellCheck={false}
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => {
+            setTyping(e.target.value);
+            setWrong(false);
+          }}
+          onBlur={() => setTyping(null)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              e.stopPropagation();
+              setTyping(null);
+            }
+          }}
+          className={cn(
+            "tabular h-8 w-28 rounded-control border bg-ground/70 px-2 text-[15px] text-ink focus:outline-none",
+            wrong ? "border-signal" : "border-edge-strong",
+          )}
+        />
+        <span className="tabular text-[13px] text-ink-3">/ {fmt(duration)}</span>
+      </form>
+    );
+  return (
+    <button
+      type="button"
+      title="Double-click to type a time"
+      onDoubleClick={() => setTyping(fmt(time))}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          setTyping(fmt(time));
+        }
+      }}
+      className="tabular ml-2 h-8 cursor-text rounded-control px-1.5 text-left text-[16px] text-ink hover:bg-raised"
+    >
+      {fmt(time)}
+      <span className="text-[13px] text-ink-3"> / {fmt(duration)}</span>
+    </button>
+  );
+}
+
+/**
+ * How the recording is looked at, at the waveform's edge: the loop, the spectrogram, the
+ * meters and the zoom. Playback stays in the transport beneath.
+ */
+export function ViewBar({
+  playback,
+  loopsAllowed,
+  zoom,
+  onZoom,
+  spectrogram,
+  onSpectrogram,
+  meters,
+  onMeters,
+}: {
+  playback: Playback;
+  loopsAllowed: boolean;
+  /** How far the waveform is zoomed in (1 is the whole file), where it can be. */
+  zoom?: number;
+  onZoom?: (zoom: number) => void;
+  /** Whether the spectrogram shows, where the viewer has it. */
+  spectrogram?: boolean;
+  onSpectrogram?: (on: boolean) => void;
+  /** Whether the meters show beside the waveform, where the viewer has them. */
+  meters?: boolean;
+  onMeters?: (on: boolean) => void;
+}) {
+  const zoomBy = (direction: 1 | -1) => onZoom?.(nextZoom(zoom ?? 1, direction));
+  if (!loopsAllowed && !onZoom && !onSpectrogram && !onMeters) return null;
+  return (
+    <div
+      role="toolbar"
+      aria-label="View"
+      className="flex h-8 shrink-0 items-center justify-end gap-0.5 px-3 @3xl/app:px-4"
+    >
+      {loopsAllowed && (
+        <button
+          type="button"
+          aria-pressed={playback.looping}
+          title="Loop (shift L); I and O set the points"
+          onClick={() => playback.setLooping(!playback.looping)}
+          className={cn(
+            viewButton,
+            playback.looping && "bg-signal/15 text-signal hover:bg-signal/20 hover:text-signal",
+          )}
+        >
+          <Icon name="loop" size={14} />
+          Loop
+          {playback.loop && playback.looping && (
+            <span className="tabular hidden @3xl/app:inline">
+              {formatClock(playback.loop.start, false)}–{formatClock(playback.loop.end, false)}
+            </span>
+          )}
+        </button>
+      )}
+      {onSpectrogram && (
+        <button
+          type="button"
+          aria-pressed={Boolean(spectrogram)}
+          title="Spectrogram; its place and colours are in View"
+          onClick={() => onSpectrogram(!spectrogram)}
+          className={cn(viewButton, spectrogram && "bg-raised text-ink")}
+        >
+          <Icon name="chart" size={14} />
+          Spectrogram
+        </button>
+      )}
+      {onMeters && (
+        <button
+          type="button"
+          aria-pressed={Boolean(meters)}
+          title="Levels beside the waveform"
+          onClick={() => onMeters(!meters)}
+          className={cn(viewButton, meters && "bg-raised text-ink")}
+        >
+          <Icon name="pulse" size={14} />
+          Meters
+        </button>
+      )}
+      {onZoom && (
+        <span className="ml-1.5 flex items-center border-l border-line pl-1.5">
+          <button
+            type="button"
+            aria-label="Zoom out"
+            title="Zoom out (−)"
+            disabled={(zoom ?? 1) <= 1}
+            onClick={() => zoomBy(-1)}
+            className={cn(viewButton, "w-7 justify-center px-0")}
+          >
+            <Icon name="zoomOut" size={14} />
+          </button>
+          <button
+            type="button"
+            title="Fit the whole file (0)"
+            onClick={() => onZoom(1)}
+            className={cn(viewButton, "tabular min-w-9 justify-center")}
+          >
+            {(zoom ?? 1) <= 1 ? "Fit" : `${zoom}×`}
+          </button>
+          <button
+            type="button"
+            aria-label="Zoom in"
+            title="Zoom in (=)"
+            disabled={(zoom ?? 1) >= MAX_ZOOM}
+            onClick={() => zoomBy(1)}
+            className={cn(viewButton, "w-7 justify-center px-0")}
+          >
+            <Icon name="zoomIn" size={14} />
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Playback: to the start, back ten and five seconds, play, the time (double-click to type
+ * one), the speed, the comparison and the volume. Keys: Space, J K L, arrows, I O, shift L,
+ * Home and End, and Shift+up and down for the previous and next marker. The view's controls
+ * (loop, spectrogram, meters, zoom) sit in the ViewBar at the waveform's edge; their keys
+ * are handled here, where every key of the player is.
  */
 export function Transport({
   playback,
@@ -417,11 +736,11 @@ export function Transport({
   video = false,
   fps = 25,
   reference,
+  bars,
   loopsAllowed,
   compareAllowed,
   compareOpen,
   onCompare,
-  hearing,
   zoom,
   onZoom,
   marks = [],
@@ -431,19 +750,18 @@ export function Transport({
   video?: boolean;
   fps?: number;
   reference?: string;
+  /** Where the project maps bars to time, for a typed bar to seek to. */
+  bars?: (bar: number, beat: number) => number | null;
   loopsAllowed: boolean;
   compareAllowed: boolean;
   compareOpen: boolean;
   onCompare: () => void;
-  hearing?: string;
-  /** How far the waveform is zoomed in (1 is the whole file), where it can be. */
+  /** How far the waveform is zoomed in (1 is the whole file), for the keys. */
   zoom?: number;
   onZoom?: (zoom: number) => void;
   /** Where markers are (comments, QA findings), in seconds, for Shift+up and down. */
   marks?: number[];
 }) {
-  const [muted, setMuted] = useState(false);
-  const zoomBy = (direction: 1 | -1) => onZoom?.(nextZoom(zoom ?? 1, direction));
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (inField(e)) return;
@@ -519,17 +837,34 @@ export function Transport({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [playback, duration, video, fps, loopsAllowed, zoom, onZoom, marks]);
-  const fmt = (t: number) => (video ? formatTimecode(t, fps) : formatClock(t));
   return (
-    <div className="flex min-h-16 flex-wrap items-center gap-1 px-3 py-2 @3xl/app:px-4">
+    <div className="flex min-h-14 flex-wrap items-center gap-0.5 px-2 py-1.5 @3xl/app:px-3">
+      <button
+        type="button"
+        aria-label="Go to the start"
+        title="Go to the start (Home)"
+        onClick={() => playback.seek(0)}
+        className={iconButton}
+      >
+        <Icon name="skipBack" size={16} />
+      </button>
+      <button
+        type="button"
+        aria-label="Back ten seconds"
+        title="Back 10 s"
+        onClick={() => playback.seek(playback.time - 10)}
+        className={iconButton}
+      >
+        <SkipIcon seconds={10} />
+      </button>
       <button
         type="button"
         aria-label="Back five seconds"
-        title="Back (J, ←)"
+        title="Back 5 s (J, ←)"
         onClick={() => playback.seek(playback.time - 5)}
         className={iconButton}
       >
-        <Icon name="back5" size={18} />
+        <SkipIcon seconds={5} />
       </button>
       <button
         type="button"
@@ -537,7 +872,7 @@ export function Transport({
         title="Play or pause (Space)"
         onClick={playback.toggle}
         className={cn(
-          "flex size-11 items-center justify-center rounded-full bg-ink text-ground shadow-2 transition-[transform,box-shadow] duration-150 hover:scale-105 active:scale-95",
+          "mx-1 flex size-11 items-center justify-center rounded-full bg-ink text-ground shadow-2 transition-[transform,box-shadow] duration-150 hover:scale-105 active:scale-95",
           playback.playing &&
             "shadow-[0_0_0_1px_rgb(0_0_0/0.4),0_0_28px_-4px_var(--hk-signal-line)]",
         )}
@@ -550,19 +885,14 @@ export function Transport({
           className={playback.playing ? "" : "ml-0.5"}
         />
       </button>
-      <button
-        type="button"
-        aria-label="Forward five seconds"
-        title="Forward (L, →)"
-        onClick={() => playback.seek(playback.time + 5)}
-        className={iconButton}
-      >
-        <Icon name="forward5" size={18} />
-      </button>
-      <div className="tabular ml-3 text-[16px] text-ink">
-        {fmt(playback.time)}
-        <span className="text-[13px] text-ink-3"> / {fmt(duration)}</span>
-      </div>
+      <TimeReadout
+        time={playback.time}
+        duration={duration}
+        video={video}
+        fps={fps}
+        bars={bars}
+        onSeek={playback.seek}
+      />
       {video && (
         <span className="tabular ml-3 text-[13px] text-ink-3">
           frame {Math.floor(playback.time * fps)}
@@ -571,64 +901,9 @@ export function Transport({
       {reference && (
         <span className="ml-3 hidden text-[13px] text-ink-2 @3xl/app:inline">{reference}</span>
       )}
-      {hearing && (
-        <span className="ml-3 hidden text-[12px] text-ink-3 @5xl/app:inline">{hearing}</span>
-      )}
       <div className="ml-auto flex items-center gap-0.5">
-        {loopsAllowed && (
-          <button
-            type="button"
-            aria-pressed={playback.looping}
-            title="Loop (shift L); I and O set the points"
-            onClick={() => playback.setLooping(!playback.looping)}
-            className={cn(
-              "flex h-9 items-center gap-1.5 rounded-full px-3 text-[13px] transition-colors",
-              playback.looping
-                ? "bg-signal/15 text-signal"
-                : "text-ink-2 hover:bg-raised hover:text-ink",
-            )}
-          >
-            <Icon name="loop" />
-            {playback.loop && playback.looping && (
-              <span className="tabular hidden @3xl/app:inline">
-                {formatClock(playback.loop.start, false)}–{formatClock(playback.loop.end, false)}
-              </span>
-            )}
-          </button>
-        )}
-        {onZoom && (
-          <span className="flex items-center">
-            <button
-              type="button"
-              aria-label="Zoom out"
-              title="Zoom out (−)"
-              disabled={(zoom ?? 1) <= 1}
-              onClick={() => zoomBy(-1)}
-              className={cn(iconButton, "disabled:opacity-40 disabled:hover:bg-transparent")}
-            >
-              <Icon name="zoomOut" size={16} />
-            </button>
-            <button
-              type="button"
-              title="Fit the whole file (0)"
-              onClick={() => onZoom(1)}
-              className="tabular h-9 min-w-10 rounded-full px-1.5 text-[13px] text-ink-2 hover:bg-raised hover:text-ink"
-            >
-              {(zoom ?? 1) <= 1 ? "Fit" : `${zoom}×`}
-            </button>
-            <button
-              type="button"
-              aria-label="Zoom in"
-              title="Zoom in (=)"
-              disabled={(zoom ?? 1) >= MAX_ZOOM}
-              onClick={() => zoomBy(1)}
-              className={cn(iconButton, "disabled:opacity-40 disabled:hover:bg-transparent")}
-            >
-              <Icon name="zoomIn" size={16} />
-            </button>
-          </span>
-        )}
         <Dropdown
+          label="Speed"
           value={
             <span className="tabular">
               {playback.rate.toFixed(playback.rate === 1 ? 1 : 2).replace(/0$/, "")}×
@@ -658,14 +933,7 @@ export function Transport({
             Compare
           </button>
         )}
-        <button
-          type="button"
-          aria-label={muted ? "Unmute" : "Mute"}
-          onClick={() => setMuted((m) => !m)}
-          className={iconButton}
-        >
-          <Icon name={muted ? "mute" : "volume"} />
-        </button>
+        <VolumeControl />
       </div>
     </div>
   );

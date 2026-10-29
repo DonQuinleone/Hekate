@@ -2,7 +2,6 @@ import { type PointerEvent, type ReactNode, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, loopFrom, MAX_ROLL, nudge, type Rolls, roll } from "~/lib/loop";
 import { Button } from "./ui/button";
-import { Choice } from "./ui/choice";
 import { Input, Select } from "./ui/input";
 
 /** Movement, in pixels, that turns a click into a drag. */
@@ -157,24 +156,23 @@ function Edge({
   );
 }
 
-/** The loop's edges, nudged by a chosen step; pre-roll and post-roll; on, off and clear. */
+/**
+ * The loop's edges, nudged by a chosen step; pre-roll and post-roll; and clear. On and off is
+ * the view toolbar's Loop, at the waveform's edge (#493).
+ */
 export function LoopControls({
   loop,
   duration,
   fps,
-  active,
   rolls,
   onLoop,
-  onActive,
   onRolls,
 }: {
   loop: Loop;
   duration: number;
   fps?: number;
-  active: boolean;
   rolls: Rolls;
   onLoop: (loop: Loop | null) => void;
-  onActive: (active: boolean) => void;
   onRolls: (rolls: Rolls) => void;
 }) {
   const steps = stepsFor(fps);
@@ -184,13 +182,7 @@ export function LoopControls({
       aria-label="Loop"
       className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line px-3 py-2.5 lg:px-4"
     >
-      <Choice
-        checked={active}
-        onChange={(e) => onActive(e.target.checked)}
-        className="items-center text-xs text-ink-2"
-      >
-        Loop
-      </Choice>
+      <span className="text-xs font-medium text-ink-2">Loop</span>
       <Edge
         name="In"
         at={loop.start}

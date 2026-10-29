@@ -120,3 +120,35 @@ export function formatChannels(layout: string | undefined, channels: number | un
 }
 
 export const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * The moment a typed time means, in seconds, or null where it is not a time in this file:
+ * seconds ("90", "12.5 s"), minutes and seconds ("1:30", "1:30.250"), hours too, a timecode
+ * where the file is a video ("00:01:12:08"), and a bar and beat ("25", "25.3", "bar 25")
+ * where the project maps bars to time; seconds then take a unit.
+ */
+export function parseTimeEntry(
+  text: string,
+  context: { duration: number; fps?: number; bars?: (bar: number, beat: number) => number | null },
+): number | null {
+  const typed = text.trim().toLowerCase();
+  const within = (s: number) => (s >= 0 && s <= context.duration ? s : null);
+  const timecode = /^(\d{2}):(\d{2}):(\d{2}):(\d{2})$/.exec(typed);
+  if (timecode && context.fps) {
+    const [, h = "0", m = "0", s = "0", f = "0"] = timecode;
+    return within(Number(h) * 3600 + Number(m) * 60 + Number(s) + Number(f) / context.fps);
+  }
+  const clock = /^(?:(\d{1,2}):)?(\d{1,3}):(\d{2})(?:[.,](\d{1,3}))?$/.exec(typed);
+  if (clock) {
+    const [, h = "0", m = "0", s = "0", ms = "0"] = clock;
+    if (Number(s) > 59) return null;
+    return within(Number(h) * 3600 + Number(m) * 60 + Number(s) + Number(ms.padEnd(3, "0")) / 1000);
+  }
+  const bar = /^(?:bars?\s*|b)?(\d{1,4})(?:\.(\d{1,2}))?$/.exec(typed);
+  if (context.bars && bar) {
+    const at = context.bars(Number(bar[1]), Number(bar[2] ?? 1));
+    return at === null ? null : within(at);
+  }
+  const seconds = /^(\d{1,6}(?:[.,]\d{1,3})?)\s*(?:s|sec|seconds?)?$/.exec(typed);
+  return seconds?.[1] ? within(Number(seconds[1].replace(",", "."))) : null;
+}
