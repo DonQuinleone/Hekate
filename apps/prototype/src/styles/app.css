@@ -25,6 +25,13 @@
   --hk-node-work: #58b98a;
   --hk-node-comm: #b08cff;
   --hk-node-flow: #4fc3c9;
+  /* Comment categories (#496): the bar at a thread's edge, by the category's place in the list. */
+  --hk-category-1: var(--hk-signal);
+  --hk-category-2: var(--hk-node-review);
+  --hk-category-3: var(--hk-node-work);
+  --hk-category-4: var(--hk-node-comm);
+  --hk-category-5: var(--hk-node-flow);
+  --hk-category-6: #e7bc81;
   --hk-font-sans: "Schibsted Grotesk", "Helvetica Neue", Arial, sans-serif;
   --hk-radius-chip: 4px;
   --hk-radius-control: 6px;
@@ -80,6 +87,12 @@
   --color-node-work: var(--hk-node-work);
   --color-node-comm: var(--hk-node-comm);
   --color-node-flow: var(--hk-node-flow);
+  --color-category-1: var(--hk-category-1);
+  --color-category-2: var(--hk-category-2);
+  --color-category-3: var(--hk-category-3);
+  --color-category-4: var(--hk-category-4);
+  --color-category-5: var(--hk-category-5);
+  --color-category-6: var(--hk-category-6);
   --color-transparent: transparent;
   --color-current: currentColor;
 

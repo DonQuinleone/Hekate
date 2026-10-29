@@ -171,3 +171,37 @@ export function ago(iso: string, now = Date.now()): string {
   }
   return relative.format(Math.round(value), "year");
 }
+
+/**
+ * The colours a comment's category can be drawn in (#496): the bar at a thread's left edge,
+ * in Tailwind's name for each `--hk-category-n` token. Six, then round again.
+ */
+export const categoryTones = [
+  "bg-category-1",
+  "bg-category-2",
+  "bg-category-3",
+  "bg-category-4",
+  "bg-category-5",
+  "bg-category-6",
+] as const;
+export type CategoryTone = (typeof categoryTones)[number];
+
+/**
+ * A category's tone, by its place among the project's categories as the project orders
+ * them, so each category keeps its colour wherever its threads are shown; null for a
+ * category the project no longer has.
+ */
+export function categoryTone(
+  categories: readonly { id: string }[],
+  categoryId: string,
+): CategoryTone | null {
+  const at = categories.findIndex((c) => c.id === categoryId);
+  return at < 0 ? null : (categoryTones[at % categoryTones.length] ?? null);
+}
+
+/** The list in runs of at most `size`, in order: what one request carries at a time. */
+export function batchesOf<T>(list: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let at = 0; at < list.length; at += size) out.push(list.slice(at, at + size));
+  return out;
+}
