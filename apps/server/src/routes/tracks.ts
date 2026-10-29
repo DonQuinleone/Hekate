@@ -458,9 +458,15 @@ export const trackRoutes = (
           input.scoreFileId !== undefined
             ? await swapScore(tx, organisationId, id, input.scoreFileId, c.var.userId)
             : undefined;
+        // Its deadline (#505) arrives as an instant in text, kept as one.
+        const { dueAt, ...rest } = input;
         await tx
           .update(tracks)
-          .set({ ...input, updatedAt: new Date() })
+          .set({
+            ...rest,
+            ...(dueAt !== undefined ? { dueAt: dueAt ? new Date(dueAt) : null } : {}),
+            updatedAt: new Date(),
+          })
           .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
         return rehomed;
       });

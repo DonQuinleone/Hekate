@@ -12,7 +12,9 @@ import {
   sameBoardDisplay,
   shiftWeeks,
   timelineBar,
+  timelineSpan,
   timelineWeeks,
+  trackDeadline,
   workflowStatusesInput,
 } from "./board.ts";
 import type { WorkflowDefinition } from "./workflows.ts";
@@ -166,6 +168,37 @@ describe("a board's timeline", () => {
       timelineBar({ version: version("2026-08-01T00:00:00Z"), dueAt: null }, "2026-09-28", 42),
     ).toBeNull();
     expect(timelineBar({ version: null, dueAt: null }, "2026-09-28", 42)).toBeNull();
+  });
+
+  it("runs to the track's own deadline over its review's (#505)", () => {
+    expect(
+      timelineBar(
+        {
+          version: version("2026-10-01T09:30:00Z"),
+          dueAt: "2026-10-07T17:00:00Z",
+          due: "2026-10-12T17:00:00Z",
+        },
+        "2026-09-28",
+        42,
+      ),
+    ).toMatchObject({ from: "2026-10-01", to: "2026-10-12" });
+    expect(trackDeadline({ dueAt: "2026-10-07T17:00:00Z", due: null })).toBe(
+      "2026-10-07T17:00:00Z",
+    );
+  });
+
+  it("places a range of days as an entry's bar, cut to the span (#505)", () => {
+    expect(
+      timelineSpan({ startsOn: "2026-10-01", endsOn: "2026-10-03" }, "2026-09-28", 42),
+    ).toEqual({ left: expect.closeTo(3 / 42), width: expect.closeTo(3 / 42) });
+    expect(timelineSpan({ startsOn: "2026-10-01", endsOn: null }, "2026-09-28", 42)).toEqual({
+      left: expect.closeTo(3 / 42),
+      width: expect.closeTo(1 / 42),
+    });
+    expect(
+      timelineSpan({ startsOn: "2026-09-20", endsOn: "2026-09-29" }, "2026-09-28", 42),
+    ).toEqual({ left: 0, width: expect.closeTo(2 / 42) });
+    expect(timelineSpan({ startsOn: "2026-12-01", endsOn: null }, "2026-09-28", 42)).toBeNull();
   });
 });
 

@@ -7,13 +7,18 @@ import { Label } from "~/components/label";
 import { Card } from "~/components/page";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
+import { Dialog } from "~/components/ui/dialog";
 import { Floating } from "~/components/ui/floating";
+import { Input, Select } from "~/components/ui/input";
 import { usePopover } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import {
+  type CalendarEntry,
+  calendarEntries,
   comments,
   NOW,
   type Project,
+  people,
   personById,
   primaryFile,
   reviews,
@@ -184,6 +189,8 @@ function TrackCard({
         .filter((r) => r.state === "submitted")
         .map((r) => ({ personId: r.personId, decision: latestDecision(r) }))
     : [];
+  // Its own deadline (#505) over its review's due date.
+  const deadline = track.dueAt ?? s.review?.dueAt ?? null;
   return (
     <Link
       to={file ? "/files/$fileId" : "/tracks/$trackId"}
@@ -202,15 +209,20 @@ function TrackCard({
       {display.fields.stage && s.stage && (
         <span className="text-[12px] text-ink-2">{s.stage.name}</span>
       )}
-      {(display.fields.reviewers || display.fields.due) && s.review && (
+      {((display.fields.reviewers && s.review) || (display.fields.due && deadline)) && (
         <span className="flex items-center gap-2 text-[12px] text-ink-3">
-          {display.fields.reviewers && <AvatarRow personIds={s.waitingOn} size={18} />}
+          {display.fields.reviewers && s.review && <AvatarRow personIds={s.waitingOn} size={18} />}
           {display.fields.reviewers && s.waitingOn.length > 0 && <span>waiting</span>}
-          {display.fields.due && s.review.dueAt && (
+          {display.fields.due && deadline && (
             <span
-              className={cn("tabular ml-auto", dueIn(s.review.dueAt).days < 0 && "text-signal")}
+              className={cn(
+                "tabular ml-auto flex items-center gap-1",
+                dueIn(deadline).days < 0 && "text-signal",
+              )}
+              title={track.dueAt ? "Deadline" : "Review due"}
             >
-              {formatDate(s.review.dueAt)}
+              {track.dueAt && <Icon name="flag" size={11} />}
+              {formatDate(deadline)}
             </span>
           )}
         </span>
@@ -271,6 +283,8 @@ export function Board({ project, month }: { project: Project; month?: string }) 
   const [mode, setMode] = useState<"board" | "timeline" | "calendar">("board");
   const [display, setDisplay] = useState<Display>(defaultDisplay);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  /** An entry being added or changed (#505), from the calendar or the timeline. */
+  const [opening, setOpening] = useState<{ day?: string; entry?: CalendarEntry } | null>(null);
   const projectTracks = tracks.filter((t) => t.projectId === project.id);
   const columns =
     display.groupBy === "stage"
@@ -334,8 +348,17 @@ export function Board({ project, month }: { project: Project; month?: string }) 
           {mode === "board" && <Customise display={display} set={setDisplay} />}
         </span>
       </div>
-      {mode === "timeline" && <Timeline project={project} />}
-      {mode === "calendar" && <Calendar project={project} month={month} />}
+      {mode === "timeline" && (
+        <>
+          <Timeline project={project} onOpen={(entry) => setOpening({ entry })} />
+          {opening?.entry && (
+            <EntryDialog project={project} entry={opening.entry} onClose={() => setOpening(null)} />
+          )}
+        </>
+      )}
+      {mode === "calendar" && (
+        <Calendar project={project} month={month} opening={opening} onOpen={setOpening} />
+      )}
       {mode === "board" && (
         <div className="-mx-5 overflow-x-auto px-5 @3xl/app:-mx-10 @3xl/app:px-10">
           <div className="flex min-w-max items-start gap-3 pb-2">
@@ -405,9 +428,35 @@ export function Board({ project, month }: { project: Project; month?: string }) 
   );
 }
 
-/** A Gantt-like view from the schedule and the due dates: one row per track, its stages across the weeks. */
-function Timeline({ project }: { project: Project }) {
+const entryIcon: Record<CalendarEntry["kind"], IconName> = {
+  session: "mic",
+  delivery: "send",
+  meeting: "users",
+  other: "calendar",
+};
+
+/** The handle at a bar's end: dragging it moves the end a day at a time (#505). */
+function Handle() {
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute inset-y-0 right-0 flex w-2.5 cursor-ew-resize items-center justify-end pr-1 opacity-0 transition-opacity group-hover:opacity-100"
+    >
+      <span className="h-3 w-0.5 rounded-full bg-current opacity-60" />
+    </span>
+  );
+}
+
+/**
+ * A Gantt-like view from the schedule and the due dates: one row per track, from its latest
+ * version to its deadline (its own, else its review's), its stage across the weeks; under them
+ * the calendar's entries (#505). A bar's end is dragged to set the deadline; an entry is dragged
+ * to move it, its end to change its length; each change is saved and offered back with Undo.
+ */
+function Timeline({ project, onOpen }: { project: Project; onOpen: (e: CalendarEntry) => void }) {
   const projectTracks = tracks.filter((t) => t.projectId === project.id);
+  const entries = calendarEntries.filter((e) => e.projectId === project.id);
+  const [undo, setUndo] = useState<string | null>("Maple Leaf Rag due 12 Oct");
   const days = 42;
   const start = new Date("2026-09-28T00:00:00Z");
   const x = (iso: string) =>
@@ -418,71 +467,330 @@ function Timeline({ project }: { project: Project }) {
   );
   const today = x(NOW.toISOString());
   return (
-    <Card className="scroll-quiet overflow-x-auto">
-      <div className="relative min-w-[760px]">
-        <div className="relative ml-[200px] flex h-9 border-b border-line text-[11px] text-ink-3">
-          {weeks.map((w) => (
-            <span key={w.toISOString()} className="flex-1 border-l border-line pl-1.5 leading-9">
-              {formatDate(w.toISOString())}
-            </span>
-          ))}
+    <div className="flex flex-col gap-3">
+      {undo && (
+        <div
+          role="status"
+          className="flex items-center gap-1 self-end rounded-control border border-line bg-overlay py-0.5 pr-0.5 pl-3 text-[13px] text-ink-2 shadow-2"
+        >
+          <span>{undo}</span>
+          <Button variant="ghost" size="sm" onClick={() => setUndo(null)}>
+            Undo
+          </Button>
+          <Button variant="quiet" size="iconSm" aria-label="Dismiss" onClick={() => setUndo(null)}>
+            <Icon name="close" size={13} />
+          </Button>
         </div>
-        {projectTracks.map((t, i) => {
-          const s = trackState(t, project);
-          const from = s.version?.uploadedAt ?? t.versions[0]?.uploadedAt;
-          const to =
-            s.review?.dueAt ??
-            (from ? new Date(new Date(from).getTime() + 7 * 86_400_000).toISOString() : null);
-          return (
-            <div
-              key={t.id}
-              className="relative flex h-12 items-center border-b border-line last:border-b-0"
-            >
-              <Link
-                to="/tracks/$trackId"
-                params={{ trackId: t.id }}
-                search={{ view: "versions" }}
-                className="w-[200px] shrink-0 truncate px-4 text-[13px] text-ink hover:text-signal"
+      )}
+      <Card className="scroll-quiet overflow-x-auto">
+        <div className="relative min-w-[760px]">
+          <div className="relative ml-[200px] flex h-9 border-b border-line text-[11px] text-ink-3">
+            {weeks.map((w) => (
+              <span key={w.toISOString()} className="flex-1 border-l border-line pl-1.5 leading-9">
+                {formatDate(w.toISOString())}
+              </span>
+            ))}
+          </div>
+          {projectTracks.map((t, i) => {
+            const s = trackState(t, project);
+            const from = s.version?.uploadedAt ?? t.versions[0]?.uploadedAt;
+            // Its own deadline, else its review's, else a week on.
+            const to =
+              t.dueAt ??
+              s.review?.dueAt ??
+              (from ? new Date(new Date(from).getTime() + 7 * 86_400_000).toISOString() : null);
+            const late = t.dueAt ? dueIn(t.dueAt).days < 0 : false;
+            return (
+              <div
+                key={t.id}
+                className="relative flex h-12 items-center border-b border-line last:border-b-0"
               >
-                {t.name}
-              </Link>
-              <div className="relative h-full flex-1">
-                {weeks.map((w, j) => (
-                  <span
-                    key={w.toISOString()}
-                    className="absolute top-0 bottom-0 border-l border-line"
-                    style={{ left: `${(j / weeks.length) * 100}%` }}
-                  />
-                ))}
-                {from && to && (
-                  <span
-                    className={cn(
-                      "absolute top-3 h-6 rounded-[5px] px-2 text-[12px] leading-6 text-ground",
-                      s.version?.status === "Approved" ? "bg-ink" : i % 2 ? "bg-ink-2" : "bg-ink-3",
-                    )}
+                <Link
+                  to="/tracks/$trackId"
+                  params={{ trackId: t.id }}
+                  search={{ view: "versions" }}
+                  className="w-[200px] shrink-0 truncate px-4 text-[13px] text-ink hover:text-signal"
+                >
+                  {t.name}
+                </Link>
+                <div className="relative h-full flex-1">
+                  {weeks.map((w, j) => (
+                    <span
+                      key={w.toISOString()}
+                      className="absolute top-0 bottom-0 border-l border-line"
+                      style={{ left: `${(j / weeks.length) * 100}%` }}
+                    />
+                  ))}
+                  {from && to && (
+                    <span
+                      title={
+                        t.dueAt ? `Due ${formatDate(t.dueAt)}${late ? ", late" : ""}` : undefined
+                      }
+                      className={cn(
+                        "group absolute top-3 h-6 rounded-[5px] px-2 text-[12px] leading-6",
+                        s.version?.status === "Approved"
+                          ? "bg-ink text-ground"
+                          : late
+                            ? "border border-signal/50 bg-signal/15 text-ink"
+                            : i % 2
+                              ? "bg-ink-2 text-ground"
+                              : "bg-ink-3 text-ground",
+                      )}
+                      style={{
+                        left: `${Math.max(0, x(from))}%`,
+                        width: `${Math.max(4, x(to) - x(from))}%`,
+                      }}
+                    >
+                      <span className="block truncate">
+                        {s.stage?.name ?? s.label}
+                        {t.dueAt && (
+                          <Icon
+                            name="flag"
+                            size={10}
+                            className="ml-1.5 inline-block align-[-1px] opacity-80"
+                          />
+                        )}
+                      </span>
+                      <Handle />
+                    </span>
+                  )}
+                  {!from && (
+                    <span className="absolute top-3.5 left-2 text-[12px] text-ink-3">
+                      Nothing scheduled
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {entries.length > 0 && (
+            <div className="flex h-8 items-center border-b border-line bg-sunken/40">
+              <Label className="w-[200px] shrink-0 px-4">Entries</Label>
+            </div>
+          )}
+          {entries.map((e) => {
+            const from = `${e.startsOn}T00:00:00Z`;
+            const to = `${e.endsOn ?? e.startsOn}T00:00:00Z`;
+            const when = e.endsOn ? `${formatDate(from)} – ${formatDate(to)}` : formatDate(from);
+            return (
+              <div
+                key={e.id}
+                className="relative flex h-12 items-center border-b border-line last:border-b-0"
+              >
+                <button
+                  type="button"
+                  onClick={() => onOpen(e)}
+                  className="flex w-[200px] shrink-0 items-center gap-1.5 px-4 text-left text-[13px] text-ink hover:text-signal"
+                >
+                  <Icon name={entryIcon[e.kind]} size={12} className="shrink-0 text-ink-3" />
+                  <span className="truncate">{e.title}</span>
+                </button>
+                <div className="relative h-full flex-1">
+                  {weeks.map((w, j) => (
+                    <span
+                      key={w.toISOString()}
+                      className="absolute top-0 bottom-0 border-l border-line"
+                      style={{ left: `${(j / weeks.length) * 100}%` }}
+                    />
+                  ))}
+                  <button
+                    type="button"
+                    title={`${e.title}: ${when}`}
+                    onClick={() => onOpen(e)}
+                    className="group absolute top-3 h-6 min-w-6 cursor-grab rounded-[5px] border border-line-strong bg-raised px-2 text-left text-[12px] leading-6 text-ink hover:border-edge"
                     style={{
-                      left: `${Math.max(0, x(from))}%`,
-                      width: `${Math.max(4, x(to) - x(from))}%`,
+                      left: `${x(from)}%`,
+                      width: `${x(to) - x(from) + 100 / days}%`,
                     }}
                   >
-                    <span className="block truncate">{s.stage?.name ?? s.label}</span>
-                  </span>
-                )}
-                {!from && (
-                  <span className="absolute top-3.5 left-2 text-[12px] text-ink-3">
-                    Nothing scheduled
-                  </span>
-                )}
+                    <span className="block truncate">{when}</span>
+                    <Handle />
+                  </button>
+                </div>
               </div>
-            </div>
-          );
-        })}
-        <span
-          className="pointer-events-none absolute top-0 bottom-0 w-px bg-signal"
-          style={{ left: `calc(200px + ${today}% * (100% - 200px) / 100)` }}
-        />
+            );
+          })}
+          <span
+            className="pointer-events-none absolute top-0 bottom-0 w-px bg-signal"
+            style={{ left: `calc(200px + ${today}% * (100% - 200px) / 100)` }}
+          />
+        </div>
+      </Card>
+      <p className="text-[12px] text-ink-3">
+        From each track's latest version to its deadline, or to when its review is due, or a week on
+        where neither is set; drag a bar's end to set the deadline; drag an entry to move it, or its
+        end to change its length.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * A calendar entry (#505): new from the calendar's button or a double-click on a day, or an
+ * existing one to change or remove. A session entry books a recording session under
+ * Production.
+ */
+function EntryDialog({
+  project,
+  entry,
+  day,
+  onClose,
+}: {
+  project: Project;
+  entry?: CalendarEntry;
+  day?: string;
+  onClose: () => void;
+}) {
+  const [kind, setKind] = useState<CalendarEntry["kind"]>(entry?.kind ?? "meeting");
+  const [attendees, setAttendees] = useState<string[]>(entry?.attendeeIds ?? []);
+  const projectTracks = tracks.filter((t) => t.projectId === project.id);
+  const projectReviews = reviews.filter((r) => r.projectId === project.id);
+  const kinds = [
+    ["session", "Session"],
+    ["delivery", "Delivery"],
+    ["meeting", "Meeting"],
+    ["other", "Other"],
+  ] as const;
+  return (
+    <Dialog
+      title={entry ? "Entry" : "New entry"}
+      description={
+        entry
+          ? undefined
+          : "A session, a delivery, a listening meeting: anything with a day that is not a review, a task or a deadline."
+      }
+      onClose={onClose}
+      footer={
+        <>
+          {entry && (
+            <Button
+              variant="ghost"
+              className="mr-auto text-signal hover:text-signal"
+              onClick={onClose}
+            >
+              Remove
+            </Button>
+          )}
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" onClick={onClose}>
+            {entry ? "Save" : "Add entry"}
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Title
+          <Input defaultValue={entry?.title ?? ""} placeholder="Listening meeting with the label" />
+        </label>
+        <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Kind
+          <div
+            role="radiogroup"
+            className="flex h-8 self-start rounded-control border border-line bg-raised/40 p-0.5"
+          >
+            {kinds.map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                role="radio"
+                aria-checked={kind === k}
+                onClick={() => setKind(k)}
+                className={cn(
+                  "flex h-7 items-center rounded-[5px] px-2.5 text-[13px]",
+                  kind === k ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {kind === "session" && (
+            <span className="text-[12px] text-ink-3">
+              Books a recording session under Production, on the day it starts.
+            </span>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            Starts
+            <Input type="date" defaultValue={entry?.startsOn ?? day ?? "2026-10-14"} />
+          </label>
+          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            Ends
+            <Input type="date" defaultValue={entry?.endsOn ?? ""} />
+            <span className="text-[12px] text-ink-3">Leave empty for one day</span>
+          </label>
+        </div>
+        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          About
+          <Select
+            defaultValue={
+              entry?.trackId
+                ? `track:${entry.trackId}`
+                : entry?.reviewId
+                  ? `review:${entry.reviewId}`
+                  : ""
+            }
+          >
+            <option value="">Nothing in particular</option>
+            <optgroup label="Tracks">
+              {projectTracks.map((t) => (
+                <option key={t.id} value={`track:${t.id}`}>
+                  {t.name}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label="Reviews">
+              {projectReviews.map((r) => (
+                <option key={r.id} value={`review:${r.id}`}>
+                  {r.title}
+                </option>
+              ))}
+            </optgroup>
+          </Select>
+          <span className="text-[12px] text-ink-3">A track or a review it concerns, if any</span>
+        </label>
+        <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Attendees
+          <div className="flex min-h-9 flex-wrap items-center gap-1.5 rounded-control border border-line-strong bg-ground/70 px-2 py-1.5">
+            {attendees.map((id) => (
+              <span
+                key={id}
+                className="flex h-6 items-center gap-1.5 rounded-chip border border-line bg-raised pr-1 pl-1.5 text-[12px] text-ink"
+              >
+                <Avatar personId={id} size={14} />
+                {personById(id).name}
+                <button
+                  type="button"
+                  aria-label={`Remove ${personById(id).name}`}
+                  onClick={() => setAttendees(attendees.filter((a) => a !== id))}
+                  className="flex size-4 items-center justify-center rounded-full text-ink-3 hover:text-ink"
+                >
+                  <Icon name="close" size={10} />
+                </button>
+              </span>
+            ))}
+            <Select
+              className="h-6 w-auto border-0 bg-transparent px-1 text-[13px] text-ink-3 shadow-none"
+              value=""
+              onChange={(e) => e.target.value && setAttendees([...attendees, e.target.value])}
+            >
+              <option value="">Members expected</option>
+              {people
+                .filter((p) => !attendees.includes(p.id))
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+            </Select>
+          </div>
+        </div>
       </div>
-    </Card>
+    </Dialog>
   );
 }
 
@@ -490,20 +798,51 @@ interface Event {
   id: string;
   date: string;
   title: string;
-  kind: "review" | "task" | "session" | "day";
+  kind: "review" | "task" | "track" | "session" | "day" | "entry";
   to?: string;
   overdue?: boolean;
+  /** The entry it is, which opens to be changed (#505). */
+  entry?: CalendarEntry;
 }
 
 const eventIcon: Record<Event["kind"], IconName> = {
   review: "review",
   task: "task",
+  track: "flag",
   session: "mic",
   day: "calendar",
+  entry: "calendar",
 };
 
-/** A month of what is due and what is booked, with the feed to take it elsewhere. */
-function Calendar({ project, month }: { project: Project; month?: string }) {
+/** Every day of a range, both ends included. */
+function daysOf(start: string, end: string | null): string[] {
+  const out = [start];
+  if (!end) return out;
+  for (let d = new Date(`${start}T00:00:00Z`); ; ) {
+    d = new Date(d.getTime() + 86_400_000);
+    const day = d.toISOString().slice(0, 10);
+    if (day > end) break;
+    out.push(day);
+  }
+  return out;
+}
+
+/**
+ * A month of what is due and what is booked, with the feed to take it elsewhere. Whoever edits
+ * the schedule adds an entry (#505) from the button or by double-clicking a day, and opens one
+ * to change it.
+ */
+function Calendar({
+  project,
+  month,
+  opening,
+  onOpen,
+}: {
+  project: Project;
+  month?: string;
+  opening: { day?: string; entry?: CalendarEntry } | null;
+  onOpen: (next: { day?: string; entry?: CalendarEntry } | null) => void;
+}) {
   const [cursor, setCursor] = useState(() => {
     const [y, m] = (month ?? "2026-10").split("-").map(Number);
     return new Date(Date.UTC(y ?? 2026, (m ?? 10) - 1, 1));
@@ -540,6 +879,16 @@ function Calendar({ project, month }: { project: Project; month?: string }) {
         to: `/projects/${project.id}/tasks?task=${t.id}`,
         overdue: t.status !== "done" && dueIn(`${t.dueAt}T23:59:00Z`).days < 0,
       })),
+    ...tracks
+      .filter((t) => t.projectId === project.id && t.dueAt)
+      .map((t) => ({
+        id: `track-${t.id}`,
+        date: (t.dueAt as string).slice(0, 10),
+        title: `${t.name} due`,
+        kind: "track" as const,
+        to: `/tracks/${t.id}`,
+        overdue: dueIn(t.dueAt as string).days < 0,
+      })),
     ...sessions
       .filter((s) => s.projectId === project.id)
       .map((s) => ({
@@ -549,6 +898,17 @@ function Calendar({ project, month }: { project: Project; month?: string }) {
         kind: "session" as const,
         to: `/sessions/${s.id}`,
       })),
+    ...calendarEntries
+      .filter((e) => e.projectId === project.id)
+      .flatMap((e) =>
+        daysOf(e.startsOn, e.endsOn).map((date) => ({
+          id: `${e.id}-${date}`,
+          date,
+          title: e.title,
+          kind: "entry" as const,
+          entry: e,
+        })),
+      ),
     ...(project.profile === "music"
       ? schedule.map((d) => ({
           id: d.id,
@@ -590,15 +950,16 @@ function Calendar({ project, month }: { project: Project; month?: string }) {
         >
           Today
         </button>
-        <Button
-          variant="secondary"
-          size="md"
-          className="ml-auto"
-          onClick={() => setSubscribe(true)}
-        >
-          <Icon name="calendar" size={14} />
-          Add to your calendar
-        </Button>
+        <span className="ml-auto flex items-center gap-2">
+          <Button variant="secondary" size="md" onClick={() => setSubscribe(true)}>
+            <Icon name="calendar" size={14} />
+            Add to your calendar
+          </Button>
+          <Button variant="primary" size="md" onClick={() => onOpen({ day: today })}>
+            <Icon name="plus" size={14} />
+            New entry
+          </Button>
+        </span>
       </div>
       <Card className="overflow-hidden">
         <div className="grid grid-cols-7 border-b border-line">
@@ -612,8 +973,12 @@ function Calendar({ project, month }: { project: Project; month?: string }) {
           {cells.map((c, i) => {
             const list = byDay.get(c.key) ?? [];
             return (
+              // A double-click on a day is a shortcut to New entry above.
               <div
                 key={c.key}
+                onDoubleClick={(e) => {
+                  if (!(e.target as HTMLElement).closest("a, button")) onOpen({ day: c.key });
+                }}
                 className={cn(
                   "flex min-h-[104px] flex-col gap-1 border-b border-line p-1.5",
                   i % 7 !== 6 && "border-r",
@@ -632,25 +997,42 @@ function Calendar({ project, month }: { project: Project; month?: string }) {
                 >
                   {c.d.getUTCDate()}
                 </span>
-                {list.slice(0, 3).map((e) =>
-                  e.to ? (
-                    <Link
-                      key={e.id}
-                      to={e.to}
-                      className={cn(
-                        "flex items-center gap-1 truncate rounded-chip border px-1.5 py-0.5 text-[11px] leading-[15px] transition-colors hover:border-edge",
-                        e.overdue
-                          ? "border-signal/40 bg-signal/10 text-ink"
-                          : e.kind === "review"
-                            ? "border-line bg-raised/60 text-ink"
-                            : "border-line text-ink-2",
-                      )}
-                    >
-                      <Icon name={eventIcon[e.kind]} size={10} className="shrink-0 text-ink-3" />
+                {list.slice(0, 3).map((e) => {
+                  const className = cn(
+                    "flex items-center gap-1 truncate rounded-chip border px-1.5 py-0.5 text-left text-[11px] leading-[15px] transition-colors hover:border-edge",
+                    e.overdue
+                      ? "border-signal/40 bg-signal/10 text-ink"
+                      : e.kind === "review" || e.kind === "track"
+                        ? "border-line bg-raised/60 text-ink"
+                        : e.kind === "entry"
+                          ? "border-line-strong bg-raised/30 text-ink"
+                          : "border-line text-ink-2",
+                  );
+                  const inner = (
+                    <>
+                      <Icon
+                        name={e.entry ? entryIcon[e.entry.kind] : eventIcon[e.kind]}
+                        size={10}
+                        className="shrink-0 text-ink-3"
+                      />
                       <span className="truncate">{e.title}</span>
+                    </>
+                  );
+                  return e.entry ? (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() => onOpen({ entry: e.entry })}
+                      className={className}
+                    >
+                      {inner}
+                    </button>
+                  ) : e.to ? (
+                    <Link key={e.id} to={e.to} className={className}>
+                      {inner}
                     </Link>
-                  ) : null,
-                )}
+                  ) : null;
+                })}
                 {list.length > 3 && (
                   <span className="px-1 text-[11px] text-ink-3">and {list.length - 3} more</span>
                 )}
@@ -660,11 +1042,19 @@ function Calendar({ project, month }: { project: Project; month?: string }) {
         </div>
       </Card>
       <p className="text-[12px] text-ink-3">
-        Review due dates, task deadlines, sessions and schedule days. Open comments with a date
-        would appear here too.
+        Review, track and task deadlines, recording sessions, schedule days and the project's
+        entries; double-click a day to add one.
       </p>
       {subscribe && (
         <CalendarSubscribeDialog onClose={() => setSubscribe(false)} scope={project.name} />
+      )}
+      {opening && (
+        <EntryDialog
+          project={project}
+          entry={opening.entry}
+          day={opening.day}
+          onClose={() => onOpen(null)}
+        />
       )}
     </div>
   );

@@ -831,6 +831,22 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
     dueOn: "2026-10-21",
     trackId: track.id,
   });
+  // The track's own deadline (#505), already past: late on its card, the calendar and the
+  // timeline. And what is booked around it: a meeting over two days and a delivery.
+  await owner.api("PATCH", `/api/tracks/${track.id}`, { dueAt: "2026-10-12T17:00:00Z" });
+  await owner.api("POST", `/api/projects/${music.id}/calendar/entries`, {
+    kind: "meeting",
+    title: "Listening meeting with the label",
+    startsOn: "2026-10-20",
+    endsOn: "2026-10-21",
+    trackId: track.id,
+    attendees: [user.id],
+  });
+  await owner.api("POST", `/api/projects/${music.id}/calendar/entries`, {
+    kind: "delivery",
+    title: "Masters to the label",
+    startsOn: "2026-10-30",
+  });
   const cover = await task({
     title: "Approve the cover artwork",
     priority: "low",
