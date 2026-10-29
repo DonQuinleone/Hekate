@@ -1529,8 +1529,8 @@ export const variants = pgTable("variants", variantColumns, (t) => [
 
 /**
  * @deprecated The variants table under its name before decision 275. Written beside `variants`
- * for one release so the release before still reads it, never read; release 2 of the rename
- * drops it.
+ * for one release so the release before still reads it, never read; a trigger carries what the
+ * release before writes here into `variants`. Release 2 of the rename drops both.
  */
 export const variations = pgTable(
   "variations",

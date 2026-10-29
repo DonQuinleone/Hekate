@@ -7,7 +7,10 @@ type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
  * Every write to a variant goes through here while the rename runs (decision 275, #484): the
  * row is written to `variants`, which this release reads, and to `variations`, which the
  * release before still reads, under the same id, in the caller's transaction so the two tables
- * never part. Release 2 of the rename drops `variations` and this module with it.
+ * never part. A trigger (migration 0149) carries every row written to `variations` into
+ * `variants` as well, so what the release before writes during an upgrade is read here too;
+ * `variants` is written first so the trigger's upsert finds the row already as it should be.
+ * Release 2 of the rename drops `variations`, the trigger and this module with it.
  */
 
 const { variants, variations } = schema;

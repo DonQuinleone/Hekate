@@ -8377,8 +8377,8 @@ describe.runIf(url)("api", () => {
               .where(eq(schema.variants.organisationId, organisationId)),
             db
               .select()
-              .from(schema.variants)
-              .where(eq(schema.variants.organisationId, organisationId)),
+              .from(schema.variations)
+              .where(eq(schema.variations.organisationId, organisationId)),
           ]);
           expect(shape(old)).toEqual(shape(fresh));
           return shape(fresh).map((v) => [v.fileId, v.name, v.isPrimary]);
@@ -8431,6 +8431,26 @@ describe.runIf(url)("api", () => {
           ).status,
         ).toBe(201);
         expect((await both()).map((v) => v[0]).sort()).toEqual([fixed, wet, dry].sort());
+        // The release before writes `variations` alone: its rows follow into `variants` through
+        // the trigger, so a version made or changed during the upgrade is read here too.
+        const [kept] = await db
+          .select()
+          .from(schema.variations)
+          .where(eq(schema.variations.fileId, dry));
+        if (!kept) throw new Error("the old table lost the new version");
+        await db.delete(schema.variations).where(eq(schema.variations.id, kept.id));
+        await db
+          .update(schema.variants)
+          .set({ name: "Stale" })
+          .where(eq(schema.variants.fileId, wet));
+        await db
+          .update(schema.variations)
+          .set({ name: "Wet" })
+          .where(eq(schema.variations.fileId, wet));
+        await db.insert(schema.variations).values({ ...kept, id: uuidv7() });
+        expect((await both()).map((v) => `${v[0]} ${v[1]}`).sort()).toEqual(
+          [`${fixed} Dry`, `${wet} Wet`, `${dry} Dry`].sort(),
+        );
       });
 
       it("builds a track from numbered versions, each with one primary variant", async () => {

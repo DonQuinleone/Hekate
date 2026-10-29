@@ -268,6 +268,8 @@ export const fileRoutes = (deps: PlaybackDeps) =>
             commentReferences,
           }),
           variant: variant ? shownVariant(variant) : null,
+          // The same under its old name, for a client of the release before (decision 275).
+          variation: variant ? shownVariant(variant) : null,
           // Its simple version chain (#149), as far as this person may open it.
           chain: await shownChain(deps.db, c.var.actor, file.id),
           grant: access?.grant ?? null,
