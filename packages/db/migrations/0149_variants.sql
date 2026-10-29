@@ -24,3 +24,35 @@ INSERT INTO "variants" ("id", "organisation_id", "version_id", "file_id", "name"
 SELECT "id", "organisation_id", "version_id", "file_id", "name", "is_primary", "position", "subtitled", "graded", "created_at", "updated_at"
 FROM "variations"
 ON CONFLICT DO NOTHING;
+--> statement-breakpoint
+-- While the release before this one still runs (decision 198), it writes `variations` alone,
+-- so its rows follow into `variants` here, row by row: a version it makes during the upgrade
+-- is read by this release, and a file it purges is held by no row this release owns. This
+-- release's own writes to `variations` come through the same way, to the same values, so the
+-- helper that writes both tables (apps/server/src/variants.ts) and the trigger never disagree.
+-- Release 2 of the rename drops the trigger with the table.
+CREATE FUNCTION "variations_follow_into_variants"() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+	IF TG_OP = 'DELETE' THEN
+		DELETE FROM "variants" WHERE "id" = OLD."id";
+		RETURN OLD;
+	END IF;
+	INSERT INTO "variants" ("id", "organisation_id", "version_id", "file_id", "name", "is_primary", "position", "subtitled", "graded", "created_at", "updated_at")
+	VALUES (NEW."id", NEW."organisation_id", NEW."version_id", NEW."file_id", NEW."name", NEW."is_primary", NEW."position", NEW."subtitled", NEW."graded", NEW."created_at", NEW."updated_at")
+	ON CONFLICT ("id") DO UPDATE SET
+		"organisation_id" = EXCLUDED."organisation_id",
+		"version_id" = EXCLUDED."version_id",
+		"file_id" = EXCLUDED."file_id",
+		"name" = EXCLUDED."name",
+		"is_primary" = EXCLUDED."is_primary",
+		"position" = EXCLUDED."position",
+		"subtitled" = EXCLUDED."subtitled",
+		"graded" = EXCLUDED."graded",
+		"created_at" = EXCLUDED."created_at",
+		"updated_at" = EXCLUDED."updated_at";
+	RETURN NEW;
+END;
+$$;--> statement-breakpoint
+CREATE TRIGGER "variations_follow_into_variants" AFTER INSERT OR UPDATE OR DELETE ON "variations"
+	FOR EACH ROW EXECUTE FUNCTION "variations_follow_into_variants"();

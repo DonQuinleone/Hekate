@@ -284,6 +284,7 @@ export const apiOperations: Record<string, ApiOperation> = {
         ...answers.file,
         uploadedBy: "Tomas Varga",
         variant: null,
+        variation: null,
         chain: [],
         tools: ["qa", "meters", "spectrogram"],
       },
