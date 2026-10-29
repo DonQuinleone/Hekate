@@ -1,4 +1,4 @@
-# The demo (decision 265): Hekate on one machine, at http://localhost:3000, with no domain,
+# The demo (decision 266): Hekate on one machine, at http://localhost:3000, with no domain,
 # Caddy or certificate, filled with a studio's sample data the moment it is up. No .env to
 # write, built from this checkout:
 #   docker compose --env-file deploy/demo.env -f deploy/compose.yml -f deploy/compose.build.yml -f deploy/compose.demo.yml up -d --build

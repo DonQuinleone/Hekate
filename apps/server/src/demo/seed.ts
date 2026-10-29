@@ -11,7 +11,7 @@ import { SETUP_CODE_HEADER } from "../setup-code.ts";
 import { FIXED_TIME, type Seeded } from "./seeded.ts";
 
 /**
- * Seeds one instance as a studio would have it (decision 265): a music project with a track in
+ * Seeds one instance as a studio would have it (decision 266): a music project with a track in
  * two versions (a dry and a wet mix in the second), its score, takes, sessions, comments of
  * every kind and reviews in every state; a video project with a cut and a deliverable; a
  * general project with a booklet; other workspaces, one of them suspended; and the instance's

@@ -4,7 +4,7 @@ import { fetchClient } from "./client.ts";
 import { accounts, PASSWORD, seed } from "./seed.ts";
 
 /**
- * `cli.ts demo seed` (decision 265): fills the demo instance at PUBLIC_URL with the seed's
+ * `cli.ts demo seed` (decision 266): fills the demo instance at PUBLIC_URL with the seed's
  * sample data, through its API, and says who to sign in as. Only a demo: HEKATE_DEMO must be
  * set, and the configuration already holds PUBLIC_URL to this machine with it.
  */
