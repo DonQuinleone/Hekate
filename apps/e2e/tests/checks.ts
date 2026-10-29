@@ -308,11 +308,22 @@ export async function accessibilityProblems(page: Page): Promise<string[]> {
   if ((await page.locator("[aria-modal=true]").count()) > 0) builder.include("[aria-modal=true]");
   const result = await builder.analyze();
   const lines = result.violations.flatMap((v) =>
-    v.nodes.map((n) => ({
-      rule: v.id,
-      target: n.target,
-      line: `${v.id}: ${n.target.join(" ")} (${v.help})`,
-    })),
+    v.nodes.map((n) => {
+      // What axe found: its reason and the elements it holds against the target, so the log
+      // says what to move without a second look.
+      const found = [...n.any, ...n.all]
+        .map((c) => {
+          const data = c.data as { messageKey?: string } | null;
+          const related = c.relatedNodes?.map((r) => r.target.join(" ")) ?? [];
+          return `${c.id}${data?.messageKey ? ` ${data.messageKey}` : ""}${related.length ? ` with ${related.join(", ")}` : ""}`;
+        })
+        .join("; ");
+      return {
+        rule: v.id,
+        target: n.target,
+        line: `${v.id}: ${n.target.join(" ")} (${v.help}) {${found}}`,
+      };
+    }),
   );
   // A crowded target is named with what lies over it, so the capture's log says what to move.
   const over = await page.evaluate(
