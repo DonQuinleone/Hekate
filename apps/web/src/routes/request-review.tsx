@@ -29,22 +29,26 @@ import { Input, Textarea } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { Switch } from "~/components/ui/toggle";
+import { itemsIn } from "~/lib/browser";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import {
   type ProjectGroup,
   projectFilesQuery,
+  projectFoldersQuery,
   projectGroupsQuery,
   projectGuestsQuery,
   projectMembersQuery,
   projectQuery,
   projectRolesQuery,
   projectTracksQuery,
+  reviewScopeQuery,
   useCreateReview,
   useItemWords,
   useProjectCan,
   workspaceSettingsQuery,
 } from "~/lib/queries";
+import { toggleScope, WORKSPACE_KEY } from "~/lib/review-scope";
 import { guestFromEmail } from "~/lib/shares";
 
 const kinds: { id: ReviewKind; label: string; hint: string }[] = [
@@ -165,6 +169,7 @@ export function RequestReviewPage({
   const { data: project, error } = useQuery(projectQuery(projectId));
   const { data: tracks = [] } = useQuery(projectTracksQuery(projectId));
   const { data: files = [] } = useQuery(projectFilesQuery(projectId));
+  const { data: folders = [] } = useQuery(projectFoldersQuery(projectId));
   const { data: members = [] } = useQuery(projectMembersQuery(projectId));
   const { data: roles = [] } = useQuery(projectRolesQuery(projectId));
   const { data: groups = [] } = useQuery(projectGroupsQuery(projectId));
@@ -177,6 +182,8 @@ export function RequestReviewPage({
     enabled: mayRequest,
   });
   const create = useCreateReview(projectId);
+  // Whether everything in the workspace may be asked about (#501): offered only then.
+  const { data: scope = null } = useQuery({ ...reviewScopeQuery, enabled: mayRequest });
 
   const [kind, setKind] = useState<ReviewKind>(kindParam ?? "approval");
   const [chosen, setChosen] = useState<Chosen>(
@@ -316,12 +323,13 @@ export function RequestReviewPage({
         i === to ? [...s.filter((k) => k !== key), key] : s.filter((k) => k !== key),
       ),
     );
-  const toggleItem = (key: string) => {
-    const next = new Map(chosen);
-    if (next.has(key)) next.delete(key);
-    else next.set(key, { versionId: null });
-    setChosen(next);
-  };
+  // A folder taken covers what is beneath it, and the workspace everything (#501).
+  const toggleItem = (key: string) =>
+    setChosen(
+      toggleScope(chosen, key, { versionId: null }, (folderId) =>
+        itemsIn(folders, tracks, files, folderId),
+      ),
+    );
   const addGuest = () => {
     const name = guest.name.trim();
     const email = guest.email.trim().toLowerCase();
@@ -352,6 +360,7 @@ export function RequestReviewPage({
   };
 
   const items = [...chosen.keys()];
+  const wholeWorkspace = chosen.has(WORKSPACE_KEY);
   const sent = people.filter(askable);
   const shareValue = Number(share);
   const shareOk = Number.isInteger(shareValue) && shareValue >= 1 && shareValue <= 100;
@@ -384,9 +393,13 @@ export function RequestReviewPage({
         share: kind === "approval" && rule === "share" ? shareValue : undefined,
         items: items.map((key) => {
           const [type, id = ""] = key.split(":") as [string, string];
-          return type === "track"
-            ? { trackId: id, versionId: chosen.get(key)?.versionId ?? null }
-            : { fileId: id };
+          return type === WORKSPACE_KEY
+            ? { workspace: true as const }
+            : type === "folder"
+              ? { folderId: id }
+              : type === "track"
+                ? { trackId: id, versionId: chosen.get(key)?.versionId ?? null }
+                : { fileId: id };
         }),
         reviewers,
         overrides: expandGroupOverrides(
@@ -493,16 +506,25 @@ export function RequestReviewPage({
             <Section
               n={2}
               title="What"
-              hint={`${capital(words.tracks)} at their latest ${words.version} or a chosen one, and files.`}
+              hint={`${capital(words.tracks)} at their latest ${words.version} or a chosen one, files, or whole folders.`}
             >
-              <ItemPicker projectId={projectId} chosen={chosen} onToggle={toggleItem} />
+              <ItemPicker
+                projectId={projectId}
+                chosen={chosen}
+                onToggle={toggleItem}
+                workspace={scope}
+              />
               {items.length > 0 && (
                 <ul aria-label="Chosen" className="flex flex-wrap gap-1.5">
                   {items.map((key) => {
                     const [type, id] = key.split(":") as [string, string];
                     const track = type === "track" ? tracks.find((t) => t.id === id) : undefined;
                     const file = type === "file" ? files.find((f) => f.id === id) : undefined;
-                    const name = track?.name ?? file?.name ?? "Item";
+                    const folder = type === "folder" ? folders.find((f) => f.id === id) : undefined;
+                    const name =
+                      type === WORKSPACE_KEY
+                        ? "Everything in this workspace"
+                        : (track?.name ?? file?.name ?? folder?.name ?? "Item");
                     const latest = track ? latestOf(track) : null;
                     const versionId = chosen.get(key)?.versionId ?? null;
                     const picked = track?.versions.find((v) => v.id === versionId);
@@ -512,11 +534,20 @@ export function RequestReviewPage({
                         className="flex h-8 max-w-full items-center gap-2 rounded-chip border border-line bg-raised/40 pr-1 pl-2.5 text-[13px] text-ink"
                       >
                         <Icon
-                          name={track ? "track" : "file"}
+                          name={
+                            type === WORKSPACE_KEY
+                              ? "globe"
+                              : track
+                                ? "track"
+                                : folder
+                                  ? "folder"
+                                  : "file"
+                          }
                           size={13}
                           className="shrink-0 text-ink-3"
                         />
                         <span className="min-w-0 truncate">{name}</span>
+                        {folder && <span className="shrink-0 text-ink-3">everything in it</span>}
                         {track && latest && (
                           <Dropdown
                             size="sm"
@@ -558,6 +589,16 @@ export function RequestReviewPage({
                   })}
                 </ul>
               )}
+              {wholeWorkspace ? (
+                <p className="text-[12px] text-ink-3">
+                  Covers every project you may share, now and those made later. The invitation says
+                  so.
+                </p>
+              ) : items.some((key) => key.startsWith("folder:")) ? (
+                <p className="text-[12px] text-ink-3">
+                  A folder covers everything in it, files added later included.
+                </p>
+              ) : null}
             </Section>
 
             <Section
@@ -852,7 +893,14 @@ export function RequestReviewPage({
                 {(
                   [
                     ["Kind", kinds.find((k) => k.id === kind)?.label ?? ""],
-                    ["Items", items.length ? `${items.length} chosen` : "none yet"],
+                    [
+                      "Items",
+                      wholeWorkspace
+                        ? "everything"
+                        : items.length
+                          ? `${items.length} chosen`
+                          : "none yet",
+                    ],
                     [
                       "People",
                       sent.length

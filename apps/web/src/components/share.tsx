@@ -147,7 +147,10 @@ export function ShareDialog({
       params: { projectId },
       search: {
         kind: request.kind === "feedback" ? "feedback" : undefined,
-        items: items.map((i) => ("trackId" in i ? `track:${i.trackId}` : `file:${i.fileId}`)),
+        // A share sheet names tracks and files; folders and the workspace are the page's own.
+        items: items.flatMap((i) =>
+          "trackId" in i ? [`track:${i.trackId}`] : "fileId" in i ? [`file:${i.fileId}`] : [],
+        ),
         version: item.kind === "version" ? item.id : undefined,
         people: chosen.map((p) => p.key),
         download: request.permissions?.download,

@@ -494,6 +494,7 @@ function Components() {
         >
           <Checkbox aria-label="Unchecked" />
           <Checkbox aria-label="Checked" defaultChecked />
+          <Checkbox aria-label="Partly" indeterminate />
           <Checkbox aria-label="Disabled" disabled />
           <Radio aria-label="Off" name="reference-radio" />
           <Radio aria-label="On" name="reference-radio" defaultChecked />

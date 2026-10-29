@@ -11,8 +11,9 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
+import { kindIcon } from "~/components/files";
 import { FollowButton } from "~/components/follow-button";
 import { GuestFields } from "~/components/guest-fields";
 import { Icon, type IconName } from "~/components/icons";
@@ -84,6 +85,8 @@ function reviewerDot(r: Reviewer): ReviewerDotState {
 }
 
 const plural = (n: number, word: string) => `${n === 1 ? "One" : n} ${word}${n === 1 ? "" : "s"}`;
+/** "one file now", "4 files now": what a folder or the workspace covers at this moment. */
+const filesNow = (n: number) => `${n === 1 ? "one file" : `${n} files`} now`;
 
 /* ---------- Steps ---------- */
 
@@ -467,12 +470,17 @@ function Items({ review }: { review: ReviewDetail }) {
         <ul className="m-0 flex list-none flex-col p-0">
           {review.items.map((item) => {
             const opened = review.you.opened.includes(item.id);
+            const scoped = item.kind === "folder" || item.kind === "workspace";
             const detail =
               item.kind === "track"
                 ? item.version
                   ? `${versionLabel(item.version.number, review.profile)}${item.follows === "latest" ? ", the latest" : ""}${item.version.variants.length > 0 ? ` · ${item.version.variants.join(", ")}` : ""}`
                   : `No ${itemWords(review.profile).versions} yet`
-                : "File";
+                : item.kind === "folder"
+                  ? `Everything in it, including files added later · ${filesNow(item.covers.length)}`
+                  : item.kind === "workspace"
+                    ? `Every project, present and future · ${filesNow(item.covers.length)}`
+                    : "File";
             const name = (
               <>
                 <span className="block truncate text-[14px] font-medium text-ink">{item.name}</span>
@@ -483,40 +491,81 @@ function Items({ review }: { review: ReviewDetail }) {
               </>
             );
             return (
-              <li
-                key={item.id}
-                className="group flex min-h-row-min items-center gap-3.5 border-b border-line px-4 py-row-snug last:border-b-0 hover:bg-raised/40"
-              >
-                {item.fileId ? (
-                  <Link
-                    to={fileBase}
-                    params={{ fileId: item.fileId }}
-                    search={{ review: review.id }}
-                    className="min-w-0 flex-1 no-underline"
-                  >
-                    {name}
-                  </Link>
-                ) : (
-                  <span className="min-w-0 flex-1">{name}</span>
+              <Fragment key={item.id}>
+                <li className="group flex min-h-row-min items-center gap-3.5 border-b border-line px-4 py-row-snug last:border-b-0 hover:bg-raised/40">
+                  {item.fileId ? (
+                    <Link
+                      to={fileBase}
+                      params={{ fileId: item.fileId }}
+                      search={{ review: review.id }}
+                      className="min-w-0 flex-1 no-underline"
+                    >
+                      {name}
+                    </Link>
+                  ) : (
+                    <span className="min-w-0 flex-1">{name}</span>
+                  )}
+                  {me && !sharing && (
+                    <span className="hidden shrink-0 items-center gap-2 text-[13px] text-ink-3 @3xl/app:flex">
+                      <ReviewerDot state={opened ? "passed" : "invited"} />
+                      {opened ? "Opened" : "Not opened"}
+                    </span>
+                  )}
+                  {item.fileId && (
+                    <Link
+                      to={fileBase}
+                      params={{ fileId: item.fileId }}
+                      search={{ review: review.id }}
+                      aria-label={`Open ${item.name}`}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+                    >
+                      <Icon name="play" size={11} fill="currentColor" strokeWidth={0} />
+                    </Link>
+                  )}
+                </li>
+                {/* What a folder or the workspace covers now (#501), a file added later among them. */}
+                {scoped && item.covers.length > 0 && (
+                  <li className="border-b border-line last:border-b-0">
+                    <ul
+                      aria-label={`Files in ${item.name}`}
+                      className="m-0 flex list-none flex-col p-0"
+                    >
+                      {item.covers.map((file) => (
+                        <li
+                          key={file.fileId}
+                          className="group flex min-h-10 items-center gap-3 py-1.5 pr-4 pl-8 hover:bg-raised/40"
+                        >
+                          <Icon
+                            name={kindIcon[file.kind]}
+                            size={14}
+                            className="shrink-0 text-ink-3"
+                          />
+                          <Link
+                            to={fileBase}
+                            params={{ fileId: file.fileId }}
+                            search={{ review: review.id }}
+                            className="flex min-w-0 flex-1 items-baseline gap-2 no-underline"
+                          >
+                            <span className="min-w-0 truncate text-[14px] text-ink">
+                              {file.name}
+                            </span>
+                            <span className="hidden min-w-0 truncate text-[12px] text-ink-3 sm:inline">
+                              {[
+                                item.kind === "workspace" ? file.projectName : null,
+                                file.track
+                                  ? `${file.track.name}, ${versionLabel(file.track.versionNumber, review.profile)}`
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </span>
+                          </Link>
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
                 )}
-                {me && !sharing && (
-                  <span className="hidden shrink-0 items-center gap-2 text-[13px] text-ink-3 @3xl/app:flex">
-                    <ReviewerDot state={opened ? "passed" : "invited"} />
-                    {opened ? "Opened" : "Not opened"}
-                  </span>
-                )}
-                {item.fileId && (
-                  <Link
-                    to={fileBase}
-                    params={{ fileId: item.fileId }}
-                    search={{ review: review.id }}
-                    aria-label={`Open ${item.name}`}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-                  >
-                    <Icon name="play" size={11} fill="currentColor" strokeWidth={0} />
-                  </Link>
-                )}
-              </li>
+              </Fragment>
             );
           })}
         </ul>
