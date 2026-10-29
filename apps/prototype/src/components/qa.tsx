@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Checksum } from "~/components/checksum";
 import { QaReportDialog } from "~/components/exports";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
@@ -653,6 +654,12 @@ export function QaView({
                 <dd className="tabular text-ink-2">{v}</dd>
               </div>
             ))}
+            <div className="contents">
+              <dt className="text-ink-3">Checksum</dt>
+              <dd className="min-w-0 text-ink-2">
+                <Checksum />
+              </dd>
+            </div>
           </dl>
         </section>
         <section className="rounded-panel-lg border border-line bg-raised/40 p-4 shadow-1">

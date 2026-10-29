@@ -31,6 +31,7 @@ import {
   useTrackMutations,
 } from "~/lib/queries";
 import { Avatar } from "./avatar";
+import { Checksum } from "./checksum";
 import { AttachForm, destinations, MoveForm, RenameForm } from "./file-forms";
 import { mediaSummary } from "./files";
 import { Icon } from "./icons";
@@ -555,14 +556,7 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
               </Property>
               <Property name="Size">{formatBytes(details.file.byteSize)}</Property>
               <Property name="Checksum">
-                {details.storage.sha256 ? (
-                  <span className="tabular text-ink-2" title={details.storage.sha256}>
-                    SHA-256 · {details.storage.sha256.slice(0, 4)}…
-                    {details.storage.sha256.slice(-4)}
-                  </span>
-                ) : (
-                  <span className="text-ink-3">Being worked out</span>
-                )}
+                <Checksum sha256={details.storage.sha256} />
               </Property>
               <Property name="Uploaded">
                 {details.file.uploadedBy && details.file.uploadedById ? (

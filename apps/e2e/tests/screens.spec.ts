@@ -3200,6 +3200,19 @@ test("file-details", async ({ page }) => {
   await checkScreen(page);
 });
 
+// The checksum copied from the details: the button says so for a moment (#491).
+test("file-details-copied", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "Once is enough");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.goto(`/files/${seeded().dryFileId}?sheet=details`);
+  await settle(page, "aside[aria-label=Details] >> text=Access");
+  await page.getByRole("button", { name: "Copy the checksum" }).click();
+  await settle(page, "aside[aria-label=Details] >> text=Copied");
+  await saveScreen(page, "file-details-copied");
+  await checkScreen(page);
+});
+
 // A track opens in the player; its next version is checked before it lands (#131).
 test("track-new-version", async ({ page }) => {
   const { trackId } = seeded();

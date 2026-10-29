@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Avatar } from "~/components/avatar";
+import { Checksum } from "~/components/checksum";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { Seg } from "~/components/player/transport";
@@ -190,7 +191,7 @@ export function FileDetailsSheet({ file, onClose }: { file: File; onClose: () =>
           <Property name="Format">{fileDetails(file)}</Property>
           <Property name="Size">{formatBytes(file.size)}</Property>
           <Property name="Checksum">
-            <span className="tabular truncate text-ink-2">sha256 · 9f3c…e21a</span>
+            <Checksum />
           </Property>
           <Property name="Uploaded">
             <Avatar personId={file.uploadedBy} size={18} />
