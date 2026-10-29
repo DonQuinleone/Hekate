@@ -10,6 +10,7 @@ import {
   type ProjectPermission,
   parseCmx3600,
   replaceVariantInput,
+  trackCommentAssignmentInput,
   trackNormalisationInput,
   trackReferencesInput,
   updateTrackInput,
@@ -27,6 +28,7 @@ import { z } from "zod";
 import { actorOf, can } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { carryPreview, carryThreads } from "../carry.ts";
+import { assertAssignmentRule } from "../comment-assignment.ts";
 import { assertProfileRef, customProfilesOf } from "../delivery-profiles.ts";
 import { readEdlFile } from "../edl-file.ts";
 import { CodedException, NotFound } from "../errors.ts";
@@ -495,6 +497,26 @@ export const trackRoutes = (
         .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
       return c.json({ track: await oneTrack(db, organisationId, id) });
     })
+    // Whom a comment opened on it is for (#499), over the project's; for whoever edits
+    // workflows, as the project's own rule is. Null keeps the project's.
+    .put(
+      "/:id/comment-assignment",
+      idParam,
+      zValidator("json", trackCommentAssignmentInput),
+      async (c) => {
+        const organisationId = c.var.organisationId;
+        const { id } = c.req.valid("param");
+        const track = await trackOf(db, organisationId, id);
+        await canSeeTrack(db, c.var, track.projectId, "edit_workflows");
+        const { assignment } = c.req.valid("json");
+        await assertAssignmentRule(db, organisationId, track.projectId, assignment);
+        await db
+          .update(tracks)
+          .set({ commentAssignment: assignment, updatedAt: new Date() })
+          .where(inOrg(tracks, organisationId, eq(tracks.id, id)));
+        return c.json({ track: await oneTrack(db, organisationId, id) });
+      },
+    )
     // How its recordings play normalised (#98), over the project's; for whoever edits the
     // project, as the project's own choice is.
     .put("/:id/normalisation", idParam, zValidator("json", trackNormalisationInput), async (c) => {

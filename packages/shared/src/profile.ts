@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AnchorKind } from "./anchor.ts";
 import { assetPolicy } from "./asset-policy.ts";
+import { commentAssignment } from "./comment-assignment.ts";
 import { normalisationMode } from "./normalisation.ts";
 import { workflowNotices } from "./notifications.ts";
 import { profileRef } from "./qa.ts";
@@ -102,6 +103,8 @@ export const updateProjectInput = z
     assetPolicy: assetPolicy.optional(),
     /** Who the workflow tells, and how (decision 259). */
     workflowNotices: workflowNotices.optional(),
+    /** Whom a new comment is for, unless a track or a stage says otherwise (decision 279). */
+    commentAssignment: commentAssignment.nullable().optional(),
   })
   .refine(
     (u) =>
@@ -117,7 +120,8 @@ export const updateProjectInput = z
       u.normalisation !== undefined ||
       u.watermark !== undefined ||
       u.assetPolicy !== undefined ||
-      u.workflowNotices !== undefined,
+      u.workflowNotices !== undefined ||
+      u.commentAssignment !== undefined,
     { message: "Nothing to change" },
   );
 export type UpdateProjectInput = z.infer<typeof updateProjectInput>;

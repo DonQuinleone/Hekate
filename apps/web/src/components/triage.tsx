@@ -15,7 +15,8 @@ import {
 } from "~/lib/queries";
 import { useShortcuts } from "~/lib/shortcuts";
 import { Avatar } from "./avatar";
-import { AssignDialog, anchorLabel, DeferDialog } from "./comments";
+import { AssignDialog, anchorLabel } from "./comments";
+import { DeferDialog } from "./defer-dialog";
 import { Empty } from "./empty";
 import { Kbd } from "./kbd";
 import { Button } from "./ui/button";
@@ -426,7 +427,9 @@ export function TriageView({
       </aside>
       {asking === "defer" && (
         <DeferDialog
-          stages={stages}
+          fileId={file.id}
+          projectId={file.projectId}
+          categories={categories}
           onDefer={(stage) => {
             setAsking(null);
             decide({ deferredTo: stage });
