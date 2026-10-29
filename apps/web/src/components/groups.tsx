@@ -138,7 +138,7 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
     <section aria-label="Groups" className="flex flex-col gap-3">
       <SectionHead
         title="Groups"
-        hint="people a review or a role can name as one"
+        hint="people a review or a tool exception can name as one"
         action={
           manage && (
             <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
@@ -195,7 +195,7 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
       {editing && (
         <Dialog
           title={editing === "new" ? "New group" : `Edit ${editing.name}`}
-          description="A set of people, members and reviewers alike, that a review or a role can be given to as one. Ask the group, and everyone in it is asked together."
+          description="A set of people, members and reviewers alike, that a review or a tool exception can name as one. Ask the group, and everyone in it is asked together."
           onClose={close}
           width="md"
         >
