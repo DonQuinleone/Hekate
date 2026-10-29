@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ago,
   arrangeThreads,
+  batchesOf,
   categoryTone,
   categoryTones,
   filterHolding,
@@ -175,5 +176,16 @@ describe("category tones", () => {
 
   it("lists every tone a token names", () => {
     expect(categoryTones).toHaveLength(6);
+  });
+});
+
+describe("batchesOf", () => {
+  it("cuts a list into runs of the size, the last one shorter", () => {
+    expect(batchesOf([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+  });
+
+  it("keeps a list within the size whole, and an empty list empty", () => {
+    expect(batchesOf(["a", "b"], 50)).toEqual([["a", "b"]]);
+    expect(batchesOf([], 50)).toEqual([]);
   });
 });

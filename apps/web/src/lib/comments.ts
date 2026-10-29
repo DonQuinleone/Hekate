@@ -198,3 +198,10 @@ export function categoryTone(
   const at = categories.findIndex((c) => c.id === categoryId);
   return at < 0 ? null : (categoryTones[at % categoryTones.length] ?? null);
 }
+
+/** The list in runs of at most `size`, in order: what one request carries at a time. */
+export function batchesOf<T>(list: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let at = 0; at < list.length; at += size) out.push(list.slice(at, at + size));
+  return out;
+}
