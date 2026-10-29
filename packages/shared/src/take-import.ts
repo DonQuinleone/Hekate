@@ -318,6 +318,12 @@ export function proposeTakeImport(
     sessions?: ImportSession[];
     /** A new session's name for the day it was recorded ("14 October 2026"). */
     dayName?: (day: string) => string;
+    /**
+     * A recording with no take number and no timecode is a take of its own, named after its
+     * file, rather than left out: the takes added from a track (#490) are one file each
+     * unless the files say otherwise.
+     */
+    everyFile?: boolean;
   },
 ): ImportProposal {
   const pattern = options.pattern ? compileNamePattern(options.pattern) : null;
@@ -355,6 +361,10 @@ export function proposeTakeImport(
     for (const facts of loose.sort((a, b) => (a.start ?? 0) - (b.start ?? 0))) {
       const start = facts.start;
       if (start === null) {
+        if (options.everyFile) {
+          group.takes.set(`file:${facts.source.key}`, [facts]);
+          continue;
+        }
         unplaced.push({
           key: facts.source.key,
           name: facts.source.name,
@@ -414,7 +424,9 @@ export function proposeTakeImport(
             plain(scene) !== plain(options.tracks.find((t) => t.id === track?.id)?.name ?? "")
             ? `${scene} ${number}`
             : number
-          : `Take at ${head?.timecode ?? "?"}`,
+          : head?.timecode
+            ? `Take at ${head.timecode}`
+            : (head?.source.name.replace(/\.[^.]+$/, "") ?? "Take"),
         timecode: head?.timecode ?? null,
         start: head?.start ?? null,
         length: Math.max(0, ...list.map((f) => f.length ?? 0)) || null,
@@ -467,6 +479,27 @@ export const leaveOut = (p: ImportProposal, keys: ReadonlySet<string>, leftOut: 
 /** A take heard by another of its files. */
 export const chooseMix = (p: ImportProposal, take: string, mix: string) =>
   eachTake(p, new Set([take]), (t) => (t.files.some((f) => f.key === mix) ? { ...t, mix } : t));
+
+/**
+ * Every take in the one session given, or in none (#490): where the person says where the
+ * takes were recorded, the files' own days and folders no longer decide.
+ */
+export function gatherTakes(p: ImportProposal, session: ImportSession | null): ImportProposal {
+  const takes = p.sessions.flatMap((s) => s.takes);
+  if (takes.length === 0) return { ...p, sessions: [] };
+  return {
+    ...p,
+    sessions: [
+      {
+        key: session ? `session:${session.id}` : "none",
+        name: session?.name ?? "",
+        recordedOn: session?.recordedOn ?? null,
+        sessionId: session?.id ?? null,
+        takes,
+      },
+    ],
+  };
+}
 
 /** A session named otherwise. */
 export const renameSession = (p: ImportProposal, key: string, name: string): ImportProposal => ({

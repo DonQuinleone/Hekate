@@ -37,6 +37,12 @@ export const takeImportInput = z.object({
          * file, rather than making another take.
          */
         take: z.string().trim().max(20).nullable().optional(),
+        /**
+         * The bars the take covers, where bars matter (#490): given for each take of a passage
+         * added from its track. A take logged live keeps the bars the log gave it.
+         */
+        barFrom: bar.nullable().optional(),
+        barTo: bar.nullable().optional(),
       }),
     )
     .min(1)
