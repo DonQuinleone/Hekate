@@ -26,6 +26,7 @@ import {
   videoClock,
   videoTimecode,
   WAVE_LOOK_MIN,
+  WAVE_OPACITY_MIN,
   type WatermarkPosition,
   type WaveLook,
   waveColours,
@@ -1058,6 +1059,7 @@ export function Player({
               </div>
               <LookSlider
                 label="Brightness"
+                min={WAVE_OPACITY_MIN}
                 value={look.opacity}
                 onChange={(opacity) => setLook({ opacity })}
               />
@@ -2053,13 +2055,15 @@ function StripPanel({
   );
 }
 
-/** A share of the waveform's look, from 15% to 100%. */
+/** A share of the waveform's look, from its floor (15%, or 40% for brightness) to 100%. */
 function LookSlider({
   label,
+  min = WAVE_LOOK_MIN,
   value,
   onChange,
 }: {
   label: string;
+  min?: number;
   value: number;
   onChange: (value: number) => void;
 }) {
@@ -2068,7 +2072,7 @@ function LookSlider({
     <label className="flex items-center gap-3 text-[12px] text-ink-3">
       <span className="w-16 shrink-0">{label}</span>
       <Slider
-        min={Math.round(WAVE_LOOK_MIN * 100)}
+        min={Math.round(min * 100)}
         max={100}
         value={percent}
         aria-valuetext={`${percent}%`}

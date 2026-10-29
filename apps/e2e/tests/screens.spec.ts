@@ -2871,6 +2871,23 @@ for (const [place, wave] of [
   });
 }
 
+// The spectrogram behind the waveform as it opens (#495): the Mel scale, the waveform drawn
+// opaque in the ink colour with its outline, and the playhead's line meeting the scrub bar's
+// thumb (#492).
+test("file-spectrogram", async ({ page }) => {
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "hekate.player.view",
+      JSON.stringify({ split: false, spectrogram: "behind" }),
+    ),
+  );
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "[role=img][aria-label^=Spectrogram]:not(.animate-pulse) canvas");
+  await settle(page, "section[aria-label=Comments] li");
+  await saveScreen(page, "file-spectrogram");
+  await checkScreen(page);
+});
+
 // The spectrogram's own analysis (#34): a window, FFT size and overlap of the viewer's
 // choosing, drawn on the server the first time and shown once it is.
 test("player-spectrogram-analysis", async ({ page }, info) => {

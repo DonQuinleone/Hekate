@@ -202,7 +202,15 @@ export function Waveform({
                     stroke="var(--hk-line)"
                   />
                 )}
-                <path d={d} fill={waveColours[colour]} opacity={opacity} />
+                {/* Over a spectrogram, a thin dark outline keeps it legible on bright regions (#495). */}
+                <path
+                  d={d}
+                  fill={waveColours[colour]}
+                  opacity={opacity}
+                  stroke={overlay ? "var(--hk-ground)" : undefined}
+                  strokeWidth={overlay ? 1.5 : undefined}
+                  paintOrder="stroke"
+                />
                 {split && (
                   <text
                     x={10}

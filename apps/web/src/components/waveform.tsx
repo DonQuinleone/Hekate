@@ -4,6 +4,7 @@ import {
   defaultWaveLook,
   levelFor,
   type PeakLevel,
+  WAVE_OPACITY_MIN,
   type WaveColour,
   type WaveLook,
 } from "@hekate/shared";
@@ -11,6 +12,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type WaveSurfer from "wavesurfer.js";
 import { cn } from "~/lib/cn";
+import { envelopeColumns, envelopeOutline } from "~/lib/envelope";
 import { peakLevelQuery, peaksQuery } from "~/lib/queries";
 import { useShownTheme } from "~/lib/theme";
 
@@ -36,17 +38,62 @@ export const waveColourNames: Record<WaveColour, string> = {
   warm: "Warm",
 };
 
+/** A look's brightness as drawn: no fainter than the floor (#495), whatever was kept. */
+export const drawnOpacity = (look: WaveLook) => Math.max(WAVE_OPACITY_MIN, look.opacity);
+
 /**
  * wavesurfer's colours and scale for a look: the played part at the chosen brightness, the
- * rest at a third of it (a little more over a spectrogram, where the ground is busy), and
- * the wave scaled so the default height draws full scale to the lane's edges.
+ * rest at a third of it, and the wave scaled so the default height draws full scale to the
+ * lane's edges.
  */
-export function waveStyle(look: WaveLook, colour: string, overlay: boolean) {
+export function waveStyle(look: WaveLook, colour: string) {
+  const opacity = drawnOpacity(look);
   return {
-    waveColor: translucent(colour, look.opacity * (overlay ? 0.56 : 0.3)),
-    progressColor: translucent(colour, look.opacity),
+    waveColor: translucent(colour, opacity * 0.3),
+    progressColor: translucent(colour, opacity),
     barHeight: look.height / defaultWaveLook.height,
   };
+}
+
+/**
+ * The waveform over a spectrogram (#495), drawn by hand: opaque in its colour at the look's
+ * brightness, with a thin dark outline, so it reads on bright and dark regions alike. One
+ * lane per channel, each `rowHeight` tall; `ratio` is the device pixels per CSS pixel.
+ */
+export function paintOverlay(
+  context: CanvasRenderingContext2D,
+  channels: Float32Array[],
+  look: WaveLook,
+  colours: { fill: string; outline: string },
+  width: number,
+  rowHeight: number,
+  ratio: number,
+) {
+  const columns = Math.max(1, Math.round(width * ratio));
+  context.clearRect(0, 0, columns, Math.round(rowHeight * ratio * channels.length));
+  const half = (rowHeight * ratio) / 2;
+  const amp = half * (look.height / defaultWaveLook.height);
+  channels.forEach((peaks, row) => {
+    const outline = envelopeOutline(
+      envelopeColumns(peaks, columns),
+      half + row * rowHeight * ratio,
+      amp,
+      half,
+    );
+    context.beginPath();
+    outline.forEach((point, i) => {
+      if (i === 0) context.moveTo(point.x, point.y);
+      else context.lineTo(point.x, point.y);
+    });
+    context.closePath();
+    // The outline first, a pixel wide outside the shape; the fill over it keeps the inside.
+    context.lineWidth = 2 * ratio;
+    context.lineJoin = "round";
+    context.strokeStyle = translucent(colours.outline, 0.9);
+    context.stroke();
+    context.fillStyle = translucent(colours.fill, drawnOpacity(look));
+    context.fill();
+  });
 }
 
 /** A token colour with transparency. */
@@ -107,6 +154,8 @@ export function Waveform({
   const container = useRef<HTMLDivElement>(null);
   /** Where wavesurfer draws: laid over the box, so what it draws never sizes the box. */
   const mount = useRef<HTMLDivElement>(null);
+  /** Where the overlay is drawn by hand instead (#495). */
+  const canvas = useRef<HTMLCanvasElement>(null);
   const [width, setWidth] = useState(0);
   const [measured, setMeasured] = useState(HEIGHT);
   const height = fill ? heightStep(measured) : HEIGHT;
@@ -140,10 +189,31 @@ export function Waveform({
   );
   const names = level ? channelNames(level.channels, layout) : [];
 
+  // Over a spectrogram the waveform is drawn here, opaque with an outline (#495).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the tokens it reads change with the theme.
+  useEffect(() => {
+    const element = canvas.current;
+    const context = element?.getContext("2d");
+    if (!overlay || !element || !context || !shown || width === 0) return;
+    const ratio = window.devicePixelRatio || 1;
+    const rowHeight = Math.floor(height / shown.channels);
+    element.width = Math.max(1, Math.round(width * ratio));
+    element.height = Math.max(1, Math.round(rowHeight * shown.channels * ratio));
+    paintOverlay(
+      context,
+      toChannelArrays(shown),
+      look,
+      { fill: token(waveTokens[look.colour]), outline: token("--hk-ground") },
+      width,
+      rowHeight,
+      ratio,
+    );
+  }, [overlay, shown, width, height, theme, look.colour, look.opacity, look.height]);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: the tokens it reads change with the theme.
   useEffect(() => {
     const element = mount.current;
-    if (!element || !shown) return;
+    if (overlay || !element || !shown) return;
     let instance: WaveSurfer | undefined;
     let cancelled = false;
     void import("wavesurfer.js").then(({ default: WaveSurfer }) => {
@@ -151,7 +221,7 @@ export function Waveform({
       const rowHeight = Math.floor(height / shown.channels);
       // Played audio reads brighter; the playhead is always the signal colour.
       const style = {
-        ...waveStyle(look, token(waveTokens[look.colour]), overlay),
+        ...waveStyle(look, token(waveTokens[look.colour])),
         height: rowHeight,
       };
       instance = WaveSurfer.create({
@@ -204,7 +274,15 @@ export function Waveform({
         aria-label="Waveform"
         role="img"
       >
-        <div ref={mount} className="absolute inset-x-0 top-0" />
+        {overlay ? (
+          <canvas
+            ref={canvas}
+            className="absolute inset-x-0 top-0 block w-full"
+            style={{ height: Math.floor(height / rows) * rows }}
+          />
+        ) : (
+          <div ref={mount} className="absolute inset-x-0 top-0" />
+        )}
       </div>
       {shown && view === "channels" && names.length > 1 && (
         <div className="pointer-events-none absolute inset-0 z-10 flex flex-col" aria-hidden="true">

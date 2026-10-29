@@ -5,6 +5,7 @@ import {
   type FrequencyScale,
   frequencyScales,
   rowBands,
+  SPECTRUM_GAIN_MAX,
   type Spectrogram,
   type SpectrogramAnalysis,
   type SpectrogramColourMap,
@@ -132,6 +133,7 @@ export function readView(value: unknown): SpectrogramView {
   const ceiling = within(number(v.ceiling, defaultView.ceiling), -199, 20);
   const low = within(number(v.low, defaultView.low), 0, 191_999);
   const high = within(number(v.high, defaultView.high), 1, 192_000);
+  const gain = within(number(v.gain, defaultView.gain), -SPECTRUM_GAIN_MAX, SPECTRUM_GAIN_MAX);
   return {
     analysis: readAnalysis(v.analysis),
     colourMap: colourMaps.includes(v.colourMap as ColourMap)
@@ -146,6 +148,7 @@ export function readView(value: unknown): SpectrogramView {
     ceiling: Math.max(ceiling, floor + 1),
     low: Math.max(0, low),
     high: Math.max(high, Math.max(0, low) + 1),
+    gain,
   };
 }
 
@@ -184,10 +187,10 @@ export function renderSpectrogram(
   const high = Math.min(view.high, nyquist);
   const low = Math.min(view.low, high - 1);
   const rows = rowBands(spectrogram, height, view.scale, low, high);
-  // Byte value to colour index, through the floor and ceiling.
+  // Byte value to colour index: the gain added, then through the floor and ceiling.
   const index = new Uint8Array(256);
   for (let v = 0; v < 256; v++) {
-    const t = (byteToLevel(v) - view.floor) / (view.ceiling - view.floor);
+    const t = (byteToLevel(v) + view.gain - view.floor) / (view.ceiling - view.floor);
     index[v] = Math.round(Math.max(0, Math.min(1, t)) * 255);
   }
   const { columns, bands, data } = spectrogram;

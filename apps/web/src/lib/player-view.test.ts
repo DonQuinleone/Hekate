@@ -10,7 +10,7 @@ describe("the player's view, as a browser kept it before the account did (#135)"
         { colourMap: "inferno", scale: "mel" },
       ),
     ).toEqual({
-      wave: { colour: "ink", opacity: 0.5, height: 0.32 },
+      wave: { colour: "ink", opacity: 1, height: 0.32 },
       spectrogram: "behind",
       spectrum: { ...defaultSpectrumView, colourMap: "inferno", scale: "mel" },
       loudness: true,
@@ -28,6 +28,10 @@ describe("the player's view, as a browser kept it before the account did (#135)"
         null,
       ),
     ).toMatchObject({ wave: { colour: "warm", opacity: 1, height: 0.15 }, spectrogram: "instead" });
+    // A brightness kept below the floor (#495) comes back at it.
+    expect(legacyViewOf({ wave: { colour: "ink", opacity: 0.2, height: 0.5 } }, null).wave).toEqual(
+      { colour: "ink", opacity: 0.4, height: 0.5 },
+    );
     expect(
       legacyViewOf({ spectrogram: "sideways", wave: { colour: "plaid" } }, null),
     ).toMatchObject({

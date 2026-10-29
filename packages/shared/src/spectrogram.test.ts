@@ -67,6 +67,35 @@ describe("frequency scales", () => {
     expect(Array.from(rows)).toEqual([768, 1023, 512, 767, 256, 511, 0, 255]);
   });
 
+  it("maps rows to bins on the Mel scale: the low end gets the rows, every bin is covered (#495)", () => {
+    const layout = {
+      sampleRate: 48_000,
+      fftSize: 2048,
+      bands: 1024,
+      lowBands: 1024,
+      highFactor: 1,
+    };
+    const rows = 64;
+    const mel = rowBands(layout, rows, "mel", 20, 24_000);
+    const linear = rowBands(layout, rows, "linear", 20, 24_000);
+    const span = (bands: Int32Array, row: number) =>
+      (bands[row * 2 + 1] as number) - (bands[row * 2] as number) + 1;
+    // The bottom row (the last) covers fewer bins than the top one: the low end is spread out.
+    expect(span(mel, rows - 1)).toBeLessThan(span(mel, 0));
+    expect(span(mel, rows - 1)).toBeLessThanOrEqual(span(linear, rows - 1));
+    // The rows run from the highest bins at the top down to the lowest, without a gap.
+    for (let row = 1; row < rows; row++) {
+      expect(mel[row * 2 + 1] as number).toBeLessThanOrEqual(mel[(row - 1) * 2] as number);
+      expect(mel[row * 2 + 1] as number).toBeGreaterThanOrEqual(mel[row * 2] as number);
+    }
+    expect(mel[0]).toBeLessThanOrEqual(1023);
+    expect(mel[1]).toBe(1023);
+    // 1 kHz sits about a quarter of the way up on Mel, a twenty-fifth of the way on linear.
+    expect(scalePosition("mel", 1000, 20, 24_000)).toBeGreaterThan(0.2);
+    expect(scalePosition("mel", 1000, 20, 24_000)).toBeLessThan(0.3);
+    expect(scalePosition("linear", 1000, 20, 24_000)).toBeCloseTo(0.041, 3);
+  });
+
   it("keeps the low end at full detail and pools only above it", () => {
     // 96 kHz: 2048 bins of 23.4375 Hz; the first 1024 kept, the rest pooled in twos.
     const layout = {

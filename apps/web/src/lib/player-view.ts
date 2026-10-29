@@ -6,6 +6,7 @@ import {
   type SpectrogramPlace,
   spectrogramPlaces,
   WAVE_LOOK_MIN,
+  WAVE_OPACITY_MIN,
   type WaveColour,
   type WaveLook,
   waveColours,
@@ -24,16 +25,15 @@ const LEGACY_SPECTRUM = "hekate.spectrogram.view";
 /** A look as stored, kept within its range; anything unknown falls back to the default. */
 export function waveLookOf(saved: unknown): WaveLook {
   const value = (saved ?? {}) as Partial<Record<keyof WaveLook, unknown>>;
-  const share = (n: unknown, fallback: number) =>
-    typeof n === "number" && Number.isFinite(n)
-      ? Math.min(1, Math.max(WAVE_LOOK_MIN, n))
-      : fallback;
+  const share = (n: unknown, fallback: number, min: number) =>
+    typeof n === "number" && Number.isFinite(n) ? Math.min(1, Math.max(min, n)) : fallback;
   return {
     colour: waveColours.includes(value.colour as WaveColour)
       ? (value.colour as WaveColour)
       : defaultWaveLook.colour,
-    opacity: share(value.opacity, defaultWaveLook.opacity),
-    height: share(value.height, defaultWaveLook.height),
+    // No fainter than it is drawn (#495), so the slider shows what is seen.
+    opacity: share(value.opacity, defaultWaveLook.opacity, WAVE_OPACITY_MIN),
+    height: share(value.height, defaultWaveLook.height, WAVE_LOOK_MIN),
   };
 }
 

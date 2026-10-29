@@ -28,6 +28,13 @@ export type SpectrogramColourMap = (typeof spectrogramColourMaps)[number];
 /** Brightness and height are shares, from this to 1. */
 export const WAVE_LOOK_MIN = 0.15;
 const share = z.number().min(WAVE_LOOK_MIN).max(1);
+/**
+ * The least brightness the waveform is drawn at (#495): fainter than this it vanishes over a
+ * spectrogram. A look kept before this floor is still read, and drawn no fainter than it.
+ */
+export const WAVE_OPACITY_MIN = 0.4;
+/** How far the spectrogram's own brightness goes either way, in dB (#495). */
+export const SPECTRUM_GAIN_MAX = 24;
 
 export const waveLookSchema = z.object({
   colour: z.enum(waveColours),
@@ -53,6 +60,8 @@ export const spectrumViewSchema = z
     /** Levels at or below the floor are the darkest colour; at or above the ceiling, the brightest. */
     floor: z.number().min(-200).max(20),
     ceiling: z.number().min(-200).max(20),
+    /** The spectrogram's own brightness (#495): added to every level before it is coloured, in dB. */
+    gain: z.number().min(-SPECTRUM_GAIN_MAX).max(SPECTRUM_GAIN_MAX).default(0),
     /** The frequencies shown, in Hz. */
     low: z.number().min(0).max(192_000),
     high: z.number().min(0).max(192_000),
@@ -69,13 +78,16 @@ export const playerViewSchema = z.object({
 });
 export type PlayerViewSettings = z.infer<typeof playerViewSchema>;
 
-export const defaultWaveLook: WaveLook = { colour: "ink", opacity: 0.5, height: 0.32 };
+export const defaultWaveLook: WaveLook = { colour: "ink", opacity: 1, height: 0.32 };
 export const defaultSpectrumView: SpectrumView = {
   colourMap: "cyan-orange",
-  scale: "log",
+  // Mel by default (#495): the octaves the ear hears as even are drawn even, as the log
+  // scale draws them, with more room in the low middle where the music is.
+  scale: "mel",
   analysis: defaultAnalysis,
   floor: -120,
   ceiling: 0,
+  gain: 0,
   low: 20,
   high: 24_000,
 };

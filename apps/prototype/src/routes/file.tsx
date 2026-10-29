@@ -1004,6 +1004,7 @@ export function FilePage({
                     height={waveHeight}
                     colourMap={view.colourMap}
                     scale={view.scale}
+                    gain={view.gain}
                     className="absolute inset-0 h-full w-full opacity-60"
                   />
                 ) : undefined
@@ -1024,6 +1025,7 @@ export function FilePage({
                 height={view.spectrogram === "instead" ? waveHeight : spectroHeight}
                 colourMap={view.colourMap}
                 scale={view.scale}
+                gain={view.gain}
                 className="absolute inset-0 h-full w-full"
               />
               <FrequencyScale
