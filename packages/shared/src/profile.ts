@@ -10,7 +10,7 @@ import { watermarkSettings } from "./watermark.ts";
 
 /**
  * A project's profile decides which tools and anchors appear. Any kind of file can live in any
- * project, and the data model (folders, files, tracks, versions, variations, takes) is shared.
+ * project, and the data model (folders, files, tracks, versions, variants, takes) is shared.
  */
 export const projectProfile = z.enum(["music", "video", "general"]);
 export type ProjectProfile = z.infer<typeof projectProfile>;

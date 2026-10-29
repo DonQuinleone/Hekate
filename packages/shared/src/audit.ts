@@ -51,6 +51,8 @@ export const auditActions = [
   /** A new version was let in past the project's version checks. */
   "version.let_through",
   /** A version's file was replaced by another, its threads moving with it. */
+  "variant.replace",
+  /** @deprecated How rows before decision 275 record `variant.replace`; read, never written. */
   "variation.replace",
   /** A guest was sent a magic link, used one, or had their links and sessions revoked. */
   "guest.link",

@@ -1,12 +1,12 @@
 import { z } from "zod";
 import type { MediaInfo } from "./media.ts";
 import type { ProjectProfile } from "./profile.ts";
-import { variationName } from "./tracks.ts";
+import { variantName } from "./tracks.ts";
 
 /**
- * What a project calls its tracks, versions and variations (#16, decision 138). A video
+ * What a project calls its tracks, versions and variants (#16, decision 138). A video
  * project's deliverables are tracks in the tables: a deliverable has cuts (its versions), and
- * each cut has renditions (its variations). Only the words differ; everything that works for
+ * each cut has renditions (its variants). Only the words differ; everything that works for
  * a track works for a deliverable.
  */
 export interface ItemWords {
@@ -14,6 +14,9 @@ export interface ItemWords {
   tracks: string;
   version: string;
   versions: string;
+  variant: string;
+  variants: string;
+  /** @deprecated The names before decision 275, the same words; release 2 of the rename removes them. */
   variation: string;
   variations: string;
 }
@@ -23,8 +26,10 @@ const musicWords: ItemWords = {
   tracks: "tracks",
   version: "version",
   versions: "versions",
-  variation: "variation",
-  variations: "variations",
+  variant: "variant",
+  variants: "variants",
+  variation: "variant",
+  variations: "variants",
 };
 
 const videoWords: ItemWords = {
@@ -32,6 +37,8 @@ const videoWords: ItemWords = {
   tracks: "deliverables",
   version: "cut",
   versions: "cuts",
+  variant: "rendition",
+  variants: "renditions",
   variation: "rendition",
   variations: "renditions",
 };
@@ -58,12 +65,16 @@ export const renditionTreatment = z
   .partial();
 export type RenditionTreatment = z.infer<typeof renditionTreatment>;
 
-/** Changing a variation: its name, and for a rendition its treatment. */
-export const updateVariationInput = renditionTreatment
-  .extend({ name: variationName })
+/** Changing a variant: its name, and for a rendition its treatment. */
+export const updateVariantInput = renditionTreatment
+  .extend({ name: variantName })
   .partial()
   .refine((v) => Object.keys(v).length > 0, { message: "Nothing to change" });
-export type UpdateVariationInput = z.infer<typeof updateVariationInput>;
+export type UpdateVariantInput = z.infer<typeof updateVariantInput>;
+/** @deprecated The names before decision 275; release 2 of the rename removes them. */
+export const updateVariationInput = updateVariantInput;
+/** @deprecated See `UpdateVariantInput`. */
+export type UpdateVariationInput = UpdateVariantInput;
 
 /** The usual picture shapes, by the ratio of width to height they stand for. */
 const namedAspects: [ratio: number, name: string][] = [
