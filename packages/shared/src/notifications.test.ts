@@ -4,8 +4,34 @@ import {
   mentionAt,
   mentionedIn,
   mentionRanges,
+  notificationCatalogue,
+  notificationChannelKeys,
+  notificationChannelLabels,
+  notificationKinds,
   notificationPreferencesInput,
 } from "./notifications.ts";
+
+describe("the event catalogue", () => {
+  it("names every kind once, and describes it in a line of its own (#504)", () => {
+    const titles = notificationKinds.map((kind) => notificationCatalogue[kind].title);
+    expect(new Set(titles).size).toBe(notificationKinds.length);
+    for (const kind of notificationKinds) {
+      const { title, description } = notificationCatalogue[kind];
+      // A name, not a sentence: it heads the row and names the row's switches.
+      expect(title, kind).toMatch(/^[A-Z][^.]{1,40}$/);
+      expect(description, kind).toMatch(/^[A-Z].*\.$/);
+      expect(description, kind).not.toBe(title);
+    }
+  });
+
+  it("heads the channels App and Mail, whatever the event says", () => {
+    expect(notificationChannelKeys).toEqual(["app", "mail"]);
+    expect(notificationChannelKeys.map((c) => notificationChannelLabels[c])).toEqual([
+      "App",
+      "Mail",
+    ]);
+  });
+});
 
 describe("notification preferences", () => {
   it("falls back to the defaults and keeps the always-on kinds in the app", () => {

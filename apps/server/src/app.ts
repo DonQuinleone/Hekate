@@ -464,6 +464,7 @@ export function createApi(given: AppDeps) {
           subdomains: deps.subdomains ?? null,
           billing: (deps.modules?.billing ?? "off") !== "off",
           support: () => supportModuleOf(modules, settings, deps.publicUrl),
+          mailLogOnly: (deps.mail ?? "log") === "log",
         }),
       )
       // A member's own API tokens (#198), in this workspace.

@@ -79,6 +79,15 @@ async function rowOf(db: Pick<Database, "select">, organisationId: string) {
   return row ?? null;
 }
 
+/** Whether the workspace sends through mail of its own rather than the instance's. */
+export async function hasWorkspaceMail(db: Pick<Database, "select">, organisationId: string) {
+  const [row] = await db
+    .select({ id: workspaceMail.organisationId })
+    .from(workspaceMail)
+    .where(inOrg(workspaceMail, organisationId));
+  return Boolean(row);
+}
+
 export async function opened(keyring: Keyring, row: Row): Promise<StoredMail> {
   const key = await keyring.version(row.organisationId, row.keyVersion);
   return JSON.parse(
