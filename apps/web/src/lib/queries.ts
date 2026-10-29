@@ -11,6 +11,9 @@ import {
   type BillingReports,
   type Board,
   type BoardDisplay,
+  type CalendarEntry,
+  type CalendarEntryChange,
+  type CalendarEntryInput,
   type CalendarEvent,
   type CaptionFormat,
   type CaptionKind,
@@ -2493,6 +2496,8 @@ export interface Track {
   normalisation: NormalisationMode | null;
   /** Whom a comment opened on it is for, over the project's; null keeps the project's (#499). */
   commentAssignment: CommentAssignment | null;
+  /** Its deadline (#505), an instant; null for none. */
+  dueAt: string | null;
   createdAt: string;
   versions: Version[];
   /** In a project's track list: where it stands, and who it waits on while in review. */
@@ -3353,13 +3358,19 @@ export function useTrackMutations(projectId: string) {
         name?: string;
         folderId?: string | null;
         scoreFileId?: string | null;
+        dueAt?: string | null;
       }) =>
         (
           await json<{ track: Track }>(
             await api.tracks[":id"].$patch({ param: { id }, json: input }),
           )
         ).track,
-      onSuccess: refresh,
+      onSuccess: (track) => {
+        refresh(track);
+        // Its deadline (#505) is on the board, the timeline and the calendar.
+        void client.invalidateQueries({ queryKey: ["projects", projectId, "board"] });
+        void client.invalidateQueries({ queryKey: ["projects", projectId, "calendar"] });
+      },
     }),
     createVersion: useMutation({
       mutationFn: async ({ trackId, ...input }: CreateVersionInput & { trackId: string }) =>
@@ -5448,16 +5459,70 @@ export function useSetBoardDefault(projectId: string) {
   });
 }
 
-/** A month of a project's calendar (#141), and whether the viewer has a feed of it. */
-export const projectCalendarQuery = (projectId: string, month: string) =>
+/** A month, or a range of days, both included (#505). */
+export type CalendarRange = { month: string } | { from: string; to: string };
+
+/**
+ * A month of a project's calendar (#141), or a range of days (the timeline's weeks, #505), and
+ * whether the viewer has a feed of it.
+ */
+export const projectCalendarQuery = (projectId: string, range: CalendarRange) =>
   queryOptions({
-    queryKey: ["projects", projectId, "calendar", month],
+    queryKey: [
+      "projects",
+      projectId,
+      "calendar",
+      "month" in range ? range.month : `${range.from}..${range.to}`,
+    ],
     queryFn: async () =>
       json<{
         events: CalendarEvent[];
         feed: { createdAt: string; readAt: string | null } | null;
-      }>(await api.projects[":id"].calendar.$get({ param: { id: projectId }, query: { month } })),
+      }>(await api.projects[":id"].calendar.$get({ param: { id: projectId }, query: range })),
   });
+
+/**
+ * A project's calendar entries (#505): adding one (a session entry books a recording session
+ * too), changing one (moved or resized on the timeline, or edited in its dialog) and removing
+ * one. The calendar, the timeline and the sessions are read again after.
+ */
+export function useCalendarEntries(projectId: string) {
+  const client = useQueryClient();
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: ["projects", projectId, "calendar"] });
+    void client.invalidateQueries({ queryKey: ["projects", projectId, "sessions"] });
+  };
+  return {
+    create: useMutation({
+      mutationFn: async (input: CalendarEntryInput) =>
+        (
+          await json<{ entry: CalendarEntry }>(
+            await api.projects[":id"].calendar.entries.$post({
+              param: { id: projectId },
+              json: input,
+            }),
+          )
+        ).entry,
+      onSuccess: refresh,
+    }),
+    change: useMutation({
+      mutationFn: async ({ id, ...change }: CalendarEntryChange & { id: string }) =>
+        (
+          await json<{ entry: CalendarEntry }>(
+            await api["calendar-entries"][":id"].$patch({ param: { id }, json: change }),
+          )
+        ).entry,
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: async (id: string) => {
+        const res = await api["calendar-entries"][":id"].$delete({ param: { id } });
+        if (!res.ok) await json(res);
+      },
+      onSuccess: refresh,
+    }),
+  };
+}
 
 /** Getting a feed of a project's calendar (a new link replacing any before), or stopping it. */
 export function useCalendarFeed(projectId: string) {

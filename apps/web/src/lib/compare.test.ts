@@ -45,6 +45,7 @@ const track: Track = {
   commentReferences: null,
   normalisation: null,
   commentAssignment: null,
+  dueAt: null,
   createdAt: "",
   versions: [
     {

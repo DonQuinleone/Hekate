@@ -3746,6 +3746,18 @@ test("project-board", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A track's own deadline on its card (#505), flagged and late, in the column it has reached.
+test("project-board-deadline", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/board`);
+  await settle(page, "main >> text=Maple Leaf Rag");
+  const card = page.getByRole("link", { name: /Maple Leaf Rag/ }).first();
+  await card.scrollIntoViewIfNeeded();
+  await expect(card.getByTitle("Deadline, late")).toBeVisible();
+  await saveScreen(page, "project-board-deadline");
+  await checkScreen(page);
+});
+
 // Its display options: the grouping, what cards carry, which fields.
 test("project-board-customise", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
@@ -3806,6 +3818,48 @@ test("project-calendar-subscribe", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "Add to your calendar" });
   await expect(dialog.getByRole("button", { name: "Make my link" })).toBeVisible();
   await saveScreen(page, "project-calendar-subscribe");
+  await checkScreen(page);
+});
+
+// A new entry (#505): the dialog from the calendar's button, on today.
+test("project-calendar-entry", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/board?view=calendar`);
+  await settle(page, 'main >> a:visible:has-text("Re-export the stems at 96 kHz")');
+  await page.getByRole("button", { name: "New entry" }).click();
+  const dialog = page.getByRole("dialog", { name: "New entry" });
+  await expect(dialog.getByRole("button", { name: "Add entry" })).toBeDisabled();
+  await dialog.getByLabel("Title").fill("Day 4");
+  await dialog.getByRole("button", { name: "Session", exact: true }).click();
+  await expect(dialog.getByText("Books a recording session under Production")).toBeVisible();
+  await saveScreen(page, "project-calendar-entry");
+  await checkScreen(page);
+});
+
+// An entry already there (#505), opened from the timeline to be changed or removed, with the
+// track's late deadline ending its bar.
+test("project-timeline-entry", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/board?view=timeline`);
+  await settle(page, "main >> text=Listening meeting with the label");
+  await page
+    .getByRole("button", { name: /^Listening meeting with the label, / })
+    .first()
+    .click();
+  const dialog = page.getByRole("dialog", { name: "Entry" });
+  await expect(dialog.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
+  await saveScreen(page, "project-timeline-entry");
+  await checkScreen(page);
+});
+
+// A track's deadline (#505), set in its details: the sheet over its heading.
+test("track-deadline", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/tracks/${seeded().trackId}?view=versions`);
+  await settle(page, "main >> text=Maple Leaf Rag");
+  await page.getByRole("button", { name: /^Due / }).click();
+  await expect(page.getByRole("dialog", { name: "Deadline" })).toBeVisible();
+  await saveScreen(page, "track-deadline");
   await checkScreen(page);
 });
 
