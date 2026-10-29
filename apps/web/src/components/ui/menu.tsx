@@ -294,7 +294,9 @@ export function Dropdown({
   const field = variant === "field";
   const id = useId();
   return (
-    <div ref={box} className={cn("relative", field && "w-full")}>
+    // Never wider than the room it is given: in a tight row the value truncates rather than
+    // the control reaching under its neighbours.
+    <div ref={box} className={cn("relative min-w-0 max-w-full", field && "w-full")}>
       <button
         type="button"
         aria-haspopup="menu"
@@ -306,7 +308,7 @@ export function Dropdown({
           field
             ? cn(fieldClass, "flex h-9 items-center gap-2 text-left")
             : cn(
-                "flex items-center gap-1.5 rounded-control border border-transparent text-ink-2 transition-colors hover:bg-raised hover:text-ink",
+                "flex max-w-full items-center gap-1.5 rounded-control border border-transparent text-ink-2 transition-colors hover:bg-raised hover:text-ink",
                 size === "sm" ? "h-7 px-2 text-[13px]" : "h-8 px-2.5 text-[13px]",
                 open && "bg-raised text-ink",
               ),
@@ -320,7 +322,7 @@ export function Dropdown({
         )}
         <span
           id={`${id}-value`}
-          className={cn("flex items-center", field ? "min-w-0 flex-1 gap-2" : "gap-1.5")}
+          className={cn("flex min-w-0 items-center", field ? "flex-1 gap-2" : "gap-1.5")}
         >
           {value}
         </span>
