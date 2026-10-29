@@ -26,6 +26,7 @@ import {
 } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { followRate } from "~/lib/speed";
+import { useVolume, volumeGain } from "~/lib/volume";
 import { audioBuffer } from "./player";
 import { nativeSource, wholeRendition } from "./stream-part";
 import { Button } from "./ui/button";
@@ -294,6 +295,7 @@ export function Compare({
   gain?: number;
 }) {
   const variant = file.variant;
+  const [volume] = useVolume();
   // Only what this person may open: a guest, the files their reviews give them.
   const { data: track } = useQuery({
     ...compareFamilyQuery(file.id),
@@ -384,9 +386,10 @@ export function Compare({
   // The master is heard only when it is the chosen source; the others follow silently.
   useEffect(() => {
     if (!media) return;
-    // Comparing, the sources are level-matched with one another; alone, the page's volume.
-    media.volume = comparing ? (current === 0 ? (gains[0] ?? 1) : 0) : gain;
-  }, [media, comparing, current, gains, gain]);
+    // Comparing, the sources are level-matched with one another; alone, the page's gain. Both
+    // under the volume the player keeps (#493).
+    media.volume = (comparing ? (current === 0 ? (gains[0] ?? 1) : 0) : gain) * volumeGain(volume);
+  }, [media, comparing, current, gains, gain, volume]);
   // Leaving comparison gives the master back its full volume; the page sets its own after.
   useEffect(() => {
     return () => {
@@ -547,7 +550,7 @@ export function Compare({
               key={s.fileId}
               fileId={s.fileId}
               master={media}
-              volume={current === i + 1 ? (gains[i + 1] ?? 1) : 0}
+              volume={(current === i + 1 ? (gains[i + 1] ?? 1) : 0) * volumeGain(volume)}
               follow={followFor(s.fileId)}
               onFail={() =>
                 setFailed((list) => (list.includes(s.fileId) ? list : [...list, s.fileId]))

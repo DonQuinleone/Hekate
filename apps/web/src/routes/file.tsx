@@ -40,10 +40,11 @@ import { EmbeddedMetadataPanel } from "~/components/metadata";
 import { type Crumb, PageHeader } from "~/components/page-header";
 import { CommentsSplitter, PanelPlacement } from "~/components/panel-placement";
 import { Player, PlayerStrip } from "~/components/player";
-import { checkNames, findingMarks, QaSummary, QualityChecks, qaIssues } from "~/components/qa";
+import { checkNames, findingMarks, QualityChecks, qaIssues } from "~/components/qa";
 import { VideoQa } from "~/components/qa-video";
 import { ScorePane } from "~/components/score";
 import { ShareDialog } from "~/components/share";
+import { TrackStatusChip } from "~/components/status-chip";
 import { FileContext, ScoreSwitch, VersionNote } from "~/components/tracks";
 import { PanelTabs, type SidePanel, Transcript } from "~/components/transcript";
 import { TriageView } from "~/components/triage";
@@ -60,7 +61,6 @@ import { formatDates } from "~/lib/locale";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
 import { usePanelLayout } from "~/lib/panel-layout";
-import { usePlayerView } from "~/lib/player-view";
 import {
   captionsQuery,
   commentsQuery,
@@ -154,8 +154,11 @@ function Playback({
   strip,
   compare = null,
   follow,
+  gain,
 }: {
   file: FileDetail;
+  /** What it plays at under the volume: normalised playback's gain, or null while the comparison sets it. */
+  gain: number | null;
   /** The page's part of the strip above the player (#15), shown while it waits too. */
   strip?: { lead?: ReactNode; end?: ReactNode };
   /** The comparison under the transport (#44), where it is offered. */
@@ -298,6 +301,7 @@ function Playback({
       cuts={cuts}
       compact={compact}
       follow={follow}
+      gain={gain}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
     />
   );
@@ -349,7 +353,7 @@ function ViewSwitch({
       onChange={onView}
       options={[
         { value: "review", label: "Review" },
-        { value: "qa", label: "QA", hint: issues > 0 ? String(issues) : undefined },
+        { value: "qa", label: "QA", badge: issues },
       ]}
       // On a phone the header's actions scroll in a row of their own; this keeps its size.
       className="shrink-0"
@@ -417,8 +421,6 @@ export function FilePage({
     enabled: !guest && view === "qa",
   });
   const preferences = usePreferences();
-  // The line of loudness and issues follows the player's View menu, as it changes (#135).
-  const loudnessShown = usePlayerView().view.loudness;
   /** On a document: the page shown, and the region drawn or thread picked on it. */
   const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
   const [frameDraft, setFrameDraft] = useState<FrameDraft | null>(null);
@@ -499,7 +501,6 @@ export function FilePage({
           paged: file.kind === "document",
         }
       : undefined;
-  const comparable = allows("compare") && file.kind === "audio" && file.streamStatus === "ready";
   /** Normalised playback (#240): always where the project says so, else as this person chose. */
   const normalised =
     file.normalisation !== null && (file.normalisation.mode === "forced" || chosenNormal);
@@ -561,8 +562,11 @@ export function FilePage({
   /** A loose file's next version (#149), for those who may upload. */
   const canVersion = !guest && can("upload") && takesVersions(file);
   const shown = view === "triage" ? (canTriage ? "triage" : "review") : hasQa ? view : "review";
-  // Comparison sets the volume while it is shown (its sources level-matched); otherwise, here.
+  const comparable = allows("compare") && file.kind === "audio" && file.streamStatus === "ready";
+  // Comparison sets the volume while it is shown (its sources level-matched); otherwise the
+  // player plays at the page's gain under the volume (#493).
   const comparing = comparable && shown === "review";
+  const playerGain = comparing && compareOpen ? null : gain;
   const summary = mediaSummary(file.kind, file.mediaInfo, file.streamStatus);
   const details: [string, string][] = [
     ["Type", file.contentType],
@@ -661,6 +665,10 @@ export function FilePage({
             takes={!guest && can("view_takes")}
           />
           <FileChain file={file} />
+          {/* Where the track stands (#498), moved on from here by those who may. */}
+          {file.variant && !guest && (
+            <TrackStatusChip trackId={file.variant.trackId} projectId={file.projectId} />
+          )}
         </>
       ) : undefined,
     end:
@@ -697,6 +705,7 @@ export function FilePage({
       caption={captionId}
       onCaption={setCaptionId}
       follow={guest ? undefined : <FollowRecorderSettings follow={follow} />}
+      gain={playerGain}
     />
   );
   /** The transcript is offered beside the comments wherever there is a track to read. */
@@ -724,7 +733,6 @@ export function FilePage({
             </Button>
           }
         />
-        <PageVolume media={media} gain={gain} />
         <TriageView
           file={file}
           media={media}
@@ -801,8 +809,6 @@ export function FilePage({
           !qaShown && "scroll-quiet lg:overflow-y-auto",
         )}
       >
-        {/* Comparison sets the volume while it is shown; otherwise, this does. */}
-        {!(comparing && (qaShown || compareOpen)) && <PageVolume media={media} gain={gain} />}
         <ListeningNotice sync={listening} />
         <div className={qaShown ? "flex shrink-0 flex-col border-b border-line" : "contents"}>
           {playback}
@@ -846,12 +852,6 @@ export function FilePage({
           <>
             {comparing && compareOpen && (
               <Compare file={file} media={media} focus={focus} gain={gain} />
-            )}
-            {hasQa && allows("qa") && loudnessShown && (
-              // Nothing measured yet, nothing shown, and no line drawn for it.
-              <div className="shrink-0 border-t border-line px-3 py-2 empty:hidden lg:px-4">
-                <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
-              </div>
             )}
             {!guest && <VersionNote file={file} />}
             {hasScore && layout.score && file.variant?.scoreFileId && (
@@ -1067,12 +1067,4 @@ function useNormalisedChoice(): [boolean, (on: boolean) => void] {
     }
   }, []);
   return [on, choose];
-}
-
-/** Plays the page's media at a volume: normalised playback's, or full (#240). */
-function PageVolume({ media, gain }: { media: HTMLMediaElement | null; gain: number }) {
-  useEffect(() => {
-    if (media) media.volume = gain;
-  }, [media, gain]);
-  return null;
 }

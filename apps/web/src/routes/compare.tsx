@@ -31,6 +31,7 @@ import {
   useRealign,
 } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
+import { useVolume, volumeGain } from "~/lib/volume";
 
 type Which = "a" | "b";
 
@@ -82,7 +83,8 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
   const toLead = lead === "a" ? toA : toB;
 
   // The master is the lead; what is heard is either it or the other version following it.
-  const leadVolume = heard === lead ? gainOf(lead) : 0;
+  const [volume] = useVolume();
+  const leadVolume = (heard === lead ? gainOf(lead) : 0) * volumeGain(volume);
   useEffect(() => {
     if (master) master.volume = leadVolume;
   }, [master, leadVolume]);
@@ -349,7 +351,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
                 key={data[other].fileId}
                 fileId={data[other].fileId}
                 master={master}
-                volume={heard === other ? gainOf(other) : 0}
+                volume={(heard === other ? gainOf(other) : 0) * volumeGain(volume)}
                 follow={toFollower}
                 onFail={() => setFailed(true)}
                 onElement={setFollower}

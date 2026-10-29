@@ -10,7 +10,7 @@ import {
 /**
  * How someone likes the player drawn (#135), kept with their account so it follows them from
  * browser to browser: the waveform's look, where the spectrogram goes and how it is coloured,
- * and whether the line of loudness and issues shows under the player. Whether channels are
+ * and whether the meters show beside the waveform. Whether channels are
  * split is its own preference (`splitChannels`), as it was before.
  */
 
@@ -64,7 +64,7 @@ export const playerViewSchema = z.object({
   wave: waveLookSchema,
   spectrogram: z.enum(spectrogramPlaces),
   spectrum: spectrumViewSchema,
-  /** The line of loudness and issues under the player. */
+  /** The meters beside the waveform, switched from the view toolbar (#493). */
   loudness: z.boolean(),
 });
 export type PlayerViewSettings = z.infer<typeof playerViewSchema>;
