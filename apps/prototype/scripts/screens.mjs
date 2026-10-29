@@ -145,6 +145,11 @@ const screens = [
     ],
   },
   { name: "recording-qa", route: "/files/file-maple-v2-dry?view=qa" },
+  {
+    name: "recording-add-variation",
+    route: "/files/file-maple-v2-dry",
+    steps: [{ click: 'role=button[name="Add a variation…"]' }],
+  },
   { name: "phone-recording", route: "/files/file-maple-v2-dry", width: "phone" },
   { name: "triage", route: "/files/file-maple-v2-dry?view=triage" },
   {

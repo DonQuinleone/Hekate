@@ -38,6 +38,7 @@ import {
 } from "~/components/transcript";
 import { Button } from "~/components/ui/button";
 import { ActionMenu, Dropdown, MenuList, usePopover } from "~/components/ui/menu";
+import { AddVariationDialog } from "~/components/variation-dialog";
 import { Filmstrip, Frame } from "~/components/video";
 import {
   AudioLayoutMenu,
@@ -318,7 +319,9 @@ export function FilePage({
   const [compareSource, setCompareSource] = useState("this");
   const [page, setPage] = useState(1);
   const [scorePage, setScorePage] = useState(1);
-  const [sheet, setSheet] = useState<"details" | "download" | "export" | "import" | null>(null);
+  const [sheet, setSheet] = useState<
+    "details" | "download" | "export" | "import" | "variation" | null
+  >(null);
   const [drawing, setDrawing] = useState<DrawTool | null>(null);
   const [colour, setColour] = useState("var(--hk-signal)");
   const [matte, setMatte] = useState<"none" | "2.39" | "1.85">("none");
@@ -698,7 +701,12 @@ export function FilePage({
       ]}
     />
   );
-  const variationSeg = inTrack && inTrack.version.variations.length > 1 && (
+  // Whoever may upload adds a variation from the switch itself (#486), so it shows to them
+  // even where the version has one variation.
+  const canAddVariation = Boolean(
+    inTrack && project && !viewer.isGuest && viewer.can(project.id, "upload"),
+  );
+  const variationSeg = inTrack && (inTrack.version.variations.length > 1 || canAddVariation) && (
     <Seg
       size="md"
       label="Variation"
@@ -709,6 +717,15 @@ export function FilePage({
         label: v.name,
         hint: fileById(v.fileId)?.state === "pending" ? "analysing" : undefined,
       }))}
+      action={
+        canAddVariation
+          ? {
+              label: "Add a variation…",
+              icon: <Icon name="plus" size={14} />,
+              onSelect: () => setSheet("variation"),
+            }
+          : undefined
+      }
     />
   );
 
@@ -1294,6 +1311,13 @@ export function FilePage({
         <ExportCommentsDialog file={file} comments={all} onClose={() => setSheet(null)} />
       )}
       {sheet === "import" && <ImportCommentsDialog onClose={() => setSheet(null)} />}
+      {sheet === "variation" && inTrack && (
+        <AddVariationDialog
+          track={inTrack.track}
+          version={inTrack.version}
+          onClose={() => setSheet(null)}
+        />
+      )}
     </>
   );
   const below = layout.comments === "below";
