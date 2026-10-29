@@ -4,6 +4,7 @@ import {
   type AuthLogRow,
   type CheckState,
   channelKindLabels,
+  type DateFormat,
   ERROR_REPORT_DAYS,
   errorReportText,
   formatBytes,
@@ -40,6 +41,7 @@ import {
   registrationNames,
   type SignUpInvitation,
   slugFrom,
+  type TimeFormat,
   type UpdateChannel,
   updateChannels,
   type WebhookLogRow,
@@ -76,7 +78,14 @@ import { Queues } from "~/components/instance-queues";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { ConfirmStep } from "~/components/project-transfer";
-import { Danger, Row, Section, SwitchRow } from "~/components/settings";
+import {
+  Danger,
+  dateFormatChoices,
+  Row,
+  Section,
+  SwitchRow,
+  timeFormatChoices,
+} from "~/components/settings";
 import { InstanceSupport } from "~/components/support-desk";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
@@ -116,11 +125,13 @@ import {
   instanceWorkspacesQuery,
   json,
   logQueryString,
+  meQuery,
   noticeQuery,
   signUpInfoQuery,
   signUpInvitationsQuery,
   useOperatorMove,
   useWorkspaceLimits,
+  workspaceSettingsWithLimitsQuery,
 } from "~/lib/queries";
 
 const since = formatDates({ day: "numeric", month: "short", year: "numeric" });
@@ -1098,6 +1109,9 @@ function Settings() {
       client.setQueryData(instanceOwnSettingsQuery.queryKey, next);
       void client.invalidateQueries({ queryKey: noticeQuery.queryKey });
       void client.invalidateQueries({ queryKey: signUpInfoQuery.queryKey });
+      // The date formats (#481) reach every workspace through `me` and its settings.
+      void client.invalidateQueries({ queryKey: meQuery.queryKey });
+      void client.invalidateQueries({ queryKey: workspaceSettingsWithLimitsQuery.queryKey });
     },
   });
   const mailTest = useMutation({
@@ -1236,6 +1250,51 @@ function Settings() {
               save.mutate({ ...settings, defaults: { ...settings.defaults, memberLimit } })
             }
           />
+        </Row>
+      </Section>
+      <Section
+        title="Dates and times"
+        intro="How dates read in every workspace that has not chosen its own, in its General settings: on screen, in mail and in exports. ISO 8601 reads the same in every country."
+      >
+        <Row name="Dates">
+          <Select
+            aria-label="Dates"
+            value={settings.dates.dateFormat}
+            disabled={save.isPending}
+            onChange={(e) =>
+              save.mutate({
+                ...settings,
+                dates: { ...settings.dates, dateFormat: e.target.value as DateFormat },
+              })
+            }
+            className="w-56"
+          >
+            {dateFormatChoices.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </Select>
+        </Row>
+        <Row name="Times">
+          <Select
+            aria-label="Times"
+            value={settings.dates.timeFormat}
+            disabled={save.isPending}
+            onChange={(e) =>
+              save.mutate({
+                ...settings,
+                dates: { ...settings.dates, timeFormat: e.target.value as TimeFormat },
+              })
+            }
+            className="w-56"
+          >
+            {timeFormatChoices.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </Select>
         </Row>
       </Section>
       <Section

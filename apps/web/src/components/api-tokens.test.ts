@@ -19,7 +19,10 @@ describe("a token's row (#198)", () => {
 
   it("says what it may do, when it was made and used, and when it ends", () => {
     const hint = tokenHint(token, now);
-    expect(hint).toMatch(/^files:read, reviews:read · made .*2026 · never used · expires .*2027$/);
+    // Dates in ISO 8601 (#481) unless the workspace chose otherwise.
+    expect(hint).toMatch(
+      /^files:read, reviews:read · made 2026-10-0\d.* · never used · expires 2027-01-0\d.*$/,
+    );
     // A member's own does not name its maker; a service token does.
     expect(hint).not.toContain("Mira Solberg");
     expect(tokenHint({ ...token, kind: "service" }, now)).toContain("by Mira Solberg");

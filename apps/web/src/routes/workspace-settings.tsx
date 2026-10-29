@@ -3,8 +3,10 @@ import {
   type CheckState,
   type CommentScope,
   type CustomProfile,
+  type DateFormat,
   type DefaultRoleName,
   type DownloadLevel,
+  dateFormatLabels,
   defaultRoleNames,
   deliveryProfileIds,
   deliveryProfiles,
@@ -25,6 +27,8 @@ import {
   sessionDayChoices,
   signInMethodLabels,
   signInMethods,
+  type TimeFormat,
+  timeFormatLabels,
   type WorkspaceSettingsInput,
 } from "@hekate/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
@@ -50,7 +54,15 @@ import { OAuthClientsSection } from "~/components/oauth";
 import { PageHeader } from "~/components/page-header";
 import { PlayerToolsTable } from "~/components/player-tools";
 import { TransfersSection } from "~/components/project-transfer";
-import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
+import {
+  Danger,
+  dateFormatChoices,
+  Row,
+  Section,
+  SettingsLayout,
+  SwitchRow,
+  timeFormatChoices,
+} from "~/components/settings";
 import { SsoSection } from "~/components/sso";
 import { type AskedFrom, SupportSection } from "~/components/support";
 import { Button } from "~/components/ui/button";
@@ -384,9 +396,12 @@ function useSettings() {
   };
 }
 
-/** The guest link lifetime and the language, in the General section's Workspace panel. */
+/** The guest link lifetime, the language and the dates, in the General section's Workspace panel. */
 function WorkspaceRows() {
   const { settings, change, pending, error } = useSettings();
+  // The instance's own date and time formats (#481), which this workspace follows unless it chooses.
+  const { data: limits } = useQuery(workspaceSettingsWithLimitsQuery);
+  const instance = limits?.instance ?? { dateFormat: "iso", timeFormat: "24h" };
   if (!settings) return null;
   return (
     <>
@@ -440,9 +455,9 @@ function WorkspaceRows() {
           ))}
         </Select>
       </Row>
-      <Row name="Language and dates" hint="For members who have not chosen their own in Account.">
+      <Row name="Language" hint="For members who have not chosen their own in Account.">
         <Select
-          aria-label="Language and dates"
+          aria-label="Language"
           className="w-56"
           disabled={pending}
           value={settings.locale ?? ""}
@@ -454,6 +469,38 @@ function WorkspaceRows() {
           {locales.map((l) => (
             <option key={l} value={l}>
               {languageNames.of(l) ?? l}
+            </option>
+          ))}
+        </Select>
+      </Row>
+      <Row name="Dates" hint="How dates read here, in lists, comments, mail and exports.">
+        <Select
+          aria-label="Dates"
+          className="w-56"
+          disabled={pending}
+          value={settings.dateFormat ?? ""}
+          onChange={(e) => change({ dateFormat: (e.target.value || null) as DateFormat | null })}
+        >
+          <option value="">Instance default ({dateFormatLabels[instance.dateFormat]})</option>
+          {dateFormatChoices.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </Select>
+      </Row>
+      <Row name="Times" hint="The clock beside them.">
+        <Select
+          aria-label="Times"
+          className="w-56"
+          disabled={pending}
+          value={settings.timeFormat ?? ""}
+          onChange={(e) => change({ timeFormat: (e.target.value || null) as TimeFormat | null })}
+        >
+          <option value="">Instance default ({timeFormatLabels[instance.timeFormat]})</option>
+          {timeFormatChoices.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
             </option>
           ))}
         </Select>
