@@ -1587,10 +1587,14 @@ export function Player({
   // several a quiet menu to choose one, and normalised playback; never a button.
   const heardChoice = choices.find((c) => c.level === level)?.rendition;
   const formatLine = !failure && (choices.length > 0 || (normalised && normalisation)) && (
-    // Hidden on a phone, where the details sheet says the same; on a wide screen it gives way
-    // (truncates) before the strip's menus wrap under the version and variant.
+    // On a wide screen it gives way (truncates) before the strip's menus wrap under the version
+    // and variant. On a phone the words are hidden, as the details sheet says the same, but the
+    // Quality menu stays: it is the only way to choose what is heard.
     <span
-      className="hidden min-w-0 items-center gap-1 text-[12px] text-ink-3 sm:flex"
+      className={cn(
+        "min-w-0 items-center gap-1 text-[12px] text-ink-3 sm:flex",
+        choices.length > 1 ? "flex" : "hidden",
+      )}
       title={[
         heardChoice ? renditionLabel(heardChoice, info) : null,
         normalised && normalisation ? normalisationLabel(normalisation) : null,
@@ -1627,7 +1631,7 @@ export function Player({
         )
       )}
       {normalised && normalisation && (
-        <span className="tabular truncate">
+        <span className="tabular hidden truncate sm:inline">
           {choices.length > 0 ? "· " : ""}
           {normalisationLabel(normalisation)}
         </span>
@@ -1645,9 +1649,11 @@ export function Player({
       setPlayerView({ ...playerView, spectrogram: "off" });
     } else setPlayerView({ ...playerView, spectrogram: lastPlace.current });
   };
+  // The compact QA player (#42) keeps the loop toggle, the one view control a video has, so a
+  // looped finding can be heard straight through without clearing the passage.
   const viewBar = !failure &&
-    !compact &&
-    (canLoop || (kind === "audio" && (canSpectrogram || showsMeters || mostZoom > 1))) && (
+    (canLoop ||
+      (!compact && kind === "audio" && (canSpectrogram || showsMeters || mostZoom > 1))) && (
       <div
         role="toolbar"
         aria-label="View"
