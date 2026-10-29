@@ -1,5 +1,7 @@
 import { z } from "zod";
+import type { OrganisationRole } from "./organisation.ts";
 import { reviewerPermissionsChange } from "./reviewer-permissions.ts";
+import { permissionsFor } from "./roles.ts";
 
 /**
  * Reviews (docs/domain.md, Reviews): someone with the authority asks reviewers about one
@@ -58,8 +60,61 @@ export const reviewItemInput = z.union([
     versionId: z.uuid().nullish(),
   }),
   z.object({ fileId: z.uuid() }),
+  /**
+   * A folder (#501): everything in it and in the folders beneath it, as it is whenever the
+   * review is opened, so a file added later is covered too. Tracks in it are at their latest.
+   */
+  z.object({ folderId: z.uuid() }),
+  /**
+   * Everything in the workspace (#501): every project, present and future. Only for someone
+   * who may manage reviews in every project, or runs the workspace (`mayCoverWorkspace`).
+   */
+  z.object({ workspace: z.literal(true) }),
 ]);
 export type ReviewItemInput = z.infer<typeof reviewItemInput>;
+
+/** The scopes a review item can have beyond one track or file: the whole workspace. */
+export const reviewScopes = ["workspace"] as const;
+export type ReviewScope = (typeof reviewScopes)[number];
+
+/** Whether a review item names a track or file itself, rather than a place things are in. */
+export const isScopeItem = (item: ReviewItemInput) => "folderId" in item || "workspace" in item;
+
+/**
+ * A folder and every folder beneath it, by id, from the folders' parents: what a folder item
+ * covers. Folders not among those given (another project's) are never reached.
+ */
+export function foldersBeneath(
+  folders: readonly { id: string; parentId: string | null }[],
+  folderId: string,
+): Set<string> {
+  const out = new Set<string>();
+  if (!folders.some((f) => f.id === folderId)) return out;
+  const queue = [folderId];
+  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+    if (out.has(next)) continue;
+    out.add(next);
+    for (const f of folders) if (f.parentId === next && !out.has(f.id)) queue.push(f.id);
+  }
+  return out;
+}
+
+/**
+ * Whether someone may ask a review of everything in the workspace (#501): an owner or admin,
+ * or a member whose role in every one of the workspace's projects has the Reviews: Manage
+ * level. `projectRoles` is the permissions of their role in each project, null where they
+ * have none, one entry per project; a workspace with no projects has nothing to cover.
+ */
+export function mayCoverWorkspace(
+  role: OrganisationRole,
+  projectRoles: readonly (readonly string[] | null)[],
+): boolean {
+  if (role === "owner" || role === "admin") return true;
+  return (
+    projectRoles.length > 0 &&
+    projectRoles.every((permissions) => permissionsFor(role, permissions).has("manage_reviewers"))
+  );
+}
 
 /** A guest reviewer: someone outside the organisation, reached by email. */
 export const guestInput = z.object({
@@ -150,6 +205,11 @@ export const createReviewInput = z
   .refine((r) => r.kind !== "approval" || r.rule !== "share" || r.share !== undefined, {
     message: "Say what share of the reviewers must approve",
     path: ["share"],
+  })
+  // Everything in the workspace covers whatever else could be named.
+  .refine((r) => !r.items.some((i) => "workspace" in i) || r.items.length === 1, {
+    message: "Everything in this workspace needs nothing else named beside it",
+    path: ["items"],
   })
   .transform((r) => {
     const rule = r.kind === "approval" ? (r.rule ?? "all") : null;

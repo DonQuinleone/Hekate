@@ -58,6 +58,7 @@ import {
   type Release,
   type ReviewerPermissions,
   type ReviewOutcome,
+  type ReviewScope,
   reviewDecisions,
   reviewKinds,
   reviewOrders,
@@ -2502,7 +2503,14 @@ export const reviews = pgTable(
   ],
 );
 
-/** What a review covers: a track (a specific version, or its latest) or a file. */
+/**
+ * What a review covers: a track (a specific version, or its latest), a file, a folder
+ * (everything in it, as it is when the review is opened, #501) or the whole workspace (every
+ * project, present and future). Exactly one of track, file, folder and scope is set; the
+ * application sees to it, as the check that said so for tracks and files alone was dropped
+ * in migration 0151 and a check over all four follows once no release before it runs
+ * (decision 198).
+ */
 export const reviewItems = pgTable(
   "review_items",
   {
@@ -2515,16 +2523,14 @@ export const reviewItems = pgTable(
     /** With a track: a specific version. Null follows the track's latest. */
     versionId: uuid("version_id").references(() => versions.id, { onDelete: "cascade" }),
     fileId: uuid("file_id").references(() => files.id, { onDelete: "cascade" }),
+    /** A folder: the review covers what is in it, and in the folders beneath it, now. */
+    folderId: uuid("folder_id").references(() => folders.id, { onDelete: "cascade" }),
+    /** "workspace": the review covers every project, present and future. */
+    scope: text("scope").$type<ReviewScope>(),
     position: integer("position").notNull().default(0),
     ...timestamps,
   },
-  (t) => [
-    index("review_items_review_idx").on(t.organisationId, t.reviewId),
-    check(
-      "review_items_one_kind",
-      sql`(${t.trackId} is not null and ${t.fileId} is null) or (${t.trackId} is null and ${t.fileId} is not null and ${t.versionId} is null)`,
-    ),
-  ],
+  (t) => [index("review_items_review_idx").on(t.organisationId, t.reviewId)],
 );
 
 /**
