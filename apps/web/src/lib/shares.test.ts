@@ -152,3 +152,35 @@ describe("sharing one item (#489)", () => {
     );
   });
 });
+
+describe("expandGroupOverrides", () => {
+  it("reaches a group's members, each unless they have an override of their own", async () => {
+    const { expandGroupOverrides } = await import("~/routes/request-review");
+    const groups = [
+      {
+        id: "g1",
+        name: "Soloists",
+        members: [
+          { userId: "u1", guestId: null, name: "A", email: "", label: null, guest: false },
+          {
+            userId: null,
+            guestId: "x",
+            name: "B",
+            email: "b@example.test",
+            label: null,
+            guest: true,
+          },
+        ],
+      },
+    ];
+    const out = expandGroupOverrides(
+      { "group:g1": { download: "original" }, "member:u1": { download: "none" } },
+      groups,
+    );
+    expect(out).toEqual({
+      "member:u1": { download: "none" },
+      "guest:b@example.test": { download: "original" },
+    });
+    expect(Object.keys(out)).not.toContain("group:g1");
+  });
+});

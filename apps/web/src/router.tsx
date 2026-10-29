@@ -580,7 +580,11 @@ const requestReviewSearch = z.object({
     .optional()
     .catch(undefined),
   download: z.enum(downloadLevels).optional().catch(undefined),
-  until: z.iso.datetime({ offset: true }).optional().catch(undefined),
+  // A date, or "never" for a link that works until it is withdrawn (distinct from no choice).
+  until: z
+    .union([z.iso.datetime({ offset: true }), z.literal("never")])
+    .optional()
+    .catch(undefined),
 });
 const requestReview = createRoute({
   getParentRoute: () => app,
