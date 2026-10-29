@@ -11447,7 +11447,7 @@ describe.runIf(url)("api", () => {
       it("tells everything about one file, and what each role may do with it", async () => {
         const s = await studio();
         type Details = {
-          file: { name: string; uploadedBy: string | null };
+          file: { name: string; uploadedBy: string | null; tagIds: string[] };
           storage: { backend: string; encrypted: boolean; sha256: string | null };
           usedIn: {
             versions: { track: string; number: number; variation: string; latest: boolean }[];
@@ -11490,6 +11490,17 @@ describe.runIf(url)("api", () => {
           expect.objectContaining({ organise: true, log: true, delete: false }),
         );
         expect((await details(s.owner, s.artwork)).body.can.delete).toBe(true);
+
+        // The workspace tags on it come with it, for the sheet to edit.
+        expect(mix.body.file.tagIds).toEqual([]);
+        const { tag } = (await (
+          await app.request("/api/tags", json({ name: "Artwork" }, s.owner))
+        ).json()) as { tag: { id: string } };
+        await app.request(`/api/files/${s.artwork}/tags`, {
+          ...json({ tagIds: [tag.id] }, s.owner),
+          method: "PUT",
+        });
+        expect((await details(s.owner, s.artwork)).body.file.tagIds).toEqual([tag.id]);
 
         // Someone outside the project finds nothing.
         const outsider = await joinAs(s.owner, "outsider-details@example.test");
