@@ -1,7 +1,6 @@
 import {
   capital,
   defaultFileColumns,
-  descendantsOf,
   downloadLevelOf,
   type FileColumn,
   type FileColumnLayout,
@@ -20,7 +19,9 @@ import {
   type DragEvent,
   type FormEvent,
   type KeyboardEvent,
+  type MouseEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -33,6 +34,8 @@ import {
   type BrowserFilters,
   bulkTags,
   columnsFor,
+  droppableOnTrack,
+  favouritesFirst,
   filtering,
   filterProject,
   fitColumns,
@@ -45,16 +48,19 @@ import {
   latestFile,
   markKey,
   movableTo,
-  pinnedFirst,
+  movesInto,
+  parentIdOf,
   processingStage,
   rangeBetween,
   trackNext,
   unviewed,
+  variationNameFor,
   versionSummary,
   versionsOf,
 } from "~/lib/browser";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
+import { isMac } from "~/lib/keys";
 import { trackStateCopy, trackStateLabel } from "~/lib/overview";
 import {
   type Folder,
@@ -86,17 +92,19 @@ import { Avatar, AvatarRow } from "./avatar";
 import { DownloadDialog } from "./downloads";
 import { Empty } from "./empty";
 import { ColumnHeading, ColumnsMenu, columnNames } from "./file-columns";
-import { FilterChips, FilterMenu, TagEditor } from "./file-filters";
-import { AttachForm, destinations, MoveForm, RenameForm, ScoreForm } from "./file-forms";
-import { fileSummary, kindIcon, UploadButton, UploadList } from "./files";
+import { FilterChips, FilterMenu } from "./file-filters";
+import { AttachForm, MovePicker, RenameInput, ScoreForm } from "./file-forms";
+import { fileSummary, kindIcon, UploadButton, UploadList, useUploads } from "./files";
 import { Icon, type IconName } from "./icons";
 import { Card } from "./page";
 import { ShareDialog } from "./share";
+import { TagInput } from "./tag-input";
 import { VariationDialog } from "./track-versions";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/choice";
-import { Input } from "./ui/input";
-import { ActionMenu, type MenuAction } from "./ui/menu";
+import { Floating, type Point, withinOrFloatingFrom } from "./ui/floating";
+import { FileInput, Input } from "./ui/input";
+import { ActionMenu, ContextMenu, type MenuAction } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
 import { StatusDot } from "./ui/status";
 import { UploadRequestDialog } from "./upload-requests";
@@ -135,13 +143,27 @@ const itemIcon = (item: Item): IconName =>
       : kindIcon[item.file.kind];
 
 /**
- * What is being done to one item: renaming it, choosing where it goes, tagging it, or
- * confirming its removal.
+ * What is being done to one item in its row: renaming it, tagging it (from the cell or the
+ * name the editor floats from), attaching it, linking its score, or confirming its removal.
+ * Moving has a dialog of its own.
  */
 type Editing = {
   id: string;
-  mode: "rename" | "move" | "tags" | "attach" | "score" | "delete";
+  mode: "rename" | "tags" | "attach" | "score" | "delete";
+  at?: RefObject<HTMLElement | null>;
 } | null;
+
+/** Where a context menu opened, and on what: a row, the selection, or the empty space. */
+interface OpenMenu {
+  at: Point | RefObject<HTMLElement | null>;
+  target: Item | "selection" | "space";
+}
+
+/** How long after a click on a selected name a second click still opens rather than renames. */
+const SLOW_CLICK_MS = 400;
+
+/** A shortcut's hint in a menu: the command key on a Mac, Ctrl elsewhere. */
+const mod = (key: string) => (isMac() ? `⌘${key}` : `Ctrl+${key}`);
 
 /** A row's quick ways in and actions, shown when it is hovered or focused. */
 const quickClass =
@@ -233,6 +255,45 @@ function TagPills({ ids, tags }: { ids: string[]; tags: Map<string, Tag> }) {
 const dragType = "application/x-hekate-items";
 
 /**
+ * A row's tags edited over the row, floating from its tag cell (or its name, when the list
+ * shows no Tags column): the row stays as it is underneath, as Notion's cells do.
+ */
+function TagPopover({
+  anchor,
+  label,
+  onClose,
+  children,
+}: {
+  anchor: RefObject<HTMLElement | null>;
+  label: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const away = (event: PointerEvent) => {
+      if (!withinOrFloatingFrom(event, anchor.current)) close.current();
+    };
+    window.addEventListener("pointerdown", away);
+    return () => window.removeEventListener("pointerdown", away);
+  }, [anchor]);
+  return (
+    <Floating
+      anchor={anchor}
+      align="start"
+      gap={-2}
+      role="dialog"
+      aria-label={label}
+      data-e2e-overlap
+      className="rise-in w-80 rounded-panel-lg bg-overlay p-2 shadow-4"
+    >
+      {children}
+    </Floating>
+  );
+}
+
+/**
  * A row's icon, which becomes its checkbox on hover, on focus, or while anything is
  * selected. Shift with a click selects everything from the last one chosen.
  */
@@ -285,9 +346,9 @@ function Comments({ n }: { n: number }) {
  * one into the next (as the Finder does), or as a grid. A track is a special kind of folder:
  * it sits among them, and the files in its versions live in it rather than loose beside it.
  * Those who can organise make folders and tracks, and rename, move, tag and delete what is
- * here; files dropped anywhere on the page land in the open folder. Everyone pins things to
- * the top of their folder, keeps favourites and sees what they have not opened, for
- * themselves; filters look across the whole project.
+ * here; files dropped anywhere on the page land in the open folder. Everyone keeps favourites
+ * (which sit at the top of their folder) and sees what they have not opened, for themselves;
+ * filters look across the whole project.
  */
 export function FileBrowser({
   projectId,
@@ -326,6 +387,9 @@ export function FileBrowser({
   const organise = useOrganise(projectId);
   const trackMutations = useTrackMutations(projectId);
   const setMarks = useMarks(projectId);
+  /** One personal mark (decision 269), written as both while the pin is still stored. */
+  const favour = (marked: { kind: MarkKind; id: string }[], on: boolean) =>
+    setMarks.mutate({ items: marked, favourite: on, pinned: on });
   const retry = useRetryFile(projectId);
   const navigate = useNavigate();
   const { data: savedColumns } = useQuery(fileColumnsQuery);
@@ -363,6 +427,7 @@ export function FileBrowser({
   const [scoreNote, setScoreNote] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<Editing>(null);
+  /** What is chosen in the columns below the open folder; the folder's own path is the address's. */
   const [columnPath, setColumnPath] = useState<Item[]>([]);
   const manage = can("organise");
   /** Deleting is its own level above organising (#142). */
@@ -372,11 +437,23 @@ export function FileBrowser({
   const [anchor, setAnchor] = useState<string | null>(null);
   /** Checkboxes shown without a hover, for phones (from the toolbar menu). */
   const [selectMode, setSelectMode] = useState(false);
-  const [bulk, setBulk] = useState<"move" | "tags" | "delete" | null>(null);
+  const [bulk, setBulk] = useState<"tags" | "delete" | null>(null);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
-  /** The folder (or "top") something is being dragged over. */
+  /** The folder ("top" for the top of the project) or track (`track:<id>`) being dragged over. */
   const [dropOn, setDropOn] = useState<string | null>(null);
+  /** The keys of the rows being dragged, readable while they are over a target. */
+  const dragged = useRef<string[]>([]);
+  /** The context menu, while it is open. */
+  const [contextMenu, setContextMenu] = useState<OpenMenu | null>(null);
+  /** What is being moved through the folder picker. */
+  const [moving, setMoving] = useState<Item[] | null>(null);
+  /** What was cut (Cmd or Ctrl and X), by key, waiting to be pasted into a folder. */
+  const [cut, setCut] = useState<Set<string>>(new Set());
+  /** A click on a selected row's name, waiting to see whether a second one follows. */
+  const slowClick = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const uploads = useUploads();
+  const chooser = useRef<HTMLInputElement>(null);
   /** Scrolls a long list to a row it has not drawn yet; set by the list itself. */
   const reveal = useRef<((index: number) => void) | null>(null);
   /** The row the keys have reached while it is still being brought into view. */
@@ -397,10 +474,6 @@ export function FileBrowser({
   useEffect(() => {
     if (!known) onOpenFolder(null);
   }, [known, onOpenFolder]);
-  // The columns start again from the open folder.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the folder is the trigger.
-  useEffect(() => setColumnPath([]), [folderId]);
-
   const chooseView = (next: View) => {
     setView(next);
     try {
@@ -421,8 +494,25 @@ export function FileBrowser({
   const path = filtered ? [] : folderPath(all, folderId);
   const items = filtered
     ? filterProject(all, allTracks, allFiles, filters, myId, marks)
-    : pinnedFirst(itemsIn(all, allTracks, allFiles, folderId), marks);
+    : favouritesFirst(itemsIn(all, allTracks, allFiles, folderId), marks);
   const order = items.map(markKey);
+  /**
+   * The columns always start at the top of the project (as the Finder's do), with the open
+   * folder's ancestors opened and the folder chosen; choosing another folder in them opens it.
+   */
+  const rootItems =
+    folderId === null ? items : favouritesFirst(itemsIn(all, allTracks, allFiles, null), marks);
+  const folderItems: Item[] = path.map((f) => ({ kind: "folder", id: f.id, folder: f }));
+  const chooseInColumns = (next: Item[]) => {
+    let deepest = -1;
+    next.forEach((i, at) => {
+      if (i.kind === "folder") deepest = at;
+    });
+    const folder = next[deepest];
+    const into = folder?.kind === "folder" ? folder.folder.id : null;
+    setColumnPath(next.slice(deepest + 1));
+    if (into !== folderId) onOpenFolder(into);
+  };
   const itemByKey = new Map(items.map((i) => [markKey(i), i]));
   const chosen = items.filter((i) => selected.has(markKey(i)));
   const clearSelection = () => {
@@ -457,8 +547,25 @@ export function FileBrowser({
     { keys: ["Enter"], label: "Open", where: "In the list" },
     { keys: ["x"], label: "Select, or with Shift a range", where: "In the list" },
     { keys: ["Mod+A"], label: "Select everything", where: "In the list" },
+    { keys: ["Shift+F10"], label: "Open the menu", where: "In the list" },
+    { keys: ["F2"], label: "Rename", where: "In the list" },
+    { keys: ["Mod+X"], label: "Cut, to paste into a folder", where: "In the list" },
+    { keys: ["Mod+V"], label: "Paste into this folder", where: "In the list" },
     { keys: ["Escape"], label: "Clear the selection", where: "In the list" },
   ]);
+
+  /** The context menu from the keyboard: on the row that has focus, or on the list. */
+  const menuFromKeys = (target: HTMLElement, list: HTMLElement) => {
+    const row = target.closest<HTMLElement>("[data-key]");
+    const item = row?.dataset.key ? itemByKey.get(row.dataset.key) : undefined;
+    const on =
+      row && item
+        ? selected.has(markKey(item)) && selected.size > 1
+          ? "selection"
+          : item
+        : "space";
+    setContextMenu({ at: { current: row ?? list }, target: on });
+  };
 
   const onListKey = (event: KeyboardEvent<HTMLUListElement>) => {
     const target = event.target as HTMLElement;
@@ -505,19 +612,37 @@ export function FileBrowser({
         setSelected(new Set(rangeBetween(order, from, key)));
         setAnchor(from);
       }
-    } else if (event.key === "x" && current && !event.metaKey && !event.ctrlKey) {
+    } else if (event.key === "x" && current && plain) {
       const item = itemByKey.get(current);
       if (item) select(item, event.shiftKey);
     } else if (event.key === "a" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
       setSelected(new Set(order));
-    } else if (event.key === "Escape" && selected.size > 0) {
+    } else if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+      event.preventDefault();
+      menuFromKeys(target, event.currentTarget);
+    } else if (event.key === "F2" && current && manage) {
+      event.preventDefault();
+      const item = itemByKey.get(current);
+      if (item) startRename(item);
+    } else if (event.key === "x" && (event.metaKey || event.ctrlKey) && manage) {
+      event.preventDefault();
+      cutRows(current && !selected.has(current) ? [current] : [...selected]);
+    } else if (event.key === "v" && (event.metaKey || event.ctrlKey) && manage && cut.size > 0) {
+      event.preventDefault();
+      paste(folderId);
+    } else if (event.key === "Escape" && (selected.size > 0 || cut.size > 0)) {
       clearSelection();
+      setCut(new Set());
     }
   };
 
-  /** Run one change per thing; say how many could not be made, and keep those selected. */
-  const runAll = async (work: [Item, () => Promise<unknown>][]) => {
+  /**
+   * Run one change per thing; say how many could not be made, and keep those selected. Done,
+   * the selection is let go, unless the work is one of several changes to it (tags added one
+   * after another).
+   */
+  const runAll = async (work: [Item, () => Promise<unknown>][], keep = false) => {
     setBulkBusy(true);
     setBulkError(null);
     const results = await Promise.allSettled(work.map(([, run]) => run()));
@@ -530,7 +655,7 @@ export function FileBrowser({
       setSelected(new Set(failed.map(([item]) => markKey(item))));
       return false;
     }
-    clearSelection();
+    if (!keep) clearSelection();
     return true;
   };
   const moveOne = (item: Item, to: string | null): Promise<unknown> =>
@@ -541,53 +666,97 @@ export function FileBrowser({
         : item.kind === "file"
           ? organise.updateFile.mutateAsync({ id: item.file.id, folderId: to })
           : Promise.resolve();
-  const parentIdOf = (item: Item) =>
-    item.kind === "folder"
-      ? item.folder.parentId
-      : item.kind === "track"
-        ? item.track.folderId
-        : item.kind === "file"
-          ? item.file.folderId
-          : null;
   /** Move things into a folder (null, the top), leaving out what is there already or would loop. */
-  const moveAll = (moving: Item[], to: string | null) => {
-    const allowed = new Set(movableTo(all, moving).map((f) => f.id));
-    const work = moving
-      .filter((i) => parentIdOf(i) !== to && (to === null || allowed.has(to)))
-      .map((i): [Item, () => Promise<unknown>] => [i, () => moveOne(i, to)]);
+  const moveAll = (items: Item[], to: string | null) => {
+    const work = movesInto(all, items, to).map((i): [Item, () => Promise<unknown>] => [
+      i,
+      () => moveOne(i, to),
+    ]);
     if (work.length) void runAll(work);
   };
+  /** Loose files dropped on a track go in as its next version, one variation each. */
+  const attachAll = (dropped: ProjectFile[], track: Track) =>
+    trackMutations.createVersion.mutate({
+      trackId: track.id,
+      variations: dropped.map((f, i) => ({
+        fileId: f.id,
+        name: variationNameFor(f.name, track.name),
+        primary: i === 0,
+      })),
+    });
+  /** Anything in the project by its key, wherever it is: what was cut may be in another folder. */
+  const anyByKey = (key: string): Item | undefined => {
+    const [kind, id] = key.split(":");
+    if (kind === "folder") {
+      const folder = all.find((f) => f.id === id);
+      return folder && { kind, id: folder.id, folder };
+    }
+    if (kind === "track") {
+      const track = allTracks.find((t) => t.id === id);
+      return track && { kind, id: track.id, track };
+    }
+    if (kind === "file") {
+      const file = allFiles.find((f) => f.id === id);
+      return file && { kind, id: file.id, file };
+    }
+    return undefined;
+  };
+  /** Cut rows wait, drawn faded, until they are pasted into a folder; a new cut replaces them. */
+  const cutRows = (keys: string[]) => setCut(new Set(keys));
+  const paste = (to: string | null) => {
+    moveAll(
+      [...cut].flatMap((k) => anyByKey(k) ?? []),
+      to,
+    );
+    setCut(new Set());
+  };
 
-  /** Dragging rows onto a folder or the path moves them; only for those who organise. */
+  /** Dragging rows onto a folder, a track or the path moves them; only for those who organise. */
   const dragStart = (item: Item, event: DragEvent<HTMLElement>) => {
     const key = markKey(item);
     const keys = selected.has(key) ? [...selected] : [key];
+    dragged.current = keys;
     event.dataTransfer.setData(dragType, JSON.stringify(keys));
     event.dataTransfer.effectAllowed = "move";
   };
-  const dropTarget = (folder: string | null) =>
-    manage
-      ? {
-          onDragOver: (event: DragEvent<HTMLElement>) => {
-            if (!Array.from(event.dataTransfer.types).includes(dragType)) return;
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "move";
-            setDropOn(folder ?? "top");
-          },
-          onDragLeave: () => setDropOn(null),
-          onDrop: (event: DragEvent<HTMLElement>) => {
-            const data = event.dataTransfer.getData(dragType);
-            if (!data) return;
-            event.preventDefault();
-            setDropOn(null);
-            const keys = JSON.parse(data) as string[];
-            moveAll(
-              keys.flatMap((k) => itemByKey.get(k) ?? []),
-              folder,
-            );
-          },
-        }
-      : {};
+  const draggedItems = () => dragged.current.flatMap((k) => itemByKey.get(k) ?? []);
+  /**
+   * A folder (null, the top of the project) takes anything; a track takes loose files, as its
+   * next version. Escape while dragging cancels, as the browser has it: nothing is dropped and
+   * the target is let go.
+   */
+  const dropTarget = (target: { folder: string | null } | { track: Track }) => {
+    const track = "track" in target ? target.track : null;
+    const may = track ? can("upload") : manage;
+    if (!may) return {};
+    const accepts = () => (track ? droppableOnTrack(draggedItems()) !== null : true);
+    const mark = track
+      ? `track:${track.id}`
+      : "folder" in target
+        ? (target.folder ?? "top")
+        : "top";
+    return {
+      onDragOver: (event: DragEvent<HTMLElement>) => {
+        if (!Array.from(event.dataTransfer.types).includes(dragType) || !accepts()) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "move";
+        setDropOn(mark);
+      },
+      onDragLeave: () => setDropOn(null),
+      onDrop: (event: DragEvent<HTMLElement>) => {
+        const data = event.dataTransfer.getData(dragType);
+        if (!data) return;
+        event.preventDefault();
+        setDropOn(null);
+        const keys = JSON.parse(data) as string[];
+        const items = keys.flatMap((k) => itemByKey.get(k) ?? []);
+        if (track) {
+          const files = droppableOnTrack(items);
+          if (files) attachAll(files, track);
+        } else moveAll(items, "folder" in target ? target.folder : null);
+      },
+    };
+  };
 
   const fileById = new Map(allFiles.map((f) => [f.id, f]));
   /** Where each file sits in its version chain (#149), for the latest to say which it is. */
@@ -657,19 +826,60 @@ export function FileBrowser({
     else organise.createFolder.mutate({ name, parentId: folderId }, done);
   };
   const done = { onSuccess: () => setEditing(null) };
-  const rename = (item: Item, name: string) =>
-    item.kind === "folder"
-      ? organise.updateFolder.mutate({ id: item.folder.id, name }, done)
-      : item.kind === "track"
-        ? trackMutations.updateTrack.mutate({ id: item.track.id, name }, done)
-        : item.kind === "file" && organise.updateFile.mutate({ id: item.file.id, name }, done);
-  const move = (item: Item, to: string | null) =>
-    item.kind === "folder"
-      ? organise.updateFolder.mutate({ id: item.folder.id, parentId: to }, done)
-      : item.kind === "track"
-        ? trackMutations.updateTrack.mutate({ id: item.track.id, folderId: to }, done)
-        : item.kind === "file" &&
-          organise.updateFile.mutate({ id: item.file.id, folderId: to }, done);
+  /** The field closes as the name is kept; a refusal (a slash, a name taken) shows above the list. */
+  const rename = (item: Item, name: string) => {
+    setEditing(null);
+    if (item.kind === "folder") organise.updateFolder.mutate({ id: item.folder.id, name });
+    else if (item.kind === "track") trackMutations.updateTrack.mutate({ id: item.track.id, name });
+    else if (item.kind === "file") organise.updateFile.mutate({ id: item.file.id, name });
+  };
+  const startRename = (item: Item) => {
+    if (item.kind !== "version") setEditing({ id: item.id, mode: "rename" });
+  };
+  /** The tag editor floats from the row's tag cell, or its name where the list has no Tags column. */
+  const openTags = (item: Item) => {
+    if (item.kind !== "file") return;
+    const row = document.querySelector(`[data-key="${CSS.escape(markKey(item))}"]`);
+    const at =
+      row?.querySelector<HTMLElement>("[data-tags]") ??
+      row?.querySelector<HTMLElement>("[data-name]");
+    setEditing({ id: item.id, mode: "tags", ...(at ? { at: { current: at } } : {}) });
+  };
+  /** A file's tags, kept as each is added or taken off. */
+  const setTags = (file: ProjectFile, tagIds: string[]) =>
+    tagging.setOnFile.mutate({ fileId: file.id, tagIds });
+  /** Opens what a row's name opens: a folder here, a track or a file on its page. */
+  const go = (item: Item) => {
+    if (item.kind === "folder") onOpenFolder(item.folder.id);
+    else if (item.kind === "file")
+      void navigate({ to: "/files/$fileId", params: { fileId: item.file.id } });
+    else if (item.kind === "track") {
+      const file = latestFile(item.track);
+      if (file) void navigate({ to: "/files/$fileId", params: { fileId: file } });
+      else void navigate({ to: "/tracks/$trackId", params: { trackId: item.track.id } });
+    }
+  };
+  /**
+   * A click on the name of a row that is selected renames it, unless a second click follows
+   * within the double-click interval, which opens it, as the Finder has it. A plain click on
+   * an unselected row opens as a link does.
+   */
+  const slowClickOn = (item: Item) => (event: MouseEvent<HTMLElement>) => {
+    const key = markKey(item);
+    if (!manage || !selected.has(key) || event.button !== 0) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (slowClick.current) {
+      clearTimeout(slowClick.current);
+      slowClick.current = null;
+      go(item);
+      return;
+    }
+    slowClick.current = setTimeout(() => {
+      slowClick.current = null;
+      startRename(item);
+    }, SLOW_CLICK_MS);
+  };
   const remove = (item: Item) => {
     if (item.kind === "folder") organise.deleteFolder.mutate(item.folder.id, done);
     else if (item.kind === "file") organise.deleteFile.mutate(item.file.id, done);
@@ -681,19 +891,19 @@ export function FileBrowser({
     organise.deleteFile.isPending ||
     trackMutations.updateTrack.isPending;
 
-  const menu = (item: Item, always = false) => {
+  /**
+   * Everything that can be done to one item, in one list: the row's "…" menu and the context
+   * menu on the row both show it, so neither falls behind the other.
+   */
+  const actionsFor = (item: Item): (MenuAction | "divider")[] | null => {
     if (item.kind === "version") return null;
     const key = markKey(item);
     const self = [{ kind: item.kind, id: item.id }];
     const seen = seenFile(item);
     const personal: (MenuAction | "divider")[] = [
       {
-        label: marks.pinned.has(key) ? "Unpin" : "Pin to the top",
-        onSelect: () => setMarks.mutate({ items: self, pinned: !marks.pinned.has(key) }),
-      },
-      {
         label: marks.favourite.has(key) ? "Remove from favourites" : "Add to favourites",
-        onSelect: () => setMarks.mutate({ items: self, favourite: !marks.favourite.has(key) }),
+        onSelect: () => favour(self, !marks.favourite.has(key)),
       },
       // What someone uploaded they have seen: only others' files can be unseen again.
       ...(seen && (isNew(item) || seen.uploadedById !== myId)
@@ -713,8 +923,12 @@ export function FileBrowser({
     const organising: (MenuAction | "divider")[] = manage
       ? [
           "divider",
-          { label: "Rename", onSelect: () => setEditing({ id: item.id, mode: "rename" }) },
-          { label: "Move to…", onSelect: () => setEditing({ id: item.id, mode: "move" }) },
+          { label: "Rename", hint: "F2", onSelect: () => startRename(item) },
+          { label: "Move to…", onSelect: () => setMoving([item]) },
+          { label: "Cut", hint: mod("X"), onSelect: () => cutRows([key]) },
+          ...(item.kind === "folder" && cut.size > 0 && !cut.has(key)
+            ? [{ label: "Paste here", hint: mod("V"), onSelect: () => paste(item.folder.id) }]
+            : []),
           // The score beside its recordings, as its versions page links one (#52).
           ...(item.kind === "track" && !video
             ? [
@@ -724,9 +938,7 @@ export function FileBrowser({
                 },
               ]
             : []),
-          ...(item.kind === "file"
-            ? [{ label: "Tags…", onSelect: () => setEditing({ id: item.id, mode: "tags" }) }]
-            : []),
+          ...(item.kind === "file" ? [{ label: "Tags…", onSelect: () => openTags(item) }] : []),
           // Downloads come with #136 (watermarked, logged); takes once sessions exist.
           ...(item.kind === "file" && withTracks && allTracks.length > 0 && can("upload")
             ? [
@@ -783,46 +995,165 @@ export function FileBrowser({
     const recovering: (MenuAction | "divider")[] = failedFile
       ? ["divider", { label: "Try preparing again", onSelect: () => retry.mutate(failedFile.id) }]
       : [];
-    return (
-      <ActionMenu
-        label={itemName(item, versionLabel)}
-        actions={[...personal, ...about, ...recovering, ...organising]}
-        always={always}
-      />
-    );
+    return [...personal, ...about, ...recovering, ...organising];
+  };
+  const menu = (item: Item, always = false) => {
+    const actions = actionsFor(item);
+    return actions ? (
+      <ActionMenu label={itemName(item, versionLabel)} actions={actions} always={always} />
+    ) : null;
   };
 
-  /** The open editor for an item, in place of its menu. */
+  /**
+   * What can be done to everything selected, in one list for the selection bar and the
+   * context menu on a selected row: personal marks for everyone; moving, tagging, cutting and
+   * deleting for those who may. Each change is checked on the server, one thing at a time.
+   */
+  const chosenKeys = chosen.map(markKey);
+  const chosenFiles = chosen.flatMap((i) => (i.kind === "file" ? [i.file] : []));
+  const selectionActions: (MenuAction | "divider")[] = [
+    {
+      label: allHave(chosenKeys, marks.favourite) ? "Unfavourite" : "Favourite",
+      onSelect: () =>
+        favour(
+          chosen.map((i) => ({ kind: i.kind as MarkKind, id: i.id })),
+          !allHave(chosenKeys, marks.favourite),
+        ),
+    },
+    // Seen if any is new; otherwise unseen again, but only others' files.
+    ...(chosen.some(isNew) ||
+    chosen.some((i) => {
+      const f = seenFile(i);
+      return f !== undefined && f.uploadedById !== myId;
+    })
+      ? [
+          {
+            label: chosen.some(isNew) ? "Mark as viewed" : "Mark as not viewed",
+            onSelect: () => {
+              const anyNew = chosen.some(isNew);
+              const ids = chosen.flatMap((i) => {
+                const f = seenFile(i);
+                return f && (anyNew || f.uploadedById !== myId) ? [f.id] : [];
+              });
+              setMarks.mutate({
+                items: ids.map((id) => ({ kind: "file" as const, id })),
+                viewed: anyNew,
+              });
+            },
+          },
+        ]
+      : []),
+    ...(manage
+      ? [
+          "divider" as const,
+          { label: "Move to…", onSelect: () => setMoving(chosen) },
+          ...(chosenFiles.length > 0 ? [{ label: "Tags…", onSelect: () => setBulk("tags") }] : []),
+          { label: "Cut", hint: mod("X"), onSelect: () => cutRows(chosenKeys) },
+        ]
+      : []),
+    ...(mayDelete &&
+    chosen.length > 0 &&
+    chosen.every((i) => i.kind === "folder" || i.kind === "file")
+      ? ["divider" as const, { label: "Delete…", danger: true, onSelect: () => setBulk("delete") }]
+      : []),
+  ];
+  /** Deleting everything selected, once confirmed in the bar. */
+  const removeChosen = () =>
+    void runAll(
+      chosen.map((i): [Item, () => Promise<unknown>] => [
+        i,
+        () =>
+          i.kind === "folder"
+            ? organise.deleteFolder.mutateAsync(i.folder.id)
+            : i.kind === "file"
+              ? organise.deleteFile.mutateAsync(i.file.id)
+              : Promise.resolve(),
+      ]),
+    );
+
+  /** What the empty space offers: making and uploading here, pasting what was cut, selecting. */
+  const spaceActions: (MenuAction | "divider")[] = [
+    ...(manage
+      ? [
+          { label: "New folder", onSelect: () => setNaming("folder") },
+          ...(withTracks
+            ? [{ label: `New ${words.track}`, onSelect: () => setNaming("track") }]
+            : []),
+        ]
+      : []),
+    ...(uploads ? [{ label: "Upload…", onSelect: () => chooser.current?.click() }] : []),
+    ...(manage && cut.size > 0
+      ? ["divider" as const, { label: "Paste", hint: mod("V"), onSelect: () => paste(folderId) }]
+      : []),
+    ...(items.length > 0
+      ? [
+          "divider" as const,
+          { label: "Select all", hint: mod("A"), onSelect: () => setSelected(new Set(order)) },
+        ]
+      : []),
+  ];
+  /** The context menu's list: the row's, the selection's or the space's. */
+  const menuActions = (open: OpenMenu) =>
+    open.target === "selection"
+      ? selectionActions
+      : open.target === "space"
+        ? spaceActions
+        : (actionsFor(open.target) ?? []);
+  const menuLabel = (open: OpenMenu) =>
+    open.target === "selection"
+      ? `Actions for the ${chosen.length} selected`
+      : open.target === "space"
+        ? "Actions for this folder"
+        : `Actions for ${itemName(open.target, versionLabel)}`;
+  /** A right click (or a long press) on a row: its menu, or the selection's when it is in one. */
+  const rowMenu = (item: Item) => (event: MouseEvent<HTMLElement>) => {
+    if (item.kind === "version") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const key = markKey(item);
+    setContextMenu({
+      at: { x: event.clientX, y: event.clientY },
+      target: selected.has(key) && selected.size > 1 ? "selection" : item,
+    });
+  };
+  /** A right click on the space around the rows; fields and open menus keep the browser's own. */
+  const spaceMenu = (event: MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    const own =
+      "[data-key], button, a[href], input, textarea, [role=menu], [role=dialog], [role=listbox]";
+    if (target.closest(own)) return;
+    event.preventDefault();
+    setContextMenu({ at: { x: event.clientX, y: event.clientY }, target: "space" });
+  };
+
+  /** A file's tags, edited in place: in a row's popover, a card, or the column view's preview. */
+  const tagEditor = (file: ProjectFile) => (
+    <TagInput
+      tags={tags}
+      value={file.tagIds ?? []}
+      label={`Tags on ${file.name}`}
+      autoFocus
+      onChange={(tagIds) => setTags(file, tagIds)}
+      onCreate={(name) => tagging.create.mutateAsync(name)}
+      onDone={() => setEditing(null)}
+    />
+  );
+  /** The open editor for an item, in place of its name (a rename) or under it. */
   const editor = (item: Item) => {
     if (!editing || editing.id !== item.id) return null;
     if (editing.mode === "rename") {
       return (
-        <RenameForm
+        <RenameInput
           initial={itemName(item, versionLabel)}
-          pending={pending}
+          file={item.kind === "file"}
+          label={`Rename ${itemName(item, versionLabel)}`}
           onSave={(name) => rename(item, name)}
           onCancel={() => setEditing(null)}
+          className="my-2.5 max-w-96"
         />
       );
     }
-    if (editing.mode === "tags" && item.kind === "file") {
-      return (
-        <TagEditor
-          tags={tags}
-          initial={item.file.tagIds ?? []}
-          pending={tagging.setOnFile.isPending}
-          error={(tagging.setOnFile.error ?? tagging.create.error)?.message}
-          onCreate={(name) => tagging.create.mutateAsync(name)}
-          onSave={(tagIds) =>
-            tagging.setOnFile.mutate(
-              { fileId: item.file.id, tagIds },
-              { onSuccess: () => setEditing(null) },
-            )
-          }
-          onCancel={() => setEditing(null)}
-        />
-      );
-    }
+    if (editing.mode === "tags") return item.kind === "file" ? tagEditor(item.file) : null;
     if (editing.mode === "score" && item.kind === "track") {
       return (
         <ScoreForm
@@ -867,27 +1198,6 @@ export function FileBrowser({
         />
       );
     }
-    if (editing.mode === "move") {
-      const exclude =
-        item.kind === "folder" ? descendantsOf(all, item.folder.id) : new Set<string>();
-      return (
-        <MoveForm
-          options={destinations(all, exclude)}
-          current={
-            item.kind === "folder"
-              ? item.folder.parentId
-              : item.kind === "track"
-                ? item.track.folderId
-                : item.kind === "file"
-                  ? item.file.folderId
-                  : folderId
-          }
-          pending={pending}
-          onMove={(to) => move(item, to)}
-          onCancel={() => setEditing(null)}
-        />
-      );
-    }
     return (
       <span className="flex flex-wrap items-center gap-2" role="alert">
         <span className="text-[13px] text-ink-2">
@@ -925,12 +1235,6 @@ export function FileBrowser({
           >
             {itemName(item, versionLabel)}
           </span>
-          {marks.pinned.has(key) && (
-            <span title="Pinned" className="flex shrink-0 text-ink-3">
-              <Icon name="pin" size={12} aria-hidden="true" />
-              <span className="sr-only">, pinned</span>
-            </span>
-          )}
           {marks.favourite.has(key) && (
             <span title="Favourite" className="flex shrink-0 text-ink-3">
               <Icon name="star" size={12} aria-hidden="true" />
@@ -950,12 +1254,16 @@ export function FileBrowser({
         )}
       </>
     );
+    const slow = slowClickOn(item);
     if (item.kind === "folder")
       return (
         <button
           type="button"
           data-name
-          onClick={() => onOpenFolder(item.folder.id)}
+          onClick={(event) => {
+            slow(event);
+            if (!event.defaultPrevented) onOpenFolder(item.folder.id);
+          }}
           className={pad}
         >
           {inner}
@@ -964,18 +1272,36 @@ export function FileBrowser({
     if (item.kind === "track") {
       const file = latestFile(item.track);
       return file ? (
-        <Link to="/files/$fileId" params={{ fileId: file }} className={pad} data-name>
+        <Link
+          to="/files/$fileId"
+          params={{ fileId: file }}
+          className={pad}
+          data-name
+          onClick={slow}
+        >
           {inner}
         </Link>
       ) : (
-        <Link to="/tracks/$trackId" params={{ trackId: item.track.id }} className={pad} data-name>
+        <Link
+          to="/tracks/$trackId"
+          params={{ trackId: item.track.id }}
+          className={pad}
+          data-name
+          onClick={slow}
+        >
           {inner}
         </Link>
       );
     }
     if (item.kind === "file")
       return (
-        <Link to="/files/$fileId" params={{ fileId: item.file.id }} className={pad} data-name>
+        <Link
+          to="/files/$fileId"
+          params={{ fileId: item.file.id }}
+          className={pad}
+          data-name
+          onClick={slow}
+        >
           {inner}
         </Link>
       );
@@ -1033,12 +1359,22 @@ export function FileBrowser({
       switch (id) {
         case "status":
           return statusOf(f);
-        case "versions":
-          return (
-            <span className="tabular truncate">
-              {fileSummary(f)} · {formatBytes(f.byteSize)}
-            </span>
+        case "versions": {
+          // Among tracks the column counts versions, which a loose file has only in a chain
+          // (#149); without tracks it holds the file's details.
+          if (!withTracks)
+            return (
+              <span className="tabular truncate">
+                {fileSummary(f)} · {formatBytes(f.byteSize)}
+              </span>
+            );
+          const place = chains.get(f.id);
+          return place ? (
+            <span className="tabular truncate">{`V${place.number} of ${place.count}`}</span>
+          ) : (
+            "—"
           );
+        }
         case "people":
           return f.uploadedBy && f.uploadedById ? (
             <span title={f.uploadedBy}>
@@ -1070,7 +1406,30 @@ export function FileBrowser({
       ) : (
         "—"
       );
-    if (id === "tags") return <TagPills ids={f.tagIds ?? []} tags={tagById} />;
+    if (id === "tags") {
+      const pills = <TagPills ids={f.tagIds ?? []} tags={tagById} />;
+      if (!manage) return pills;
+      const names = (f.tagIds ?? []).flatMap((id) => tagById.get(id)?.name ?? []);
+      return (
+        <button
+          type="button"
+          data-tags
+          aria-label={names.length ? `Tags: ${names.join(", ")}. Edit` : "Add a tag"}
+          onClick={(event) =>
+            setEditing({ id: f.id, mode: "tags", at: { current: event.currentTarget } })
+          }
+          className="-mx-1.5 flex h-7 min-w-0 max-w-full items-center rounded-control px-1.5 text-left transition-colors hover:bg-raised"
+        >
+          {names.length ? (
+            pills
+          ) : (
+            <span className="text-[12px] text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+              Add a tag
+            </span>
+          )}
+        </button>
+      );
+    }
     return null;
   };
   /** What shows under the name on a phone, where the columns do not. */
@@ -1221,17 +1580,43 @@ export function FileBrowser({
     return out;
   };
 
+  /** Whether a row is the target of the drag over it. */
+  const droppedOn = (item: Item) =>
+    (item.kind === "folder" && dropOn === item.folder.id) ||
+    (item.kind === "track" && dropOn === `track:${item.track.id}`);
+  /** The drop handlers a row takes: a folder's, a track's, or none. */
+  const rowDrop = (item: Item) =>
+    item.kind === "folder"
+      ? dropTarget({ folder: item.folder.id })
+      : item.kind === "track"
+        ? dropTarget({ track: item.track })
+        : {};
+  /** A row's tags floating over it, from the cell or the name the editor was opened on. */
+  const tagPopover = (item: Item) =>
+    editing?.id === item.id && editing.mode === "tags" && editing.at && item.kind === "file" ? (
+      <TagPopover
+        anchor={editing.at}
+        label={`Tags on ${item.file.name}`}
+        onClose={() => setEditing(null)}
+      >
+        {tagEditor(item.file)}
+      </TagPopover>
+    ) : null;
+
   const row = (item: Item, place?: Place) => {
+    const key = markKey(item);
     const open = editing?.id === item.id;
+    const renaming = open && editing?.mode === "rename";
+    const floated = open && editing?.mode === "tags" && Boolean(editing?.at);
     const cells = (
       <>
         <Pick
           item={item}
-          checked={selected.has(markKey(item))}
+          checked={selected.has(key)}
           showing={selecting}
           onPick={(range) => select(item, range)}
         />
-        {open && editing?.mode === "rename" ? editor(item) : nameOf(item, subOf(item))}
+        {renaming ? editor(item) : nameOf(item, subOf(item))}
         {columns.map((c) => (
           <span
             key={c.id}
@@ -1249,33 +1634,28 @@ export function FileBrowser({
         ref={place?.ref}
         data-index={place?.index}
         style={place?.style}
-        data-key={markKey(item)}
+        data-key={key}
         draggable={manage && !open}
         onDragStart={(event) => dragStart(item, event)}
         onDragEnd={() => setDropOn(null)}
-        {...(item.kind === "folder" ? dropTarget(item.folder.id) : {})}
+        onContextMenu={rowMenu(item)}
+        {...rowDrop(item)}
         className={cn(
           "group border-b border-line last:border-b-0 hover:bg-raised/40",
-          selected.has(markKey(item)) && "bg-raised/60",
-          item.kind === "folder" &&
-            dropOn === item.folder.id &&
-            "bg-raised shadow-[inset_0_0_0_1px_var(--hk-edge)]",
+          selected.has(key) && "bg-raised/60",
+          droppedOn(item) && "bg-raised shadow-[inset_0_0_0_1px_var(--hk-edge)]",
         )}
       >
-        <div className={rowGrid} style={gridVars}>
+        <div className={cn(rowGrid, cut.has(key) && "opacity-50")} style={gridVars}>
           {cells}
-          <span className="flex items-center justify-end gap-0.5">
-            {quick.length > 0 && (
-              <span className="hidden items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @3xl/app:flex">
-                {quick}
-              </span>
-            )}
-            {!open && menu(item)}
+          {/* A cell of their own, so the quick actions never run into the column before them. */}
+          <span className="hidden items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @3xl/app:flex">
+            {quick}
           </span>
+          <span className="flex items-center justify-end">{(!open || floated) && menu(item)}</span>
         </div>
-        {open && editing?.mode !== "rename" && (
-          <div className="px-3 pb-3 pl-11">{editor(item)}</div>
-        )}
+        {open && !renaming && !floated && <div className="px-3 pb-3 pl-11">{editor(item)}</div>}
+        {tagPopover(item)}
       </li>
     );
   };
@@ -1285,7 +1665,7 @@ export function FileBrowser({
 
   const openItem = (item: Item): Item[] | null =>
     item.kind === "folder"
-      ? pinnedFirst(itemsIn(all, allTracks, allFiles, item.folder.id), marks)
+      ? favouritesFirst(itemsIn(all, allTracks, allFiles, item.folder.id), marks)
       : item.kind === "track" && item.track.versions.length
         ? versionsOf(item.track)
         : null;
@@ -1316,7 +1696,7 @@ export function FileBrowser({
                 dropOn === "top" && "bg-raised text-ink",
               )}
               onClick={() => onOpenFolder(null)}
-              {...dropTarget(null)}
+              {...dropTarget({ folder: null })}
             >
               All files
             </button>
@@ -1334,7 +1714,7 @@ export function FileBrowser({
                     dropOn === f.id && "bg-raised text-ink",
                   )}
                   onClick={() => onOpenFolder(f.id)}
-                  {...dropTarget(f.id)}
+                  {...dropTarget({ folder: f.id })}
                 >
                   {f.name}
                 </button>
@@ -1379,12 +1759,60 @@ export function FileBrowser({
               ...(selecting
                 ? [{ label: "Stop selecting", onSelect: clearSelection }]
                 : [{ label: "Select", hint: "x", onSelect: () => setSelectMode(true) }]),
-              { label: "Select all", hint: "⌘A", onSelect: () => setSelected(new Set(order)) },
+              { label: "Select all", hint: mod("A"), onSelect: () => setSelected(new Set(order)) },
             ]}
           />
           <UploadButton />
+          {uploads && (
+            <FileInput
+              ref={chooser}
+              multiple
+              aria-label="Files to upload here"
+              onChange={(event) => {
+                if (event.target.files) uploads.start(event.target.files);
+                event.target.value = "";
+              }}
+            />
+          )}
         </div>
       </div>
+
+      {contextMenu && (
+        <ContextMenu
+          at={contextMenu.at}
+          actions={menuActions(contextMenu)}
+          label={menuLabel(contextMenu)}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+      {moving && (
+        <MovePicker
+          title={
+            moving.length === 1 && moving[0]
+              ? `Move ${itemName(moving[0], versionLabel)}`
+              : `Move ${moving.length} items`
+          }
+          folders={all}
+          exclude={
+            new Set(
+              all
+                .filter((f) => !movableTo(all, moving).some((m) => m.id === f.id))
+                .map((f) => f.id),
+            )
+          }
+          current={
+            moving.every((i) => parentIdOf(i) === parentIdOf(moving[0] as Item))
+              ? parentIdOf(moving[0] as Item)
+              : undefined
+          }
+          pending={bulkBusy || pending}
+          onMove={(to) => {
+            setMoving(null);
+            moveAll(moving, to);
+          }}
+          onClose={() => setMoving(null)}
+        />
+      )}
 
       {sharing && (
         <ShareDialog projectId={projectId} item={sharing} onClose={() => setSharing(null)} />
@@ -1459,134 +1887,141 @@ export function FileBrowser({
 
       <UploadList />
 
-      {items.length === 0 && filtered ? (
-        <Empty
-          title="Nothing matches these filters"
-          text="They look across the whole project. Try fewer, or clear them."
-          action={
-            <Button size="sm" variant="ghost" onClick={() => onFilter({ show: [], tags: [] })}>
-              Clear filters
-            </Button>
-          }
-        />
-      ) : items.length === 0 ? (
-        <Empty
-          title={folderId ? "This folder is empty" : "Nothing here yet"}
-          text={
-            can("upload")
-              ? `Drop files anywhere on this page to upload them here, or use Upload.${withTracks ? (words.track === "deliverable" ? " A deliverable groups its cuts." : " A track groups a piece's versions.") : ""}`
-              : "Files appear here once someone uploads them."
-          }
-        />
-      ) : view === "columns" && !filtered ? (
-        <ColumnBrowser
-          root={items}
-          path={columnPath}
-          onPath={setColumnPath}
-          open={openItem}
-          folders={all}
-          tracks={allTracks}
-          files={allFiles}
-          menu={(item) => menu(item, true)}
-          editor={editor}
-        />
-      ) : view !== "grid" ? (
-        <Card>
-          <div ref={listBox} />
-          <div
-            className={cn(
-              rowGrid,
-              "eyebrow hidden h-9 border-b border-line text-ink-3 @3xl/app:grid",
-            )}
-            style={gridVars}
-          >
-            <span />
-            <span>Name</span>
-            {/* Headings for the columns that fit; widths and choices work on all of them. */}
-            {columns.map((c) => (
-              <ColumnHeading
-                key={c.id}
-                id={c.id}
-                name={names[c.id]}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: a right click on the space around the rows; the keyboard opens the same menu from the list. */}
+      <div onContextMenu={spaceMenu} className="flex flex-col gap-4">
+        {items.length === 0 && filtered ? (
+          <Empty
+            title="Nothing matches these filters"
+            text="They look across the whole project. Try fewer, or clear them."
+            action={
+              <Button size="sm" variant="ghost" onClick={() => onFilter({ show: [], tags: [] })}>
+                Clear filters
+              </Button>
+            }
+          />
+        ) : items.length === 0 && (view !== "columns" || rootItems.length === 0) ? (
+          <Empty
+            title={folderId ? "This folder is empty" : "Nothing here yet"}
+            text={
+              can("upload")
+                ? `Drop files anywhere on this page to upload them here, or use Upload.${withTracks ? (words.track === "deliverable" ? " A deliverable groups its cuts." : " A track groups a piece's versions.") : ""}`
+                : "Files appear here once someone uploads them."
+            }
+          />
+        ) : view === "columns" && !filtered ? (
+          <ColumnBrowser
+            root={rootItems}
+            path={[...folderItems, ...columnPath]}
+            onPath={chooseInColumns}
+            open={openItem}
+            folders={all}
+            tracks={allTracks}
+            files={allFiles}
+            menu={(item) => menu(item, true)}
+            editor={editor}
+          />
+        ) : view !== "grid" ? (
+          <Card>
+            <div ref={listBox} />
+            <div
+              className={cn(
+                rowGrid,
+                "eyebrow hidden h-9 border-b border-line text-ink-3 @3xl/app:grid",
+              )}
+              style={gridVars}
+            >
+              <span />
+              <span>Name</span>
+              {/* Headings for the columns that fit; widths and choices work on all of them. */}
+              {columns.map((c) => (
+                <ColumnHeading
+                  key={c.id}
+                  id={c.id}
+                  name={names[c.id]}
+                  columns={chosenColumns}
+                  onResize={setDragging}
+                  onResized={(next) => {
+                    setDragging(null);
+                    saveColumns.mutate(next);
+                  }}
+                />
+              ))}
+              <span />
+              <ColumnsMenu
                 columns={chosenColumns}
-                onResize={setDragging}
-                onResized={(next) => {
-                  setDragging(null);
-                  saveColumns.mutate(next);
-                }}
+                shown={columns.map((c) => c.id)}
+                names={names}
+                onChange={saveColumns.mutate}
               />
-            ))}
-            <ColumnsMenu
-              columns={chosenColumns}
-              shown={columns.map((c) => c.id)}
-              names={names}
-              onChange={saveColumns.mutate}
-            />
-          </div>
-          <Rows items={items} row={row} onKeyDown={onListKey} reveal={reveal} />
-        </Card>
-      ) : (
-        <ul
-          className="m-0 grid list-none grid-cols-2 gap-4 p-0 @3xl/app:grid-cols-4 @6xl/app:grid-cols-5"
-          aria-label="Contents"
-          onKeyDown={onListKey}
-        >
-          {items.map((item) => {
-            const open = editing?.id === item.id;
-            const sub =
-              item.kind === "folder"
-                ? folderCount(all, allTracks, allFiles, item.folder.id)
-                : item.kind === "track"
-                  ? trackStateLabel(item.track.state ?? "no_version", profile)
-                  : item.kind === "file"
-                    ? details(item.file)
-                    : "";
-            return (
-              <li
-                key={item.id}
-                data-key={markKey(item)}
-                draggable={manage && !open}
-                onDragStart={(event) => dragStart(item, event)}
-                onDragEnd={() => setDropOn(null)}
-                {...(item.kind === "folder" ? dropTarget(item.folder.id) : {})}
-                className={cn(
-                  "group relative flex min-w-0 flex-col gap-2.5 rounded-panel-lg border border-line bg-raised/30 p-3 shadow-1 transition-colors hover:border-edge",
-                  open && "col-span-2 @3xl/app:col-span-4 @6xl/app:col-span-5",
-                  (selected.has(markKey(item)) ||
-                    (item.kind === "folder" && dropOn === item.folder.id)) &&
-                    "border-edge-strong bg-raised/60",
-                )}
-              >
-                <span className="relative flex aspect-[2/1] items-center justify-center rounded-[6px] bg-sunken text-ink-3">
-                  <Icon name={itemIcon(item)} size={24} />
-                  <Checkbox
-                    aria-label={`Select ${itemName(item, versionLabel)}`}
-                    checked={selected.has(markKey(item))}
-                    onChange={() => {}}
-                    onClick={(event) => select(item, event.shiftKey)}
-                    className={cn(
-                      "absolute top-2 left-2",
-                      selecting
-                        ? "opacity-100"
-                        : "opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 @3xl/app:group-hover:opacity-100",
-                    )}
-                  />
-                </span>
-                <span className="flex min-w-0 items-start gap-1">
-                  <span className="min-w-0 flex-1">
-                    {open && editing?.mode === "rename"
-                      ? editor(item)
-                      : nameOf(item, undefined, true)}
-                    <span className="block truncate text-[12px] text-ink-3">{sub}</span>
+            </div>
+            <Rows items={items} row={row} onKeyDown={onListKey} reveal={reveal} />
+          </Card>
+        ) : (
+          <ul
+            className="m-0 grid list-none grid-cols-2 gap-4 p-0 @3xl/app:grid-cols-4 @6xl/app:grid-cols-5"
+            aria-label="Contents"
+            onKeyDown={onListKey}
+          >
+            {items.map((item) => {
+              const open = editing?.id === item.id;
+              const sub =
+                item.kind === "folder"
+                  ? folderCount(all, allTracks, allFiles, item.folder.id)
+                  : item.kind === "track"
+                    ? trackStateLabel(item.track.state ?? "no_version", profile)
+                    : item.kind === "file"
+                      ? details(item.file)
+                      : "";
+              return (
+                <li
+                  key={item.id}
+                  data-key={markKey(item)}
+                  draggable={manage && !open}
+                  onDragStart={(event) => dragStart(item, event)}
+                  onDragEnd={() => setDropOn(null)}
+                  onContextMenu={rowMenu(item)}
+                  {...rowDrop(item)}
+                  className={cn(
+                    "group relative flex min-w-0 flex-col gap-2.5 rounded-panel-lg border border-line bg-raised/30 p-3 shadow-1 transition-colors hover:border-edge",
+                    open &&
+                      editing?.mode !== "rename" &&
+                      "col-span-2 @3xl/app:col-span-4 @6xl/app:col-span-5",
+                    (selected.has(markKey(item)) || droppedOn(item)) &&
+                      "border-edge-strong bg-raised/60",
+                    cut.has(markKey(item)) && "opacity-50",
+                  )}
+                >
+                  <span className="relative flex aspect-[2/1] items-center justify-center rounded-[6px] bg-sunken text-ink-3">
+                    <Icon name={itemIcon(item)} size={24} />
+                    <Checkbox
+                      aria-label={`Select ${itemName(item, versionLabel)}`}
+                      checked={selected.has(markKey(item))}
+                      onChange={() => {}}
+                      onClick={(event) => select(item, event.shiftKey)}
+                      className={cn(
+                        "absolute top-2 left-2",
+                        selecting
+                          ? "opacity-100"
+                          : "opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 @3xl/app:group-hover:opacity-100",
+                      )}
+                    />
                   </span>
-                  {!open && menu(item)}
-                </span>
-                {open && editing?.mode !== "rename" && editor(item)}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                  <span className="flex min-w-0 items-start gap-1">
+                    <span className="min-w-0 flex-1">
+                      {open && editing?.mode === "rename"
+                        ? editor(item)
+                        : nameOf(item, undefined, true)}
+                      <span className="block truncate text-[12px] text-ink-3">{sub}</span>
+                    </span>
+                    {!open && menu(item)}
+                  </span>
+                  {open && editing?.mode !== "rename" && editor(item)}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
       {(chosen.length > 0 || bulkError) && (
         <SelectionBar
           count={chosen.length}
@@ -1595,138 +2030,78 @@ export function FileBrowser({
           mode={bulk}
           onMode={setBulk}
           onClear={clearSelection}
-          actions={[
-            {
-              label: allHave(chosen.map(markKey), marks.pinned) ? "Unpin" : "Pin",
-              run: () => {
-                const items = chosen.map((i) => ({ kind: i.kind as MarkKind, id: i.id }));
-                setMarks.mutate({ items, pinned: !allHave(chosen.map(markKey), marks.pinned) });
-              },
-            },
-            {
-              label: allHave(chosen.map(markKey), marks.favourite) ? "Unfavourite" : "Favourite",
-              run: () => {
-                const items = chosen.map((i) => ({ kind: i.kind as MarkKind, id: i.id }));
-                setMarks.mutate({
-                  items,
-                  favourite: !allHave(chosen.map(markKey), marks.favourite),
-                });
-              },
-            },
-            // Seen if any is new; otherwise unseen again, but only others' files.
-            ...(chosen.some(isNew) ||
-            chosen.some((i) => {
-              const f = seenFile(i);
-              return f !== undefined && f.uploadedById !== myId;
-            })
-              ? [
-                  {
-                    label: chosen.some(isNew) ? "Mark as viewed" : "Mark as not viewed",
-                    run: () => {
-                      const anyNew = chosen.some(isNew);
-                      const ids = chosen.flatMap((i) => {
-                        const f = seenFile(i);
-                        return f && (anyNew || f.uploadedById !== myId) ? [f.id] : [];
-                      });
-                      setMarks.mutate({
-                        items: ids.map((id) => ({ kind: "file" as const, id })),
-                        viewed: anyNew,
-                      });
-                    },
-                  },
-                ]
-              : []),
-          ]}
-          move={
-            manage ? (
-              <MoveForm
-                options={destinations(movableTo(all, chosen), new Set())}
-                current={null}
-                pending={bulkBusy}
-                onMove={(to) => moveAll(chosen, to)}
-                onCancel={() => setBulk(null)}
-                any
-              />
-            ) : null
-          }
+          actions={selectionActions}
           tags={
-            manage && chosen.some((i) => i.kind === "file") ? (
+            manage && chosenFiles.length > 0 ? (
               <BulkTags
-                files={chosen.flatMap((i) => (i.kind === "file" ? [i.file] : []))}
+                files={chosenFiles}
                 tags={tags}
-                pending={bulkBusy}
                 onCreate={(name) => tagging.create.mutateAsync(name)}
-                onSave={(files, common, chosenTags) =>
+                onChange={(common, next) =>
                   void runAll(
-                    files.map((f): [Item, () => Promise<unknown>] => [
+                    chosenFiles.map((f): [Item, () => Promise<unknown>] => [
                       { kind: "file", id: f.id, file: f },
                       () =>
                         tagging.setOnFile.mutateAsync({
                           fileId: f.id,
-                          tagIds: bulkTags(f.tagIds ?? [], common, chosenTags),
+                          tagIds: bulkTags(f.tagIds ?? [], common, next),
                         }),
                     ]),
+                    true,
                   )
                 }
-                onCancel={() => setBulk(null)}
+                onDone={() => setBulk(null)}
               />
             ) : null
           }
-          remove={
-            mayDelete && chosen.every((i) => i.kind === "folder" || i.kind === "file")
-              ? () =>
-                  void runAll(
-                    chosen.map((i): [Item, () => Promise<unknown>] => [
-                      i,
-                      () =>
-                        i.kind === "folder"
-                          ? organise.deleteFolder.mutateAsync(i.folder.id)
-                          : i.kind === "file"
-                            ? organise.deleteFile.mutateAsync(i.file.id)
-                            : Promise.resolve(),
-                    ]),
-                  )
-              : null
-          }
+          remove={removeChosen}
         />
       )}
     </section>
   );
 }
 
-/** Tags for many files at once: those on every one start chosen. */
+/**
+ * Tags for many files at once, kept as each is added or taken off: those on every one are
+ * pills, those on some of them dashed pills that a click puts on all.
+ */
 function BulkTags({
   files,
   tags,
-  pending,
   onCreate,
-  onSave,
-  onCancel,
+  onChange,
+  onDone,
 }: {
   files: ProjectFile[];
   tags: Tag[];
-  pending: boolean;
   onCreate: (name: string) => Promise<Tag>;
-  onSave: (files: ProjectFile[], common: string[], chosen: string[]) => void;
-  onCancel: () => void;
+  /** The tags on every file before, and what they should be now. */
+  onChange: (common: string[], next: string[]) => void;
+  onDone: () => void;
 }) {
-  const common = tags.map((t) => t.id).filter((id) => files.every((f) => f.tagIds?.includes(id)));
+  const ids = tags.map((t) => t.id);
+  const common = ids.filter((id) => files.every((f) => f.tagIds?.includes(id)));
+  const some = ids.filter(
+    (id) => !common.includes(id) && files.some((f) => f.tagIds?.includes(id)),
+  );
   return (
-    <TagEditor
+    <TagInput
       tags={tags}
-      initial={common}
-      pending={pending}
+      value={common}
+      mixed={some}
+      label={`Tags on ${files.length} ${files.length === 1 ? "file" : "files"}`}
+      autoFocus
       onCreate={onCreate}
-      onSave={(chosen) => onSave(files, common, chosen)}
-      onCancel={onCancel}
+      onChange={(next) => onChange(common, next)}
+      onDone={onDone}
     />
   );
 }
 
 /**
  * What can be done to everything selected, floating at the foot of the list as Linear and
- * Dropbox have it: personal marks for everyone; moving, tagging and deleting for those who
- * organise. Each change is checked on the server, one thing at a time.
+ * Dropbox have it: the same actions the context menu on a selected row offers, each a button.
+ * Tagging and deleting open in the bar; moving opens the folder picker.
  */
 function SelectionBar({
   count,
@@ -1736,20 +2111,18 @@ function SelectionBar({
   onMode,
   onClear,
   actions,
-  move,
   tags,
   remove,
 }: {
   count: number;
   busy: boolean;
   error: string | null;
-  mode: "move" | "tags" | "delete" | null;
-  onMode: (mode: "move" | "tags" | "delete" | null) => void;
+  mode: "tags" | "delete" | null;
+  onMode: (mode: "tags" | "delete" | null) => void;
   onClear: () => void;
-  actions: { label: string; run: () => void }[];
-  move: ReactNode;
+  actions: (MenuAction | "divider")[];
   tags: ReactNode;
-  remove: (() => void) | null;
+  remove: () => void;
 }) {
   return (
     <div
@@ -1757,9 +2130,8 @@ function SelectionBar({
       aria-label="Selection"
       className="rise-in sticky bottom-4 z-20 mx-auto flex w-full max-w-3xl flex-col gap-2 rounded-panel-lg bg-overlay p-2 shadow-4"
     >
-      {mode === "move" && move && <div className="px-1.5 pt-1">{move}</div>}
       {mode === "tags" && tags && <div className="px-1.5 pt-1">{tags}</div>}
-      {mode === "delete" && remove && (
+      {mode === "delete" && (
         <div className="flex flex-wrap items-center gap-2 px-1.5 pt-1" role="alert">
           <span className="text-[13px] text-ink-2">
             Delete {count === 1 ? "this" : `these ${count}`}? What is in a folder moves up; files
@@ -1776,25 +2148,19 @@ function SelectionBar({
       {error && <p className="m-0 px-1.5 text-[12px] text-signal">{error}</p>}
       <div className="flex flex-wrap items-center gap-1">
         <span className="tabular px-2 text-[13px] text-ink">{count} selected</span>
-        {actions.map((a) => (
-          <Button key={a.label} size="sm" variant="ghost" disabled={busy} onClick={a.run}>
-            {a.label}
-          </Button>
-        ))}
-        {move && (
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onMode("move")}>
-            Move…
-          </Button>
-        )}
-        {tags && (
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onMode("tags")}>
-            Tags…
-          </Button>
-        )}
-        {remove && (
-          <Button size="sm" variant="ghost" disabled={busy} onClick={() => onMode("delete")}>
-            Delete…
-          </Button>
+        {actions.map((a) =>
+          a === "divider" ? null : (
+            <Button
+              key={a.label}
+              size="sm"
+              variant="ghost"
+              disabled={busy}
+              onClick={a.onSelect}
+              className={cn(a.danger && "text-signal hover:text-signal")}
+            >
+              {a.label}
+            </Button>
+          ),
         )}
         <button
           type="button"
@@ -2119,7 +2485,11 @@ function Preview({
         )}
         {(item.kind === "track" || item.kind === "version") && (
           <Button variant="ghost" size="sm" asChild>
-            <Link to="/tracks/$trackId" params={{ trackId: item.track.id }}>
+            <Link
+              to="/tracks/$trackId"
+              params={{ trackId: item.track.id }}
+              search={{ view: "versions" }}
+            >
               Versions
             </Link>
           </Button>

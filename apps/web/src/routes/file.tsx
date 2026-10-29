@@ -12,6 +12,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Checksum } from "~/components/checksum";
 import {
   type BeforeAfter,
   type CommentSeed,
@@ -66,6 +67,7 @@ import {
   downloadsQuery,
   editDecisionsQuery,
   type FileDetail,
+  fileDetailsQuery,
   fileQuery,
   playbackQuery,
   projectQuery,
@@ -407,6 +409,11 @@ export function FilePage({
   /** A source comparison should bring in and play first: before, for before and after. */
   const [focus, setFocus] = useState<CompareFocus | null>(null);
   const { guest } = useViewer();
+  // The checksum for QA's format panel (#491) comes with the details, which members may read.
+  const { data: fileDetails } = useQuery({
+    ...fileDetailsQuery(fileId),
+    enabled: !guest && view === "qa",
+  });
   const preferences = usePreferences();
   // The line of loudness and issues follows the player's View menu, as it changes (#135).
   const loudnessShown = usePlayerView().view.loudness;
@@ -570,6 +577,15 @@ export function FilePage({
       <dd className="tabular m-0 truncate text-[13px] text-ink-2">{value}</dd>
     </div>
   ));
+  /** The checksum, with a copy, where QA shows the format and the details have arrived. */
+  const checksumRow = fileDetails && (
+    <div className="grid grid-cols-[minmax(0,140px)_1fr] gap-x-6 border-b border-hairline py-2.5">
+      <dt className="label">Checksum</dt>
+      <dd className="m-0 min-w-0 text-[13px] text-ink-2">
+        <Checksum sha256={fileDetails.storage.sha256} />
+      </dd>
+    </div>
+  );
   const crumbs: Crumb[] = guest
     ? [{ key: "reviews", link: <Link to="/g">Your reviews</Link> }]
     : [
@@ -815,7 +831,10 @@ export function FilePage({
                   />
                 )}
                 {loudness}
-                <dl className="m-0 flex flex-col border-t border-hairline">{detailRows}</dl>
+                <dl className="m-0 flex flex-col border-t border-hairline">
+                  {detailRows}
+                  {checksumRow}
+                </dl>
                 {metadata}
               </div>
             )}

@@ -25,6 +25,7 @@ const {
   takes,
   reviewItems,
   reviews,
+  fileTags,
 } = schema;
 
 /**
@@ -73,7 +74,7 @@ export const fileDetailRoutes = (db: Database) =>
         .where(inOrg(files, org, eq(files.id, fileId)));
       if (!file) throw new NotFound("File");
 
-      const [[key], made, [pages], [peaks], [measured], [spectrum], usedInVersions, take] =
+      const [[key], made, [pages], [peaks], [measured], [spectrum], usedInVersions, take, tagged] =
         await Promise.all([
           db
             .select({ createdAt: organisationKeys.createdAt })
@@ -149,6 +150,12 @@ export const fileDetailRoutes = (db: Database) =>
                 )
                 .where(inOrg(takes, org, eq(takes.id, file.takeId)))
             : Promise.resolve([]),
+          // The workspace tags on it, edited in the sheet as in the file list.
+          db
+            .select({ tagId: fileTags.tagId })
+            .from(fileTags)
+            .where(inOrg(fileTags, org, eq(fileTags.fileId, fileId)))
+            .orderBy(asc(fileTags.tagId)),
         ]);
 
       // Reviews that ask about this file: as itself, as the version it is part of, or as its
@@ -180,7 +187,11 @@ export const fileDetailRoutes = (db: Database) =>
       const [inTake] = take;
       const admin = actor.organisationRole === "owner" || actor.organisationRole === "admin";
       return c.json({
-        file: { ...rest, createdAt: rest.createdAt.toISOString() },
+        file: {
+          ...rest,
+          createdAt: rest.createdAt.toISOString(),
+          tagIds: tagged.map((t) => t.tagId),
+        },
         storage: {
           backend,
           sha256,
