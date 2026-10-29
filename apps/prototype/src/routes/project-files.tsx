@@ -29,6 +29,7 @@ import {
 import { cn } from "~/lib/cn";
 import {
   chainLabel,
+  chainOf,
   fileDetails,
   folderPath,
   kindIcon,
@@ -221,8 +222,13 @@ function ColumnsChooser() {
   );
 }
 
+/** On a phone: icon, name, menu. Wider, the columns, then a cell for the quick actions and one for the menu. */
 const rowGrid =
-  "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 @3xl/app:grid-cols-[20px_minmax(0,1fr)_150px_160px_110px_90px_120px]";
+  "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 @3xl/app:grid-cols-[20px_minmax(0,1fr)_150px_160px_110px_90px_120px_28px]";
+
+/** The quick actions' cell: shown on hover or focus, and never running into the column before. */
+const quickCell =
+  "hidden items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @3xl/app:flex";
 
 function TrackRow({ track, project }: { track: Track; project: Project }) {
   const viewer = useViewer();
@@ -359,10 +365,8 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
           </span>
         )}
       </span>
-      <span className="flex items-center justify-end gap-0.5">
-        <span className="hidden items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @3xl/app:flex">
-          {quick}
-        </span>
+      <span className={quickCell}>{quick}</span>
+      <span className="flex items-center justify-end">
         <ActionMenu
           label={track.name}
           actions={[
@@ -407,9 +411,11 @@ function FileRow({ file, project }: { file: File; project: Project }) {
         )}
         {file.state === "ready" && <span className="text-ink-3">—</span>}
       </span>
-      <span className="hidden truncate text-[13px] text-ink-3 @3xl/app:block">
-        {chainLabel(file)}
-        {fileDetails(file)} · {formatBytes(file.size)}
+      {/* Among tracks the column counts versions, which a loose file has only in a chain. */}
+      <span className="tabular hidden truncate text-[13px] text-ink-3 @3xl/app:block">
+        {chainOf(file).length
+          ? `V${chainOf(file).findIndex((f) => f.id === file.id) + 1} of ${chainOf(file).length}`
+          : "—"}
       </span>
       <span className="hidden items-center @3xl/app:flex">
         <Avatar personId={file.uploadedBy} size={22} />
@@ -422,13 +428,13 @@ function FileRow({ file, project }: { file: File; project: Project }) {
           </span>
         )}
       </span>
-      <span className="flex items-center justify-end gap-0.5">
-        <span className="hidden items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @3xl/app:flex">
-          <Quick icon="eye" label="Open" to="/files/$fileId" params={{ fileId: file.id }} />
-          {viewer.tools(project.id).has("download") && (
-            <Quick icon="download" label="Download" onClick={() => {}} />
-          )}
-        </span>
+      <span className={quickCell}>
+        <Quick icon="eye" label="Open" to="/files/$fileId" params={{ fileId: file.id }} />
+        {viewer.tools(project.id).has("download") && (
+          <Quick icon="download" label="Download" onClick={() => {}} />
+        )}
+      </span>
+      <span className="flex items-center justify-end">
         <ActionMenu
           label={file.name}
           actions={[
@@ -472,6 +478,7 @@ function FolderRow({ folder, project }: { folder: Folder; project: Project }) {
       <span className="hidden truncate text-[13px] text-ink-3 @3xl/app:block">
         {folderCount(project.id, folder.id)}
       </span>
+      <span className="hidden @3xl/app:block" />
       <span className="hidden @3xl/app:block" />
       <span className="hidden @3xl/app:block" />
       <span className="flex items-center justify-end">
@@ -741,11 +748,21 @@ function Preview({ item, project }: { item: Item; project: Project }) {
   );
 }
 
-/** Columns, as the Finder does it: each choice opens the next column; the last shows a preview. */
-function ColumnBrowser({ project, rootId }: { project: Project; rootId: string | null }) {
-  const [path, setPath] = useState<Item[]>([]);
+/**
+ * Columns, as the Finder does it: each choice opens the next column; the last shows a preview.
+ * They always start at the top of the project, with the open folder's ancestors opened and the
+ * folder chosen; choosing another folder in them opens it, so the list and the columns agree.
+ */
+function ColumnBrowser({ project, folderId }: { project: Project; folderId: string | null }) {
+  const navigate = useNavigate();
+  /** What is chosen below the open folder; the folder's own path comes from the address. */
+  const [below, setBelow] = useState<Item[]>([]);
+  const path: Item[] = [
+    ...folderPath(folderId).map((folder): Item => ({ kind: "folder", id: folder.id, folder })),
+    ...below,
+  ];
   const columns: { items: Item[]; selected: Item | null }[] = [];
-  let items = itemsIn(project, rootId);
+  let items = itemsIn(project, null);
   for (let depth = 0; ; depth++) {
     const selected = path[depth] ?? null;
     columns.push({ items, selected });
@@ -760,7 +777,22 @@ function ColumnBrowser({ project, rootId }: { project: Project; rootId: string |
     else break;
   }
   const last = path.at(-1);
-  const choose = (depth: number, item: Item) => setPath([...path.slice(0, depth), item]);
+  const choose = (depth: number, item: Item) => {
+    const next = [...path.slice(0, depth), item];
+    let deepest = -1;
+    next.forEach((i, at) => {
+      if (i.kind === "folder") deepest = at;
+    });
+    const folder = next[deepest];
+    const into = folder?.kind === "folder" ? folder.folder.id : null;
+    setBelow(next.slice(deepest + 1));
+    if (into !== folderId)
+      void navigate({
+        to: "/projects/$projectId/$view",
+        params: { projectId: project.id, view: "files" },
+        search: into ? { folder: into } : {},
+      });
+  };
   return (
     <Card className="scroll-quiet flex min-h-[420px] overflow-x-auto">
       {columns.map((col, depth) => (
@@ -877,7 +909,10 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
   // Where an upload request's files go: a folder, or a track's next version (#425).
   const [requestInto, setRequestInto] = useState("f-day2");
   const requestTrack = allTracks.find((t) => t.id === requestInto);
-  const empty = state === "empty" || items.length === 0;
+  // The columns start at the top of the project, so an empty open folder still shows them.
+  const empty =
+    state === "empty" ||
+    (items.length === 0 && (view !== "columns" || itemsIn(project, null).length === 0));
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -1094,7 +1129,7 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
           action={canUpload ? <Button variant="primary">Upload</Button> : undefined}
         />
       ) : view === "columns" ? (
-        <ColumnBrowser project={project} rootId={folderId} />
+        <ColumnBrowser project={project} folderId={folderId} />
       ) : view === "list" ? (
         <Picked.Provider value={selection}>
           <Card>
@@ -1105,6 +1140,7 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
               <Label>Versions</Label>
               <Label>People</Label>
               <Label>Updated</Label>
+              <span />
               <ColumnsChooser />
             </div>
             <ul className="list-none p-0">

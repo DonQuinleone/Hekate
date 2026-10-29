@@ -2046,6 +2046,23 @@ test("project-files-columns", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A track row hovered: its quick actions have a cell of their own, clear of the comments count
+// in the column before them (#488). A phone has no hover, and no quick actions.
+test("files-row-hover", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "A phone shows no hover actions");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  const row = page
+    .locator("main ul[aria-label=Contents] li")
+    .filter({ has: page.getByRole("link", { name: "Open in the player" }) })
+    .first();
+  await row.hover();
+  await expect(row.getByRole("link", { name: "Open in the player" })).toBeVisible();
+  await saveScreen(page, "files-row-hover");
+  await checkScreen(page);
+});
+
 // Filters look across the project; the menu says what is on. On a phone the open menu covers
 // the list it filters, so that capture shows the list and its chips instead.
 test("project-files-filtered", async ({ page }, info) => {

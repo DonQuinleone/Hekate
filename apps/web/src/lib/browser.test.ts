@@ -210,12 +210,12 @@ describe("columns", () => {
   ] as const;
 
   it("lays out the grid from the columns shown", () => {
-    expect(gridTemplate([...cols])).toBe("20px minmax(0,1fr) 150px 100px 88px");
-    // 20 + 240 + 250 + 88, four gaps of 12 and 24 of padding.
-    expect(listMinWidth([...cols])).toBe(670);
+    expect(gridTemplate([...cols])).toBe("20px minmax(0,1fr) 150px 100px 120px 28px");
+    // 20 + 240 + 250 + 120 + 28, five gaps of 12 and 24 of padding.
+    expect(listMinWidth([...cols])).toBe(742);
     // What does not fit is left off from the end, never the page made wider.
-    expect(fitColumns([...cols], 670)).toEqual(cols);
-    expect(fitColumns([...cols], 600).map((c) => c.id)).toEqual(["status"]);
+    expect(fitColumns([...cols], 742)).toEqual(cols);
+    expect(fitColumns([...cols], 700).map((c) => c.id)).toEqual(["status"]);
     expect(fitColumns([...cols], 100)).toEqual([]);
   });
 

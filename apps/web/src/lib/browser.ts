@@ -276,16 +276,32 @@ export function filterProject(
   );
 }
 
+/** The row's cell for its quick actions (four at most, 28px each) and the one for its menu. */
+export const quickCellWidth = 120;
+export const menuCellWidth = 28;
+
 /** The list's grid: the icon, the name taking what is left, each chosen column, the actions. */
 export const gridTemplate = (columns: FileColumnLayout) =>
-  ["20px", "minmax(0,1fr)", ...columns.map((c) => `${c.width}px`), "88px"].join(" ");
+  [
+    "20px",
+    "minmax(0,1fr)",
+    ...columns.map((c) => `${c.width}px`),
+    `${quickCellWidth}px`,
+    `${menuCellWidth}px`,
+  ].join(" ");
 
 /**
  * The narrowest the list may be before it scrolls sideways: the icon, a readable name, each
- * column, the actions, the gaps between them and the padding either side.
+ * column, the quick actions, the menu, the gaps between them and the padding either side.
  */
 export const listMinWidth = (columns: FileColumnLayout) =>
-  20 + 240 + columns.reduce((w, c) => w + c.width, 0) + 88 + 12 * (columns.length + 2) + 24;
+  20 +
+  240 +
+  columns.reduce((w, c) => w + c.width, 0) +
+  quickCellWidth +
+  menuCellWidth +
+  12 * (columns.length + 3) +
+  24;
 
 /**
  * The columns that fit a list of the given width, in the member's order: those at the end are

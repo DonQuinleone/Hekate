@@ -363,6 +363,7 @@ export function FileBrowser({
   const [scoreNote, setScoreNote] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<Editing>(null);
+  /** What is chosen in the columns below the open folder; the folder's own path is the address's. */
   const [columnPath, setColumnPath] = useState<Item[]>([]);
   const manage = can("organise");
   /** Deleting is its own level above organising (#142). */
@@ -397,10 +398,6 @@ export function FileBrowser({
   useEffect(() => {
     if (!known) onOpenFolder(null);
   }, [known, onOpenFolder]);
-  // The columns start again from the open folder.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the folder is the trigger.
-  useEffect(() => setColumnPath([]), [folderId]);
-
   const chooseView = (next: View) => {
     setView(next);
     try {
@@ -423,6 +420,23 @@ export function FileBrowser({
     ? filterProject(all, allTracks, allFiles, filters, myId, marks)
     : pinnedFirst(itemsIn(all, allTracks, allFiles, folderId), marks);
   const order = items.map(markKey);
+  /**
+   * The columns always start at the top of the project (as the Finder's do), with the open
+   * folder's ancestors opened and the folder chosen; choosing another folder in them opens it.
+   */
+  const rootItems =
+    folderId === null ? items : pinnedFirst(itemsIn(all, allTracks, allFiles, null), marks);
+  const folderItems: Item[] = path.map((f) => ({ kind: "folder", id: f.id, folder: f }));
+  const chooseInColumns = (next: Item[]) => {
+    let deepest = -1;
+    next.forEach((i, at) => {
+      if (i.kind === "folder") deepest = at;
+    });
+    const folder = next[deepest];
+    const into = folder?.kind === "folder" ? folder.folder.id : null;
+    setColumnPath(next.slice(deepest + 1));
+    if (into !== folderId) onOpenFolder(into);
+  };
   const itemByKey = new Map(items.map((i) => [markKey(i), i]));
   const chosen = items.filter((i) => selected.has(markKey(i)));
   const clearSelection = () => {
@@ -1033,12 +1047,22 @@ export function FileBrowser({
       switch (id) {
         case "status":
           return statusOf(f);
-        case "versions":
-          return (
-            <span className="tabular truncate">
-              {fileSummary(f)} · {formatBytes(f.byteSize)}
-            </span>
+        case "versions": {
+          // Among tracks the column counts versions, which a loose file has only in a chain
+          // (#149); without tracks it holds the file's details.
+          if (!withTracks)
+            return (
+              <span className="tabular truncate">
+                {fileSummary(f)} · {formatBytes(f.byteSize)}
+              </span>
+            );
+          const place = chains.get(f.id);
+          return place ? (
+            <span className="tabular truncate">{`V${place.number} of ${place.count}`}</span>
+          ) : (
+            "—"
           );
+        }
         case "people":
           return f.uploadedBy && f.uploadedById ? (
             <span title={f.uploadedBy}>
@@ -1264,14 +1288,11 @@ export function FileBrowser({
       >
         <div className={rowGrid} style={gridVars}>
           {cells}
-          <span className="flex items-center justify-end gap-0.5">
-            {quick.length > 0 && (
-              <span className="hidden items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @3xl/app:flex">
-                {quick}
-              </span>
-            )}
-            {!open && menu(item)}
+          {/* A cell of their own, so the quick actions never run into the column before them. */}
+          <span className="hidden items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 @3xl/app:flex">
+            {quick}
           </span>
+          <span className="flex items-center justify-end">{!open && menu(item)}</span>
         </div>
         {open && editing?.mode !== "rename" && (
           <div className="px-3 pb-3 pl-11">{editor(item)}</div>
@@ -1469,7 +1490,7 @@ export function FileBrowser({
             </Button>
           }
         />
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && (view !== "columns" || rootItems.length === 0) ? (
         <Empty
           title={folderId ? "This folder is empty" : "Nothing here yet"}
           text={
@@ -1480,9 +1501,9 @@ export function FileBrowser({
         />
       ) : view === "columns" && !filtered ? (
         <ColumnBrowser
-          root={items}
-          path={columnPath}
-          onPath={setColumnPath}
+          root={rootItems}
+          path={[...folderItems, ...columnPath]}
+          onPath={chooseInColumns}
           open={openItem}
           folders={all}
           tracks={allTracks}
@@ -1516,6 +1537,7 @@ export function FileBrowser({
                 }}
               />
             ))}
+            <span />
             <ColumnsMenu
               columns={chosenColumns}
               shown={columns.map((c) => c.id)}
@@ -2119,7 +2141,11 @@ function Preview({
         )}
         {(item.kind === "track" || item.kind === "version") && (
           <Button variant="ghost" size="sm" asChild>
-            <Link to="/tracks/$trackId" params={{ trackId: item.track.id }}>
+            <Link
+              to="/tracks/$trackId"
+              params={{ trackId: item.track.id }}
+              search={{ view: "versions" }}
+            >
               Versions
             </Link>
           </Button>
