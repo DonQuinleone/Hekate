@@ -56,3 +56,7 @@ export function needsYou(review: Review, me: Reviewer | undefined): boolean {
   if (!turnHasCome(review, me)) return false;
   return me.state === "invited" || me.state === "viewed" || me.state === "in_progress";
 }
+
+/** What a step of a sequence is called: its name where it has one, else "Step n". */
+export const stepTitle = (name: string | null | undefined, ordinal: number) =>
+  name?.trim() || `Step ${ordinal}`;

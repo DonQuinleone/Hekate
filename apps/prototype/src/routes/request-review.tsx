@@ -6,6 +6,7 @@ import { Label } from "~/components/label";
 import { Card, Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { Chip, PermissionsDialog } from "~/components/permissions";
+import { PeopleField, type Person } from "~/components/share";
 import { Button } from "~/components/ui/button";
 import { Input, Textarea } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
@@ -18,11 +19,14 @@ import {
   latestVersion,
   personById,
   projectById,
+  type Review,
   type ReviewKind,
+  reviewById,
   trackById,
 } from "~/data";
 import { cn } from "~/lib/cn";
 import { kindIcon } from "~/lib/files";
+import { stepTitle } from "~/lib/reviews";
 import { useViewer } from "~/viewer/context";
 import { Refused } from "~/viewer/state-gate";
 import { type Item, itemsIn } from "./project-files.tsx";
@@ -179,31 +183,70 @@ function ItemPicker({
   );
 }
 
-type Step = string[];
+/** One step of the order: who is asked together, and what the step is called. */
+interface Step {
+  name: string;
+  /** Person ids ("p-…"), group ids ("g-…") and new guests by address ("guest:…"). */
+  people: string[];
+}
+
+const isGroup = (id: string) => id.startsWith("g-");
+const isNewGuest = (id: string) => id.startsWith("guest:");
+
+/** The steps a review was sent in, to send it again: a group once per step, its people under it. */
+function stepsOf(review: Review): Step[] {
+  const positions = [...new Set(review.reviewers.map((r) => r.position))].sort((a, b) => a - b);
+  return positions.map((pos, i) => {
+    const rows = review.reviewers.filter((r) => r.position === pos);
+    const people: string[] = [];
+    for (const r of rows) {
+      const id = r.groupId ?? r.personId;
+      if (!people.includes(id)) people.push(id);
+    }
+    return { name: review.stepNames?.[i] ?? "", people };
+  });
+}
 
 export function RequestReviewPage({
   projectId,
   kind: kindParam,
   item,
+  from,
 }: {
   projectId?: string;
   kind?: string;
   item?: string;
+  /** A review to duplicate (#502): everything filled in from it, nothing sent until Send. */
+  from?: string;
 }) {
   const viewer = useViewer();
   const navigate = useNavigate();
   const candidates = viewer.projects().filter((p) => viewer.can(p.id, "request_reviews"));
-  const project = projectById(projectId ?? candidates[0]?.id ?? "");
-  const [kind, setKind] = useState<ReviewKind>(kindParam === "feedback" ? "feedback" : "approval");
-  const [chosen, setChosen] = useState<Set<string>>(new Set(item ? [item] : []));
+  const original = from ? reviewById(from) : undefined;
+  const project = projectById(original?.projectId ?? projectId ?? candidates[0]?.id ?? "");
+  const [kind, setKind] = useState<ReviewKind>(
+    original ? original.kind : kindParam === "feedback" ? "feedback" : "approval",
+  );
+  const [chosen, setChosen] = useState<Set<string>>(
+    new Set(original ? original.items.map((i) => i.trackId ?? i.fileId ?? "") : item ? [item] : []),
+  );
   const [versions, setVersions] = useState<Record<string, string>>({});
-  const [steps, setSteps] = useState<Step[]>([["p-mira", "p-tomas"]]);
-  const [inTurn, setInTurn] = useState(false);
-  const [rule, setRule] = useState<"all" | "any" | "quorum">("all");
-  const [due, setDue] = useState("2026-10-30");
+  const [steps, setSteps] = useState<Step[]>(() =>
+    original
+      ? original.order === "sequence"
+        ? stepsOf(original)
+        : [{ name: "", people: stepsOf(original).flatMap((s) => s.people) }]
+      : [{ name: "", people: ["p-mira", "p-tomas"] }],
+  );
+  const [inTurn, setInTurn] = useState(original?.order === "sequence");
+  const [rule, setRule] = useState<"all" | "any" | "quorum">(
+    original?.rule === "any" ? "any" : original?.rule === "quorum" ? "quorum" : "all",
+  );
+  const [due, setDue] = useState(original?.dueAt?.slice(0, 10) ?? "2026-10-30");
   const [remind, setRemind] = useState(true);
+  const [message, setMessage] = useState(original?.message ?? "");
   const [override, setOverride] = useState<string | null>(null);
-  const [inviting, setInviting] = useState(false);
+  const [dragging, setDragging] = useState<string | null>(null);
   usePageHeader({
     crumbs: project
       ? [
@@ -222,7 +265,7 @@ export function RequestReviewPage({
       />
     );
 
-  const people = steps.flat();
+  const people = steps.flatMap((s) => s.people);
   const has = (id: string) => people.includes(id);
   const toggleItem = (id: string) => {
     const n = new Set(chosen);
@@ -230,60 +273,222 @@ export function RequestReviewPage({
     else n.add(id);
     setChosen(n);
   };
-  const togglePerson = (id: string) => {
-    if (has(id))
-      setSteps(
-        steps.map((s) => s.filter((p) => p !== id)).filter((s, i) => s.length > 0 || i === 0),
-      );
-    else setSteps(steps.map((s, i) => (i === steps.length - 1 ? [...s, id] : s)));
+  const addTo = (stepIndex: number, id: string) => {
+    if (has(id)) return;
+    setSteps(steps.map((s, i) => (i === stepIndex ? { ...s, people: [...s.people, id] } : s)));
   };
+  const remove = (id: string) =>
+    setSteps(steps.map((s) => ({ ...s, people: s.people.filter((p) => p !== id) })));
   const moveTo = (id: string, to: number) =>
     setSteps(
-      steps.map((s, i) =>
-        i === to ? [...s.filter((p) => p !== id), id] : s.filter((p) => p !== id),
-      ),
+      steps.map((s, i) => ({
+        ...s,
+        people:
+          i === to ? [...s.people.filter((p) => p !== id), id] : s.people.filter((p) => p !== id),
+      })),
+    );
+  const rename = (stepIndex: number, name: string) =>
+    setSteps(steps.map((s, i) => (i === stepIndex ? { ...s, name } : s)));
+  const removeStep = (stepIndex: number) =>
+    setSteps(
+      steps.length === 1
+        ? [{ name: "", people: [] }]
+        : steps
+            .filter((_, i) => i !== stepIndex)
+            .map((s, i) =>
+              // Whoever was in it joins the step before, or the first.
+              i === Math.max(0, stepIndex - 1)
+                ? { ...s, people: [...s.people, ...(steps[stepIndex]?.people ?? [])] }
+                : s,
+            ),
     );
   const projectGroups = groups.filter((g) => g.projectId === project.id);
-  const groupOn = (g: (typeof groups)[number]) => g.personIds.every(has);
-  const toggleGroup = (g: (typeof groups)[number]) => {
-    if (groupOn(g)) setSteps(steps.map((s) => s.filter((p) => !g.personIds.includes(p))));
-    else
-      setSteps(
-        steps.map((s, i) => (i === steps.length - 1 ? [...new Set([...s, ...g.personIds])] : s)),
-      );
-  };
   const memberIds = new Set(project.members.map((m) => m.personId));
   const reviewerGuests = guests.filter(
     (g) => !memberIds.has(g.personId) || g.personId === "p-mira",
   );
-  const personChip = (id: string, stepIndex: number) => (
-    <span
-      key={id}
-      className="flex h-8 items-center gap-2 rounded-chip border border-line bg-raised/40 pr-1 pl-1.5 text-[13px] text-ink"
-    >
-      <Avatar personId={id} size={20} />
-      {personById(id).name}
-      {inTurn && steps.length > 1 && (
-        <Dropdown
-          size="sm"
-          value={<span className="text-[12px]">to step</span>}
-          actions={steps.map((_, i) => ({
-            label: `Step ${i + 1}`,
-            checked: i === stepIndex,
-            onSelect: () => moveTo(id, i),
-          }))}
-        />
-      )}
-      <button
-        type="button"
-        aria-label={`Remove ${personById(id).name}`}
-        onClick={() => togglePerson(id)}
-        className="flex size-6 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
+  // Everyone who can be asked, as the field offers them.
+  const offered: Person[] = [
+    ...project.members.map((m): Person => {
+      const role = project.roles.find((r) => r.id === m.roleId);
+      return {
+        key: m.personId,
+        personId: m.personId,
+        name: personById(m.personId).name,
+        hint: role?.name,
+        kind: "member",
+      };
+    }),
+    ...projectGroups.map(
+      (g): Person => ({
+        key: g.id,
+        name: g.name,
+        hint: `${g.personIds.length} people`,
+        kind: "group",
+      }),
+    ),
+    ...reviewerGuests.map(
+      (g): Person => ({
+        key: g.personId,
+        personId: g.personId,
+        name: personById(g.personId).name,
+        hint: g.label,
+        kind: "guest",
+      }),
+    ),
+  ];
+  const labelOf = (id: string): { name: string; hint: string } => {
+    if (isGroup(id)) {
+      const g = projectGroups.find((x) => x.id === id);
+      return { name: g?.name ?? "A group", hint: `${g?.personIds.length ?? 0} people` };
+    }
+    if (isNewGuest(id)) return { name: id.slice("guest:".length), hint: "New guest · by link" };
+    const member = project.members.find((m) => m.personId === id);
+    const role = project.roles.find((r) => r.id === member?.roleId);
+    const canDecide = role?.permissions.includes("decide");
+    const guest = reviewerGuests.find((g) => g.personId === id);
+    const hint = member
+      ? `${role?.name ?? ""}${kind === "approval" && !canDecide ? " · comments only" : ""}`
+      : `${guest?.label ?? "Guest"} · by link`;
+    return { name: personById(id).name, hint };
+  };
+
+  const personRow = (id: string, stepIndex: number) => {
+    const { name, hint } = labelOf(id);
+    return (
+      <li
+        key={id}
+        draggable={inTurn && steps.length > 1}
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", id);
+          e.dataTransfer.effectAllowed = "move";
+          setDragging(id);
+        }}
+        onDragEnd={() => setDragging(null)}
+        className={cn(
+          "flex min-h-11 items-center gap-3 border-b border-line px-3 py-1.5 last:border-b-0",
+          dragging === id && "opacity-40",
+        )}
       >
-        <Icon name="close" size={11} />
-      </button>
-    </span>
+        {inTurn && steps.length > 1 && (
+          <Icon name="grip" size={14} className="shrink-0 cursor-grab text-ink-3" />
+        )}
+        {isGroup(id) ? (
+          <span className="flex size-6 items-center justify-center text-ink-3">
+            <Icon name="users" size={15} />
+          </span>
+        ) : isNewGuest(id) ? (
+          <span className="flex size-6 items-center justify-center text-ink-3">
+            <Icon name="mail" size={14} />
+          </span>
+        ) : (
+          <Avatar personId={id} size={24} />
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[14px] text-ink">{name}</span>
+          <span className="block truncate text-[12px] text-ink-3">{hint}</span>
+        </span>
+        {inTurn && steps.length > 1 && (
+          <Dropdown
+            size="sm"
+            value={
+              <span className="text-[12px]">
+                {stepTitle(steps[stepIndex]?.name, stepIndex + 1)}
+              </span>
+            }
+            actions={steps.map((s, i) => ({
+              label: stepTitle(s.name, i + 1),
+              checked: i === stepIndex,
+              onSelect: () => moveTo(id, i),
+            }))}
+          />
+        )}
+        {!isGroup(id) && (
+          <button
+            type="button"
+            onClick={() => setOverride(id)}
+            className="text-[12px] text-ink-3 hover:text-ink"
+          >
+            Override
+          </button>
+        )}
+        <button
+          type="button"
+          aria-label={`Remove ${name}`}
+          onClick={() => remove(id)}
+          className="flex size-7 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
+        >
+          <Icon name="close" size={12} />
+        </button>
+      </li>
+    );
+  };
+
+  const stepCard = (step: Step, i: number) => (
+    <li key={String(i)} className="flex items-start gap-3">
+      {inTurn && (
+        <span className="tabular mt-2 flex size-7 shrink-0 items-center justify-center rounded-full bg-raised text-[12px] font-medium text-ink">
+          {i + 1}
+        </span>
+      )}
+      <Card
+        className={cn(
+          "min-w-0 flex-1 transition-colors",
+          dragging && !step.people.includes(dragging) && "border-dashed border-edge",
+        )}
+      >
+        <div
+          onDragOver={(e) => {
+            if (dragging) e.preventDefault();
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            const id = e.dataTransfer.getData("text/plain") || dragging;
+            if (id) moveTo(id, i);
+            setDragging(null);
+          }}
+        >
+          {inTurn && (
+            <div className="flex h-11 items-center gap-2 border-b border-line px-3">
+              <Input
+                value={step.name}
+                onChange={(e) => rename(i, e.target.value)}
+                placeholder={`Name this step (optional), such as ${["Producer", "Stakeholders", "Label"][i % 3]}`}
+                aria-label={`Name of step ${i + 1}`}
+                className="h-7 flex-1 border-transparent bg-transparent px-1 shadow-none hover:border-edge"
+              />
+              <button
+                type="button"
+                aria-label={`Remove step ${i + 1}`}
+                onClick={() => removeStep(i)}
+                className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
+              >
+                <Icon name="close" size={12} />
+              </button>
+            </div>
+          )}
+          <ul className="list-none p-0">{step.people.map((id) => personRow(id, i))}</ul>
+          <div className={cn("p-2", step.people.length > 0 && "border-t border-line")}>
+            <PeopleField
+              label={inTurn ? `Add to ${stepTitle(step.name, i + 1)}` : "Add reviewers"}
+              people={offered.filter((p) => !has(p.key))}
+              chosen={[]}
+              onChange={(next) => {
+                const picked = next[0];
+                if (picked) addTo(i, picked.key);
+              }}
+              placeholder={
+                step.people.length === 0
+                  ? "Members, groups, or an email address for a new guest"
+                  : "Add someone"
+              }
+            />
+          </div>
+        </div>
+      </Card>
+    </li>
   );
+
   const chosenItems = [...chosen];
   return (
     <Page>
@@ -298,6 +503,12 @@ export function RequestReviewPage({
         }}
       >
         <div className="flex min-w-0 flex-col gap-10">
+          {original && (
+            <p className="flex items-center gap-2 rounded-panel border border-line bg-raised/40 px-3 py-2 text-[13px] text-ink-2">
+              <Icon name="copy" size={14} className="text-ink-3" />
+              Filled in from {original.title}. Nothing is sent until you press Send.
+            </p>
+          )}
           <Section n={1} title="Kind">
             <div role="radiogroup" className="grid gap-2 @3xl/app:grid-cols-2">
               {kinds.map((k) => (
@@ -400,176 +611,44 @@ export function RequestReviewPage({
 
           <Section
             n={3}
-            title="Who"
-            hint="Groups, members and reviewers. Their usual permissions apply unless you override them here."
+            title="Reviewers"
+            hint="Members, groups and guests. An address no one here answers to invites a new guest, by link. Their usual permissions apply unless you override them here."
           >
-            {projectGroups.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                <Label>Groups</Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {projectGroups.map((g) => (
-                    <button
-                      key={g.id}
-                      type="button"
-                      aria-pressed={groupOn(g)}
-                      onClick={() => toggleGroup(g)}
-                      className={cn(
-                        "flex h-8 items-center gap-2 rounded-chip border px-2.5 text-[13px] transition-colors",
-                        groupOn(g)
-                          ? "border-edge bg-raised text-ink shadow-1"
-                          : "border-line text-ink-2 hover:border-edge hover:text-ink",
-                      )}
-                    >
-                      <Icon name="users" size={13} className="text-ink-3" />
-                      {g.name}
-                      <span className="text-ink-3">{g.personIds.length}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div className="grid gap-3 @3xl/app:grid-cols-2">
-              <Card>
-                <div className="flex h-9 items-center border-b border-line px-3">
-                  <Label>Members</Label>
-                </div>
-                <ul>
-                  {project.members.map((m) => {
-                    const p = personById(m.personId);
-                    const role = project.roles.find((r) => r.id === m.roleId);
-                    const canDecide = role?.permissions.includes("decide");
-                    return (
-                      <li
-                        key={m.personId}
-                        className="flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={has(m.personId)}
-                          onChange={() => togglePerson(m.personId)}
-                          aria-label={p.name}
-                        />
-                        <Avatar personId={m.personId} size={24} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[14px] text-ink">{p.name}</span>
-                          <span className="block truncate text-[12px] text-ink-3">
-                            {role?.name}
-                            {kind === "approval" && !canDecide && " · comments only"}
-                          </span>
-                        </span>
-                        {has(m.personId) && (
-                          <button
-                            type="button"
-                            onClick={() => setOverride(m.personId)}
-                            className="text-[12px] text-ink-3 hover:text-ink"
-                          >
-                            Override
-                          </button>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </Card>
-              <Card>
-                <div className="flex h-9 items-center gap-2 border-b border-line px-3">
-                  <Label>Guests</Label>
-                  <span className="text-[12px] text-ink-3">by link</span>
-                  <button
-                    type="button"
-                    onClick={() => setInviting(!inviting)}
-                    className="ml-auto flex items-center gap-1 text-[12px] text-ink-3 hover:text-ink"
+            <div className="flex flex-col gap-1.5">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                <div className="flex items-center gap-2">
+                  <Label>Order</Label>
+                  <div
+                    role="radiogroup"
+                    aria-label="Order"
+                    className="flex rounded-control border border-line bg-raised/40 p-0.5"
                   >
-                    <Icon name="plus" size={11} /> Someone new
-                  </button>
-                </div>
-                <ul>
-                  {reviewerGuests.map((g) => {
-                    const p = personById(g.personId);
-                    return (
-                      <li
-                        key={g.personId}
-                        className="flex items-center gap-3 border-b border-line px-3 py-2 last:border-b-0"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={has(g.personId)}
-                          onChange={() => togglePerson(g.personId)}
-                          aria-label={p.name}
-                        />
-                        <Avatar personId={g.personId} size={24} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[14px] text-ink">{p.name}</span>
-                          <span className="block truncate text-[12px] text-ink-3">
-                            {g.label} · own comments and replies, score, loops
-                          </span>
-                        </span>
-                        {has(g.personId) && (
-                          <button
-                            type="button"
-                            onClick={() => setOverride(g.personId)}
-                            className="text-[12px] text-ink-3 hover:text-ink"
-                          >
-                            Override
-                          </button>
+                    {(
+                      [
+                        [false, "All at once"],
+                        [true, "In steps"],
+                      ] as const
+                    ).map(([v, label]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        role="radio"
+                        aria-checked={inTurn === v}
+                        onClick={() => setInTurn(v)}
+                        className={cn(
+                          "h-7 rounded-[4px] px-3 text-[13px]",
+                          inTurn === v
+                            ? "bg-overlay text-ink shadow-2"
+                            : "text-ink-3 hover:text-ink",
                         )}
-                      </li>
-                    );
-                  })}
-                  {inviting && (
-                    <li className="rise-in flex flex-col gap-2 border-b border-line px-3 py-2.5 last:border-b-0">
-                      <Input placeholder="Name" className="h-8" />
-                      <Input placeholder="Email" type="email" className="h-8" />
-                      <Input placeholder="Label, such as Composer (optional)" className="h-8" />
-                      <span className="text-[12px] text-ink-3">
-                        They get a link when you send. Their permissions start from the project's
-                        defaults for reviewers.
-                      </span>
-                    </li>
-                  )}
-                </ul>
-              </Card>
-            </div>
-          </Section>
-
-          {kind !== "share" && (
-            <Section
-              n={4}
-              title="Order"
-              hint={
-                inTurn
-                  ? "Each step starts when the one before finishes. Everyone at a step is asked together."
-                  : "Everyone is asked now."
-              }
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <div
-                  role="radiogroup"
-                  className="flex rounded-control border border-line bg-raised/40 p-0.5"
-                >
-                  {(
-                    [
-                      [false, "All at once"],
-                      [true, "In turn"],
-                    ] as const
-                  ).map(([v, label]) => (
-                    <button
-                      key={label}
-                      type="button"
-                      role="radio"
-                      aria-checked={inTurn === v}
-                      onClick={() => setInTurn(v)}
-                      className={cn(
-                        "h-7 rounded-[4px] px-3 text-[13px]",
-                        inTurn === v ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
-                      )}
-                    >
-                      {label}
-                    </button>
-                  ))}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 {kind === "approval" && (
-                  <div className="flex items-center gap-1.5 @3xl/app:ml-4">
+                  <div className="flex items-center gap-1.5">
                     <Label>Approved when</Label>
                     <Chip active={rule === "all"} onClick={() => setRule("all")}>
                       everyone approves
@@ -593,44 +672,30 @@ export function RequestReviewPage({
                   </div>
                 )}
               </div>
-              {people.length === 0 ? (
-                <p className="text-[13px] text-ink-3">Choose who above first.</p>
-              ) : inTurn ? (
-                <ol className="flex flex-col gap-2">
-                  {steps.map((step, i) => (
-                    <li key={String(i)} className="flex items-start gap-3">
-                      <span className="tabular mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-raised text-[12px] font-medium text-ink">
-                        {i + 1}
-                      </span>
-                      <div className="flex min-h-10 min-w-0 flex-1 flex-wrap items-center gap-1.5 rounded-panel border border-dashed border-line-strong p-1.5">
-                        {step.map((id) => personChip(id, i))}
-                        {step.length === 0 && (
-                          <span className="px-2 text-[12px] text-ink-3">Move people here</span>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                  <li className="flex items-center gap-3 pl-10">
-                    <Button variant="ghost" size="sm" onClick={() => setSteps([...steps, []])}>
-                      <Icon name="plus" size={12} />
-                      Add a step
-                    </Button>
-                    {steps.length > 1 && (
-                      <Button variant="ghost" size="sm" onClick={() => setSteps([steps.flat()])}>
-                        Merge into one
-                      </Button>
-                    )}
-                  </li>
-                </ol>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
-                  {people.map((id) => personChip(id, 0))}
-                </div>
+              <p className="text-[13px] text-ink-3">
+                {inTurn
+                  ? "Each step starts when the one before finishes; everyone in a step is asked together. Drag someone to another step, or choose it from theirs."
+                  : "Everyone is asked now."}
+              </p>
+            </div>
+            <ol className="flex flex-col gap-2">
+              {(inTurn ? steps : [{ name: "", people }]).map((step, i) => stepCard(step, i))}
+              {inTurn && (
+                <li className="pl-10">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSteps([...steps, { name: "", people: [] }])}
+                  >
+                    <Icon name="plus" size={12} />
+                    Add a step
+                  </Button>
+                </li>
               )}
-            </Section>
-          )}
+            </ol>
+          </Section>
 
-          <Section n={5} title="When and why">
+          <Section n={4} title="When and why">
             <div className="flex flex-wrap items-center gap-2">
               <Label>Due</Label>
               <Input
@@ -657,6 +722,8 @@ export function RequestReviewPage({
             </div>
             <Textarea
               rows={3}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
               placeholder="What to listen for, and anything they need to know. Goes out with the invitation."
             />
           </Section>
@@ -673,7 +740,7 @@ export function RequestReviewPage({
                   [
                     "People",
                     people.length
-                      ? `${people.length}${inTurn ? `, in ${steps.filter((s) => s.length).length} steps` : ", all at once"}`
+                      ? `${people.length}${inTurn ? `, in ${steps.filter((s) => s.people.length).length} steps` : ", all at once"}`
                       : "none yet",
                   ],
                   ...(kind === "approval"
