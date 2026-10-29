@@ -13,6 +13,8 @@ if [ "${1:-}" = "--live" ]; then
 fi
 out=$(cd "${1:-.}" && pwd)
 export COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose.yml}"
+# Compose fills its file in from the .env beside the checkout, not from deploy/ (its project directory).
+export COMPOSE_ENV_FILES="${COMPOSE_ENV_FILES:-.env}"
 media="${COMPOSE_PROJECT_NAME:-hekate}_media"
 stamp=$(date -u +%Y-%m-%dT%H%MZ)
 

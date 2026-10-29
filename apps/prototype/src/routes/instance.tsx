@@ -2581,8 +2581,8 @@ export function InstancePage({ section }: { section: string }) {
               stacked
             >
               <pre className="scroll-quiet m-0 w-full overflow-x-auto rounded-control border border-line bg-canvas/60 px-3 py-2 font-mono text-[12px] leading-[1.6] text-ink-2">
-                docker compose -f deploy/compose.yml run --rm app apps/server/src/cli.ts backup
-                verify
+                docker compose --env-file .env -f deploy/compose.yml run --rm app
+                apps/server/src/cli.ts backup verify
               </pre>
             </Row>
           </Section>

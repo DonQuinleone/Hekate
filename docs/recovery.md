@@ -68,7 +68,7 @@ The host is gone, with its volumes.
 2. Put back the settings volume, from its copy kept apart (see [Backup and restore](docs/backup.md)). An install set up in the browser keeps the master key, `AUTH_SECRET` and any storage credentials there, not in `.env`, and nothing starts or verifies without them:
 
    ```sh
-   docker compose -f deploy/compose.yml create app
+   docker compose --env-file .env -f deploy/compose.yml create app
    docker run --rm -i -v hekate_settings:/config alpine \
      sh -c 'cat > /config/hekate.env && chown 1000:1000 /config/hekate.env && chmod 600 /config/hekate.env' \
      < hekate-settings.env

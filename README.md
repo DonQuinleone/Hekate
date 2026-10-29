@@ -76,8 +76,8 @@ The documentation (install, configuration, backups, the security model, and a gu
 
 ```sh
 cp .env.example .env    # set HEKATE_DOMAIN and POSTGRES_PASSWORD
-docker compose -f deploy/compose.yml up -d
-docker compose -f deploy/compose.yml logs app   # the setup code
+docker compose --env-file .env -f deploy/compose.yml up -d
+docker compose --env-file .env -f deploy/compose.yml logs app   # the setup code
 ```
 
 Open your domain and enter the setup code: the installer checks the requirements, the database, the storage and mail, makes the master key (or takes yours), and creates the first workspace and its owner. Anything set in `.env` instead is shown as fixed and never overwritten.

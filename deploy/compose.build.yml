@@ -1,5 +1,5 @@
 # Builds the app image from this checkout instead of pulling the release:
-#   docker compose -f deploy/compose.yml -f deploy/compose.build.yml up -d --build
+#   docker compose --env-file .env -f deploy/compose.yml -f deploy/compose.build.yml up -d --build
 services:
   app:
     build: { context: .., dockerfile: Dockerfile }
