@@ -117,6 +117,29 @@ type Key = string;
  * Asking for a review, inside the project (#130): what, who, in what order, by when. The
  * form is the prototype's request page; it sends to the reviews API, which checks it all.
  */
+/**
+ * The server matches an override to a reviewer by member or guest, so one given for a group
+ * reaches its members here, each unless they have one of their own.
+ */
+export function expandGroupOverrides(
+  overrides: Record<Key, ReviewerPermissionsChange>,
+  groups: ProjectGroup[],
+): Record<string, ReviewerPermissionsChange> {
+  const out: Record<string, ReviewerPermissionsChange> = {};
+  for (const [key, change] of Object.entries(overrides)) {
+    if (!key.startsWith("group:")) {
+      out[key] = change;
+      continue;
+    }
+    const group = groups.find((g) => g.id === key.slice("group:".length));
+    for (const member of group?.members ?? []) {
+      const own = member.userId ? `member:${member.userId}` : `guest:${member.email}`;
+      if (!(own in overrides) && !(own in out)) out[own] = change;
+    }
+  }
+  return out;
+}
+
 export function RequestReviewPage({
   projectId,
   kind: kindParam,
@@ -135,6 +158,7 @@ export function RequestReviewPage({
   version?: string;
   people?: string[];
   download?: DownloadLevel;
+  /** An ISO date, or "never" for a link that works until it is withdrawn. */
   until?: string;
 }) {
   const navigate = useNavigate();
@@ -180,7 +204,11 @@ export function RequestReviewPage({
       ? Object.fromEntries(
           (peopleParam ?? []).map((key) => [
             key,
-            { ...(download ? { download } : {}), ...(until ? { expiresAt: until } : {}) },
+            {
+              ...(download ? { download } : {}),
+              // "never" is a link that works until it is withdrawn: an expiry of null, chosen.
+              ...(until ? { expiresAt: until === "never" ? null : until } : {}),
+            },
           ]),
         )
       : {},
@@ -361,8 +389,9 @@ export function RequestReviewPage({
             : { fileId: id };
         }),
         reviewers,
-        overrides: Object.fromEntries(
-          Object.entries(overrides).filter(([key]) => sent.includes(key)),
+        overrides: expandGroupOverrides(
+          Object.fromEntries(Object.entries(overrides).filter(([key]) => sent.includes(key))),
+          groups,
         ),
       },
       {
