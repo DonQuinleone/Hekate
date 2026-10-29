@@ -56,8 +56,12 @@ export function loggedNumber(written: string | null | undefined): number | null 
 }
 export type TakeImport = z.infer<typeof takeImportInput>;
 
+/** How many takes one share request carries; a longer pick goes in batches of this. */
+export const SHARE_TAKES_MAX = 50;
 /** Takes of the thread's track shared on it (#133), for everyone who sees the thread to hear. */
-export const shareTakesInput = z.object({ takeIds: z.array(z.uuid()).min(1).max(50) });
+export const shareTakesInput = z.object({
+  takeIds: z.array(z.uuid()).min(1).max(SHARE_TAKES_MAX),
+});
 
 /**
  * Where a take is in the control room (#51): waiting, armed, rolling, done, or stopped short.

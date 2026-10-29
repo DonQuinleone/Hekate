@@ -17,6 +17,7 @@ import {
   mentionRanges,
   parseBars,
   parseBeat,
+  SHARE_TAKES_MAX,
   speakerOf,
   speakersOf,
   type TakeRow,
@@ -43,6 +44,7 @@ import { cn } from "~/lib/cn";
 import {
   ago,
   arrangeThreads,
+  batchesOf,
   categoryTone,
   filterHolding,
   historyLabel,
@@ -282,11 +284,15 @@ function Composer({
       }
       if (id && onShareTakes && takes.length > 0) {
         setSaved(id);
-        await onShareTakes(
-          id,
-          takes.map((t) => t.id),
-        );
-        setTakes([]);
+        // As many as one request carries at a time, each batch let go of once it is shared, so
+        // trying again sends only the rest.
+        for (const batch of batchesOf(takes, SHARE_TAKES_MAX)) {
+          await onShareTakes(
+            id,
+            batch.map((t) => t.id),
+          );
+          setTakes((list) => list.filter((t) => !batch.includes(t)));
+        }
       }
       setBody("");
       setChosen([]);
