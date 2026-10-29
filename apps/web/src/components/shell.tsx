@@ -18,6 +18,7 @@ import { HeaderSlotsProvider, useHeaderSlots } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-cover";
 import { StateDot } from "~/components/status";
 import { DialogLayer } from "~/components/ui/dialog";
+import { Floating } from "~/components/ui/floating";
 import { MenuList, usePopover } from "~/components/ui/menu";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { authClient } from "~/lib/auth";
@@ -246,10 +247,14 @@ function ProjectSwitcher({
         )}
       </button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="start"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="menu"
           aria-label="Switch project"
-          className="rise-in absolute top-full left-0 z-40 mt-1 w-64 rounded-panel-lg bg-overlay p-1 shadow-4"
+          className="rise-in w-64 rounded-panel-lg bg-overlay p-1 shadow-4"
         >
           <div className="eyebrow px-2.5 pt-1.5 pb-1">Projects</div>
           {projects.map((p) => (
@@ -281,7 +286,7 @@ function ProjectSwitcher({
               { label: "All projects", onSelect: () => void navigate({ to: "/projects" }) },
             ]}
           />
-        </div>
+        </Floating>
       )}
     </div>
   );
@@ -350,13 +355,14 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
         )}
       </button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align={tab ? "end" : "start"}
+          side="top"
+          onClose={() => setOpen(false)}
           role="menu"
           aria-label="Account and workspace"
-          className={cn(
-            "rise-in absolute bottom-full z-40 mb-1.5 w-64 rounded-panel-lg bg-overlay p-1 shadow-4",
-            tab ? "right-2" : "left-0",
-          )}
+          className="rise-in w-64 rounded-panel-lg bg-overlay p-1 shadow-4"
         >
           <div className="flex items-center gap-2.5 px-2.5 py-2">
             <Avatar id={me.user.id} name={me.user.name} size={30} />
@@ -430,7 +436,7 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
               { label: "Sign out", onSelect: () => void signOut() },
             ]}
           />
-        </div>
+        </Floating>
       )}
     </div>
   );
@@ -484,6 +490,7 @@ function HelpMenu() {
       </button>
       {open && (
         <MenuList
+          anchor={box}
           onClose={() => setOpen(false)}
           actions={[
             {
@@ -640,9 +647,15 @@ function ConnectionFoot({ connection, collapsed }: { connection: Connection; col
         collapsed && "justify-center px-0",
       )}
     >
-      <StateDot
-        state={lost ? "major" : "operational"}
-        className={cn(!lost && "size-[5px] bg-ink-3", connection.state === "checking" && "breathe")}
+      <span
+        aria-hidden="true"
+        className={cn(
+          "inline-block size-[7px] shrink-0 rounded-full",
+          connection.state === "connected" && "bg-ok",
+          connection.state === "degraded" && "bg-warn",
+          connection.state === "unreachable" && "bg-signal",
+          connection.state === "checking" && "breathe bg-ink-3",
+        )}
       />
       {collapsed ? (
         <span className="sr-only">{words}</span>
@@ -768,6 +781,7 @@ export function Shell({ children }: { children: ReactNode }) {
               count={waitingAll.length}
               exact
             />
+            <NavItem to="/projects" icon="folder" label="Projects" collapsed={collapsed} />
             {current ? (
               <>
                 <div className="mt-4 mb-1">
@@ -840,26 +854,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   </Link>
                 ))}
               </>
-            ) : (
-              <>
-                <NavItem to="/projects" icon="folder" label="Projects" collapsed={collapsed} />
-                {!collapsed && projects.length > 0 && (
-                  <ul className="mb-1 ml-[21px] flex flex-col gap-px border-l border-line pl-2.5">
-                    {projects.slice(0, 8).map((p) => (
-                      <li key={p.id}>
-                        <Link
-                          to="/projects/$projectId/files"
-                          params={{ projectId: p.id }}
-                          className="flex h-7 items-center truncate rounded-control px-2 text-[13px] text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink"
-                        >
-                          <span className="truncate">{p.name}</span>
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
-            )}
+            ) : null}
           </div>
           {waitingHere.length > 0 && (
             <SideSection title="Waiting on you" count={waitingHere.length} collapsed={collapsed}>
