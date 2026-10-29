@@ -82,18 +82,21 @@ const kindCopy: Record<NotificationKind, string> = {
 };
 
 function Channel({
-  label,
+  event,
+  channel,
   checked,
   locked = false,
   onChange,
 }: {
-  label: string;
+  event: string;
+  channel: "App" | "Mail";
   checked: boolean;
   /** Always on: shown, but not to be turned off. */
   locked?: boolean;
   onChange: (on: boolean) => void;
 }) {
-  const [, channel] = label.split(", ");
+  // The switch is named by the event and the channel; the word beside it is the channel alone.
+  const label = `${event}, ${channel}`;
   return (
     <span
       className="flex items-center gap-2 text-[12px] text-ink-3"
@@ -156,13 +159,15 @@ function Notifications() {
           return (
             <Row key={kind} name={kindCopy[kind]}>
               <Channel
-                label={`${kindCopy[kind]}, App`}
+                event={kindCopy[kind]}
+                channel="App"
                 checked={on.app}
                 locked={alwaysInApp.includes(kind)}
                 onChange={(v) => setKind(kind, "app", v)}
               />
               <Channel
-                label={`${kindCopy[kind]}, Mail`}
+                event={kindCopy[kind]}
+                channel="Mail"
                 checked={on.mail}
                 onChange={(v) => setKind(kind, "mail", v)}
               />
