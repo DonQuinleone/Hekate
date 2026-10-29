@@ -164,7 +164,7 @@ export const qaRules: QaRule[] = [
   rule(
     "length",
     "audio",
-    "Variations of different lengths",
+    "Variants of different lengths",
     "Dry, wet, surround and immersive mixes of one version",
     "fail",
   ),

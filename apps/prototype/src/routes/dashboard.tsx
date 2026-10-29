@@ -19,7 +19,7 @@ import {
   type reviews,
   tasks,
   tracks,
-  variationOf,
+  variantOf,
 } from "~/data";
 import { cn } from "~/lib/cn";
 import { ago, dueIn, formatDate } from "~/lib/format";
@@ -147,7 +147,7 @@ export function DashboardPage() {
           icon: "comment",
           title: c.body,
           why: `Assigned by ${personById(c.authorId).name} on ${
-            variationOf(c.fileId)?.track.name ?? fileById(c.fileId)?.name
+            variantOf(c.fileId)?.track.name ?? fileById(c.fileId)?.name
           }`,
           to: "/files/$fileId",
           params: { fileId: c.fileId },

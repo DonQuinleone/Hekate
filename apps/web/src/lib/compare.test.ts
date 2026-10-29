@@ -11,14 +11,14 @@ import {
   shiftLabel,
   sourceFor,
 } from "./compare";
-import type { Track, Variation } from "./queries";
+import type { Track, Variant } from "./queries";
 
-const variation = (
+const variant = (
   id: string,
   versionId: string,
   name: string,
-  extra: Partial<Variation> = {},
-): Variation => ({
+  extra: Partial<Variant> = {},
+): Variant => ({
   id,
   versionId,
   fileId: `file-${id}`,
@@ -54,7 +54,7 @@ const track: Track = {
       edlFileId: null,
       letThroughBy: null,
       createdAt: "",
-      variations: [variation("a", "v1", "Mix", { isPrimary: true })],
+      variants: [variant("a", "v1", "Mix", { isPrimary: true })],
     },
     {
       id: "v2",
@@ -64,10 +64,10 @@ const track: Track = {
       edlFileId: null,
       letThroughBy: null,
       createdAt: "",
-      variations: [
-        variation("b", "v2", "Dry", { isPrimary: true, position: 0 }),
-        variation("c", "v2", "Wet", { position: 1 }),
-        variation("d", "v2", "Stems", { position: 2, streamStatus: "pending" }),
+      variants: [
+        variant("b", "v2", "Dry", { isPrimary: true, position: 0 }),
+        variant("c", "v2", "Wet", { position: 1 }),
+        variant("d", "v2", "Stems", { position: 2, streamStatus: "pending" }),
       ],
     },
     {
@@ -78,7 +78,7 @@ const track: Track = {
       edlFileId: null,
       letThroughBy: null,
       createdAt: "",
-      variations: [variation("e", "v3", "Dry", { isPrimary: true })],
+      variants: [variant("e", "v3", "Dry", { isPrimary: true })],
     },
   ],
 };
@@ -89,7 +89,7 @@ describe("compare cuts (#147)", () => {
       mine: "Cut 3",
       previous: { fileId: "file-b", label: "Cut 2", versionNumber: 2 },
     });
-    // A variation other than the primary is compared with the cut before too.
+    // A variant other than the primary is compared with the cut before too.
     expect(previousCut(track, "file-c", "video")?.previous.fileId).toBe("file-a");
   });
 
@@ -98,7 +98,7 @@ describe("compare cuts (#147)", () => {
       ...track,
       versions: track.versions.map((v) =>
         v.number === 2
-          ? { ...v, variations: v.variations.map((x) => ({ ...x, streamStatus: "pending" })) }
+          ? { ...v, variants: v.variants.map((x) => ({ ...x, streamStatus: "pending" })) }
           : v,
       ),
     };
@@ -109,7 +109,7 @@ describe("compare cuts (#147)", () => {
 });
 
 describe("comparison", () => {
-  it("offers sibling variations, then other versions newest first, ready ones only", () => {
+  it("offers sibling variants, then other versions newest first, ready ones only", () => {
     expect(compareSources(track, "file-b").map((s) => s.label)).toEqual([
       "V2 · Wet",
       "V3 · Dry",
@@ -118,7 +118,7 @@ describe("comparison", () => {
     expect(compareSources(track, "file-e").map((s) => s.label)).toEqual(["V2 · Dry", "V1 · Mix"]);
   });
 
-  it("finds any ready variation as a source, but not one still being prepared", () => {
+  it("finds any ready variant as a source, but not one still being prepared", () => {
     expect(sourceFor(track, "file-c")).toEqual({
       fileId: "file-c",
       label: "V2 · Wet",

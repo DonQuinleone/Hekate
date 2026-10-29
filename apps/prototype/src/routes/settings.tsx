@@ -709,8 +709,8 @@ export function SettingsPage({
             intro="What a client or token may ask for. People grant them one by one; a token holds the ones it was made with."
           >
             {[
-              ["files:read", "List and read files, versions and variations"],
-              ["files:write", "Upload versions and variations, make folders"],
+              ["files:read", "List and read files, versions and variants"],
+              ["files:write", "Upload versions and variants, make folders"],
               ["reviews:read", "Read reviews, reviewers and decisions"],
               ["reviews:write", "Request reviews and record decisions as the person"],
               ["comments", "Read and write comments and their anchors"],
@@ -1707,7 +1707,7 @@ export function SettingsPage({
                 <legend className="mb-1.5">Scopes it may ask for</legend>
                 {[
                   ["files:read", "List and read files and versions"],
-                  ["files:write", "Upload versions and variations"],
+                  ["files:write", "Upload versions and variants"],
                   ["reviews:read", "Read reviews and their decisions"],
                   ["reviews:write", "Request reviews and record decisions"],
                   ["comments", "Read and write comments"],

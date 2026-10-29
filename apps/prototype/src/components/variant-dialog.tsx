@@ -4,7 +4,7 @@ import { Input } from "~/components/ui/input";
 import { type ChosenFile, UploadDialog } from "~/components/ui/upload-dialog";
 import { projectById, type Track, tracks, type Version } from "~/data";
 
-/** The file the zone picks here, as a variation of a version. */
+/** The file the zone picks here, as a variant of a version. */
 const sample: ChosenFile = {
   key: "instrumental",
   name: "Maple Leaf Rag - V2 instrumental.wav",
@@ -12,10 +12,10 @@ const sample: ChosenFile = {
 };
 
 /**
- * The names a project's variations go by (Dry, Wet, Instrumental), to suggest for a new one
+ * The names a project's variants go by (Dry, Wet, Instrumental), to suggest for a new one
  * (#486): each once, the most recently used first, leaving out those the version already has.
  */
-export function variationNames(projectId: string, taken: string[], limit = 6): string[] {
+export function variantNames(projectId: string, taken: string[], limit = 6): string[] {
   const have = new Set(taken.map((n) => n.toLowerCase()));
   const names: string[] = [];
   const versions = tracks
@@ -23,7 +23,7 @@ export function variationNames(projectId: string, taken: string[], limit = 6): s
     .flatMap((t) => t.versions)
     .sort((a, b) => b.uploadedAt.localeCompare(a.uploadedAt));
   for (const version of versions) {
-    for (const { name } of version.variations) {
+    for (const { name } of version.variants) {
       if (have.has(name.toLowerCase())) continue;
       have.add(name.toLowerCase());
       names.push(name);
@@ -34,12 +34,12 @@ export function variationNames(projectId: string, taken: string[], limit = 6): s
 }
 
 /**
- * Another variation of a version (#486), from the track's versions page or the variation
+ * Another variant of a version (#486), from the track's versions page or the variant
  * switch above the player: its file dropped, chosen or picked from the project, named as the
- * file is or with one of the names the project's variations already go by, and made the
+ * file is or with one of the names the project's variants already go by, and made the
  * primary or not.
  */
-export function AddVariationDialog({
+export function AddVariantDialog({
   track,
   version,
   onClose,
@@ -49,13 +49,13 @@ export function AddVariationDialog({
   onClose: () => void;
 }) {
   const video = projectById(track.projectId)?.profile === "video";
-  const word = video ? "rendition" : "variation";
+  const word = video ? "rendition" : "variant";
   const label = video ? `Cut ${version.number}` : `V${version.number}`;
   const [chosen, setChosen] = useState<ChosenFile[]>([sample]);
   const [name, setName] = useState("Instrumental");
-  const suggestions = variationNames(
+  const suggestions = variantNames(
     track.projectId,
-    version.variations.map((v) => v.name),
+    version.variants.map((v) => v.name),
   );
   return (
     <UploadDialog
@@ -88,11 +88,11 @@ export function AddVariationDialog({
                 <input type="checkbox" /> Make it the primary
               </label>
             </div>
-            {/* The names the project's other variations go by: one press names this one. */}
+            {/* The names the project's other variants go by: one press names this one. */}
             {suggestions.length > 0 && (
               <fieldset className="m-0 flex flex-wrap items-center gap-1 border-0 p-0">
                 <legend className="sr-only">
-                  {video ? "Rendition" : "Variation"} names used in this project
+                  {video ? "Rendition" : "Variant"} names used in this project
                 </legend>
                 <span aria-hidden="true" className="mr-1 text-[12px] text-ink-3">
                   Used in this project

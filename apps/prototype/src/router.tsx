@@ -309,7 +309,7 @@ const compare = createRoute({
   },
 });
 const fileSearch = (s: Record<string, unknown>) =>
-  pick(s, ["view", "comment", "review", "version", "variation"]);
+  pick(s, ["view", "comment", "review", "version", "variant"]);
 const file = createRoute({
   getParentRoute: () => app,
   path: "/files/$fileId",

@@ -9,7 +9,7 @@ import {
   loudness,
   type Track,
   tracks,
-  variationOf,
+  variantOf,
 } from "~/data";
 
 export const kindIcon: Record<File["kind"], IconName> = {
@@ -76,11 +76,11 @@ export function qaSummary(
 }
 
 /**
- * Files that are nobody's variation: the loose files of a folder. A version chain shows by
+ * Files that are nobody's variant: the loose files of a folder. A version chain shows by
  * its latest file (#149); the files a later version replaces are a step away on its page.
  */
 export function looseFiles(files: File[]): File[] {
-  return files.filter((f) => !variationOf(f.id) && !allFiles.some((x) => x.previousId === f.id));
+  return files.filter((f) => !variantOf(f.id) && !allFiles.some((x) => x.previousId === f.id));
 }
 
 /** A loose file's simple version chain (#149), oldest first; empty for a file in none. */

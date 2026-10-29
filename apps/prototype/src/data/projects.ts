@@ -478,9 +478,7 @@ export const tracks: Track[] = [
         uploadedBy: "p-tomas",
         uploadedAt: "2026-10-09T15:30:00Z",
         note: "First assembly from takes 3, 7, 9 and 12.",
-        variations: [
-          { id: "var-maple-1-mix", name: "Mix", fileId: "file-maple-v1", primary: true },
-        ],
+        variants: [{ id: "var-maple-1-mix", name: "Mix", fileId: "file-maple-v1", primary: true }],
         state: "ready",
         status: "With conductor",
       },
@@ -489,8 +487,8 @@ export const tracks: Track[] = [
         number: 2,
         uploadedBy: "p-alex",
         uploadedAt: "2026-10-14T10:12:00Z",
-        note: "New edit into the trio at bar 17; the tail is shorter. Dry and wet variations, dry is primary.",
-        variations: [
+        note: "New edit into the trio at bar 17; the tail is shorter. Dry and wet variants, dry is primary.",
+        variants: [
           { id: "var-maple-2-dry", name: "Dry", fileId: "file-maple-v2-dry", primary: true },
           { id: "var-maple-2-wet", name: "Wet", fileId: "file-maple-v2-wet", primary: false },
           { id: "var-maple-2-surround", name: "5.1", fileId: "file-surround", primary: false },
@@ -506,7 +504,7 @@ export const tracks: Track[] = [
         uploadedBy: "p-tomas",
         uploadedAt: "2026-10-14T20:41:00Z",
         note: "Pedal noise cleaned at bar 5; tighter join at 17.",
-        variations: [
+        variants: [
           { id: "var-maple-3-dry", name: "Dry", fileId: "file-maple-v3-dry", primary: true },
         ],
         state: "pending",
@@ -537,7 +535,7 @@ export const tracks: Track[] = [
         uploadedBy: "p-tomas",
         uploadedAt: "2026-10-11T12:00:00Z",
         note: "Complete run from take 22 with the coda from 24.",
-        variations: [
+        variants: [
           { id: "var-solace-1-mix", name: "Mix", fileId: "file-solace-v1", primary: true },
         ],
         state: "ready",
@@ -560,9 +558,7 @@ export const tracks: Track[] = [
         uploadedBy: "p-tomas",
         uploadedAt: "2026-10-05T12:00:00Z",
         note: "",
-        variations: [
-          { id: "var-elite-1-mix", name: "Mix", fileId: "file-elite-v1", primary: true },
-        ],
+        variants: [{ id: "var-elite-1-mix", name: "Mix", fileId: "file-elite-v1", primary: true }],
         state: "ready",
         status: "Triage",
       },
@@ -572,9 +568,7 @@ export const tracks: Track[] = [
         uploadedBy: "p-tomas",
         uploadedAt: "2026-10-13T18:20:00Z",
         note: "Re-export at the right rate.",
-        variations: [
-          { id: "var-elite-2-mix", name: "Mix", fileId: "file-elite-v2", primary: true },
-        ],
+        variants: [{ id: "var-elite-2-mix", name: "Mix", fileId: "file-elite-v2", primary: true }],
         state: "failed",
         status: "Editing",
       },
@@ -602,7 +596,7 @@ export const tracks: Track[] = [
         uploadedBy: "p-tomas",
         uploadedAt: "2026-10-02T10:00:00Z",
         note: "Offline cut.",
-        variations: [{ id: "var-titles-1", name: "16:9", fileId: "file-titles-c1", primary: true }],
+        variants: [{ id: "var-titles-1", name: "16:9", fileId: "file-titles-c1", primary: true }],
         state: "ready",
         status: "With director",
       },
@@ -612,7 +606,7 @@ export const tracks: Track[] = [
         uploadedBy: "p-tomas",
         uploadedAt: "2026-10-09T16:30:00Z",
         note: "Picture lock candidate.",
-        variations: [{ id: "var-titles-2", name: "16:9", fileId: "file-titles-c2", primary: true }],
+        variants: [{ id: "var-titles-2", name: "16:9", fileId: "file-titles-c2", primary: true }],
         state: "ready",
         status: "With director",
       },
@@ -622,7 +616,7 @@ export const tracks: Track[] = [
         uploadedBy: "p-tomas",
         uploadedAt: "2026-10-13T19:05:00Z",
         note: "Colour pass and the new lamp shot.",
-        variations: [
+        variants: [
           {
             id: "var-titles-3",
             name: "Main",
@@ -665,9 +659,7 @@ export const tracks: Track[] = [
         uploadedBy: "p-tomas",
         uploadedAt: "2026-10-12T11:00:00Z",
         note: "",
-        variations: [
-          { id: "var-trailer-1", name: "16:9", fileId: "file-trailer-c1", primary: true },
-        ],
+        variants: [{ id: "var-trailer-1", name: "16:9", fileId: "file-trailer-c1", primary: true }],
         state: "ready",
         status: "Cutting",
       },

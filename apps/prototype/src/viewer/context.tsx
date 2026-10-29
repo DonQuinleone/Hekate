@@ -10,7 +10,7 @@ import {
   type Reviewer,
   reviews,
   type Tool,
-  variationOf,
+  variantOf,
 } from "~/data";
 import { type Persona, type PersonaId, personaById } from "./personas.ts";
 
@@ -163,13 +163,11 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
       const file = fileById(fileId);
       if (!file) return null;
       const viaRole = canSee(file.projectId);
-      const variation = variationOf(fileId);
+      const variant = variantOf(fileId);
       const grants = myReviews().filter(
         (r) =>
           r.status !== "cancelled" &&
-          r.items.some(
-            (i) => i.fileId === fileId || (variation && i.trackId === variation.track.id),
-          ) &&
+          r.items.some((i) => i.fileId === fileId || (variant && i.trackId === variant.track.id)) &&
           reviewerIn(r)?.state !== "waiting",
       );
       if (!viaRole && grants.length === 0) return null;

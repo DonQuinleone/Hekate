@@ -22,8 +22,8 @@ Each row says what a token may do, when it was made, when it was last used and w
 
 | Scope | What it allows |
 | --- | --- |
-| `files:read` | List and read projects, folders, files, tracks, versions and variations, and search. |
-| `files:write` | Upload versions and variations, make folders, change files. Includes `files:read`. |
+| `files:read` | List and read projects, folders, files, tracks, versions and variants, and search. |
+| `files:write` | Upload versions and variants, make folders, change files. Includes `files:read`. |
 | `reviews:read` | Read reviews, reviewers and decisions. |
 | `reviews:write` | Request reviews and record decisions as the token's member. Includes `reviews:read`. |
 | `comments` | Read and write comments and their anchors. |

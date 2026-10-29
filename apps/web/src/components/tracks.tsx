@@ -16,14 +16,14 @@ import {
   useProjectCan,
   useTrackMutations,
 } from "~/lib/queries";
-import { variationChoices, versionChoices } from "~/lib/versions";
+import { variantChoices, versionChoices } from "~/lib/versions";
 import { Avatar } from "./avatar";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Dropdown } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
-import { VariationDialog } from "./variation-dialog";
+import { VariantDialog } from "./variant-dialog";
 
 const noteDate = formatDates({
   day: "numeric",
@@ -36,7 +36,7 @@ const noteDate = formatDates({
 function latestLabel(track: Track): string {
   const latest = track.versions.at(-1);
   if (!latest) return "No versions yet";
-  return `Version ${latest.number} · ${latest.variations.map((v) => v.name).join(", ")}`;
+  return `Version ${latest.number} · ${latest.variants.map((v) => v.name).join(", ")}`;
 }
 
 function NewTrack({ projectId }: { projectId: string }) {
@@ -138,7 +138,7 @@ export function ScoreSwitch({
   shown: boolean;
   onToggle: () => void;
 }) {
-  const scoreFileId = file.variation?.scoreFileId;
+  const scoreFileId = file.variant?.scoreFileId;
   const { data: scoreFile } = useQuery({
     ...fileQuery(scoreFileId ?? ""),
     enabled: Boolean(scoreFileId),
@@ -160,12 +160,12 @@ export function ScoreSwitch({
 }
 
 /**
- * On a file that is a variation (#15): what leads the strip above the player, as the
+ * On a file that is a variant (#15): what leads the strip above the player, as the
  * prototype draws it. The version menu (the track's versions, newest first, then the way to
- * all of them and their notes, and to its takes) and the variation switch. A version or
- * variation chosen starts at the same music as here, where the audio has said where that is,
+ * all of them and their notes, and to its takes) and the variant switch. A version or
+ * variant chosen starts at the same music as here, where the audio has said where that is,
  * else at the same time. A guest, who sees only what their review holds, is told which
- * version that is. Whoever may upload adds a variation from the switch itself (#486): it
+ * version that is. Whoever may upload adds a variant from the switch itself (#486): it
  * shows the new one as analysing, and opens it once it plays.
  */
 export function FileContext({
@@ -175,34 +175,34 @@ export function FileContext({
   takes = false,
 }: {
   file: FileDetail;
-  /** The player, whose position goes along to the version or variation chosen (#15). */
+  /** The player, whose position goes along to the version or variant chosen (#15). */
   media?: HTMLMediaElement | null;
   guest?: boolean;
   /** Whether the version menu offers the track's takes: for those who may see them. */
   takes?: boolean;
 }) {
-  const variation = file.variation;
+  const variant = file.variant;
   const navigate = useNavigate();
   const { data: track } = useQuery({
-    ...trackQuery(variation?.trackId ?? ""),
-    enabled: Boolean(variation) && !guest,
+    ...trackQuery(variant?.trackId ?? ""),
+    enabled: Boolean(variant) && !guest,
   });
   // Where the same music sits in the other versions, where the audio has said; refused
   // without the compare tool, when the same time serves.
   const { data: alignments = [] } = useQuery({
     ...alignmentsQuery(file.id),
-    enabled: Boolean(variation) && !guest,
+    enabled: Boolean(variant) && !guest,
     retry: false,
   });
   const { data: takeRows = [] } = useQuery({
-    ...trackTakesQuery(variation?.trackId ?? ""),
-    enabled: Boolean(variation) && takes && !guest,
+    ...trackTakesQuery(variant?.trackId ?? ""),
+    enabled: Boolean(variant) && takes && !guest,
   });
   const { words } = useItemWords(guest ? undefined : track?.projectId);
   const can = useProjectCan(guest ? undefined : track?.projectId);
   const client = useQueryClient();
   const [adding, setAdding] = useState(false);
-  /** A variation just added, being prepared: the player follows it once it plays. */
+  /** A variant just added, being prepared: the player follows it once it plays. */
   const [pending, setPending] = useState<string | null>(null);
   const { data: awaited } = useQuery({
     ...fileQuery(pending ?? ""),
@@ -210,19 +210,19 @@ export function FileContext({
     retry: false,
   });
   const status = awaited && awaited.id === pending ? awaited.streamStatus : null;
-  /** Go to another version or variation, at the same music. */
+  /** Go to another version or variant, at the same music. */
   const go = (fileId: string) =>
     void navigate({
       to: "/files/$fileId",
       params: { fileId },
-      // A loop and the review it came from hold while switching version or variation.
+      // A loop and the review it came from hold while switching version or variant.
       search: (prev) => ({
         loop: prev.loop,
         review: prev.review,
         ...(media ? { t: positionIn(fileId, media.currentTime, alignments) } : {}),
       }),
     });
-  const trackId = variation?.trackId;
+  const trackId = variant?.trackId;
   useEffect(() => {
     if (!pending || status === null || status === "pending") return;
     // Ready, it is opened at the same moment as here; failed, the switch says so and we stay.
@@ -230,22 +230,20 @@ export function FileContext({
     if (trackId) void client.invalidateQueries({ queryKey: ["tracks", trackId] });
     if (status === "ready") go(pending);
   });
-  if (!variation) return null;
+  if (!variant) return null;
   const label = (n: number) => versionLabel(n, file.profile);
-  const version = track?.versions.find((v) => v.id === variation.versionId);
+  const version = track?.versions.find((v) => v.id === variant.versionId);
   const choices = track
     ? versionChoices(track.versions, {
-        versionId: variation.versionId,
-        variationName: variation.name,
+        versionId: variant.versionId,
+        variantName: variant.name,
       })
     : [];
   const shown = choices.find((c) => c.current);
   const mayAdd = !guest && Boolean(track) && can("upload");
   if (guest)
     return (
-      <span className="text-[13px] text-ink-3">
-        {label(variation.versionNumber)} is under review
-      </span>
+      <span className="text-[13px] text-ink-3">{label(variant.versionNumber)} is under review</span>
     );
   return (
     <>
@@ -275,7 +273,7 @@ export function FileContext({
               onSelect: () =>
                 void navigate({
                   to: "/tracks/$trackId",
-                  params: { trackId: variation.trackId },
+                  params: { trackId: variant.trackId },
                   search: { view: "versions" },
                 }),
             },
@@ -286,7 +284,7 @@ export function FileContext({
                     onSelect: () =>
                       void navigate({
                         to: "/tracks/$trackId",
-                        params: { trackId: variation.trackId },
+                        params: { trackId: variant.trackId },
                         search: { view: "takes" },
                       }),
                   },
@@ -295,18 +293,18 @@ export function FileContext({
           ]}
         />
       )}
-      {version && (version.variations.length > 1 || mayAdd) && (
+      {version && (version.variants.length > 1 || mayAdd) && (
         <Segmented
-          label={capital(words.variation)}
+          label={capital(words.variant)}
           value={file.id}
-          options={variationChoices(version)}
+          options={variantChoices(version)}
           onChange={(fileId) => {
             if (fileId !== file.id) go(fileId);
           }}
           action={
             mayAdd
               ? {
-                  label: `Add a ${words.variation}…`,
+                  label: `Add a ${words.variant}…`,
                   icon: <Icon name="plus" size={14} />,
                   onSelect: () => setAdding(true),
                 }
@@ -315,7 +313,7 @@ export function FileContext({
         />
       )}
       {adding && track && version && (
-        <VariationDialog
+        <VariantDialog
           track={track}
           version={version}
           mode="add"
@@ -332,12 +330,12 @@ export function FileContext({
  * version and when, and what they said.
  */
 export function VersionNote({ file }: { file: FileDetail }) {
-  const variation = file.variation;
+  const variant = file.variant;
   const { data: track } = useQuery({
-    ...trackQuery(variation?.trackId ?? ""),
-    enabled: Boolean(variation),
+    ...trackQuery(variant?.trackId ?? ""),
+    enabled: Boolean(variant),
   });
-  const version = track?.versions.find((v) => v.id === variation?.versionId);
+  const version = track?.versions.find((v) => v.id === variant?.versionId);
   if (!version?.notes) return null;
   const by = version.createdByName ?? version.sentBy ?? null;
   return (

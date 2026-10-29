@@ -6,7 +6,7 @@ import { type ChosenFile, UploadDialog } from "./ui/upload-dialog";
 /**
  * Uploading into a music project (#485): audio is asked what it is before it goes up, in the
  * upload dialog itself. A new track (the file becomes its version 1, named from the file), a
- * new version of a track that exists (each file a variation, as the track's own new-version
+ * new version of a track that exists (each file a variant, as the track's own new-version
  * dialog has it), or just a file. Several files can be a track each or one track with a
  * version per file. The choice last made is remembered per project; files dropped on a
  * track's row open on a new version of it. Anything that is not audio goes up as it is.
@@ -16,27 +16,27 @@ type UploadChoice = "track" | "version" | "file";
 type Grouping = "each" | "one";
 
 /** The files the zone picks here, with what each becomes under each choice. */
-const sample: (ChosenFile & { track: string; variation: string })[] = [
+const sample: (ChosenFile & { track: string; variant: string })[] = [
   {
     key: "a",
     name: "Pine Apple Rag - V1 mix.wav",
     size: 28_400_000,
     track: "Pine Apple Rag",
-    variation: "V1 mix",
+    variant: "V1 mix",
   },
   {
     key: "b",
     name: "Pine Apple Rag - V2 mix.wav",
     size: 28_600_000,
     track: "Pine Apple Rag",
-    variation: "V2 mix",
+    variant: "V2 mix",
   },
   {
     key: "c",
     name: "Elite Syncopations - rough.wav",
     size: 31_100_000,
     track: "Elite Syncopations",
-    variation: "Rough",
+    variant: "Rough",
   },
 ];
 
@@ -98,7 +98,7 @@ export function UploadFilesDialog({
       : choice === "version"
         ? n === 1
           ? `The file becomes version ${next} of ${target?.name}.`
-          : `${n} files become the variations of version ${next} of ${target?.name}.`
+          : `${n} files become the variants of version ${next} of ${target?.name}.`
         : one
           ? `${n} files become versions 1 to ${n} of one track ${into}, in name order.`
           : n === 1
@@ -189,8 +189,8 @@ export function UploadFilesDialog({
           return (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <Input
-                defaultValue={s?.variation ?? ""}
-                aria-label={`Variation name for ${c.name}`}
+                defaultValue={s?.variant ?? ""}
+                aria-label={`Variant name for ${c.name}`}
                 className="h-7 w-48 text-[13px]"
               />
               <label className="flex items-center gap-1.5 text-[13px] text-ink-2">

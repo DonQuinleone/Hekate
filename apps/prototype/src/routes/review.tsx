@@ -76,7 +76,7 @@ export function resolveItem(item: Review["items"][number]) {
   const file = item.fileId
     ? fileById(item.fileId)
     : version
-      ? fileById((version.variations.find((v) => v.primary) ?? version.variations[0])?.fileId ?? "")
+      ? fileById((version.variants.find((v) => v.primary) ?? version.variants[0])?.fileId ?? "")
       : undefined;
   return { track, version, file };
 }
@@ -98,7 +98,7 @@ const fileIdsOf = (review: Review) =>
   new Set(
     review.items.flatMap((i) => {
       const { version, file } = resolveItem(i);
-      return version ? version.variations.map((v) => v.fileId) : file ? [file.id] : [];
+      return version ? version.variants.map((v) => v.fileId) : file ? [file.id] : [];
     }),
   );
 
@@ -606,7 +606,7 @@ function Items({
                   </span>
                   <span className="block truncate text-[13px] text-ink-3">
                     {track && version
-                      ? `V${version.number} · ${version.variations.map((v) => v.name).join(", ")}`
+                      ? `V${version.number} · ${version.variants.map((v) => v.name).join(", ")}`
                       : file
                         ? fileDetails(file)
                         : ""}

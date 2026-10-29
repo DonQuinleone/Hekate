@@ -92,7 +92,7 @@ Every piece, in each of its states, is on the reference page at `/reference`. It
 The words are part of the design, and read as one person wrote them.
 
 - Direct and concrete. Say what the thing is for and what happens next, in one or two short sentences. Second person where it helps ("Ask the group, and everyone in it is asked together").
-- Nouns from `docs/domain.md`: track, version, variation, take, session, review, approval, guest, group, workflow. Copy says "workspace", never "organisation".
+- Nouns from `docs/domain.md`: track, version, variant, take, session, review, approval, guest, group, workflow. Copy says "workspace", never "organisation".
 - A description or hint earns its place by adding what the label cannot: the purpose, the consequence, the limit. One that repeats its label is removed, not padded.
 - Never "seamlessly", "powerful", "simply", "easily", "effortlessly", "robust" or "leverage". No marketing register anywhere, and no exclamation marks.
 - British English (colour, organisation in code, licence as a noun, behaviour). Sentence case. No em-dashes: commas, colons, semicolons or parentheses.

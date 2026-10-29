@@ -180,7 +180,7 @@ import {
   type UpdateCarryInput,
   type UpdateChannelInput,
   type UpdateProjectInput,
-  type UpdateVariationInput,
+  type UpdateVariantInput,
   type UploadRequestState,
   type Venue,
   type VenueInput,
@@ -520,7 +520,7 @@ export function useProjectTool(projectId: string | undefined) {
   return (tool: PlayerTool) => Boolean(data?.tools?.includes(tool));
 }
 
-/** What the project calls its tracks, versions and variations (#16): deliverables, cuts and renditions in video. */
+/** What the project calls its tracks, versions and variants (#16): deliverables, cuts and renditions in video. */
 export function useItemWords(projectId: string | undefined) {
   const { data } = useQuery({ ...projectQuery(projectId ?? ""), enabled: Boolean(projectId) });
   return {
@@ -1599,8 +1599,8 @@ export const projectFilesQuery = (projectId: string) =>
 
 export interface FileDetail extends ProjectFile {
   projectId: string;
-  /** Where the file sits in the music model, when it is a variation of a version. */
-  variation: {
+  /** Where the file sits in the music model, when it is a variant of a version. */
+  variant: {
     id: string;
     name: string;
     isPrimary: boolean;
@@ -1882,7 +1882,7 @@ export interface CommentCarry {
 }
 
 export interface CommentHistory {
-  /** The version it was raised on, when that file is a variation. */
+  /** The version it was raised on, when that file is a variant. */
   versionNumber: number | null;
   /** Each version it was carried to: its status there, and whether its anchor was moved by hand. */
   hops: { fileId: string; versionNumber: number; status: CarryStatus; moved: boolean }[];
@@ -2409,7 +2409,7 @@ export const alignmentsQuery = (fileId: string) =>
     staleTime: 60_000,
   });
 
-export interface Variation {
+export interface Variant {
   id: string;
   versionId: string;
   fileId: string;
@@ -2439,7 +2439,7 @@ export interface Version {
   letThroughBy: string | null;
   notes: string | null;
   createdAt: string;
-  variations: Variation[];
+  variants: Variant[];
 }
 
 export interface Track {
@@ -2482,8 +2482,8 @@ export interface CarryCandidate {
   body: string;
   authorName: string | null;
   anchor: Anchor | null;
-  /** The variation it was raised or carried on. */
-  variation: string | null;
+  /** The variant it was raised or carried on. */
+  variant: string | null;
 }
 
 export const carryQuery = (trackId: string) =>
@@ -2498,14 +2498,14 @@ export const carryQuery = (trackId: string) =>
   });
 
 /**
- * What a file can be compared with (#44): its track's versions and variations, as far as the
+ * What a file can be compared with (#44): its track's versions and variants, as far as the
  * person may open them.
  */
 export interface CompareFamily {
   versions: {
     id: string;
     number: number;
-    variations: Pick<Variation, "fileId" | "name" | "isPrimary" | "position" | "streamStatus">[];
+    variants: Pick<Variant, "fileId" | "name" | "isPrimary" | "position" | "streamStatus">[];
   }[];
 }
 
@@ -3313,7 +3313,7 @@ export function useTrackMutations(projectId: string) {
         void client.invalidateQueries({ queryKey: ["tracks", track.id, "carry"] });
       },
     }),
-    addVariation: useMutation({
+    addVariant: useMutation({
       mutationFn: async (input: {
         versionId: string;
         fileId: string;
@@ -3322,7 +3322,7 @@ export function useTrackMutations(projectId: string) {
       }) =>
         (
           await json<{ track: Track }>(
-            await api.versions[":id"].variations.$post({
+            await api.versions[":id"].variants.$post({
               param: { id: input.versionId },
               json: { fileId: input.fileId, name: input.name, primary: input.primary },
             }),
@@ -3330,7 +3330,7 @@ export function useTrackMutations(projectId: string) {
         ).track,
       onSuccess: refresh,
     }),
-    /** A corrected export in place of a variation's file; its threads move with it. */
+    /** A corrected export in place of a variant's file; its threads move with it. */
     // A version's edit decision list, given after it was made, changed or taken off (#56).
     setEdl: useMutation({
       mutationFn: async (input: { versionId: string; fileId: string | null }) =>
@@ -3348,11 +3348,11 @@ export function useTrackMutations(projectId: string) {
       },
     }),
     replaceFile: useMutation({
-      mutationFn: async (input: { variationId: string; fileId: string }) =>
+      mutationFn: async (input: { variantId: string; fileId: string }) =>
         (
           await json<{ track: Track }>(
-            await api.variations[":id"].replace.$post({
-              param: { id: input.variationId },
+            await api.variants[":id"].replace.$post({
+              param: { id: input.variantId },
               json: { fileId: input.fileId },
             }),
           )
@@ -3360,19 +3360,19 @@ export function useTrackMutations(projectId: string) {
       onSuccess: refresh,
     }),
     makePrimary: useMutation({
-      mutationFn: async (variationId: string) =>
+      mutationFn: async (variantId: string) =>
         (
           await json<{ track: Track }>(
-            await api.variations[":id"].primary.$post({ param: { id: variationId } }),
+            await api.variants[":id"].primary.$post({ param: { id: variantId } }),
           )
         ).track,
       onSuccess: refresh,
     }),
-    updateVariation: useMutation({
-      mutationFn: async ({ id, ...input }: UpdateVariationInput & { id: string }) =>
+    updateVariant: useMutation({
+      mutationFn: async ({ id, ...input }: UpdateVariantInput & { id: string }) =>
         (
           await json<{ track: Track }>(
-            await api.variations[":id"].$patch({ param: { id }, json: input }),
+            await api.variants[":id"].$patch({ param: { id }, json: input }),
           )
         ).track,
       onSuccess: refresh,
@@ -3431,7 +3431,7 @@ export interface ReviewDetail {
         trackId: string;
         name: string;
         follows: "version" | "latest";
-        version: { id: string; number: number; variations: string[] } | null;
+        version: { id: string; number: number; variants: string[] } | null;
         fileId: string | null;
       }
   ) & {
@@ -4513,7 +4513,7 @@ export interface FileDetails {
       trackId: string;
       track: string;
       number: number;
-      variation: string;
+      variant: string;
       primary: boolean;
       latest: boolean;
     }[];
@@ -5125,7 +5125,7 @@ export const instanceOperatorsQuery = queryOptions({
     (await json<{ operators: OperatorRow[] }>(await api.instance.operators.$get())).operators,
 });
 
-/** One side of a comparison: a version, heard through its primary variation. */
+/** One side of a comparison: a version, heard through its primary variant. */
 export interface CompareSide {
   versionId: string;
   number: number;

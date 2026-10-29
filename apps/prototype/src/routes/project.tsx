@@ -221,7 +221,7 @@ function Overview({ project }: { project: Project }) {
   const recent = activity.filter((a) => a.projectId === project.id).slice(0, 8);
   const openTasks = tasks.filter((t) => t.projectId === project.id && t.status !== "done");
   const fileIds = new Set(
-    projectTracks.flatMap((t) => t.versions.flatMap((v) => v.variations.map((x) => x.fileId))),
+    projectTracks.flatMap((t) => t.versions.flatMap((v) => v.variants.map((x) => x.fileId))),
   );
   const openComments = comments.filter(
     (c) => fileIds.has(c.fileId) && !c.parentId && !c.resolved,

@@ -4,7 +4,7 @@ import { cn } from "~/lib/cn";
 /**
  * Two to four views of the same thing (list and grid, light and dark): one pressed at a
  * time. Tabs are for a third level of navigation only. An `action` adds one more to the set
- * (another variation beside the dry and the wet): a small button at its end, after a hairline.
+ * (another variant beside the dry and the wet): a small button at its end, after a hairline.
  */
 export function Segmented<T extends string>({
   label,

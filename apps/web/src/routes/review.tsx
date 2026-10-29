@@ -470,7 +470,7 @@ function Items({ review }: { review: ReviewDetail }) {
             const detail =
               item.kind === "track"
                 ? item.version
-                  ? `${versionLabel(item.version.number, review.profile)}${item.follows === "latest" ? ", the latest" : ""}${item.version.variations.length > 0 ? ` · ${item.version.variations.join(", ")}` : ""}`
+                  ? `${versionLabel(item.version.number, review.profile)}${item.follows === "latest" ? ", the latest" : ""}${item.version.variants.length > 0 ? ` · ${item.version.variants.join(", ")}` : ""}`
                   : `No ${itemWords(review.profile).versions} yet`
                 : "File";
             const name = (

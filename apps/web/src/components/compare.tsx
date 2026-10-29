@@ -293,11 +293,11 @@ export function Compare({
   /** The volume the page plays at outside comparison: normalised playback's (#240), or full. */
   gain?: number;
 }) {
-  const variation = file.variation;
+  const variant = file.variant;
   // Only what this person may open: a guest, the files their reviews give them.
   const { data: track } = useQuery({
     ...compareFamilyQuery(file.id),
-    enabled: Boolean(variation),
+    enabled: Boolean(variant),
   });
   const candidates = useMemo(() => {
     if (!track) return [];
@@ -306,12 +306,12 @@ export function Compare({
     const extra =
       focus && !offered.some((c) => c.fileId === focus.fileId)
         ? (sourceFor(track, focus.fileId, file.profile) ??
-          (focus.outside && focus.outside.trackId === variation?.trackId
+          (focus.outside && focus.outside.trackId === variant?.trackId
             ? { fileId: focus.fileId, label: focus.outside.label, versionNumber: 0 }
             : undefined))
         : undefined;
     return extra ? [extra, ...offered] : offered;
-  }, [track, file.id, focus, variation?.trackId, file.profile]);
+  }, [track, file.id, focus, variant?.trackId, file.profile]);
   const [pinned, setPinned] = useState<string[]>([]);
   /** The source being heard, by file, so pinning or unpinning others never changes it. */
   const [heard, setHeard] = useState<string | null>(null);
@@ -325,7 +325,7 @@ export function Compare({
   // Where the same music sits in each other version, once the worker has aligned them.
   const { data: aligned = [] } = useQuery({
     ...alignmentsQuery(file.id),
-    enabled: Boolean(variation),
+    enabled: Boolean(variant),
   });
   const pointsOf = (fileId: string) => aligned.find((a) => a.fileId === fileId)?.points;
   /** Alignment when there is one; otherwise the same time, or a comment's offset. */
@@ -351,10 +351,10 @@ export function Compare({
 
   const self: CompareSource = {
     fileId: file.id,
-    label: variation
-      ? `${versionLabel(variation.versionNumber, file.profile)} · ${variation.name}`
+    label: variant
+      ? `${versionLabel(variant.versionNumber, file.profile)} · ${variant.name}`
       : file.name,
-    versionNumber: variation?.versionNumber ?? 0,
+    versionNumber: variant?.versionNumber ?? 0,
   };
   const sources = [
     self,
@@ -414,7 +414,7 @@ export function Compare({
     comparing,
   );
 
-  if (!variation || candidates.length === 0) return null;
+  if (!variant || candidates.length === 0) return null;
 
   const toggle = (fileId: string) => {
     // Unpinned, a source loses any offset a comment gave it; pinned again, it lines up as usual.

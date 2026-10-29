@@ -23,7 +23,7 @@ import { Empty, StateGate } from "~/viewer/state-gate";
 const profileCopy: Record<ProjectProfile, { label: string; hint: string }> = {
   music: {
     label: "Music",
-    hint: "Tracks with versions and variations, takes, scores, bars in comments, QA against a delivery profile.",
+    hint: "Tracks with versions and variants, takes, scores, bars in comments, QA against a delivery profile.",
   },
   video: {
     label: "Video",

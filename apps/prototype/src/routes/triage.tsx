@@ -16,7 +16,7 @@ import {
   people,
   personById,
   projectById,
-  variationOf,
+  variantOf,
   workflows,
 } from "~/data";
 import { cn } from "~/lib/cn";
@@ -39,7 +39,7 @@ export function TriagePage({ file }: { file: File }) {
   const navigate = useNavigate();
   const state = useScreenState();
   const project = projectById(file.projectId);
-  const inTrack = variationOf(file.id);
+  const inTrack = variantOf(file.id);
   const workflow = workflows.find((w) => w.id === project?.workflowId);
   const queue = useMemo(
     () =>

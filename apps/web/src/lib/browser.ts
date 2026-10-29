@@ -22,9 +22,9 @@ export type Item =
   | { kind: "file"; id: string; file: ProjectFile }
   | { kind: "version"; id: string; track: Track; version: Version };
 
-/** Every file that is a variation of some track's version: it lives in the track. */
+/** Every file that is a variant of some track's version: it lives in the track. */
 export const filesInTracks = (tracks: Track[]) =>
-  new Set(tracks.flatMap((t) => t.versions.flatMap((v) => v.variations.map((x) => x.fileId))));
+  new Set(tracks.flatMap((t) => t.versions.flatMap((v) => v.variants.map((x) => x.fileId))));
 
 /**
  * The files a list leaves out: a track's, shown by their track, and those a later version
@@ -104,7 +104,7 @@ export function freshPath(root: Item[], path: Item[], open: (item: Item) => Item
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
 /**
- * "V3 of 4 · 2 variations", or a dash for a track with nothing yet; a deliverable's in its own
+ * "V3 of 4 · 2 variants", or a dash for a track with nothing yet; a deliverable's in its own
  * words (#16): "Cut 3 of 4 · 2 renditions".
  */
 export function versionSummary(track: Track, profile?: ProjectProfile): string {
@@ -112,9 +112,9 @@ export function versionSummary(track: Track, profile?: ProjectProfile): string {
   if (!latest) return "—";
   const words = itemWords(profile);
   const of = track.versions.length > 1 ? ` of ${track.versions.length}` : "";
-  const variations =
-    latest.variations.length > 1 ? ` · ${plural(latest.variations.length, words.variation)}` : "";
-  return `${versionLabel(latest.number, profile)}${of}${variations}`;
+  const variants =
+    latest.variants.length > 1 ? ` · ${plural(latest.variants.length, words.variant)}` : "";
+  return `${versionLabel(latest.number, profile)}${of}${variants}`;
 }
 
 /** How much a folder holds, counting what it shows: folders, tracks and loose files. */
@@ -131,9 +131,7 @@ export function folderCount(
 /** The primary file of a track's latest version, if it has one. */
 export function latestFile(track: Track): string | null {
   const latest = track.versions.at(-1);
-  return (
-    latest?.variations.find((v) => v.isPrimary)?.fileId ?? latest?.variations[0]?.fileId ?? null
-  );
+  return latest?.variants.find((v) => v.isPrimary)?.fileId ?? latest?.variants[0]?.fileId ?? null;
 }
 
 /** What a track's row offers as the one thing it most wants next. */
@@ -151,7 +149,7 @@ export function trackNext(
   const latest = track.versions.at(-1);
   const file = latestFile(track);
   if (!latest && may.upload) return "add";
-  if (latest?.variations.some((v) => v.streamStatus === "failed") && may.organise) return "replace";
+  if (latest?.variants.some((v) => v.streamStatus === "failed") && may.organise) return "replace";
   if (file && track.state === "approved" && may.download) return "deliver";
   if (file && may.requestReviews && track.state !== "in_review") return "review";
   return null;
@@ -232,7 +230,7 @@ export function filterProject(
   const inTracks = notListed(tracks, files);
   const filesOf = (t: Track, latestOnly: boolean) =>
     (latestOnly ? t.versions.slice(-1) : t.versions)
-      .flatMap((v) => v.variations.map((x) => byId.get(x.fileId)))
+      .flatMap((v) => v.variants.map((x) => byId.get(x.fileId)))
       .filter((f): f is ProjectFile => f !== undefined);
   const tagged = (f: ProjectFile) => f.tagIds?.some((t) => filters.tags.includes(t)) ?? false;
   const passes = (item: Item): boolean => {
@@ -481,8 +479,8 @@ export function processingStage(file: ProjectFile): string | null {
   return null;
 }
 
-/** A variation's name from its file's: the extension and the track's own name dropped. */
-export function variationNameFor(fileName: string, trackName: string): string {
+/** A variant's name from its file's: the extension and the track's own name dropped. */
+export function variantNameFor(fileName: string, trackName: string): string {
   const bare = fileName.replace(/\.[^.]+$/, "");
   const rest = bare.toLowerCase().startsWith(trackName.toLowerCase())
     ? bare.slice(trackName.length).replace(/^[\s\-–_:·]+/, "")

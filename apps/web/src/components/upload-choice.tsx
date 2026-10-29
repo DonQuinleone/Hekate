@@ -24,7 +24,7 @@ import { letThrough, versionProblem } from "./version-problem";
 /**
  * Uploading into a music project (#485): audio is asked what it is before it goes up, in the
  * upload dialog itself. A new track (the file becomes its version 1, named from the file), a
- * new version of a track that exists (each file a variation, as the track's own new-version
+ * new version of a track that exists (each file a variant, as the track's own new-version
  * dialog has it), or just a file. Several files can be a track each or one track with a
  * version per file. The choice last made is remembered per project; files dropped on a
  * track's row open on a new version of it. Anything that is not audio goes up as it is,
@@ -91,13 +91,10 @@ export function AudioUploadDialog({
   const run = async (sent: ChosenFile<UploadedFile>[], hint?: unknown) => {
     const fileOf = new Map(sent.flatMap((c) => (c.result ? [[c.key, c.result.id] as const] : [])));
     const main = (fileId: string) => [{ fileId, name: "Main", primary: true }];
-    const version = (
-      id: string,
-      variations: { fileId: string; name: string; primary: boolean }[],
-    ) =>
+    const version = (id: string, variants: { fileId: string; name: string; primary: boolean }[]) =>
       createVersion.mutateAsync({
         trackId: id,
-        variations,
+        variants,
         letThrough: letThrough(hint) || undefined,
       });
     const trackFor = async (key: string, name: string) => {
@@ -125,7 +122,7 @@ export function AudioUploadDialog({
     } else if (plan.kind === "version") {
       await version(
         plan.track.id,
-        plan.variations.flatMap((v) => {
+        plan.variants.flatMap((v) => {
           const fileId = fileOf.get(v.key);
           return fileId ? [{ fileId, name: v.name, primary: v.primary }] : [];
         }),
@@ -243,20 +240,20 @@ export function AudioUploadDialog({
       row={(c) => {
         if (!audible(c)) return null;
         if (plan.kind === "version") {
-          const variation = plan.variations.find((v) => v.key === c.key);
+          const variant = plan.variants.find((v) => v.key === c.key);
           return (
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <Input
                 size="sm"
-                value={names[c.key] ?? variation?.name ?? ""}
+                value={names[c.key] ?? variant?.name ?? ""}
                 onChange={(e) => setNames((n) => ({ ...n, [c.key]: e.target.value }))}
-                aria-label={`Variation name for ${c.name}`}
+                aria-label={`Variant name for ${c.name}`}
                 className="w-48 min-w-0 flex-1 @3xl/app:flex-none"
               />
               <label className="flex cursor-pointer items-center gap-1.5 text-[13px] text-ink-2">
                 <Radio
                   name="primary"
-                  checked={variation?.primary ?? false}
+                  checked={variant?.primary ?? false}
                   onChange={() => setPrimary(c.key)}
                 />
                 Primary

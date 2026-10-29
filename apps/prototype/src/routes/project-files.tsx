@@ -484,7 +484,7 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
   const s = trackState(track, project);
   const file = s.version ? primaryFile(s.version) : undefined;
   const comments = s.version
-    ? s.version.variations.reduce((n, x) => n + openCommentCount(x.fileId), 0)
+    ? s.version.variants.reduce((n, x) => n + openCommentCount(x.fileId), 0)
     : 0;
   const canRequest = viewer.can(project.id, "request_reviews");
   const canUpload = viewer.can(project.id, "upload");
@@ -616,7 +616,7 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
       <span className="tabular hidden truncate text-[13px] text-ink-3 @3xl/app:block">
         {s.version
           ? `V${s.version.number}${track.versions.length > 1 ? ` of ${track.versions.length}` : ""}${
-              s.version.variations.length > 1 ? ` · ${s.version.variations.length} variations` : ""
+              s.version.variants.length > 1 ? ` · ${s.version.variants.length} variants` : ""
             }`
           : "—"}
       </span>
@@ -983,7 +983,7 @@ function Preview({ item, project }: { item: Item; project: Project }) {
       "Uploaded",
       `${personById(item.version.uploadedBy).name}, ${formatDateTime(item.version.uploadedAt)}`,
     ]);
-    rows.push(["Variations", item.version.variations.map((v) => v.name).join(", ")]);
+    rows.push(["Variants", item.version.variants.map((v) => v.name).join(", ")]);
     if (item.version.note) rows.push(["Note", item.version.note]);
   }
   if (file) {

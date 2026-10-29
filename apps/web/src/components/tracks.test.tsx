@@ -20,8 +20,8 @@ import {
 } from "~/lib/queries";
 import { FileContext, positionIn, ScoreSwitch, VersionNote } from "./tracks";
 
-const variation = (fileId: string, name: string, isPrimary: boolean, versionId: string) => ({
-  id: `${fileId}-variation`,
+const variant = (fileId: string, name: string, isPrimary: boolean, versionId: string) => ({
+  id: `${fileId}-variant`,
   versionId,
   fileId,
   name,
@@ -49,7 +49,7 @@ const track = {
       letThroughBy: null,
       notes: null,
       createdAt: "2026-10-12T09:00:00Z",
-      variations: [variation("v1-dry", "Dry", true, "v1"), variation("v1-wet", "Wet", false, "v1")],
+      variants: [variant("v1-dry", "Dry", true, "v1"), variant("v1-wet", "Wet", false, "v1")],
     },
     {
       id: "v2",
@@ -59,7 +59,7 @@ const track = {
       letThroughBy: null,
       notes: "Bars 12 to 16 replaced with take 7.",
       createdAt: "2026-10-14T10:12:00Z",
-      variations: [variation("v2-dry", "Dry", true, "v2"), variation("v2-wet", "Wet", false, "v2")],
+      variants: [variant("v2-dry", "Dry", true, "v2"), variant("v2-wet", "Wet", false, "v2")],
     },
   ],
 } as unknown as Track;
@@ -69,8 +69,8 @@ const file = {
   projectId: "project",
   name: "Maple Leaf Rag - Wet v2.wav",
   profile: "music",
-  variation: {
-    id: "v2-wet-variation",
+  variant: {
+    id: "v2-wet-variant",
     name: "Wet",
     isPrimary: false,
     versionId: "v2",
@@ -161,7 +161,7 @@ describe("the strip above the player (#15)", () => {
     expect(screen.getByRole("menuitem", { name: "All versions and notes" })).toBeTruthy();
   });
 
-  it("opens another version's variation of the same name at the same music", async () => {
+  it("opens another version's variant of the same name at the same music", async () => {
     const router = await show({ at: 10 });
     fireEvent.click(await screen.findByRole("button", { name: /^Version V2/ }));
     await act(async () => fireEvent.click(screen.getByRole("menuitemradio", { name: /^V1/ })));
@@ -173,7 +173,7 @@ describe("the strip above the player (#15)", () => {
     expect(positionIn("v1-wet", 10, alignments as never)).toBe(12);
   });
 
-  it("switches variation within the version, pressed where it is heard", async () => {
+  it("switches variant within the version, pressed where it is heard", async () => {
     const router = await show({ at: 3 });
     const wet = screen.getByRole("button", { name: "Wet" });
     expect(wet.getAttribute("aria-pressed")).toBe("true");
