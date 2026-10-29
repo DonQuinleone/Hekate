@@ -935,22 +935,15 @@ function ThreadView({
   /** Where it points, as one chip at the end of its first line; nothing for the whole file. */
   const where = anchor ? (
     anchor.kind === "time" ? (
-      <button
-        type="button"
-        onClick={() => onSeek(anchor.start)}
-        className={chip}
-        aria-label={`Play from ${label(anchor)}`}
-      >
+      // Each chip is named by its own words, the verb read out and not shown, so what it shows
+      // is always part of its name.
+      <button type="button" onClick={() => onSeek(anchor.start)} className={chip}>
+        <span className="sr-only">Play from </span>
         <span className="truncate">{label(anchor)}</span>
       </button>
     ) : anchor.kind === "bar" && anchor.at !== undefined ? (
-      <button
-        type="button"
-        onClick={() => onSeek(anchor.at ?? 0)}
-        className={chip}
-        // Named by what it shows, so its visible text is part of its name.
-        aria-label={`Play ${label(anchor).toLowerCase()} · ${moment(anchor.at)}`}
-      >
+      <button type="button" onClick={() => onSeek(anchor.at ?? 0)} className={chip}>
+        <span className="sr-only">Play </span>
         <span className="truncate">
           {label(anchor)}
           <span className="text-ink-3"> · {moment(anchor.at)}</span>
@@ -968,19 +961,15 @@ function ThreadView({
         }
         aria-pressed={picked}
         className={cn(chip, picked && "border-signal")}
-        aria-label={`Show ${marker ? `thread ${marker.n}, ` : ""}${label(anchor)}`}
       >
+        <span className="sr-only">Show {marker ? "thread " : ""}</span>
         {marker && <span className="text-signal">{marker.n}</span>}
         <span className="truncate">{label(anchor)}</span>
       </button>
     ) : anchor.kind === "region" && anchor.at !== undefined ? (
       // A drawing on a video's frame (#146): back to its frame, as the prototype does.
-      <button
-        type="button"
-        onClick={() => onSeek(anchor.at ?? 0)}
-        className={chip}
-        aria-label={`Show the drawing, ${label(anchor)}`}
-      >
+      <button type="button" onClick={() => onSeek(anchor.at ?? 0)} className={chip}>
+        <span className="sr-only">Show the drawing, </span>
         <span className="truncate">{label(anchor)}</span>
       </button>
     ) : (
