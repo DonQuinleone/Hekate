@@ -1,4 +1,10 @@
-import { type ExportThread, formatAnchor } from "@hekate/shared";
+import {
+  type DateFormats,
+  defaultDateFormats,
+  type ExportThread,
+  formatAnchor,
+  formatDateTime,
+} from "@hekate/shared";
 import { type TextLine, textPdf } from "./text-pdf.ts";
 
 /**
@@ -12,6 +18,8 @@ export interface CommentSheetInput {
   project: string;
   requestedBy: { name: string; role: string | null };
   generatedAt: Date;
+  /** How its dates read (#481); ISO 8601 and the 24-hour clock unless the workspace chose otherwise. */
+  dates?: DateFormats;
   /** Open threads only, or all of them. */
   scope: "open" | "all";
   threads: ExportThread[];
@@ -26,7 +34,7 @@ const placeOf = (t: ExportThread, fps?: number | null) =>
 /** The sheet's lines: the stamp, then each thread, numbered as the export orders them. */
 export function commentSheetLines(r: CommentSheetInput): TextLine[] {
   const shown = r.threads.filter((t) => r.scope === "all" || !t.resolved);
-  const date = r.generatedAt.toISOString().slice(0, 16).replace("T", " ");
+  const date = formatDateTime(r.dates ?? defaultDateFormats, r.generatedAt, { timeZone: "UTC" });
   const who = `${r.requestedBy.name}${r.requestedBy.role ? `, ${r.requestedBy.role}` : ""}`;
   return [
     { text: "Comments", size: 18, bold: true },

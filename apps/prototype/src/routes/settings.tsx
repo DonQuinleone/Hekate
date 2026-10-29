@@ -801,11 +801,27 @@ export function SettingsPage({
                 <option value="30">30 days</option>
               </Select>
             </Row>
-            <Row name="Language and dates">
+            <Row name="Language" hint="For members who have not chosen their own in Account.">
               <Select defaultValue="en-GB" className="w-56">
-                <option value="en-GB">British English, 14 Oct 2026</option>
+                <option value="en-GB">British English</option>
                 <option value="en-US">American English</option>
                 <option value="de">Deutsch</option>
+              </Select>
+            </Row>
+            {/* #481: dates read in ISO 8601 unless the instance or the workspace chose otherwise. */}
+            <Row name="Dates" hint="How dates read here, in lists, comments, mail and exports.">
+              <Select defaultValue="" className="w-56">
+                <option value="">Instance default (ISO 8601)</option>
+                <option value="iso">ISO 8601 (2026-10-29)</option>
+                <option value="day-month-year">Day, month, year (29 Oct 2026)</option>
+                <option value="month-day-year">Month, day, year (Oct 29, 2026)</option>
+              </Select>
+            </Row>
+            <Row name="Times" hint="The clock beside them.">
+              <Select defaultValue="" className="w-56">
+                <option value="">Instance default (24-hour)</option>
+                <option value="24h">24-hour (14:05)</option>
+                <option value="12h">12-hour (2:05 pm)</option>
               </Select>
             </Row>
           </Section>

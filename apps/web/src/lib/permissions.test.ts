@@ -33,7 +33,7 @@ describe("reviewer permissions in words", () => {
     // Feedback reviews ask for no decision, so saying so would be noise.
     expect(permissionSummary({ ...all, decide: false }, "feedback")).toEqual([]);
     expect(permissionSummary({ ...all, expiresAt: "2026-11-03T17:00:00Z" }, "feedback")[0]).toMatch(
-      /^Until 3 Nov/,
+      /^Until 2026-11-03/,
     );
   });
 
@@ -42,10 +42,10 @@ describe("reviewer permissions in words", () => {
     expect(accessNote({ opensAt: null, closesAt: null, accessOpen: true }, now)).toBeNull();
     expect(
       accessNote({ opensAt: "2026-10-21T09:00:00Z", closesAt: null, accessOpen: false }, now),
-    ).toMatch(/^opens 21 Oct/);
+    ).toMatch(/^opens 2026-10-21/);
     expect(
       accessNote({ opensAt: null, closesAt: "2026-10-19T09:00:00Z", accessOpen: false }, now),
-    ).toMatch(/^closed 19 Oct/);
+    ).toMatch(/^closed 2026-10-19/);
   });
 
   it("round-trips a moment through a local date and time field", () => {

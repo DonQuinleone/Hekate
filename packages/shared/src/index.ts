@@ -15,6 +15,7 @@ export * from "./comment-export.ts";
 export * from "./comment-import.ts";
 export * from "./comments.ts";
 export * from "./croom.ts";
+export * from "./dates.ts";
 export * from "./directory.ts";
 export * from "./downloads.ts";
 export * from "./edl.ts";

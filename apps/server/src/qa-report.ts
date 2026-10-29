@@ -1,7 +1,10 @@
 import {
   admHeading,
   admLine,
+  type DateFormats,
+  defaultDateFormats,
   formatClock,
+  formatDateTime,
   type LoudnessSummary,
   type MediaInfo,
   metadataRows,
@@ -27,6 +30,8 @@ export interface QaReportInput {
   /** Who downloaded it, and their part in the project. */
   requestedBy: { name: string; role: string | null };
   generatedAt: Date;
+  /** How its dates read (#481); ISO 8601 and the 24-hour clock unless the workspace chose otherwise. */
+  dates?: DateFormats;
   profile: { label: string };
   status: string;
   loudness: LoudnessSummary | null;
@@ -146,7 +151,7 @@ export function qaReportJson(r: QaReportInput): string {
 export function qaReportLines(r: QaReportInput): TextLine[] {
   const problems = r.findings.filter((f) => f.severity !== "pass");
   const passed = r.findings.filter((f) => f.severity === "pass");
-  const date = r.generatedAt.toISOString().slice(0, 16).replace("T", " ");
+  const date = formatDateTime(r.dates ?? defaultDateFormats, r.generatedAt, { timeZone: "UTC" });
   return [
     { text: "QA report", size: 18, bold: true },
     {

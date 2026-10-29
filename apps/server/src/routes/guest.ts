@@ -6,6 +6,7 @@ import { z } from "zod";
 import { type Audit, requestInfo } from "../audit.ts";
 import { recordAuth, requestOf } from "../auth-log.ts";
 import { brandingOf } from "../branding.ts";
+import { workspaceDateFormats } from "../dates.ts";
 import { CodedException } from "../errors.ts";
 import { emitEvent } from "../events.ts";
 import { maskEmail } from "../guest-code.ts";
@@ -55,6 +56,8 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
       organisation: organisation?.name ?? null,
       // The workspace's logo and accent (#185), on every page a guest sees.
       branding: await brandingOf(deps.db, organisationId),
+      // How its dates read (#481), so a guest sees them as its members do.
+      ...(await workspaceDateFormats(deps.db, organisationId)),
       reviews: await guestReviews(deps.db, organisationId, guestId),
     };
   };

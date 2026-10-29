@@ -2,7 +2,9 @@ import { randomBytes } from "node:crypto";
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   attachmentName,
+  defaultDateFormats,
   errorReferencesIn,
+  formatDateTime,
   formatTicketReference,
   type InstanceModules,
   nextTicketState,
@@ -25,6 +27,7 @@ import {
 import { and, asc, count, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 import type { Context } from "hono";
 import { type Actor, type Audit, requestInfo } from "./audit.ts";
+import { workspaceDateFormats } from "./dates.ts";
 import { CodedException, NotFound } from "./errors.ts";
 import type { Subdomains } from "./hosts.ts";
 import type { InstanceSettingsStore } from "./instance-settings.ts";
@@ -289,15 +292,6 @@ export async function recentErrorOf(
   return last ? { reference: last.reference, occurredAt: last.occurredAt.toISOString() } : null;
 }
 
-const clock = (date: Date) =>
-  date.toLocaleString("en-GB", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "UTC",
-  });
-
 /** Sends a ticket from the workspace: its reference made, its severity held to the plan. */
 export async function createTicket(
   deps: SupportDeps,
@@ -345,6 +339,8 @@ export async function createTicket(
     .from(users)
     .where(eq(users.id, who.userId));
   const name = person?.name ?? "Someone";
+  // When each error happened, as the workspace writes dates (#481).
+  const dates = reports.length > 0 ? await workspaceDateFormats(db, who.organisationId) : null;
   const made = await db.transaction(async (tx) => {
     const ticket = await insertTicket(tx, {
       organisationId: who.organisationId,
@@ -377,7 +373,7 @@ export async function createTicket(
         author: "system",
         authorId: null,
         authorName: "Hekate",
-        body: `Error ${report.reference} attached: it happened at ${report.location}, ${clock(report.occurredAt)} UTC. The operators see its whole story.`,
+        body: `Error ${report.reference} attached: it happened at ${report.location}, ${formatDateTime(dates ?? defaultDateFormats, report.occurredAt, { timeZone: "UTC" })} UTC. The operators see its whole story.`,
       });
     return { ticket, messageId: first?.id ?? "" };
   });

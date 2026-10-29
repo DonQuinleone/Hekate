@@ -97,6 +97,8 @@ describe("workspace settings", () => {
       emailSubjects: { invitation: "Join {workspace}", decision: "{nonsense}", stale: "x" },
       deliveryProfile: "vinyl",
       roleTools: { Reviewer: ["score"], Viewer: ["x-ray"], Mixer: ["qa"] },
+      dateFormat: "day-month-year",
+      timeFormat: "13h",
       stale: true,
     });
     expect(read).toEqual({
@@ -104,6 +106,8 @@ describe("workspace settings", () => {
       guestLinkDays: 14,
       guestVerification: "link",
       locale: null,
+      dateFormat: "day-month-year",
+      timeFormat: null,
       carriedCommentsShown: true,
       deliveryProfile: null,
       emailSubjects: { invitation: "Join {workspace}" },

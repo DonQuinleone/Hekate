@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { locales } from "./account.ts";
+import { dateFormat, timeFormat } from "./dates.ts";
 import { downloadLevels } from "./downloads.ts";
 import {
   type EmailSubjects,
@@ -210,6 +211,9 @@ export const workspaceSettingsSchema = z.object({
   guestVerification: z.enum(guestVerifications),
   /** Dates and numbers for members who have not chosen; null follows each browser. */
   locale: z.enum(locales).nullable(),
+  /** How dates and times read here (#481); null is the instance's own format. */
+  dateFormat: dateFormat.nullable(),
+  timeFormat: timeFormat.nullable(),
   /** Whether a new project shows threads carried to a new version (decision 029). */
   carriedCommentsShown: z.boolean(),
   /** What recordings are measured against where nothing nearer chooses (#144). */
@@ -258,6 +262,8 @@ export const defaultWorkspaceSettings: WorkspaceSettings = {
   guestLinkDays: 3,
   guestVerification: "link",
   locale: null,
+  dateFormat: null,
+  timeFormat: null,
   carriedCommentsShown: true,
   deliveryProfile: null,
   emailSubjects: {},
@@ -284,6 +290,8 @@ export const workspaceSettingsInput = z
     guestLinkDays: workspaceSettingsSchema.shape.guestLinkDays.optional(),
     guestVerification: workspaceSettingsSchema.shape.guestVerification.optional(),
     locale: workspaceSettingsSchema.shape.locale.optional(),
+    dateFormat: workspaceSettingsSchema.shape.dateFormat.optional(),
+    timeFormat: workspaceSettingsSchema.shape.timeFormat.optional(),
     carriedCommentsShown: workspaceSettingsSchema.shape.carriedCommentsShown.optional(),
     deliveryProfile: workspaceSettingsSchema.shape.deliveryProfile.optional(),
     emailSubjects: emailSubjectsChange.optional(),
@@ -326,6 +334,8 @@ export function workspaceSettingsOf(stored: unknown): WorkspaceSettings {
       d.guestVerification,
     ),
     locale: pick(shape.locale, read(stored, "locale"), d.locale),
+    dateFormat: pick(shape.dateFormat, read(stored, "dateFormat"), d.dateFormat),
+    timeFormat: pick(shape.timeFormat, read(stored, "timeFormat"), d.timeFormat),
     carriedCommentsShown: pick(
       shape.carriedCommentsShown,
       read(stored, "carriedCommentsShown"),
@@ -383,6 +393,8 @@ export function applyWorkspaceSettings(
     guestLinkDays: change.guestLinkDays ?? current.guestLinkDays,
     guestVerification: change.guestVerification ?? current.guestVerification,
     locale: change.locale === undefined ? current.locale : change.locale,
+    dateFormat: change.dateFormat === undefined ? current.dateFormat : change.dateFormat,
+    timeFormat: change.timeFormat === undefined ? current.timeFormat : change.timeFormat,
     carriedCommentsShown: change.carriedCommentsShown ?? current.carriedCommentsShown,
     deliveryProfile:
       change.deliveryProfile === undefined ? current.deliveryProfile : change.deliveryProfile,

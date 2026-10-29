@@ -2217,7 +2217,7 @@ test("settings-export", async ({ page }) => {
     });
   });
   await page.goto("/settings/general");
-  await settle(page, "main >> text=until 27 October");
+  await settle(page, "main >> text=until 2026-10-27");
   await saveScreen(page, "settings-export");
   await checkScreen(page);
   await page.getByRole("button", { name: "Start an export…" }).click();
@@ -3607,7 +3607,7 @@ test("project-sessions-import-made", async ({ page }) => {
   const cleanUp = async () => {
     await sql`delete from takes where id in (select take_id from files where name in ${sql(names)})`;
     await sql`delete from files where name in ${sql(names)}`;
-    await sql`delete from sessions where name = '16 October 2026'`;
+    await sql`delete from sessions where name = '2026-10-16'`;
   };
   try {
     const files = sessionFiles([
@@ -3624,7 +3624,7 @@ test("project-sessions-import-made", async ({ page }) => {
     await expect(dialog.getByText("The Entertainer, 100% sure")).toHaveCount(2);
     await dialog.getByRole("button", { name: "Import 2 takes" }).click();
     // The new session opens with the takes made in it, each its track's next take.
-    await expect(page.getByRole("heading", { name: "16 October 2026" })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "2026-10-16" })).toBeVisible({
       timeout: 30_000,
     });
     const table = page.locator("main table");

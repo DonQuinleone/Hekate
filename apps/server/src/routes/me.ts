@@ -1,6 +1,7 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   deleteAccountInput,
+  effectiveDateFormats,
   fileColumnsInput,
   isDunningReason,
   OWNER_DELETION_REASON,
@@ -17,6 +18,7 @@ import { z } from "zod";
 import { deleteAccount, deletionConfirmation } from "../account-deletion.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import type { Auth } from "../auth.ts";
+import { instanceDateFormats } from "../dates.ts";
 import { CodedException } from "../errors.ts";
 import { rootAddress, type Subdomains, workspaceAddress } from "../hosts.ts";
 import type { Keyring } from "../keyring.ts";
@@ -92,6 +94,7 @@ export const meRoutes = (
         .select({ id: schema.passkeys.id })
         .from(schema.passkeys)
         .where(eq(schema.passkeys.userId, c.var.userId));
+      const instanceDates = await instanceDateFormats(db);
       const standing = await factorStanding(
         db,
         c.var.sessionId,
@@ -113,12 +116,14 @@ export const meRoutes = (
           met: standing.met,
           recoveryCodesLeft: twoFactorEnabled ? recoveryCodesLeft(factor?.backupCodes) : 0,
         },
-        // Each workspace's language, for members who have not chosen their own, and whether an
-        // operator has suspended it, and why (#174).
+        // Each workspace's language, for members who have not chosen their own, how its dates
+        // read (#481: its own choice, or the instance's), and whether an operator has suspended
+        // it, and why (#174).
         organisations: organisations.map(
           ({ settings, suspendedAt, suspendedReason, deleteAfter, ...o }) => ({
             ...o,
             locale: workspaceSettingsOf(settings).locale,
+            ...effectiveDateFormats(workspaceSettingsOf(settings), instanceDates),
             // Suspended for a payment overdue (#178), its owners can pay to open it again; being
             // deleted by its owners (#186), they can keep it until the day it goes.
             suspended: suspendedAt

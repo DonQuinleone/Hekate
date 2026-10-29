@@ -1,3 +1,13 @@
+import {
+  type DateFormat,
+  dateFormatLabels,
+  dateFormats,
+  formatDate,
+  formatTime,
+  type TimeFormat,
+  timeFormatLabels,
+  timeFormats,
+} from "@hekate/shared";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Page } from "~/components/page";
@@ -10,6 +20,21 @@ export interface NavSection {
   label: string;
   group?: string;
 }
+
+/** One afternoon, shown in each format so the choice reads as it will look (#481). */
+const SAMPLE = new Date("2026-10-29T14:05:00Z");
+
+/** Each date format as a choice, with its example: "Day, month, year (29 Oct 2026)". */
+export const dateFormatChoices: { value: DateFormat; label: string }[] = dateFormats.map((f) => ({
+  value: f,
+  label: `${dateFormatLabels[f]} (${formatDate(f, SAMPLE, { timeZone: "UTC" })})`,
+}));
+
+/** Each time format as a choice, with its example: "12-hour (2:05 pm)". */
+export const timeFormatChoices: { value: TimeFormat; label: string }[] = timeFormats.map((f) => ({
+  value: f,
+  label: `${timeFormatLabels[f]} (${formatTime(f, SAMPLE, { timeZone: "UTC" })})`,
+}));
 
 /** The secondary navigation: a quiet list of sections at the left, grouped, that stays put while the page scrolls. */
 export function SideNav({

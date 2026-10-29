@@ -2487,6 +2487,25 @@ export function InstancePage({ section }: { section: string }) {
             </Row>
             <SwitchRow name="Forensic marking on" checked />
           </Section>
+          {/* #481: the format every workspace follows unless it chose its own. */}
+          <Section
+            title="Dates and times"
+            intro="How dates read in every workspace that has not chosen its own, in its General settings: on screen, in mail and in exports. ISO 8601 reads the same in every country."
+          >
+            <Row name="Dates">
+              <Select defaultValue="iso" className="w-56">
+                <option value="iso">ISO 8601 (2026-10-29)</option>
+                <option value="day-month-year">Day, month, year (29 Oct 2026)</option>
+                <option value="month-day-year">Month, day, year (Oct 29, 2026)</option>
+              </Select>
+            </Row>
+            <Row name="Times">
+              <Select defaultValue="24h" className="w-56">
+                <option value="24h">24-hour (14:05)</option>
+                <option value="12h">12-hour (2:05 pm)</option>
+              </Select>
+            </Row>
+          </Section>
           <Section
             title="Logs"
             intro="How long each log keeps its rows; a job trims them once a day, and says what it trimmed."

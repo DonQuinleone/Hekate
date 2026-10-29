@@ -15,6 +15,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { canOnFile, fileAccess, mayUseTool, toolRefused } from "../access.ts";
 import { alignmentsFrom } from "../alignment-graph.ts";
+import { workspaceDateFormats } from "../dates.ts";
 import { profilesForFiles } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
 import type { ViewerVariables } from "../guests.ts";
@@ -198,6 +199,7 @@ export const fileQaRoutes = (db: Database) =>
             projectId: projects.id,
             project: projects.name,
             workspace: organisations.name,
+            settings: organisations.settings,
           })
           .from(files)
           .innerJoin(
@@ -229,6 +231,7 @@ export const fileQaRoutes = (db: Database) =>
             project: where.project,
             requestedBy: await requesterOf(db, c.var.actor, where.projectId),
             generatedAt: new Date(),
+            dates: await workspaceDateFormats(db, org, where.settings),
             profile: { label: report.profile.label },
             status: report.status,
             loudness: measured?.summary ?? null,

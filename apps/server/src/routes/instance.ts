@@ -2387,15 +2387,17 @@ export function instanceRoutes(options: InstanceOptions) {
                       ? "New workspaces' storage quota"
                       : change.action === "defaults.member_limit"
                         ? "New workspaces' member limit"
-                        : change.action.startsWith("support.")
-                          ? "The support desk"
-                          : change.action.startsWith("logs.")
-                            ? `The ${String(change.details.kind) === "auth" ? "authentication" : String(change.details.kind)} log`
-                            : change.action.startsWith("registration.")
-                              ? "Registration"
-                              : change.action.startsWith("billing.")
-                                ? "Billing's rules"
-                                : "A second factor",
+                        : change.action === "dates.format"
+                          ? "How dates read"
+                          : change.action.startsWith("support.")
+                            ? "The support desk"
+                            : change.action.startsWith("logs.")
+                              ? `The ${String(change.details.kind) === "auth" ? "authentication" : String(change.details.kind)} log`
+                              : change.action.startsWith("registration.")
+                                ? "Registration"
+                                : change.action.startsWith("billing.")
+                                  ? "Billing's rules"
+                                  : "A second factor",
               details: change.details,
               ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
             });

@@ -42,7 +42,7 @@ describe("a connected app's row (#447)", () => {
       lastUsedAt: null,
     });
     expect(hint).toMatch(
-      /^Read reviews, read and write comments · connected .*2026 · not used yet$/,
+      /^Read reviews, read and write comments · connected 2026-08-\d\d.* · not used yet$/,
     );
   });
 });

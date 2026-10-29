@@ -104,7 +104,8 @@ describe("the schedule as a PDF", () => {
   afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
   it("writes dates in full", () => {
-    expect(longDate("2026-09-12")).toBe("Saturday 12 September 2026");
+    expect(longDate("2026-09-12")).toBe("Saturday, 2026-09-12");
+    expect(longDate("2026-09-12", "day-month-year")).toBe("Saturday 12 Sep 2026");
   });
 
   it("has a front page, a page a day and the breakdown, a long day carried over", () => {
@@ -153,7 +154,7 @@ describe("the schedule as a PDF", () => {
     const path = join(dir, "schedule.pdf");
     writeFileSync(path, pdf);
     const { stdout } = await run("pdftotext", ["-layout", path, "-"]);
-    expect(stdout).toContain("Saturday 12 September 2026 to Sunday 13 September 2026");
+    expect(stdout).toContain("Saturday, 2026-09-12 to Sunday, 2026-09-13");
     expect(stdout).toMatch(/10:00–11:00\s+RAGS\s+Trio\s+60/);
     expect(stdout).toContain("Ensemble breakdown");
   });

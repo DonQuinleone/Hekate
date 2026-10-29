@@ -32,6 +32,7 @@ import {
   type CreditInput,
   type CustomProfile,
   type CustomProfileInput,
+  type DateFormat,
   type DeletionConfirmation,
   type DirectorySettings,
   type DirectorySettingsInput,
@@ -167,6 +168,7 @@ import {
   type TaskDetail,
   type TaskInput,
   type TaskSummary,
+  type TimeFormat,
   type ToolException,
   type TraceResult,
   type TrackState,
@@ -218,6 +220,7 @@ import { type LogFilters, logQuery } from "./access-log";
 import { api } from "./api";
 import type { Health } from "./connection";
 import { notMemberAddress } from "./hosts";
+import { setDateFormats } from "./locale";
 import { outboxStore } from "./outbox-store";
 import { baseOf, outcomeOf, type PendingWrite, rolledAt } from "./take-outbox";
 import { uuidv7 } from "./uuidv7";
@@ -302,6 +305,9 @@ export interface Me {
     role: "owner" | "admin" | "member";
     /** The workspace's language, for members without their own. */
     locale?: string | null;
+    /** How its dates and times read (#481): its own choice, or the instance's. */
+    dateFormat?: DateFormat;
+    timeFormat?: TimeFormat;
     /**
      * Suspended, and why: nobody gets in until it is reinstated. `payable` when billing
      * suspended it for a payment overdue (#178): its owners may still pay. `deleteAfter` when
@@ -351,7 +357,11 @@ export const meQuery = queryOptions({
           return leaveFor(notMemberAddress(root, window.location.pathname, window.location.search));
       }
     }
-    return json<Me>(res);
+    const me = await json<Me>(res);
+    // How the active workspace's dates read (#481), before anything draws one; an answer
+    // without workspaces (an older server) leaves the defaults.
+    setDateFormats(me.organisations?.find((o) => o.id === me.activeOrganisationId));
+    return me;
   },
   staleTime: 60_000,
 });
@@ -987,9 +997,11 @@ export function useRenameWorkspace() {
 export const workspaceSettingsWithLimitsQuery = queryOptions({
   queryKey: ["organisation", "settings"],
   queryFn: async () =>
-    json<{ settings: WorkspaceSettings; instance: { sessionDays: number } }>(
-      await api.organisation.settings.$get(),
-    ),
+    json<{
+      settings: WorkspaceSettings;
+      /** The instance's session length, and its date and time formats (#481). */
+      instance: { sessionDays: number; dateFormat: DateFormat; timeFormat: TimeFormat };
+    }>(await api.organisation.settings.$get()),
 });
 
 export const workspaceSettingsQuery = queryOptions({
@@ -1298,7 +1310,13 @@ export function useSaveWorkspaceSettings() {
         before ? { ...before, settings } : before,
       );
       if (change.emailSubjects) client.invalidateQueries({ queryKey: ["organisation", "email"] });
-      if (change.locale !== undefined) client.invalidateQueries({ queryKey: meQuery.queryKey });
+      // The language and the date formats (#481) reach every member through `me`.
+      if (
+        change.locale !== undefined ||
+        change.dateFormat !== undefined ||
+        change.timeFormat !== undefined
+      )
+        client.invalidateQueries({ queryKey: meQuery.queryKey });
       // Every file that inherits the workspace's profile is measured afresh, in every project.
       if (change.deliveryProfile !== undefined) {
         void client.invalidateQueries({
@@ -3751,6 +3769,9 @@ export interface GuestMe {
   organisation: string | null;
   /** The workspace's logo and accent (#185). */
   branding: PublicBranding | null;
+  /** How its dates and times read (#481), as its members see them. */
+  dateFormat?: DateFormat;
+  timeFormat?: TimeFormat;
   reviews: (Pick<
     ReviewSummary,
     "id" | "kind" | "title" | "status" | "outcome" | "dueAt" | "createdAt"
@@ -3769,7 +3790,9 @@ export const guestMeQuery = queryOptions({
   queryFn: async (): Promise<GuestMe | null> => {
     const res = await api.guest.me.$get();
     if (res.status === 401) return null;
-    return json<GuestMe>(res);
+    const me = await json<GuestMe>(res);
+    setDateFormats(me);
+    return me;
   },
   staleTime: 60_000,
 });

@@ -36,6 +36,7 @@ import { actorOf, canOnFile, lockLiveProject } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { hopsOf, lockTrackOfFile, versionNumbersOf } from "../carry.ts";
 import { commentSheet } from "../comment-sheet.ts";
+import { workspaceDateFormats } from "../dates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { emitEvent } from "../events.ts";
 import type { ViewerVariables } from "../guests.ts";
@@ -659,6 +660,7 @@ export const fileCommentRoutes = (
           projectId: files.projectId,
           project: projects.name,
           workspace: organisations.name,
+          settings: organisations.settings,
         })
         .from(files)
         .innerJoin(
@@ -692,6 +694,7 @@ export const fileCommentRoutes = (
         project: file.project,
         requestedBy: await requesterOf(db, actor, file.projectId),
         generatedAt: new Date(),
+        dates: await workspaceDateFormats(db, organisationId, file.settings),
         scope: options.threads,
         threads,
         fps: file.kind === "video" ? (file.mediaInfo?.video?.fps ?? null) : null,

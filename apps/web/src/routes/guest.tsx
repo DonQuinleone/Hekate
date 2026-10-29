@@ -1,7 +1,7 @@
 import { reviewKindNames } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Lockup } from "~/components/brand";
 import { reviewState } from "~/components/reviews";
@@ -10,7 +10,7 @@ import { Button } from "~/components/ui/button";
 import { CodeField } from "~/components/ui/code-field";
 import { StatusPill } from "~/components/ui/status";
 import { useBrandAccent } from "~/lib/branding";
-import { formatDates } from "~/lib/locale";
+import { formatDates, localeKey } from "~/lib/locale";
 import { accessNote } from "~/lib/permissions";
 import {
   ApiError,
@@ -208,7 +208,8 @@ export function GuestShell({ children }: { children: ReactNode }) {
         </>
       }
     >
-      {children}
+      {/* Dates redraw once the workspace's format (#481) is known. */}
+      <Fragment key={localeKey()}>{children}</Fragment>
     </GuestFrame>
   );
 }

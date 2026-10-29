@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { type BillingRules, billingRules, defaultBillingRules } from "./billing.ts";
+import { dateFormat, defaultDateFormats, timeFormat } from "./dates.ts";
 import type { BounceProvider } from "./mail-bounces.ts";
 import { defaultWorkspaceSettings, guestLinkDays } from "./organisation.ts";
 import { pausedQueues } from "./queues.ts";
@@ -39,6 +40,8 @@ const instanceSettingsSchema = z.object({
     storageQuota: workspaceLimits.shape.storageQuota,
     memberLimit: workspaceLimits.shape.memberLimit,
   }),
+  /** How dates and times read (#481) in every workspace that has not chosen its own. */
+  dates: z.object({ dateFormat, timeFormat }),
   /** How long each log keeps its rows (#157), in days; null keeps them for good. */
   logs: z.object({
     audit: z.literal(logKeepDays).nullable(),
@@ -80,6 +83,7 @@ export const instanceSettingsInput = instanceSettingsSchema.extend({
       memberLimit: workspaceLimits.shape.memberLimit.optional(),
     })
     .optional(),
+  dates: instanceSettingsSchema.shape.dates.optional(),
   logs: instanceSettingsSchema.shape.logs
     .extend({
       webhooks: instanceSettingsSchema.shape.logs.shape.webhooks.optional(),
@@ -114,6 +118,7 @@ export const withStored = (
             : input.defaults.memberLimit,
       }
     : stored.defaults,
+  dates: input.dates ?? stored.dates,
   logs: input.logs
     ? {
         ...input.logs,
@@ -137,6 +142,7 @@ export const defaultInstanceSettings: InstanceSettings = {
     storageQuota: null,
     memberLimit: null,
   },
+  dates: defaultDateFormats,
   // The audit log is kept for good unless an operator says otherwise: nothing already logged
   // goes because the instance was upgraded.
   logs: { audit: null, auth: 365, mail: 90, webhooks: 30, api: 30 },
@@ -155,6 +161,7 @@ export function instanceSettingsOf(stored: unknown): InstanceSettings {
     updates: { ...defaultInstanceSettings.updates, ...value.updates },
     maintenance: { ...defaultInstanceSettings.maintenance, ...value.maintenance },
     defaults: { ...defaultInstanceSettings.defaults, ...value.defaults },
+    dates: { ...defaultInstanceSettings.dates, ...value.dates },
     logs: { ...defaultInstanceSettings.logs, ...value.logs },
     billing: {
       ...defaultInstanceSettings.billing,
@@ -212,6 +219,11 @@ export function settingsChanges(
       action: "defaults.member_limit",
       details: { members: after.defaults.memberLimit },
     });
+  if (
+    before.dates.dateFormat !== after.dates.dateFormat ||
+    before.dates.timeFormat !== after.dates.timeFormat
+  )
+    changes.push({ action: "dates.format", details: { ...after.dates } });
   if (before.billing.currency !== after.billing.currency)
     changes.push({ action: "billing.currency", details: { currency: after.billing.currency } });
   const { dunning: was } = before.billing;

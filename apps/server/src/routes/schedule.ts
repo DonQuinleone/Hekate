@@ -12,6 +12,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can, lockLiveProject } from "../access.ts";
+import { workspaceDateFormats } from "../dates.ts";
 import { NotFound } from "../errors.ts";
 import { textPdfOf } from "../media/pdf.ts";
 import { zValidator } from "../openapi/validator.ts";
@@ -273,6 +274,8 @@ export const projectScheduleRoutes = (db: Database) =>
           .orderBy(asc(tracks.name)),
         venues: await venuesOf(db, organisationId, projectId),
         personnel: await personnelOf(db, organisationId, projectId),
+        // Its dates as the workspace reads them (#481).
+        dateFormat: (await workspaceDateFormats(db, organisationId)).dateFormat,
       };
       const name = `${input.project} schedule`;
       if (c.req.param("format") === "xlsx")

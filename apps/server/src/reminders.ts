@@ -2,6 +2,7 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import { activeReviewers, withinWindow, workspaceSettingsOf } from "@hekate/shared";
 import { and, eq, gt, inArray, isNull, lte } from "drizzle-orm";
 import type { Audit } from "./audit.ts";
+import { workspaceDateFormats } from "./dates.ts";
 import { workspaceEmail } from "./email/templates.ts";
 import { issueGuestLink } from "./guests.ts";
 import { type LinkRoots, linkBase } from "./hosts.ts";
@@ -54,6 +55,8 @@ export async function remindDue(
     .from(organisations)) {
     // A guest's link opens at the workspace's own address with subdomains on (#437).
     const base = linkBase(deps, workspace.slug);
+    // Its dates as the workspace reads them (#481).
+    const { dateFormat } = await workspaceDateFormats(db, workspace.id, workspace.settings);
     type Due = { reviewerId: string; review: (typeof due)[number] & { dueAt: Date } };
     const guests = new Map<string, { email: string; due: Due[] }>();
     const due = await db
@@ -156,6 +159,7 @@ export async function remindDue(
               guestLinkDays: issued.days,
             },
             workspaceSettingsOf(workspace.settings).emailSubjects,
+            dateFormat,
           ),
           workspace.id,
         );

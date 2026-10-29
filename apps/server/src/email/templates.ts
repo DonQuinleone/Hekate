@@ -1,22 +1,19 @@
 import {
+  type DateFormat,
   type DownloadLevel,
   type EmailSubjects,
   type EmailTemplateId,
   emailTemplates,
+  formatDate,
   type ReviewDecision,
   type ReviewKind,
   subjectFor,
 } from "@hekate/shared";
 import type { Email } from "./render.ts";
 
-/** "14 October 2026": a date anyone reads the same way, wherever they are. */
-export const longDate = (date: Date) =>
-  date.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+/** A date in mail (#481): in the workspace's format, on the day it is in UTC. */
+export const mailDate = (date: Date, format: DateFormat = "iso") =>
+  formatDate(format, date, { timeZone: "UTC" });
 
 /** What each workspace message needs, by template. */
 export interface TemplateData {
@@ -149,11 +146,12 @@ const quoted = (note: string) => `“${note.trim()}”`;
 const guestFoot = (days: number) =>
   `This link is yours alone and signs you in on this device. It works once, for ${days} days.`;
 
-/** A workspace message: its words, with the workspace's subject line. */
+/** A workspace message: its words, with the workspace's subject line and its dates (#481). */
 export function workspaceEmail<T extends EmailTemplateId>(
   id: T,
   data: TemplateData[T],
   subjects: EmailSubjects,
+  dateFormat: DateFormat = "iso",
 ): Email {
   const subject = subjectFor(id, subjects, subjectValues(id, data));
   switch (id) {
@@ -172,7 +170,7 @@ export function workspaceEmail<T extends EmailTemplateId>(
               ? `${d.review}, in ${d.project}, is ready. Open it, leave comments where they belong, then record Approved or Changes requested.`
               : `${d.review}, in ${d.project}, is ready. Open it and leave comments where they belong, then send your feedback.`,
           ...(d.message?.trim() ? [quoted(d.message)] : []),
-          ...(d.dueAt ? [`Due ${longDate(d.dueAt)}.`] : []),
+          ...(d.dueAt ? [`Due ${mailDate(d.dueAt, dateFormat)}.`] : []),
         ],
         action: { label: "Open the review", url: d.url },
         foot:
@@ -191,7 +189,7 @@ export function workspaceEmail<T extends EmailTemplateId>(
         subject,
         heading: `${d.requester} shared ${d.review} with you`,
         body: [
-          `${d.review}, in ${d.project}, is yours to listen to or look at${d.expiresAt ? ` until ${longDate(d.expiresAt)}` : ""}${d.maxPlays ? `, up to ${d.maxPlays} ${d.maxPlays === 1 ? "play" : "plays"} of each file` : ""}. Nothing is asked of you, and what you open is logged.`,
+          `${d.review}, in ${d.project}, is yours to listen to or look at${d.expiresAt ? ` until ${mailDate(d.expiresAt, dateFormat)}` : ""}${d.maxPlays ? `, up to ${d.maxPlays} ${d.maxPlays === 1 ? "play" : "plays"} of each file` : ""}. Nothing is asked of you, and what you open is logged.`,
           ...(d.download !== "none"
             ? [
                 `You may download the ${d.download === "original" ? "original" : "proxy"}; each copy is marked for you.`,
@@ -245,7 +243,7 @@ export function workspaceEmail<T extends EmailTemplateId>(
         subject,
         heading: `Your ${d.kind === "approval" ? "decision" : "feedback"} on ${d.review} is due tomorrow`,
         body: [
-          `${d.review}, in ${d.project}, waits on you. It is due ${longDate(d.dueAt)}.`,
+          `${d.review}, in ${d.project}, waits on you. It is due ${mailDate(d.dueAt, dateFormat)}.`,
           ...(d.others?.length
             ? ["These are due tomorrow too, and the same link opens them:"]
             : []),

@@ -3053,6 +3053,7 @@ describe.runIf(url)("api", () => {
           updates: { channel: "stable" },
           maintenance: { on: false, message: "" },
           defaults: { guestLinkDays: 3, storageQuota: null, memberLimit: null },
+          dates: { dateFormat: "iso", timeFormat: "24h" },
           logs: { audit: null, auth: 365, mail: 90, webhooks: 30, api: 30 },
           billing: {
             currency: "GBP",
@@ -3837,6 +3838,101 @@ describe.runIf(url)("api", () => {
             .returning({ id: schema.organisations.id });
           return made?.id ?? "";
         };
+
+        it("writes dates as the instance chooses unless a workspace chooses its own, which no other workspace reads or changes (#481)", async () => {
+          const operator = cookieOf(await setup());
+          type Instance = { settings: InstanceSettings };
+          const { settings } = (await (
+            await get("/api/instance/settings", operator)
+          ).json()) as Instance;
+          expect(settings.dates).toEqual({ dateFormat: "iso", timeFormat: "24h" });
+          type Mine = {
+            settings: { dateFormat: string | null; timeFormat: string | null };
+            instance: { sessionDays: number; dateFormat: string; timeFormat: string };
+          };
+          const mine = async (cookie: string) =>
+            (await (await getAs("/api/organisation/settings", cookie)).json()) as Mine;
+          /** How the active workspace's dates read, as `me` tells the web app. */
+          const effective = async (cookie: string) => {
+            const me = (await (await getAs("/api/me", cookie)).json()) as {
+              activeOrganisationId: string;
+              organisations: { id: string; dateFormat: string; timeFormat: string }[];
+            };
+            const w = me.organisations.find((o) => o.id === me.activeOrganisationId);
+            return { dateFormat: w?.dateFormat, timeFormat: w?.timeFormat };
+          };
+          const change = (body: Record<string, unknown>, cookie: string) =>
+            app.request("/api/organisation/settings", { ...json(body, cookie), method: "PATCH" });
+          const due = async (cookie: string) =>
+            /Due ([^.]+)\./.exec(
+              (
+                (await (
+                  await getAs("/api/organisation/email/review_requested", cookie)
+                ).json()) as { text: string }
+              ).text,
+            )?.[1];
+
+          // Nothing chosen anywhere: ISO 8601 and the 24-hour clock.
+          expect(await effective(operator)).toEqual({ dateFormat: "iso", timeFormat: "24h" });
+          expect(await due(operator)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+          // The instance chooses day-month-year and the 12-hour clock for every workspace.
+          const chosen = { dateFormat: "day-month-year", timeFormat: "12h" };
+          expect(
+            (await send("PUT", "/api/instance/settings", { ...settings, dates: chosen }, operator))
+              .status,
+          ).toBe(200);
+          expect(await mine(operator)).toMatchObject({
+            settings: { dateFormat: null, timeFormat: null },
+            instance: { dateFormat: "day-month-year", timeFormat: "12h" },
+          });
+          expect(await effective(operator)).toEqual(chosen);
+          expect(await due(operator)).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{4}$/);
+          // The workspace's own date format stands over the instance's; the clock it left alone
+          // stays the instance's.
+          expect((await change({ dateFormat: "iso" }, operator)).status).toBe(200);
+          expect(await effective(operator)).toEqual({ dateFormat: "iso", timeFormat: "12h" });
+          expect(await due(operator)).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+          expect((await change({ dateFormat: "year-first" }, operator)).status).toBe(400);
+          expect((await change({ timeFormat: "13h" }, operator)).status).toBe(400);
+
+          // Another workspace reads the instance's choice, never this one's, and changes only
+          // its own.
+          const elsewhere = await another("Saltmarsh Films", "saltmarsh-dates");
+          const theirs = await join(operator, "label@example.test");
+          const [user] = await db
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.email, "label@example.test"));
+          await db
+            .insert(schema.members)
+            .values({ organisationId: elsewhere, userId: user?.id ?? "", role: "owner" });
+          expect(
+            (
+              await app.request("/api/me/organisation", {
+                ...json({ organisationId: elsewhere }, theirs),
+                method: "PUT",
+              })
+            ).status,
+          ).toBe(200);
+          expect(await mine(theirs)).toMatchObject({
+            settings: { dateFormat: null, timeFormat: null },
+            instance: { dateFormat: "day-month-year", timeFormat: "12h" },
+          });
+          expect(await effective(theirs)).toEqual(chosen);
+          expect((await change({ timeFormat: "24h" }, theirs)).status).toBe(200);
+          expect(await effective(theirs)).toEqual({
+            dateFormat: "day-month-year",
+            timeFormat: "24h",
+          });
+          expect((await mine(operator)).settings).toMatchObject({
+            dateFormat: "iso",
+            timeFormat: null,
+          });
+          expect(await effective(operator)).toEqual({ dateFormat: "iso", timeFormat: "12h" });
+          // Back to the instance's own.
+          expect((await change({ dateFormat: null }, operator)).status).toBe(200);
+          expect(await effective(operator)).toEqual(chosen);
+        });
 
         it("makes a workspace and invites its first owner, on a subdomain of its own", async () => {
           const operator = cookieOf(await setup());
@@ -6505,6 +6601,8 @@ describe.runIf(url)("api", () => {
           guestLinkDays: 3,
           guestVerification: "link",
           locale: null,
+          dateFormat: null,
+          timeFormat: null,
           carriedCommentsShown: true,
           deliveryProfile: null,
           emailSubjects: {},
