@@ -1,5 +1,14 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { createContext, type ReactNode, useContext, useState } from "react";
+import {
+  createContext,
+  type DragEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+  type RefObject,
+  useContext,
+  useState,
+} from "react";
 import { Avatar, AvatarRow } from "~/components/avatar";
 import { Icon, type IconName } from "~/components/icons";
 import { Label } from "~/components/label";
@@ -8,9 +17,9 @@ import { Dot } from "~/components/status";
 import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
-import { Floating } from "~/components/ui/floating";
+import { Floating, type Point } from "~/components/ui/floating";
 import { Input, Select, Textarea } from "~/components/ui/input";
-import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
+import { ActionMenu, ContextMenu, type MenuAction, usePopover } from "~/components/ui/menu";
 import {
   files as allFiles,
   tracks as allTracks,
@@ -107,7 +116,226 @@ const Picked = createContext<{
   has: (id: string) => boolean;
   toggle: (id: string) => void;
   any: boolean;
+  count: number;
 } | null>(null);
+
+/* ---------- Organising in place (#487) ---------- */
+
+/** Where a context menu opened, and what it offers. */
+interface OpenMenu {
+  at: Point | RefObject<HTMLElement | null>;
+  actions: (MenuAction | "divider")[];
+  label: string;
+}
+
+/**
+ * What the browser is doing to its rows, shared by them: the context menu (a right click, a
+ * long press, the Menu key or Shift+F10), a name being edited in its row, the row a drag is
+ * over, rows cut and waiting to be pasted, and the folder picker. One list of actions serves
+ * a row's "…" menu and its context menu.
+ */
+const Browser = createContext<{
+  organise: boolean;
+  menu: (at: OpenMenu["at"], actions: (MenuAction | "divider")[], label: string) => void;
+  selection: (MenuAction | "divider")[];
+  renaming: string | null;
+  rename: (id: string | null) => void;
+  dropOn: string | null;
+  setDropOn: (id: string | null) => void;
+  cut: Set<string>;
+  setCut: (ids: Set<string>) => void;
+  move: (title: string) => void;
+} | null>(null);
+
+const dragType = "application/x-hekate-items";
+
+/**
+ * What every row does for the browser: it is dragged (and a folder or a track takes the
+ * drop, lit while it is over), it opens its menu on a right click or from the keyboard, F2
+ * renames it, and cut it fades until it is pasted.
+ */
+function useRow(
+  id: string,
+  label: string,
+  actions: (MenuAction | "divider")[],
+  takesDrops: boolean,
+) {
+  const b = useContext(Browser);
+  const picked = useContext(Picked);
+  const onSelection = (picked?.has(id) ?? false) && (picked?.count ?? 0) > 1;
+  const open = (at: OpenMenu["at"]) =>
+    onSelection && b
+      ? b.menu(at, b.selection, "Actions for the selection")
+      : b?.menu(at, actions, `Actions for ${label}`);
+  const target = b?.organise && takesDrops;
+  return {
+    props: {
+      "data-row": id,
+      draggable: b?.organise && b.renaming !== id,
+      onDragStart: (event: DragEvent<HTMLElement>) => {
+        event.dataTransfer.setData(dragType, JSON.stringify([id]));
+        event.dataTransfer.effectAllowed = "move";
+      },
+      onDragEnd: () => b?.setDropOn(null),
+      ...(target
+        ? {
+            onDragOver: (event: DragEvent<HTMLElement>) => {
+              if (!Array.from(event.dataTransfer.types).includes(dragType)) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "move";
+              b?.setDropOn(id);
+            },
+            onDragLeave: () => b?.setDropOn(null),
+            onDrop: (event: DragEvent<HTMLElement>) => {
+              event.preventDefault();
+              b?.setDropOn(null);
+            },
+          }
+        : {}),
+      onContextMenu: (event: MouseEvent<HTMLElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        open({ x: event.clientX, y: event.clientY });
+      },
+      onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+        if ((event.target as HTMLElement).closest("input")) return;
+        if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
+          event.preventDefault();
+          open({ current: event.currentTarget });
+        } else if (event.key === "F2" && b?.organise) {
+          event.preventDefault();
+          b.rename(id);
+        } else if (event.key === "x" && (event.metaKey || event.ctrlKey) && b?.organise) {
+          event.preventDefault();
+          b.setCut(new Set([id]));
+        }
+      },
+    },
+    className: cn(
+      b?.dropOn === id && "bg-raised shadow-[inset_0_0_0_1px_var(--hk-edge)]",
+      b?.cut.has(id) && "opacity-50",
+    ),
+    renaming: b?.renaming === id,
+    rename: () => b?.rename(id),
+    done: () => b?.rename(null),
+    move: () => b?.move(`Move ${label}`),
+    cut: () => b?.setCut(new Set([id])),
+  };
+}
+
+/**
+ * A name edited in its row: the field takes the name's place with the name selected (a
+ * file's without its extension); Enter keeps it, Escape keeps the old one, leaving keeps it.
+ */
+function RenameInput({
+  initial,
+  file,
+  onDone,
+}: {
+  initial: string;
+  file: boolean;
+  onDone: () => void;
+}) {
+  const [name, setName] = useState(initial);
+  const dot = file ? initial.lastIndexOf(".") : -1;
+  return (
+    <Input
+      autoFocus
+      aria-label={`Rename ${initial}`}
+      value={name}
+      spellCheck={false}
+      onFocus={(e) => e.currentTarget.setSelectionRange(0, dot > 0 ? dot : initial.length)}
+      onChange={(e) => setName(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          onDone();
+        }
+      }}
+      onBlur={onDone}
+      className="my-2.5 h-7 max-w-96 min-w-0 px-1.5 text-[14px]"
+    />
+  );
+}
+
+/**
+ * Where something goes, chosen from the project's folders as a tree, for whoever would rather
+ * not drag: the top first, then every folder under its parent; where it is now is marked.
+ */
+function MovePicker({
+  title,
+  project,
+  current,
+  onClose,
+}: {
+  title: string;
+  project: Project;
+  current: string | null;
+  onClose: () => void;
+}) {
+  const [to, setTo] = useState<string | null>(current);
+  const rows: { id: string | null; name: string; depth: number }[] = [
+    { id: null, name: "Top of the project", depth: 0 },
+  ];
+  const walk = (parentId: string | null, depth: number) => {
+    for (const f of folders.filter((x) => x.projectId === project.id && x.parentId === parentId)) {
+      rows.push({ id: f.id, name: f.name, depth });
+      walk(f.id, depth + 1);
+    }
+  };
+  walk(null, 1);
+  return (
+    <Dialog
+      title={title}
+      description="Choose the folder it goes to."
+      width="sm"
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" disabled={to === current} onClick={onClose}>
+            Move
+          </Button>
+        </>
+      }
+    >
+      <div role="tree" aria-label="Move to" className="-mx-2 flex flex-col">
+        {rows.map((row) => {
+          const chosen = row.id === to;
+          const here = row.id === current;
+          return (
+            <button
+              key={row.id ?? "top"}
+              type="button"
+              role="treeitem"
+              aria-selected={chosen}
+              aria-level={row.depth + 1}
+              tabIndex={chosen ? 0 : -1}
+              onClick={() => setTo(row.id)}
+              style={{ paddingLeft: 8 + row.depth * 18 }}
+              className={cn(
+                "flex h-8 w-full items-center gap-2 rounded-control pr-2 text-left text-[13px] transition-colors",
+                chosen ? "bg-raised text-ink" : "text-ink-2 hover:bg-raised/50 hover:text-ink",
+              )}
+            >
+              <Icon
+                name={row.id === null ? "home" : "folder"}
+                size={14}
+                className="shrink-0 text-ink-3"
+              />
+              <span className="min-w-0 flex-1 truncate">{row.name}</span>
+              {here && <span className="shrink-0 text-[11px] text-ink-3">Current</span>}
+              {chosen && !here && <Icon name="check" size={13} className="shrink-0 text-ink-2" />}
+            </button>
+          );
+        })}
+      </div>
+    </Dialog>
+  );
+}
 
 /**
  * A row's icon, which becomes its checkbox on hover or focus, and stays one while anything is
@@ -139,10 +367,18 @@ function RowPick({ id, icon, className }: { id: string; icon: IconName; classNam
 
 /**
  * What can be done to everything selected, floating at the foot of the list (Linear,
- * Dropbox): favourite and mark seen for everyone; move, tag and delete for those who
- * organise. Rows also drag onto a folder or the path to move.
+ * Dropbox): the same actions the context menu on a selected row offers, each a button. Rows
+ * also drag onto a folder, a track or the path to move, and cut and paste.
  */
-function SelectionBar({ count, onClear }: { count: number; onClear: () => void }) {
+function SelectionBar({
+  count,
+  actions,
+  onClear,
+}: {
+  count: number;
+  actions: (MenuAction | "divider")[];
+  onClear: () => void;
+}) {
   return (
     <div
       role="toolbar"
@@ -150,11 +386,19 @@ function SelectionBar({ count, onClear }: { count: number; onClear: () => void }
       className="rise-in sticky bottom-4 z-20 mx-auto mt-4 flex w-full max-w-3xl flex-wrap items-center gap-1 rounded-panel-lg bg-overlay p-2 shadow-4"
     >
       <span className="tabular px-2 text-[13px] text-ink">{count} selected</span>
-      {["Favourite", "Mark as viewed", "Move…", "Tags…", "Delete…"].map((label) => (
-        <Button key={label} size="sm" variant="ghost">
-          {label}
-        </Button>
-      ))}
+      {actions.map((a) =>
+        a === "divider" ? null : (
+          <Button
+            key={a.label}
+            size="sm"
+            variant="ghost"
+            onClick={a.onSelect}
+            className={cn(a.danger && "text-signal hover:text-signal")}
+          >
+            {a.label}
+          </Button>
+        ),
+      )}
       <button
         type="button"
         aria-label="Clear the selection"
@@ -301,7 +545,7 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
         }
       />,
     );
-  const actions: (MenuAction | "divider")[] = [
+  const organising: (MenuAction | "divider")[] = [
     ...(file
       ? [
           {
@@ -313,32 +557,49 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
       : []),
     { label: "Share…", onSelect: () => {} },
     "divider",
-    { label: "Rename", onSelect: () => {} },
-    { label: "Move to…", onSelect: () => {} },
+    { label: "Rename", hint: "F2", onSelect: () => row.rename() },
+    { label: "Move to…", onSelect: () => row.move() },
+    { label: "Cut", hint: "⌘X", onSelect: () => row.cut() },
     { label: "Link a score…", onSelect: () => {} },
     ...(viewer.can(project.id, "delete")
       ? ["divider" as const, { label: "Delete…", danger: true, onSelect: () => {} }]
       : []),
   ];
+  const actions: (MenuAction | "divider")[] = [
+    ...personalActions(false),
+    ...(viewer.can(project.id, "organise") ? ["divider" as const, ...organising] : []),
+  ];
+  const row = useRow(track.id, track.name, actions, true);
   return (
-    <li className={cn(rowGrid, "group border-b border-line last:border-b-0 hover:bg-raised/50")}>
+    <li
+      {...row.props}
+      className={cn(
+        rowGrid,
+        "group border-b border-line last:border-b-0 hover:bg-raised/50",
+        row.className,
+      )}
+    >
       <RowPick id={track.id} icon="track" className="text-ink-2" />
-      <Link
-        to={file ? "/files/$fileId" : "/tracks/$trackId"}
-        params={file ? { fileId: file.id } : { trackId: track.id }}
-        search={file ? {} : { view: "versions" }}
-        className="min-w-0 py-3"
-      >
-        <span className="block truncate text-[14px] font-medium text-ink">{track.name}</span>
-        <span className="block truncate text-[12px] text-ink-3">
-          {track.composer}
-          <span className="@3xl/app:hidden">
-            {track.composer ? " · " : ""}
-            {s.label}
-            {s.version ? ` · V${s.version.number}` : ""}
+      {row.renaming ? (
+        <RenameInput initial={track.name} file={false} onDone={row.done} />
+      ) : (
+        <Link
+          to={file ? "/files/$fileId" : "/tracks/$trackId"}
+          params={file ? { fileId: file.id } : { trackId: track.id }}
+          search={file ? {} : { view: "versions" }}
+          className="min-w-0 py-3"
+        >
+          <span className="block truncate text-[14px] font-medium text-ink">{track.name}</span>
+          <span className="block truncate text-[12px] text-ink-3">
+            {track.composer}
+            <span className="@3xl/app:hidden">
+              {track.composer ? " · " : ""}
+              {s.label}
+              {s.version ? ` · V${s.version.number}` : ""}
+            </span>
           </span>
-        </span>
-      </Link>
+        </Link>
+      )}
       <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
         <Dot state={s.dot} />
         <span className="truncate">{s.label}</span>
@@ -367,13 +628,7 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
       </span>
       <span className={quickCell}>{quick}</span>
       <span className="flex items-center justify-end">
-        <ActionMenu
-          label={track.name}
-          actions={[
-            ...personalActions(false),
-            ...(viewer.can(project.id, "organise") ? ["divider" as const, ...actions] : []),
-          ]}
-        />
+        <ActionMenu label={track.name} actions={actions} />
       </span>
     </li>
   );
@@ -383,20 +638,54 @@ function FileRow({ file, project }: { file: File; project: Project }) {
   const viewer = useViewer();
   const comments = openCommentCount(file.id);
   const long = useScreenState() === "long";
+  const actions: (MenuAction | "divider")[] = [
+    ...personalActions(false),
+    ...(viewer.can(project.id, "organise")
+      ? [
+          "divider" as const,
+          { label: "Share…", onSelect: () => {} },
+          { label: "Details", onSelect: () => {} },
+          "divider" as const,
+          { label: "Rename", hint: "F2", onSelect: () => row.rename() },
+          { label: "Move to…", onSelect: () => row.move() },
+          { label: "Cut", hint: "⌘X", onSelect: () => row.cut() },
+          { label: "Attach to a track…", onSelect: () => {} },
+          { label: "Tags…", onSelect: () => {} },
+          ...(viewer.can(project.id, "delete")
+            ? ["divider" as const, { label: "Delete…", danger: true, onSelect: () => {} }]
+            : []),
+        ]
+      : []),
+  ];
+  const row = useRow(file.id, file.name, actions, false);
   return (
-    <li className={cn(rowGrid, "group border-b border-line last:border-b-0 hover:bg-raised/50")}>
+    <li
+      {...row.props}
+      className={cn(
+        rowGrid,
+        "group border-b border-line last:border-b-0 hover:bg-raised/50",
+        row.className,
+      )}
+    >
       <RowPick id={file.id} icon={kindIcon[file.kind]} className="text-ink-3" />
-      <Link to="/files/$fileId" params={{ fileId: file.id }} className="min-w-0 py-3">
-        <span
-          className={cn("block text-[14px] text-ink", long ? "line-clamp-2 break-all" : "truncate")}
-        >
-          {file.name}
-        </span>
-        <span className="block truncate text-[12px] text-ink-3 @3xl/app:hidden">
-          {chainLabel(file)}
-          {fileDetails(file)}
-        </span>
-      </Link>
+      {row.renaming ? (
+        <RenameInput initial={file.name} file onDone={row.done} />
+      ) : (
+        <Link to="/files/$fileId" params={{ fileId: file.id }} className="min-w-0 py-3">
+          <span
+            className={cn(
+              "block text-[14px] text-ink",
+              long ? "line-clamp-2 break-all" : "truncate",
+            )}
+          >
+            {file.name}
+          </span>
+          <span className="block truncate text-[12px] text-ink-3 @3xl/app:hidden">
+            {chainLabel(file)}
+            {fileDetails(file)}
+          </span>
+        </Link>
+      )}
       <span className="hidden items-center gap-2 text-[13px] @3xl/app:flex">
         {file.state === "pending" && (
           <>
@@ -435,27 +724,7 @@ function FileRow({ file, project }: { file: File; project: Project }) {
         )}
       </span>
       <span className="flex items-center justify-end">
-        <ActionMenu
-          label={file.name}
-          actions={[
-            ...personalActions(false),
-            ...(viewer.can(project.id, "organise")
-              ? [
-                  "divider" as const,
-                  { label: "Share…", onSelect: () => {} },
-                  { label: "Details", onSelect: () => {} },
-                  "divider" as const,
-                  { label: "Rename", onSelect: () => {} },
-                  { label: "Move to…", onSelect: () => {} },
-                  { label: "Attach to a track…", onSelect: () => {} },
-                  { label: "Tags…", onSelect: () => {} },
-                  ...(viewer.can(project.id, "delete")
-                    ? ["divider" as const, { label: "Delete…", danger: true, onSelect: () => {} }]
-                    : []),
-                ]
-              : []),
-          ]}
-        />
+        <ActionMenu label={file.name} actions={actions} />
       </span>
     </li>
   );
@@ -463,17 +732,47 @@ function FileRow({ file, project }: { file: File; project: Project }) {
 
 function FolderRow({ folder, project }: { folder: Folder; project: Project }) {
   const viewer = useViewer();
+  const b = useContext(Browser);
+  const actions: (MenuAction | "divider")[] = [
+    ...personalActions(null),
+    ...(viewer.can(project.id, "organise")
+      ? [
+          "divider" as const,
+          { label: "Upload request…", onSelect: () => {} },
+          "divider" as const,
+          { label: "Rename", hint: "F2", onSelect: () => row.rename() },
+          { label: "Move to…", onSelect: () => row.move() },
+          { label: "Cut", hint: "⌘X", onSelect: () => row.cut() },
+          ...(b && b.cut.size > 0 && !b.cut.has(folder.id)
+            ? [{ label: "Paste here", hint: "⌘V", onSelect: () => b.setCut(new Set()) }]
+            : []),
+          { label: "Delete…", danger: true, onSelect: () => {} },
+        ]
+      : []),
+  ];
+  const row = useRow(folder.id, folder.name, actions, true);
   return (
-    <li className={cn(rowGrid, "group border-b border-line last:border-b-0 hover:bg-raised/50")}>
+    <li
+      {...row.props}
+      className={cn(
+        rowGrid,
+        "group border-b border-line last:border-b-0 hover:bg-raised/50",
+        row.className,
+      )}
+    >
       <RowPick id={folder.id} icon="folder" className="text-ink-2" />
-      <Link
-        to="/projects/$projectId/$view"
-        params={{ projectId: project.id, view: "files" }}
-        search={{ folder: folder.id }}
-        className="min-w-0 truncate py-3 text-[14px] font-medium text-ink"
-      >
-        {folder.name}
-      </Link>
+      {row.renaming ? (
+        <RenameInput initial={folder.name} file={false} onDone={row.done} />
+      ) : (
+        <Link
+          to="/projects/$projectId/$view"
+          params={{ projectId: project.id, view: "files" }}
+          search={{ folder: folder.id }}
+          className="min-w-0 truncate py-3 text-[14px] font-medium text-ink"
+        >
+          {folder.name}
+        </Link>
+      )}
       <span className="hidden text-[13px] text-ink-3 @3xl/app:block">—</span>
       <span className="hidden truncate text-[13px] text-ink-3 @3xl/app:block">
         {folderCount(project.id, folder.id)}
@@ -482,22 +781,7 @@ function FolderRow({ folder, project }: { folder: Folder; project: Project }) {
       <span className="hidden @3xl/app:block" />
       <span className="hidden @3xl/app:block" />
       <span className="flex items-center justify-end">
-        <ActionMenu
-          label={folder.name}
-          actions={[
-            ...personalActions(null),
-            ...(viewer.can(project.id, "organise")
-              ? [
-                  "divider" as const,
-                  { label: "Upload request…", onSelect: () => {} },
-                  "divider" as const,
-                  { label: "Rename", onSelect: () => {} },
-                  { label: "Move to…", onSelect: () => {} },
-                  { label: "Delete…", danger: true, onSelect: () => {} },
-                ]
-              : []),
-          ]}
-        />
+        <ActionMenu label={folder.name} actions={actions} />
       </span>
     </li>
   );
@@ -902,7 +1186,85 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
         return next;
       }),
     any: picked.size > 0,
+    count: picked.size,
   };
+  const organise = viewer.can(project.id, "organise");
+  const [menu, setMenu] = useState<OpenMenu | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [dropOn, setDropOn] = useState<string | null>(null);
+  const [cut, setCut] = useState<Set<string>>(new Set());
+  const [moving, setMoving] = useState<string | null>(null);
+  /** What the selection bar and the context menu on a selected row both offer. */
+  const selectionActions: (MenuAction | "divider")[] = [
+    { label: "Pin", onSelect: () => {} },
+    { label: "Favourite", onSelect: () => {} },
+    { label: "Mark as viewed", onSelect: () => {} },
+    ...(organise
+      ? [
+          "divider" as const,
+          { label: "Move to…", onSelect: () => setMoving(`Move ${picked.size} items`) },
+          { label: "Tags…", onSelect: () => {} },
+          { label: "Cut", hint: "⌘X", onSelect: () => setCut(new Set(picked)) },
+        ]
+      : []),
+    ...(viewer.can(project.id, "delete")
+      ? ["divider" as const, { label: "Delete…", danger: true, onSelect: () => {} }]
+      : []),
+  ];
+  const browser = {
+    organise,
+    menu: (at: OpenMenu["at"], actions: (MenuAction | "divider")[], label: string) =>
+      setMenu({ at, actions, label }),
+    selection: selectionActions,
+    renaming,
+    rename: setRenaming,
+    dropOn,
+    setDropOn,
+    cut,
+    setCut,
+    move: setMoving,
+  };
+  /** The empty space: making and uploading here, pasting what was cut, selecting. */
+  const spaceActions: (MenuAction | "divider")[] = [
+    ...(organise
+      ? [
+          { label: "New folder", onSelect: () => {} },
+          ...(project.profile === "music" ? [{ label: "New track", onSelect: () => {} }] : []),
+        ]
+      : []),
+    ...(viewer.can(project.id, "upload") ? [{ label: "Upload…", onSelect: () => {} }] : []),
+    ...(organise && cut.size > 0
+      ? ["divider" as const, { label: "Paste", hint: "⌘V", onSelect: () => setCut(new Set()) }]
+      : []),
+    "divider" as const,
+    { label: "Select all", hint: "⌘A", onSelect: () => setPicked(new Set(items.map((i) => i.id))) },
+  ];
+  const spaceMenu = (event: MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-row], input, textarea, [role=menu], [role=dialog]")) return;
+    event.preventDefault();
+    setMenu({
+      at: { x: event.clientX, y: event.clientY },
+      actions: spaceActions,
+      label: "Actions for this folder",
+    });
+  };
+  /** The path takes a drop too: up a level, or to the top. */
+  const pathDrop = (id: string | null) =>
+    organise
+      ? {
+          onDragOver: (event: DragEvent<HTMLElement>) => {
+            if (!Array.from(event.dataTransfer.types).includes(dragType)) return;
+            event.preventDefault();
+            setDropOn(id ?? "top");
+          },
+          onDragLeave: () => setDropOn(null),
+          onDrop: (event: DragEvent<HTMLElement>) => {
+            event.preventDefault();
+            setDropOn(null);
+          },
+        }
+      : {};
   const canUpload = viewer.can(project.id, "upload");
   const uploading = state === "processing";
   const [requesting, setRequesting] = useState(false);
@@ -920,7 +1282,12 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
           <Link
             to="/projects/$projectId/$view"
             params={{ projectId: project.id, view: "files" }}
-            className={cn(folderId ? "text-ink-3 hover:text-ink" : "font-medium text-ink")}
+            {...pathDrop(null)}
+            className={cn(
+              "rounded-control",
+              folderId ? "text-ink-3 hover:text-ink" : "font-medium text-ink",
+              dropOn === "top" && "bg-raised text-ink",
+            )}
           >
             All files
           </Link>
@@ -931,9 +1298,11 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
                 to="/projects/$projectId/$view"
                 params={{ projectId: project.id, view: "files" }}
                 search={{ folder: f.id }}
+                {...(i === path.length - 1 ? {} : pathDrop(f.id))}
                 className={cn(
-                  "truncate",
+                  "truncate rounded-control",
                   i === path.length - 1 ? "font-medium text-ink" : "text-ink-3 hover:text-ink",
+                  dropOn === f.id && "bg-raised text-ink",
                 )}
               >
                 {f.name}
@@ -995,6 +1364,22 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
           )}
         </div>
       </div>
+      {menu && (
+        <ContextMenu
+          at={menu.at}
+          actions={menu.actions}
+          label={menu.label}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {moving && (
+        <MovePicker
+          title={moving}
+          project={project}
+          current={folderId}
+          onClose={() => setMoving(null)}
+        />
+      )}
       {requesting && (
         <Dialog
           title="Upload request"
@@ -1132,32 +1517,41 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
         <ColumnBrowser project={project} folderId={folderId} />
       ) : view === "list" ? (
         <Picked.Provider value={selection}>
-          <Card>
-            <div className={cn(rowGrid, "hidden h-9 border-b border-line @3xl/app:grid")}>
-              <span />
-              <Label>Name</Label>
-              <Label>Status</Label>
-              <Label>Versions</Label>
-              <Label>People</Label>
-              <Label>Updated</Label>
-              <span />
-              <ColumnsChooser />
+          <Browser.Provider value={browser}>
+            {/* A right click on the space around the rows; the keyboard opens the same menu from a row. */}
+            <div onContextMenu={spaceMenu}>
+              <Card>
+                <div className={cn(rowGrid, "hidden h-9 border-b border-line @3xl/app:grid")}>
+                  <span />
+                  <Label>Name</Label>
+                  <Label>Status</Label>
+                  <Label>Versions</Label>
+                  <Label>People</Label>
+                  <Label>Updated</Label>
+                  <span />
+                  <ColumnsChooser />
+                </div>
+                <ul className="list-none p-0">
+                  {items.map((item) =>
+                    item.kind === "folder" ? (
+                      <FolderRow key={item.id} folder={item.folder} project={project} />
+                    ) : item.kind === "track" ? (
+                      <TrackRow key={item.id} track={item.track} project={project} />
+                    ) : item.kind === "file" ? (
+                      <FileRow key={item.id} file={item.file} project={project} />
+                    ) : null,
+                  )}
+                </ul>
+              </Card>
             </div>
-            <ul className="list-none p-0">
-              {items.map((item) =>
-                item.kind === "folder" ? (
-                  <FolderRow key={item.id} folder={item.folder} project={project} />
-                ) : item.kind === "track" ? (
-                  <TrackRow key={item.id} track={item.track} project={project} />
-                ) : item.kind === "file" ? (
-                  <FileRow key={item.id} file={item.file} project={project} />
-                ) : null,
-              )}
-            </ul>
-          </Card>
-          {picked.size > 0 && (
-            <SelectionBar count={picked.size} onClear={() => setPicked(new Set())} />
-          )}
+            {picked.size > 0 && (
+              <SelectionBar
+                count={picked.size}
+                actions={selectionActions}
+                onClear={() => setPicked(new Set())}
+              />
+            )}
+          </Browser.Provider>
         </Picked.Provider>
       ) : (
         <ul className="grid list-none grid-cols-2 gap-4 p-0 @3xl/app:grid-cols-4 @6xl/app:grid-cols-5">
