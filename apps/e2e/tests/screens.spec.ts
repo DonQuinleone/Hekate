@@ -3167,7 +3167,7 @@ test("file-comment-attach-takes", async ({ page }, info) => {
   await page.getByRole("button", { name: "Comment", exact: true }).click();
   const thread = page.getByRole("listitem").filter({ hasText: "Hear these two here" });
   await expect(thread.getByRole("button", { name: "2 takes attached" })).toBeVisible();
-  await expect(thread.getByRole("button", { name: /^Play bar 12 · / })).toBeVisible();
+  await expect(thread.getByRole("button", { name: /^Play bar 12 · /i })).toBeVisible();
 });
 
 // The player's keys, the "?" map listing exactly them, and nothing firing while typing.
