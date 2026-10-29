@@ -130,6 +130,11 @@ const screens = [
   // 3.4 Music
   { name: "takes", route: "/tracks/t-maple?view=takes" },
   {
+    name: "track-takes-upload",
+    route: "/tracks/t-maple?view=takes",
+    steps: [{ click: 'role=button[name="Add takes"]' }],
+  },
+  {
     name: "track-history",
     route: "/tracks/t-maple?view=versions",
     steps: [{ scroll: "History" }],

@@ -49,6 +49,7 @@ import {
 } from "~/lib/files";
 import { ago, formatBytes, formatDateTime, plural } from "~/lib/format";
 import { trackState } from "~/lib/tracks";
+import { TakeImportDialog } from "~/routes/takes";
 import { useViewer } from "~/viewer/context";
 import { Empty, useScreenState } from "~/viewer/state-gate";
 
@@ -486,6 +487,7 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
     : 0;
   const canRequest = viewer.can(project.id, "request_reviews");
   const canUpload = viewer.can(project.id, "upload");
+  const [addingTakes, setAddingTakes] = useState(false);
   const quick: ReactNode[] = [];
   if (file)
     quick.push(
@@ -556,6 +558,10 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
               navigate({ to: "/tracks/$trackId/compare", params: { trackId: track.id } }),
           },
         ]
+      : []),
+    // Takes are added from their track (#490), by those who upload and have the tool.
+    ...(canUpload && viewer.tools(project.id).has("takes")
+      ? [{ label: "Add takes…", onSelect: () => setAddingTakes(true) }]
       : []),
     { label: "Share…", onSelect: () => setSharing(true) },
     "divider",
@@ -639,6 +645,7 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
           onClose={() => setSharing(false)}
         />
       )}
+      {addingTakes && <TakeImportDialog track={track} onClose={() => setAddingTakes(false)} />}
     </li>
   );
 }

@@ -317,7 +317,7 @@ export const files: File[] = [
     id: "file-long-name",
     projectId: "proj-joplin",
     folderId: "f-day1",
-    name: "Maple Leaf Rag - take 7 - main pair Schoeps MK2 at 3.2 m - 96 kHz 24-bit - final conform for editing - do not use the earlier bounce.wav",
+    name: "Maple Leaf Rag - main pair Schoeps MK2 at 3.2 m - 96 kHz 24-bit - reference bounce for editing - do not use the earlier export.wav",
     kind: "audio",
     size: 9_800_000,
     uploadedBy: "p-tomas",
