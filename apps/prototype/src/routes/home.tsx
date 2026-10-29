@@ -14,7 +14,7 @@ import {
   reviewById,
   tasks,
   tracks,
-  variationOf,
+  variantOf,
 } from "~/data";
 import { cn } from "~/lib/cn";
 import { ago, dueIn } from "~/lib/format";
@@ -133,7 +133,7 @@ export function InboxPage({ item: selectedId }: { item?: string }) {
           kind: "comment",
           title: c.body,
           detail: `Assigned to you by ${personById(c.authorId).name} · ${
-            variationOf(c.fileId)?.track.name ?? fileById(c.fileId)?.name
+            variantOf(c.fileId)?.track.name ?? fileById(c.fileId)?.name
           }`,
           at: c.createdAt,
           personId: c.authorId,
@@ -154,9 +154,7 @@ export function InboxPage({ item: selectedId }: { item?: string }) {
         );
         if (open.length === 0) return [];
         const names = [
-          ...new Set(
-            open.map((c) => variationOf(c.fileId)?.track.name ?? fileById(c.fileId)?.name),
-          ),
+          ...new Set(open.map((c) => variantOf(c.fileId)?.track.name ?? fileById(c.fileId)?.name)),
         ];
         return [
           {

@@ -127,12 +127,7 @@ import { projectTaskRoutes, taskRoutes } from "./routes/tasks.ts";
 import { projectTemplateRoutes, templateRoutes } from "./routes/templates.ts";
 import { tlsRoutes } from "./routes/tls.ts";
 import { trackCompareRoutes } from "./routes/track-compare.ts";
-import {
-  projectTrackRoutes,
-  trackRoutes,
-  variationRoutes,
-  versionRoutes,
-} from "./routes/tracks.ts";
+import { projectTrackRoutes, trackRoutes, variantRoutes, versionRoutes } from "./routes/tracks.ts";
 import {
   type UploadRequestDeps,
   uploadLinkRoutes,
@@ -737,11 +732,12 @@ export function createApi(given: AppDeps) {
       .route("/workflow-runs", workflowRunRoutes(runner))
       .use("/versions/*", ...member)
       .route("/versions", versionRoutes(deps.db))
+      .use("/variants/*", ...member)
+      .route("/variants", variantRoutes(deps.db, deps.jobs, deps.audit, deps.trustProxy ?? false))
+      // The same routes under their name before decision 275, for a client of the release
+      // before; release 2 of the rename takes them off.
       .use("/variations/*", ...member)
-      .route(
-        "/variations",
-        variationRoutes(deps.db, deps.jobs, deps.audit, deps.trustProxy ?? false),
-      )
+      .route("/variations", variantRoutes(deps.db, deps.jobs, deps.audit, deps.trustProxy ?? false))
       .use("/uploads/*", ...member)
       .use("/uploads", ...member)
       // Starting uploads, per member: a client in a loop is stopped before storage is.

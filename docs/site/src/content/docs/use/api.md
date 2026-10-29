@@ -56,10 +56,10 @@ done
 curl -X POST "https://review.endlesshall.example/api/v1/uploads/$UPLOAD/complete" \
   -H "Authorization: Bearer $HEKATE_TOKEN"
 
-# 4. Make it the track's next version, as its only variation.
+# 4. Make it the track's next version, as its only variant.
 curl -X POST "https://review.endlesshall.example/api/v1/tracks/$TRACK/versions" \
   -H "Authorization: Bearer $HEKATE_TOKEN" -H "Content-Type: application/json" \
-  -d '{"notes":"Horns up at bar 12, as asked.","variations":[{"fileId":"'"$FILE"'","name":"Wet mix","primary":true}]}'
+  -d '{"notes":"Horns up at bar 12, as asked.","variants":[{"fileId":"'"$FILE"'","name":"Wet mix","primary":true}]}'
 ```
 
 `GET /api/v1/uploads/{id}` says which chunks have arrived, so an interrupted upload sends only the rest. The upload and the version need `files:write`.
@@ -74,7 +74,7 @@ for attempt in 1 2 3 4 5 6 7 8 9 10; do
   status=$(curl -s -o version.json -w '%{http_code}' \
     -X POST "https://review.endlesshall.example/api/v1/tracks/$TRACK/versions" \
     -H "Authorization: Bearer $HEKATE_TOKEN" -H "Content-Type: application/json" \
-    -d '{"variations":[{"fileId":"'"$FILE"'","name":"Main","primary":true}],"edlFileId":"'"$EDL"'"}')
+    -d '{"variants":[{"fileId":"'"$FILE"'","name":"Main","primary":true}],"edlFileId":"'"$EDL"'"}')
   if [ "$status" = 409 ] && grep -q version_measuring version.json; then sleep 5; else break; fi
 done
 ```

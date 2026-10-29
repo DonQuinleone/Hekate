@@ -133,7 +133,7 @@ export interface File {
   previousId?: string;
 }
 
-export interface Variation {
+export interface Variant {
   id: string;
   name: string;
   fileId: string;
@@ -149,7 +149,7 @@ export interface Version {
   uploadedBy: string;
   uploadedAt: string;
   note: string;
-  variations: Variation[];
+  variants: Variant[];
   state: ProcessingState;
   /** The workflow status this version is in. */
   status: string;

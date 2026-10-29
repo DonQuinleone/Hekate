@@ -554,7 +554,7 @@ describe.runIf(url)("project settings: downloads, deletion, tool exceptions, not
       const fileId = await s.file(`${name}.wav`);
       const added = await post(
         `/api/tracks/${trackId}/versions`,
-        { variations: [{ fileId, name: "Mix" }] },
+        { variants: [{ fileId, name: "Mix" }] },
         s.owner,
       );
       expect(added.status).toBe(201);

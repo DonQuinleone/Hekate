@@ -1172,10 +1172,7 @@ export function ConsentPage() {
         <span className="text-[13px] text-ink-2">It asks to</span>
         <ul className="flex flex-col gap-2 rounded-panel border border-line bg-raised/25 p-3 text-[13px]">
           {[
-            [
-              "files:read",
-              "List and read projects, folders, files, tracks, versions and variations",
-            ],
+            ["files:read", "List and read projects, folders, files, tracks, versions and variants"],
             ["downloads", "Download originals and proxies, watermarked and logged"],
           ].map(([k, v]) => (
             <li key={k} className="flex gap-3">

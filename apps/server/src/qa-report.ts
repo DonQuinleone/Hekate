@@ -24,7 +24,7 @@ export const qaReportFormats = ["pdf", "csv", "json"] as const;
 export type QaReportFormat = (typeof qaReportFormats)[number];
 
 export interface QaReportInput {
-  file: { name: string /** "V2 · Dry", for a track's variation. */; version: string | null };
+  file: { name: string /** "V2 · Dry", for a track's variant. */; version: string | null };
   workspace: string;
   project: string;
   /** Who downloaded it, and their part in the project. */

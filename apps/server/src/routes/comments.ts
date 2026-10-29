@@ -68,7 +68,7 @@ const {
   tasks,
   users,
   guests,
-  variations,
+  variants,
   versions,
 } = schema;
 const resolver = alias(users, "resolver");
@@ -670,14 +670,14 @@ export const fileCommentRoutes = (
         .innerJoin(organisations, eq(organisations.id, files.organisationId))
         .where(inOrg(files, organisationId, eq(files.id, fileId)));
       if (!file) throw new NotFound("File");
-      const [variation] = await db
-        .select({ number: versions.number, name: variations.name })
-        .from(variations)
+      const [variant] = await db
+        .select({ number: versions.number, name: variants.name })
+        .from(variants)
         .innerJoin(
           versions,
-          and(eq(versions.id, variations.versionId), eq(versions.organisationId, organisationId)),
+          and(eq(versions.id, variants.versionId), eq(versions.organisationId, organisationId)),
         )
-        .where(inOrg(variations, organisationId, eq(variations.fileId, fileId)));
+        .where(inOrg(variants, organisationId, eq(variants.fileId, fileId)));
       const options = c.req.valid("query");
       const threads = threadsForExport(
         await threadsOn(db, organisationId, actor, access, fileId),
@@ -688,7 +688,7 @@ export const fileCommentRoutes = (
       const out = commentSheet({
         file: {
           name: file.name,
-          version: variation ? `V${variation.number} · ${variation.name}` : null,
+          version: variant ? `V${variant.number} · ${variant.name}` : null,
         },
         workspace: file.workspace,
         project: file.project,

@@ -623,7 +623,7 @@ function Components() {
           <div className="flex w-full max-w-[460px] flex-col gap-4">
             <UploadZone
               prompt="Drop the files of this version here, or choose them"
-              hint="One file per variation."
+              hint="One file per variant."
               inputLabel="Example files"
               multiple
               onPick={noop}
@@ -637,15 +637,15 @@ function Components() {
             </div>
             {uploading && (
               <UploadDialog<string>
-                title="Add a variation to V2"
+                title="Add a variant to V2"
                 description="Another treatment of the same edit, such as a wet mix beside the dry one."
                 onClose={() => setUploading(false)}
-                inputLabel="The variation's file"
+                inputLabel="The variant's file"
                 prompt="Drop the file here, or choose it"
                 accept="audio/*,video/*"
                 send={pretendToSend}
-                what="Uploaded into the track's folder, beside the other variations of V2."
-                action="Add variation"
+                what="Uploaded into the track's folder, beside the other variants of V2."
+                action="Add variant"
                 onSubmit={() => setUploading(false)}
               />
             )}

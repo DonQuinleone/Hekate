@@ -89,7 +89,7 @@ const tagRules: [RegExp, string][] = [
   [/workflow/, "Workflows"],
   [/^\/uploads\b/, "Uploads"],
   [/upload-requests/, "Uploads"],
-  [/^\/(versions|variations)\b|^\/tracks\/\{id\}\/versions$/, "Versions and variations"],
+  [/^\/(versions|variants|variations)\b|^\/tracks\/\{id\}\/versions$/, "Versions and variants"],
   [/takes|sessions/, "Takes and sessions"],
   [/score-marks|score-categories/, "Scores"],
   [/patch|stage-|personnel|repertoire|works|venues|schedule/, "Production"],
@@ -113,7 +113,7 @@ export const apiTags = [
   ["Folders", "Folders in a project."],
   ["Files", "Files of any kind: details, measurements, checks, tags and captions."],
   ["Tracks", "Tracks, pieces of music, with their references and comparisons."],
-  ["Versions and variations", "A track's successive versions, and each version's variations."],
+  ["Versions and variants", "A track's successive versions, and each version's variants."],
   ["Uploads", "Sending files in chunks, and upload requests for people outside."],
   ["Comments", "Comments on a file, their anchors, attachments and to-dos."],
   ["Reviews", "Approvals and feedback, reviewers, guests and groups."],
@@ -202,7 +202,7 @@ const components = {
       error: {
         code: "insufficient_scope",
         message:
-          "That needs the files:write scope (upload versions and variations, make folders, change files), which this token does not have.",
+          "That needs the files:write scope (upload versions and variants, make folders, change files), which this token does not have.",
       },
     }),
     NotFound: errorResponse(`Nothing there that the token may see.\n\n${codeList(404)}`, {
@@ -342,7 +342,10 @@ export function openapiDocument(api: RouteTable, options: DocumentOptions) {
       operationId: operationIdOf(route.method, route.path),
       tags: [operation?.tag ?? tagOf(route.path)],
       summary: operation?.summary ?? `${route.method} ${route.path}`,
-      description: operation?.description ? `${operation.description}\n\n${scopeLine}` : scopeLine,
+      description: [operation?.deprecated, operation?.description, scopeLine]
+        .filter((line) => line)
+        .join("\n\n"),
+      ...(operation?.deprecated ? { deprecated: true } : {}),
       security: [{ token: [route.scope] }],
       "x-hekate-scope": route.scope,
       ...(parameters.length > 0 ? { parameters } : {}),

@@ -852,21 +852,21 @@ test("file-recording-versions", async ({ page }) => {
   await checkScreen(page);
 });
 
-// A variation added from the switch above the player (#486): the one upload dialog, with the
-// version fixed, a file picked from the project and the project's variation names suggested.
-test("file-add-variation", async ({ page }) => {
+// A variant added from the switch above the player (#486): the one upload dialog, with the
+// version fixed, a file picked from the project and the project's variant names suggested.
+test("file-add-variant", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
-  await page.getByRole("button", { name: "Add a variation…" }).click();
-  const dialog = page.getByRole("dialog", { name: "Add a variation to V2" });
+  await page.getByRole("button", { name: "Add a variant…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add a variant to V2" });
   await dialog.getByRole("button", { name: "From the project" }).click();
   await page.getByRole("menuitem", { name: "Maple Leaf Rag - Dry v3.wav" }).click();
   await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue("Dry v3");
-  // The names the project's other variations go by, one press away.
+  // The names the project's other variants go by, one press away.
   await dialog.getByRole("button", { name: "Mix", exact: true }).click();
   await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue("Mix");
-  await saveScreen(page, "file-add-variation");
+  await saveScreen(page, "file-add-variant");
   await checkScreen(page);
 });
 
@@ -2069,7 +2069,7 @@ test("project-files-columns", async ({ page }) => {
     .first()
     .click();
   await page.getByRole("button", { name: /^V2/ }).click();
-  await settle(page, "main dl >> text=Variations");
+  await settle(page, "main dl >> text=Variants");
   await saveScreen(page, "project-files-columns");
   await checkScreen(page);
 });
@@ -3240,14 +3240,12 @@ test("files-upload-audio", async ({ page }) => {
   // Nothing the three names share: the first file's name, to be typed over.
   await expect(dialog.getByLabel("Track name")).toHaveValue("Pine Apple Rag - V1 mix");
   await expect(dialog.getByRole("button", { name: "Make the track" })).toBeEnabled();
-  // A new version of a track that exists: each file a variation, one primary.
+  // A new version of a track that exists: each file a variant, one primary.
   await dialog.getByRole("radio", { name: "New version of" }).check();
   await expect(dialog.getByRole("combobox", { name: "Track" })).toHaveValue(/./);
   await dialog.getByRole("combobox", { name: "Track" }).selectOption({ label: "Maple Leaf Rag" });
-  await expect(dialog).toContainText(
-    "3 files become the variations of version 3 of Maple Leaf Rag",
-  );
-  await expect(dialog.getByLabel("Variation name for Pine Apple Rag - V1 mix.wav")).toHaveValue(
+  await expect(dialog).toContainText("3 files become the variants of version 3 of Maple Leaf Rag");
+  await expect(dialog.getByLabel("Variant name for Pine Apple Rag - V1 mix.wav")).toHaveValue(
     "Pine Apple Rag - V1 mix",
   );
   await expect(dialog.getByRole("button", { name: "Upload version 3" })).toBeEnabled();
@@ -3352,11 +3350,11 @@ test("track-new-version", async ({ page }) => {
   await expect(page).toHaveURL(/\/files\//);
   await page.goto(`/tracks/${trackId}?view=versions`);
   await page.getByRole("button", { name: "Add version" }).click();
-  // The upload dialog (#477): the files chosen, each named as a variation.
+  // The upload dialog (#477): the files chosen, each named as a variant.
   const form = page.getByRole("dialog", { name: "Version 3" });
   await form.getByRole("button", { name: "From the project" }).first().click();
   await page.getByRole("menuitem", { name: "Maple Leaf Rag - Dry v3.wav" }).click();
-  await expect(form.getByLabel("Variation name for Maple Leaf Rag - Dry v3.wav")).toHaveValue(
+  await expect(form.getByLabel("Variant name for Maple Leaf Rag - Dry v3.wav")).toHaveValue(
     "Dry v3",
   );
   await form.getByRole("button", { name: "Add version 3" }).click();

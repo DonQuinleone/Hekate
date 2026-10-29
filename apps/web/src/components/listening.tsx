@@ -26,12 +26,12 @@ import { fileQuery, meQuery } from "~/lib/queries";
 
 const firstName = (name: string) => name.split(/\s+/)[0] ?? name;
 
-/** A file's short name for the room: a track's version and variation, or the file's own name. */
+/** A file's short name for the room: a track's version and variant, or the file's own name. */
 function useFileLabel(fileId: string | null) {
   const { data } = useQuery({ ...fileQuery(fileId ?? ""), enabled: Boolean(fileId) });
   if (!data) return null;
-  return data.variation
-    ? `${data.variation.trackName} · V${data.variation.versionNumber} ${data.variation.name}`
+  return data.variant
+    ? `${data.variant.trackName} · V${data.variant.versionNumber} ${data.variant.name}`
     : data.name;
 }
 

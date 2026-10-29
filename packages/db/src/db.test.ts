@@ -124,6 +124,7 @@ describe("tenancy", () => {
       "upload_request_uploads",
       "upload_requests",
       "uploads",
+      "variants",
       "variations",
       "venues",
       "versions",

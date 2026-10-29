@@ -174,7 +174,7 @@ function TrackCard({
   if (!track) return null;
   const s = trackState(track, project);
   const file = s.version ? primaryFile(s.version) : undefined;
-  const fileIds = new Set(s.version?.variations.map((v) => v.fileId) ?? []);
+  const fileIds = new Set(s.version?.variants.map((v) => v.fileId) ?? []);
   const open = comments.filter((c) => fileIds.has(c.fileId) && !c.parentId && !c.resolved);
   const linked = tasks.filter(
     (t) => t.projectId === project.id && t.fileId && fileIds.has(t.fileId) && t.status !== "done",

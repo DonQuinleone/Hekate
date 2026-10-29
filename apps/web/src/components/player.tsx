@@ -307,7 +307,7 @@ export function Player({
   onCaption?: (id: string | null) => void;
   /**
    * The page's part of the strip above the player (#15): what leads it (the version and
-   * variation), and what sits at its end before the player's own menus (the score's switch).
+   * variant), and what sits at its end before the player's own menus (the score's switch).
    */
   strip?: { lead?: ReactNode; end?: ReactNode };
   /** The comparison under the transport (#44), where it is offered: whether it is open. */
@@ -1807,7 +1807,7 @@ export function surfaceCap(
 
 /**
  * The strip above the player (#15), as the prototype draws it: what leads (the version and
- * variation) at the left, the menus at the right, wrapping under them on a phone.
+ * variant) at the left, the menus at the right, wrapping under them on a phone.
  */
 export function PlayerStrip({ lead, children }: { lead?: ReactNode; children?: ReactNode }) {
   return (

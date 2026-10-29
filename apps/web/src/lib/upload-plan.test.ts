@@ -97,7 +97,7 @@ describe("what uploaded audio becomes (#485)", () => {
     ).toMatchObject({ kind: "one-track", name: "Solace" });
   });
 
-  it("makes the next version of a track, the files its variations with one primary", () => {
+  it("makes the next version of a track, the files its variants with one primary", () => {
     const plan = planUpload(
       [file("Maple Leaf Rag - Dry.wav", "d"), file("Maple Leaf Rag - Wet.wav", "w")],
       "version",
@@ -107,13 +107,13 @@ describe("what uploaded audio becomes (#485)", () => {
       kind: "version",
       track: maple,
       number: 4,
-      variations: [
+      variants: [
         { key: "d", name: "Dry", primary: false },
         { key: "w", name: "Wet", primary: true },
       ],
     });
     expect(describePlan(plan, "Mixes")).toBe(
-      "2 files become the variations of version 4 of Maple Leaf Rag.",
+      "2 files become the variants of version 4 of Maple Leaf Rag.",
     );
     expect(actionFor(plan)).toBe("Upload version 4");
     // Without a primary named, or one that was taken off the list, the first is primary.
@@ -123,7 +123,7 @@ describe("what uploaded audio becomes (#485)", () => {
         track: maple,
         primary: "gone",
       }),
-    ).toMatchObject({ variations: [{ key: "x", primary: true }] });
+    ).toMatchObject({ variants: [{ key: "x", primary: true }] });
     expect(
       describePlan(
         planUpload([file("x.wav", "x")], "version", { grouping: "each", track: maple }),

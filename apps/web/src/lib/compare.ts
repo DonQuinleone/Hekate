@@ -2,7 +2,7 @@ import { type ProjectProfile, versionLabel } from "@hekate/shared";
 import type { CompareFamily } from "./queries";
 
 /**
- * Quick comparison (#44): flip between a track's variations and versions at the same
+ * Quick comparison (#44): flip between a track's variants and versions at the same
  * position. Times are assumed to line up across versions until alignment (#33) maps them.
  */
 
@@ -17,8 +17,8 @@ export interface CompareSource {
 }
 
 /**
- * What a file can be compared with: the other variations of its version, then the primary
- * variation of every other version, newest first. Only files ready to play are offered.
+ * What a file can be compared with: the other variants of its version, then the primary
+ * variant of every other version, newest first. Only files ready to play are offered.
  */
 export function compareSources(
   track: CompareFamily,
@@ -26,10 +26,10 @@ export function compareSources(
   profile?: ProjectProfile,
 ): CompareSource[] {
   const versions = [...track.versions].sort((a, b) => b.number - a.number);
-  const mine = versions.find((v) => v.variations.some((x) => x.fileId === fileId));
+  const mine = versions.find((v) => v.variants.some((x) => x.fileId === fileId));
   const label = (n: number, name: string) => `${versionLabel(n, profile)} · ${name}`;
   const ready = (status: string) => status === "ready";
-  const siblings = (mine?.variations ?? [])
+  const siblings = (mine?.variants ?? [])
     .filter((x) => x.fileId !== fileId && ready(x.streamStatus))
     .sort((a, b) => a.position - b.position)
     .map((x) => ({
@@ -40,7 +40,7 @@ export function compareSources(
   const others = versions
     .filter((v) => v.id !== mine?.id)
     .flatMap((v) => {
-      const primary = v.variations.find((x) => x.isPrimary) ?? v.variations[0];
+      const primary = v.variants.find((x) => x.isPrimary) ?? v.variants[0];
       return primary && ready(primary.streamStatus)
         ? [
             {
@@ -63,13 +63,13 @@ export function previousCut(
   fileId: string,
   profile?: ProjectProfile,
 ): { mine: string; previous: CompareSource } | undefined {
-  const mine = track.versions.find((v) => v.variations.some((x) => x.fileId === fileId));
+  const mine = track.versions.find((v) => v.variants.some((x) => x.fileId === fileId));
   if (!mine) return undefined;
   const earlier = [...track.versions]
     .filter((v) => v.number < mine.number)
     .sort((a, b) => b.number - a.number);
   for (const v of earlier) {
-    const primary = v.variations.find((x) => x.isPrimary) ?? v.variations[0];
+    const primary = v.variants.find((x) => x.isPrimary) ?? v.variants[0];
     if (primary?.streamStatus === "ready")
       return {
         mine: versionLabel(mine.number, profile),
@@ -83,14 +83,14 @@ export function previousCut(
   return undefined;
 }
 
-/** Any ready variation of the track as a source, whichever version it belongs to. */
+/** Any ready variant of the track as a source, whichever version it belongs to. */
 export function sourceFor(
   track: CompareFamily,
   fileId: string,
   profile?: ProjectProfile,
 ): CompareSource | undefined {
   for (const v of track.versions) {
-    const x = v.variations.find((y) => y.fileId === fileId);
+    const x = v.variants.find((y) => y.fileId === fileId);
     if (x) {
       return x.streamStatus === "ready"
         ? {

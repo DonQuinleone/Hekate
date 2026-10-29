@@ -166,8 +166,8 @@ export function reviewOf(r: Row) {
         version: version
           ? {
               number: num(version.number),
-              variations: Array.isArray(version.variations)
-                ? (version.variations as unknown[]).filter((v) => typeof v === "string")
+              variants: Array.isArray(version.variants)
+                ? (version.variants as unknown[]).filter((v) => typeof v === "string")
                 : [],
             }
           : null,

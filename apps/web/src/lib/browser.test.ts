@@ -31,7 +31,7 @@ import {
   tagSuggestions,
   toggleColumn,
   trackNext,
-  variationNameFor,
+  variantNameFor,
   versionSummary,
   versionsOf,
 } from "./browser";
@@ -49,7 +49,7 @@ const track = (id: string, folderId: string | null, versions: [number, string[]]
     versions: versions.map(([number, fileIds]) => ({
       id: `${id}-v${number}`,
       number,
-      variations: fileIds.map((fileId, i) => ({ fileId, isPrimary: i === 0, name: fileId })),
+      variants: fileIds.map((fileId, i) => ({ fileId, isPrimary: i === 0, name: fileId })),
     })),
   }) as unknown as Track;
 
@@ -108,7 +108,7 @@ describe("tracks", () => {
   const [maple] = tracks;
   it("sums up versions and finds the latest primary file", () => {
     if (!maple) throw new Error("no track");
-    expect(versionSummary(maple)).toBe("V2 of 2 · 2 variations");
+    expect(versionSummary(maple)).toBe("V2 of 2 · 2 variants");
     expect(versionSummary(track("New", null, []))).toBe("—");
     expect(latestFile(maple)).toBe("dry2");
     expect(versionsOf(maple).map((i) => i.id)).toEqual(["Maple Leaf Rag-v2", "Maple Leaf Rag-v1"]);
@@ -325,11 +325,11 @@ describe("processingStage", () => {
   });
 });
 
-describe("variationNameFor", () => {
-  it("names a variation from its file, without the track's name", () => {
-    expect(variationNameFor("Maple Leaf Rag - Dry v3.wav", "Maple Leaf Rag")).toBe("Dry v3");
-    expect(variationNameFor("Stems.zip", "Maple Leaf Rag")).toBe("Stems");
-    expect(variationNameFor("Maple Leaf Rag.wav", "Maple Leaf Rag")).toBe("Maple Leaf Rag");
+describe("variantNameFor", () => {
+  it("names a variant from its file, without the track's name", () => {
+    expect(variantNameFor("Maple Leaf Rag - Dry v3.wav", "Maple Leaf Rag")).toBe("Dry v3");
+    expect(variantNameFor("Stems.zip", "Maple Leaf Rag")).toBe("Stems");
+    expect(variantNameFor("Maple Leaf Rag.wav", "Maple Leaf Rag")).toBe("Maple Leaf Rag");
   });
 });
 
@@ -338,7 +338,7 @@ describe("a track's next step", () => {
   const none = { upload: false, organise: false, download: false, requestReviews: false };
   const at = (state: Track["state"], streamStatus = "ready") => {
     const t = track("Maple Leaf Rag", null, [[1, ["mix1"]]]);
-    for (const v of t.versions[0]?.variations ?? []) Object.assign(v, { streamStatus });
+    for (const v of t.versions[0]?.variants ?? []) Object.assign(v, { streamStatus });
     return { ...t, state };
   };
 

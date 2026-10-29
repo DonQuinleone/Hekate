@@ -39,7 +39,7 @@ import {
 } from "~/components/transcript";
 import { Button } from "~/components/ui/button";
 import { ActionMenu, Dropdown, MenuList, usePopover } from "~/components/ui/menu";
-import { AddVariationDialog } from "~/components/variation-dialog";
+import { AddVariantDialog } from "~/components/variant-dialog";
 import { Filmstrip, Frame } from "~/components/video";
 import {
   AudioLayoutMenu,
@@ -59,7 +59,7 @@ import {
   personById,
   projectById,
   reviewById,
-  variationOf,
+  variantOf,
 } from "~/data";
 import { cn } from "~/lib/cn";
 import { chainOf, qaSummary } from "~/lib/files";
@@ -302,7 +302,7 @@ export function FilePage({
   commentId?: string;
   reviewId?: string;
   version?: string;
-  variation?: string;
+  variant?: string;
 }) {
   const viewer = useViewer();
   const navigate = useNavigate();
@@ -310,7 +310,7 @@ export function FilePage({
   const file = fileById(fileId);
   const access = file ? viewer.fileAccess(fileId) : null;
   const project = file ? projectById(file.projectId) : undefined;
-  const inTrack = file ? variationOf(file.id) : null;
+  const inTrack = file ? variantOf(file.id) : null;
   const review = reviewId ? reviewById(reviewId) : (access?.review ?? undefined);
   const [selected, setSelected] = useState<string | null>(commentId ?? null);
   const [posted, setPosted] = useState<Comment[]>([]);
@@ -321,7 +321,7 @@ export function FilePage({
   const [page, setPage] = useState(1);
   const [scorePage, setScorePage] = useState(1);
   const [sheet, setSheet] = useState<
-    "details" | "download" | "export" | "import" | "variation" | "share" | null
+    "details" | "download" | "export" | "import" | "variant" | "share" | null
   >(null);
   const [drawing, setDrawing] = useState<DrawTool | null>(null);
   const [colour, setColour] = useState("var(--hk-signal)");
@@ -443,7 +443,7 @@ export function FilePage({
     title:
       file && access
         ? inTrack
-          ? `V${inTrack.version.number} · ${inTrack.variationName}`
+          ? `V${inTrack.version.number} · ${inTrack.variantName}`
           : file.name
         : "Not found",
     heading: inTrack ? "page" : "bar",
@@ -567,8 +567,8 @@ export function FilePage({
   const previousFile = previousVersion
     ? fileById(
         (
-          previousVersion.variations.find((v) => v.name === inTrack?.variationName) ??
-          previousVersion.variations.find((v) => v.primary)
+          previousVersion.variants.find((v) => v.name === inTrack?.variantName) ??
+          previousVersion.variants.find((v) => v.primary)
         )?.fileId ?? "",
       )
     : undefined;
@@ -576,11 +576,11 @@ export function FilePage({
     ? [
         {
           id: "this",
-          label: `V${inTrack.version.number} · ${inTrack.variationName}`,
+          label: `V${inTrack.version.number} · ${inTrack.variantName}`,
           aligned: true,
           gain: "0.0 dB",
         },
-        ...inTrack.version.variations
+        ...inTrack.version.variants
           .filter((v) => v.fileId !== file.id)
           .map((v) => ({
             id: v.fileId,
@@ -592,7 +592,7 @@ export function FilePage({
           ? [
               {
                 id: previousFile.id,
-                label: `V${previousVersion?.number} · ${previousVersion?.variations[0]?.name}`,
+                label: `V${previousVersion?.number} · ${previousVersion?.variants[0]?.name}`,
                 aligned: true,
                 gain: "−0.6 dB",
               },
@@ -659,9 +659,9 @@ export function FilePage({
           .sort((a, b) => b.number - a.number)
           .map((v) => {
             const target =
-              v.variations.find((x) => x.name === inTrack.variationName) ??
-              v.variations.find((x) => x.primary) ??
-              v.variations[0];
+              v.variants.find((x) => x.name === inTrack.variantName) ??
+              v.variants.find((x) => x.primary) ??
+              v.variants[0];
             return {
               label: `V${v.number}`,
               hint:
@@ -708,28 +708,28 @@ export function FilePage({
       ]}
     />
   );
-  // Whoever may upload adds a variation from the switch itself (#486), so it shows to them
-  // even where the version has one variation.
-  const canAddVariation = Boolean(
+  // Whoever may upload adds a variant from the switch itself (#486), so it shows to them
+  // even where the version has one variant.
+  const canAddVariant = Boolean(
     inTrack && project && !viewer.isGuest && viewer.can(project.id, "upload"),
   );
-  const variationSeg = inTrack && (inTrack.version.variations.length > 1 || canAddVariation) && (
+  const variantSeg = inTrack && (inTrack.version.variants.length > 1 || canAddVariant) && (
     <Seg
       size="md"
-      label="Variation"
+      label="Variant"
       value={file.id}
       onChange={(id) => navigate({ to: base, params: { fileId: id }, search: (s) => s })}
-      options={inTrack.version.variations.map((v) => ({
+      options={inTrack.version.variants.map((v) => ({
         id: v.fileId,
         label: v.name,
         hint: fileById(v.fileId)?.state === "pending" ? "analysing" : undefined,
       }))}
       action={
-        canAddVariation
+        canAddVariant
           ? {
-              label: "Add a variation…",
+              label: "Add a variant…",
               icon: <Icon name="plus" size={14} />,
-              onSelect: () => setSheet("variation"),
+              onSelect: () => setSheet("variant"),
             }
           : undefined
       }
@@ -763,7 +763,7 @@ export function FilePage({
       <ListeningNotice fileId={fileId} />
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2 @3xl/app:px-4">
         {versionMenu}
-        {variationSeg}
+        {variantSeg}
         {!access.history && inTrack && (
           <span className="text-[13px] text-ink-3">V{inTrack.version.number} is under review</span>
         )}
@@ -1318,8 +1318,8 @@ export function FilePage({
         <ExportCommentsDialog file={file} comments={all} onClose={() => setSheet(null)} />
       )}
       {sheet === "import" && <ImportCommentsDialog onClose={() => setSheet(null)} />}
-      {sheet === "variation" && inTrack && (
-        <AddVariationDialog
+      {sheet === "variant" && inTrack && (
+        <AddVariantDialog
           track={inTrack.track}
           version={inTrack.version}
           onClose={() => setSheet(null)}
@@ -1331,7 +1331,7 @@ export function FilePage({
           item={{
             kind: "file",
             name: inTrack ? `${inTrack.track.name} V${inTrack.version.number}` : file.name,
-            what: inTrack ? inTrack.variationName : fileKindWords[file.kind],
+            what: inTrack ? inTrack.variantName : fileKindWords[file.kind],
           }}
           onClose={() => setSheet(null)}
         />

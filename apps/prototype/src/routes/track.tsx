@@ -12,7 +12,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { type ChosenFile, UploadDialog } from "~/components/ui/upload-dialog";
-import { AddVariationDialog } from "~/components/variation-dialog";
+import { AddVariantDialog } from "~/components/variant-dialog";
 import {
   comments,
   fileById,
@@ -34,8 +34,8 @@ import { Empty, Refused, StateGate, useScreenState } from "~/viewer/state-gate";
 
 /** The files of the next version, as the zone picks them here. */
 const versionFiles = [
-  { key: "dry", name: "Maple Leaf Rag - V3 dry.wav", size: 52_400_000, variation: "Dry" },
-  { key: "wet", name: "Maple Leaf Rag - V3 wet.wav", size: 52_400_000, variation: "Wet" },
+  { key: "dry", name: "Maple Leaf Rag - V3 dry.wav", size: 52_400_000, variant: "Dry" },
+  { key: "wet", name: "Maple Leaf Rag - V3 wet.wav", size: 52_400_000, variant: "Wet" },
 ];
 
 function NewVersion({
@@ -53,13 +53,13 @@ function NewVersion({
   return (
     <UploadDialog
       title={`Version ${next}`}
-      description="A new edit is a new version, never a replacement. One file per variation; one of them is the primary."
+      description="A new edit is a new version, never a replacement. One file per variant; one of them is the primary."
       onClose={onClose}
       width="lg"
       inputLabel="Version files"
       listLabel="Files of this version"
       prompt="Drop the files of this version here, or choose them"
-      hint="One file per variation."
+      hint="One file per variant."
       multiple
       chosen={chosen}
       onPick={() => setChosen(versionFiles)}
@@ -72,8 +72,8 @@ function NewVersion({
       row={(c) => (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <Input
-            defaultValue={versionFiles.find((f) => f.key === c.key)?.variation ?? ""}
-            aria-label={`Variation name for ${c.name}`}
+            defaultValue={versionFiles.find((f) => f.key === c.key)?.variant ?? ""}
+            aria-label={`Variant name for ${c.name}`}
             className="h-7 w-48 text-[13px]"
           />
           <label className="flex items-center gap-1.5 text-[13px] text-ink-2">
@@ -263,7 +263,7 @@ function VersionRow({
                 ...(canUpload
                   ? [
                       {
-                        label: video ? "Add a rendition…" : "Add a variation…",
+                        label: video ? "Add a rendition…" : "Add a variant…",
                         onSelect: () => setAdding(true),
                       },
                     ]
@@ -272,7 +272,7 @@ function VersionRow({
                   ? [
                       { label: "Replace a file…", onSelect: () => {} },
                       {
-                        label: video ? "Describe the renditions…" : "Rename the variations…",
+                        label: video ? "Describe the renditions…" : "Rename the variants…",
                         onSelect: () => {},
                       },
                       { label: "Import an edit decision list…", onSelect: () => {} },
@@ -308,7 +308,7 @@ function VersionRow({
         </p>
       )}
       <ul className="flex list-none flex-wrap gap-2 p-0">
-        {version.variations.map((v) => {
+        {version.variants.map((v) => {
           const file = fileById(v.fileId);
           const qa = qaSummary(v.fileId);
           const open = openCommentCount(v.fileId);
@@ -351,7 +351,7 @@ function VersionRow({
         })}
       </ul>
       {adding && track && (
-        <AddVariationDialog track={track} version={version} onClose={() => setAdding(false)} />
+        <AddVariantDialog track={track} version={version} onClose={() => setAdding(false)} />
       )}
     </li>
   );
@@ -432,7 +432,7 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
   const next = workflow?.stages.find((s) => s.after.includes(stage?.id ?? ""));
   const score = track.scoreFileId ? fileById(track.scoreFileId) : undefined;
   const openComments = track.versions
-    .flatMap((v) => v.variations)
+    .flatMap((v) => v.variants)
     .reduce(
       (n, v) =>
         n + comments.filter((c) => c.fileId === v.fileId && !c.parentId && !c.resolved).length,

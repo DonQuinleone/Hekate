@@ -25,8 +25,8 @@ export type ApiScope = z.infer<typeof apiScope>;
 
 /** What each scope lets a token do, as settings and the documentation say it. */
 export const apiScopeLabels: Record<ApiScope, string> = {
-  "files:read": "List and read projects, folders, files, tracks, versions and variations",
-  "files:write": "Upload versions and variations, make folders, change files",
+  "files:read": "List and read projects, folders, files, tracks, versions and variants",
+  "files:write": "Upload versions and variants, make folders, change files",
   "reviews:read": "Read reviews, reviewers and decisions",
   "reviews:write": "Request reviews and record decisions as the token's member",
   comments: "Read and write comments and their anchors",
@@ -181,7 +181,7 @@ const rules: readonly Rule[] = [
   [/^\/projects$/, files],
   [new RegExp(`^/projects/${id}(/|$)`), files],
   [
-    /^\/(folders|files|tracks|versions|variations|takes|sessions|tags|uploads|upload-requests|score-categories|score-marks|stage-boxes|patch-rows|works|venues|schedule-days|schedule-rows|personnel|stage-plans|tasks|categories)(\/|$)/,
+    /^\/(folders|files|tracks|versions|variants|variations|takes|sessions|tags|uploads|upload-requests|score-categories|score-marks|stage-boxes|patch-rows|works|venues|schedule-days|schedule-rows|personnel|stage-plans|tasks|categories)(\/|$)/,
     files,
   ],
   [/^\/(search|home)(\/|$)/, files],

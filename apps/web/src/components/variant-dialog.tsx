@@ -1,4 +1,4 @@
-import { capital, variationNameFrom } from "@hekate/shared";
+import { capital, variantNameFrom } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import {
@@ -10,7 +10,7 @@ import {
   type Version,
 } from "~/lib/queries";
 import { type UploadedFile, uploadFile } from "~/lib/upload";
-import { primaryOf, variationNames } from "~/lib/versions";
+import { primaryOf, variantNames } from "~/lib/versions";
 import { kindIcon } from "./files";
 import { Icon } from "./icons";
 import { ToggleChip } from "./ui/chip";
@@ -20,24 +20,24 @@ import { Input, Select } from "./ui/input";
 import { Dropdown } from "./ui/menu";
 import { UploadDialog } from "./ui/upload-dialog";
 
-/** Audio and video in the project that no version uses yet: what can become a variation. */
+/** Audio and video in the project that no version uses yet: what can become a variant. */
 export function useLooseMedia(track: Track) {
   const { data: files = [] } = useQuery(projectFilesQuery(track.projectId));
   const { data: tracks = [] } = useQuery(projectTracksQuery(track.projectId));
   const used = new Set(
-    tracks.flatMap((t) => t.versions.flatMap((v) => v.variations.map((x) => x.fileId))),
+    tracks.flatMap((t) => t.versions.flatMap((v) => v.variants.map((x) => x.fileId))),
   );
   return files.filter((f) => (f.kind === "audio" || f.kind === "video") && !used.has(f.id));
 }
 
 /**
- * Another variation of a version, or a corrected file in place of one: dropped, chosen or
+ * Another variant of a version, or a corrected file in place of one: dropped, chosen or
  * picked from the project's loose files. Opened from the track's versions page and from the
- * variation switch above the player (#486), which then follows the new one once it plays.
- * A new one is named as its file is, or with one of the names the project's variations
+ * variant switch above the player (#486), which then follows the new one once it plays.
+ * A new one is named as its file is, or with one of the names the project's variants
  * already go by.
  */
-export function VariationDialog({
+export function VariantDialog({
   track,
   version,
   mode,
@@ -48,28 +48,28 @@ export function VariationDialog({
   version: Version;
   mode: "add" | "replace";
   onClose: () => void;
-  /** Once a variation is added: the file it was made of, for whoever wants to open it. */
+  /** Once a variant is added: the file it was made of, for whoever wants to open it. */
   onAdded?: ((fileId: string) => void) | undefined;
 }) {
-  const { addVariation, replaceFile } = useTrackMutations(track.projectId);
+  const { addVariant, replaceFile } = useTrackMutations(track.projectId);
   const { words, versionLabel, video } = useItemWords(track.projectId);
   const loose = useLooseMedia(track);
   const { data: tracks = [] } = useQuery(projectTracksQuery(track.projectId));
-  const suggestions = variationNames(
+  const suggestions = variantNames(
     tracks,
-    version.variations.map((v) => v.name),
+    version.variants.map((v) => v.name),
   );
-  /** The file chosen, by name, and the variation's name read from it until one is typed. */
+  /** The file chosen, by name, and the variant's name read from it until one is typed. */
   const [chosen, setChosen] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [primary, setPrimary] = useState(false);
   const [target, setTarget] = useState(primaryOf(version)?.id ?? "");
-  const replacing = version.variations.find((v) => v.id === target);
+  const replacing = version.variants.find((v) => v.id === target);
   return (
     <UploadDialog<UploadedFile>
       title={
         mode === "add"
-          ? `Add a ${words.variation} to ${versionLabel(version.number)}`
+          ? `Add a ${words.variant} to ${versionLabel(version.number)}`
           : `Replace a file of ${versionLabel(version.number)}`
       }
       description={
@@ -80,7 +80,7 @@ export function VariationDialog({
           : "A corrected export in its place. Its comments move to the new file; the old one stays in the project."
       }
       onClose={onClose}
-      inputLabel={mode === "add" ? `The ${words.variation}'s file` : "The corrected file"}
+      inputLabel={mode === "add" ? `The ${words.variant}'s file` : "The corrected file"}
       prompt="Drop the file here, or choose it"
       accept="audio/*,video/*"
       send={(file, onProgress, signal) =>
@@ -115,14 +115,14 @@ export function VariationDialog({
       onChange={(files) => {
         const file = files[0];
         setChosen(file?.name ?? null);
-        setName(file ? variationNameFrom(file.name, track.name) : "");
+        setName(file ? variantNameFrom(file.name, track.name) : "");
       }}
       fields={
         <>
-          {mode === "replace" && version.variations.length > 1 && (
-            <Field label={capital(words.variation)}>
+          {mode === "replace" && version.variants.length > 1 && (
+            <Field label={capital(words.variant)}>
               <Select value={target} onChange={(e) => setTarget(e.target.value)}>
-                {version.variations.map((v) => (
+                {version.variants.map((v) => (
                   <option key={v.id} value={v.id}>
                     {v.name} · {v.fileName}
                   </option>
@@ -141,11 +141,11 @@ export function VariationDialog({
                   Make it the primary
                 </label>
               </div>
-              {/* The names the project's other variations go by: one press names this one. */}
+              {/* The names the project's other variants go by: one press names this one. */}
               {suggestions.length > 0 && (
                 <fieldset className="m-0 flex flex-wrap items-center gap-1 border-0 p-0">
                   <legend className="sr-only">
-                    {capital(words.variation)} names used in this project
+                    {capital(words.variant)} names used in this project
                   </legend>
                   <span aria-hidden="true" className="mr-1 text-[12px] text-ink-3">
                     Used in this project
@@ -163,16 +163,16 @@ export function VariationDialog({
       }
       what={
         mode === "add"
-          ? `Uploaded into the ${words.track}'s folder, beside the other ${words.variations} of ${versionLabel(version.number)}.`
+          ? `Uploaded into the ${words.track}'s folder, beside the other ${words.variants} of ${versionLabel(version.number)}.`
           : replacing
             ? `In place of ${replacing.fileName}.`
             : undefined
       }
-      action={mode === "add" ? `Add ${words.variation}` : "Replace"}
+      action={mode === "add" ? `Add ${words.variant}` : "Replace"}
       onSubmit={async ([first]) => {
         if (!first?.result) return;
         if (mode === "add") {
-          await addVariation.mutateAsync({
+          await addVariant.mutateAsync({
             versionId: version.id,
             fileId: first.result.id,
             name: name.trim() || "Main",
@@ -180,7 +180,7 @@ export function VariationDialog({
           });
           onAdded?.(first.result.id);
         } else {
-          await replaceFile.mutateAsync({ variationId: target, fileId: first.result.id });
+          await replaceFile.mutateAsync({ variantId: target, fileId: first.result.id });
         }
         onClose();
       }}

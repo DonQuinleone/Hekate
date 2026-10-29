@@ -65,7 +65,7 @@ const connected = [
     name: "Hekate for Logic Pro",
     scopes: "Upload and change files, read and write comments",
     granted: [
-      ["files:write", "Upload versions and variations, make folders, change files"],
+      ["files:write", "Upload versions and variants, make folders, change files"],
       ["comments", "Read and write comments and their anchors"],
     ],
     since: "14 Sep",
@@ -75,7 +75,7 @@ const connected = [
     name: "Lantern Deliveries",
     scopes: "Read files, download originals",
     granted: [
-      ["files:read", "List and read projects, folders, files, tracks, versions and variations"],
+      ["files:read", "List and read projects, folders, files, tracks, versions and variants"],
       ["downloads", "Download originals and proxies, watermarked and logged"],
     ],
     since: "4 Oct",
@@ -363,7 +363,7 @@ export function AccountPage({ section }: { section: string }) {
                   <legend className="mb-1.5">Scopes</legend>
                   {[
                     ["files:read", "List and read files and versions"],
-                    ["files:write", "Upload versions and variations"],
+                    ["files:write", "Upload versions and variants"],
                     ["reviews:read", "Read reviews and their decisions"],
                     ["reviews:write", "Request reviews and record decisions as you"],
                     ["comments", "Read and write comments"],

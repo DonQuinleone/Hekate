@@ -12,7 +12,7 @@ import {
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 
-const { deliveryProfiles, files, organisations, projects, tracks, variations, versions } = schema;
+const { deliveryProfiles, files, organisations, projects, tracks, variants, versions } = schema;
 
 type Reader = Pick<Database, "select">;
 
@@ -61,7 +61,7 @@ async function workspaceRef(db: Reader, organisationId: string) {
 
 /**
  * What each of some files is measured against: the nearest choice among the file's own,
- * its track's (as a variation of one of its versions), its project's and the workspace's,
+ * its track's (as a variant of one of its versions), its project's and the workspace's,
  * else the profile its channels suggest.
  */
 export async function profilesForFiles(db: Reader, organisationId: string, fileIds: string[]) {
@@ -83,12 +83,12 @@ export async function profilesForFiles(db: Reader, organisationId: string, fileI
             and(eq(projects.id, files.projectId), eq(projects.organisationId, organisationId)),
           )
           .leftJoin(
-            variations,
-            and(eq(variations.fileId, files.id), eq(variations.organisationId, organisationId)),
+            variants,
+            and(eq(variants.fileId, files.id), eq(variants.organisationId, organisationId)),
           )
           .leftJoin(
             versions,
-            and(eq(versions.id, variations.versionId), eq(versions.organisationId, organisationId)),
+            and(eq(versions.id, variants.versionId), eq(versions.organisationId, organisationId)),
           )
           .leftJoin(
             tracks,

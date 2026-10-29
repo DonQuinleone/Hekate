@@ -14,12 +14,12 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **File** | One uploaded object: audio, video, a PDF score, cover artwork, a document. Files are immutable; a changed file is a new file. |
 | **Track** | A piece of music in review, for example *Maple Tree Rag*. A track groups the files that relate to that piece. A track has versions. |
 | **Version** | One edit of a track, numbered in order (Version 1 to Version 5). A new edit is a new version, never a replacement file. |
-| **Variation** | One file within a version that differs in treatment, not in edit: for example the dry mix and the wet mix of Version 4. Every version has at least one variation, and one is primary. |
+| **Variant** | One file within a version that differs in treatment, not in edit: for example the dry mix and the wet mix of Version 4. Every version has at least one variant, and one is primary. |
 | **Take** | A snippet of audio captured in a recording session, usually not a complete run of the music. A take belongs to one track (a track has many takes), never to the session it was recorded in. Takes are reference material for the producer and editor: they show what is available for each passage and what has been stitched into the edit. A take is one file for now, its scratch mix; uploading one file per microphone follows. Its rating, star, notes, score page, bar range and in and out points are all optional: bars matter for classical music and rarely for pop. Takes are **not** versions and do not normally appear in review. |
 | **Session** | A recording session (for example "Day 2 · St John's"), with its date and venue. Sessions and tracks are linked many to many: a session records several tracks, and a track may be recorded across several sessions. |
-| **Deliverable** | What a video project calls a track: something delivered and reviewed, such as "Trailer 60s" or "Episode 3". A deliverable has cuts (its versions), and each cut has renditions (its variations). Only the words differ; a deliverable is a track in the data model. |
+| **Deliverable** | What a video project calls a track: something delivered and reviewed, such as "Trailer 60s" or "Episode 3". A deliverable has cuts (its versions), and each cut has renditions (its variants). Only the words differ; a deliverable is a track in the data model. |
 | **Cut** | What a video project calls a version: one edit of a deliverable, numbered in order (Cut 1, Cut 2). |
-| **Rendition** | What a video project calls a variation: one file within a cut that differs in format or treatment, such as 16:9 or 9:16, subtitled or clean, graded or ungraded. Its shape and codec are read from the file; whether it is subtitled and graded is said by its people. One is primary. |
+| **Rendition** | What a video project calls a variant: one file within a cut that differs in format or treatment, such as 16:9 or 9:16, subtitled or clean, graded or ungraded. Its shape and codec are read from the file; whether it is subtitled and graded is said by its people. One is primary. |
 | **Edit decision** | Which takes a version uses for which bars or time ranges, optionally imported from the editor's edit decision list (EDL). |
 | **Reviewer permissions** | What one reviewer may see and do in one review: versions, comments, tools, downloads, expiry, view limits and which items. |
 | **Work** | An entry in a project's repertoire: title, composer, forces, abbreviation, and its tracks in order. A single-track work is just one track. Used by the schedule, the take log and the score. |
@@ -69,16 +69,16 @@ Workspace (organisation)
     │   └── File
     ├── Track
     │   ├── Version (1, 2, 3 …)
-    │   │   └── Variation → File (dry mix, wet mix …; one primary)
+    │   │   └── Variant → File (dry mix, wet mix …; one primary)
     │   └── Take (Take 1 … Take 70)
     │       └── File (its scratch mix; one per microphone later)
     └── Session ↔ Track (many to many)
 ```
 
-- Files are the only thing stored. Tracks, versions, variations and takes organise files; they never copy them.
-- A file can be a variation of exactly one version, part of exactly one take, or neither (a loose file in a folder such as cover artwork or a score PDF).
+- Files are the only thing stored. Tracks, versions, variants and takes organise files; they never copy them.
+- A file can be a variant of exactly one version, part of exactly one take, or neither (a loose file in a folder such as cover artwork or a score PDF).
 - A track can link a score file, used for bar anchors and the score view.
-- Video projects call their tracks **deliverables**, their versions **cuts** and their variations **renditions** (16:9, 9:16, subtitled, graded). They are the same structure under video words, so workflows, reviews, the board, carry-over and the access log work for them as they do for tracks; the profile hides what is music's (takes, scores, bars).
+- Video projects call their tracks **deliverables**, their versions **cuts** and their variants **renditions** (16:9, 9:16, subtitled, graded). They are the same structure under video words, so workflows, reviews, the board, carry-over and the access log work for them as they do for tracks; the profile hides what is music's (takes, scores, bars).
 - General projects use folders and files, with simple version chains on files.
 
 ## Listening and viewing
@@ -91,8 +91,8 @@ Tools for engineers and producers, all working on the protected streams (`docs/s
 - Spectrogram, side by side with or overlaid on the waveform, coloured like iZotope RX by default (the *Cyan to orange* map). Every view setting is configurable and saved per user, with named presets: colour map (Cyan to orange, Inferno, Greyscale, Signal), frequency scale (linear, log, mel, Bark), window (Hann, Hamming, Blackman-Harris, Kaiser), FFT size, overlap, time and frequency resolution balance, amplitude range (floor and ceiling in dB), frequency range, and channel (left, right, mid, side, or each channel)
 - Level metering: peak, RMS, true peak and integrated loudness (LUFS), per channel, with loudness history
 - Phase correlation and stereo field (goniometer)
-- **Loops:** drag a loop region on the waveform, loop a comment's anchor or a bar range in one action, nudge the in and out points, and keep the loop while switching variation or version
-- **Quick comparison:** one key flips between variations (dry and wet mix) or versions at the same musical position, gapless and level-matched; pin up to four sources to number keys; blind mode hides which is which
+- **Loops:** drag a loop region on the waveform, loop a comment's anchor or a bar range in one action, nudge the in and out points, and keep the loop while switching variant or version
+- **Quick comparison:** one key flips between variants (dry and wet mix) or versions at the same musical position, gapless and level-matched; pin up to four sources to number keys; blind mode hides which is which
 - **Built-in QA:** see below
 - Compare versions at the same musical position, using the version alignment below
 - Solo and mute channels for multichannel files and takes
@@ -286,7 +286,7 @@ A project's own settings narrow what the roles and reviews give, never widen it 
 
 - Carry-over: a per-comment *Show on this version* toggle with a status.
 - Hardware security keys: five per account is a default the operator can raise.
-- Video: deliverables, cuts and renditions are tracks, versions and variations under video words (decision 138).
+- Video: deliverables, cuts and renditions are tracks, versions and variants under video words (decision 138).
 - Guest visibility: governed by reviewer permissions, not a fixed rule.
 - Commercial DRM: later; the delivery design leaves room for it.
 - Edit decisions: optional EDL import; an optional project rule can require it on upload.

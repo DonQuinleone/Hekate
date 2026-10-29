@@ -1,6 +1,6 @@
 import { capital, folderPath } from "@hekate/shared";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
-import { folderTree, nameStem, variationNameFor } from "~/lib/browser";
+import { folderTree, nameStem, variantNameFor } from "~/lib/browser";
 import { cn } from "~/lib/cn";
 import { type Folder, type ProjectFile, type Track, useItemWords } from "~/lib/queries";
 import { Icon } from "./icons";
@@ -85,7 +85,7 @@ export function RenameInput({
 }
 
 /**
- * Put a loose file into a track: as its next version, or as another variation of its latest
+ * Put a loose file into a track: as its next version, or as another variant of its latest
  * (a wet mix beside the dry one).
  */
 export function AttachForm({
@@ -98,16 +98,16 @@ export function AttachForm({
   file: ProjectFile;
   tracks: Track[];
   pending: boolean;
-  onAttach: (track: Track, as: "version" | "variation", name: string) => void;
+  onAttach: (track: Track, as: "version" | "variant", name: string) => void;
   onCancel: () => void;
 }) {
   const [trackId, setTrackId] = useState(tracks[0]?.id ?? "");
   const track = tracks.find((t) => t.id === trackId);
   const { words, versionLabel } = useItemWords(tracks[0]?.projectId);
   const latest = track?.versions.at(-1);
-  const [as, setAs] = useState<"version" | "variation">("version");
+  const [as, setAs] = useState<"version" | "variant">("version");
   const [name, setName] = useState("");
-  const shown = name || (track ? variationNameFor(file.name, track.name) : "");
+  const shown = name || (track ? variantNameFor(file.name, track.name) : "");
   return (
     <form
       onSubmit={(event) => {
@@ -133,19 +133,19 @@ export function AttachForm({
         aria-label="As"
         className="max-w-60"
         value={latest ? as : "version"}
-        onChange={(e) => setAs(e.target.value as "version" | "variation")}
+        onChange={(e) => setAs(e.target.value as "version" | "variant")}
       >
         <option value="version">
           As {versionLabel((latest?.number ?? 0) + 1)}, a new {words.version}
         </option>
         {latest && (
-          <option value="variation">
-            As a {words.variation} of {versionLabel(latest.number)}
+          <option value="variant">
+            As a {words.variant} of {versionLabel(latest.number)}
           </option>
         )}
       </Select>
       <Input
-        aria-label={`${capital(words.variation)} name`}
+        aria-label={`${capital(words.variant)} name`}
         className="w-40"
         maxLength={80}
         value={shown}

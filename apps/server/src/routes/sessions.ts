@@ -28,7 +28,7 @@ import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { takeRowsFor } from "./takes.ts";
 
-const { files, sessions, sessionTodos, sessionTracks, takes, tracks, users, variations } = schema;
+const { files, sessions, sessionTodos, sessionTracks, takes, tracks, users, variants } = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
@@ -332,9 +332,9 @@ export const projectSessionRoutes = (db: Database) =>
         if (chosen.some((f) => f.kind !== "audio" && f.kind !== "video"))
           throw new HTTPException(422, { message: "A take is a recording: audio or video" });
         const used = await tx
-          .select({ id: variations.fileId })
-          .from(variations)
-          .where(inOrg(variations, organisationId, inArray(variations.fileId, fileIds)));
+          .select({ id: variants.fileId })
+          .from(variants)
+          .where(inOrg(variants, organisationId, inArray(variants.fileId, fileIds)));
         if (used.length > 0)
           throw new HTTPException(409, { message: "A version's file cannot also be a take" });
         // A file that is a take already was imported before: carrying on, not doing it twice.
