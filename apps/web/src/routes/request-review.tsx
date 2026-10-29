@@ -350,8 +350,9 @@ function ReviewForm({
   const { data: known = [] } = useQuery(projectGuestsQuery(projectId));
   const { words, versionLabel } = useItemWords(projectId);
   const create = useCreateReview(projectId);
-  // Whether everything in the workspace may be asked about (#501): offered only then.
-  const { data: scope = null } = useQuery({ ...reviewScopeQuery, enabled: mayRequest });
+  // Whether everything in the workspace may be asked about (#501): offered only then. The
+  // form is shown only to someone who may request reviews, so the question is always asked.
+  const { data: scope = null } = useQuery(reviewScopeQuery);
 
   const [kind, setKind] = useState<ReviewKind>(initial.kind);
   const [chosen, setChosen] = useState<Chosen>(initial.chosen);
