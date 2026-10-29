@@ -1,4 +1,4 @@
-import { type PointerEvent, type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, loopFrom, MAX_ROLL, nudge, type Rolls, roll } from "~/lib/loop";
 import { Button } from "./ui/button";
@@ -34,7 +34,8 @@ function Band({ loop, duration, draft }: { loop: Loop; duration: number; draft?:
 
 /**
  * A surface over the waveform, spectrogram or a loop lane: a click moves the playhead, a
- * drag marks a loop. The loop already set is shaded.
+ * drag marks a loop, a double-click ends looping (#494). The loop already set is shaded. A
+ * second finger ends a drag: two are a pinch, which the player around it handles.
  */
 export function LoopSurface({
   duration,
@@ -42,6 +43,7 @@ export function LoopSurface({
   active,
   onSeek,
   onLoop,
+  onClear,
   label,
   valueText,
   className,
@@ -53,6 +55,8 @@ export function LoopSurface({
   onSeek: (seconds: number) => void;
   /** Make a loop from a drag; without it, the surface only seeks. */
   onLoop?: (loop: Loop) => void;
+  /** A double-click, where there is a loop to end: it ends there, and the playhead goes there. */
+  onClear?: (seconds: number) => void;
   label: string;
   /** What the surface reads as, where it is not the loop: the edit at the playhead. */
   valueText?: string;
@@ -60,8 +64,10 @@ export function LoopSurface({
   children?: ReactNode;
 }) {
   const from = useRef<{ x: number; time: number } | null>(null);
+  /** Every pointer down on the surface, so a second one is known to be a pinch. */
+  const pointers = useRef(new Set<number>());
   const [draft, setDraft] = useState<Loop | null>(null);
-  const timeAt = (event: PointerEvent<HTMLDivElement>) => {
+  const timeAt = (event: { clientX: number; currentTarget: HTMLDivElement }) => {
     const box = event.currentTarget.getBoundingClientRect();
     return box.width > 0 ? ((event.clientX - box.left) / box.width) * duration : 0;
   };
@@ -83,6 +89,13 @@ export function LoopSurface({
         className="absolute inset-0 z-10 cursor-crosshair touch-none select-none"
         onPointerDown={(event) => {
           if (event.button !== 0 || !(duration > 0)) return;
+          pointers.current.add(event.pointerId);
+          if (pointers.current.size > 1) {
+            // A second finger: no longer a click or a drag.
+            from.current = null;
+            setDraft(null);
+            return;
+          }
           event.currentTarget.setPointerCapture(event.pointerId);
           from.current = { x: event.clientX, time: timeAt(event) };
         }}
@@ -92,6 +105,7 @@ export function LoopSurface({
           setDraft(loopFrom(start.time, timeAt(event), duration));
         }}
         onPointerUp={(event) => {
+          pointers.current.delete(event.pointerId);
           const start = from.current;
           from.current = null;
           if (!start) return;
@@ -103,9 +117,13 @@ export function LoopSurface({
           if (made) onLoop?.(made);
           else onSeek(Math.max(0, Math.min(duration, timeAt(event))));
         }}
-        onPointerCancel={() => {
+        onPointerCancel={(event) => {
+          pointers.current.delete(event.pointerId);
           from.current = null;
           setDraft(null);
+        }}
+        onDoubleClick={(event) => {
+          if (onClear && duration > 0) onClear(Math.max(0, Math.min(duration, timeAt(event))));
         }}
       >
         {loop && !draft && (

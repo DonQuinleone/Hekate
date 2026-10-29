@@ -25,9 +25,10 @@ export function Spectrogram({
   width,
   height,
   colourMap = "cyan-orange",
-  scale = "log",
+  scale = "mel",
   floor = -100,
   ceiling = -8,
+  gain = 0,
   className,
 }: {
   seed: number;
@@ -37,6 +38,8 @@ export function Spectrogram({
   scale?: "linear" | "log" | "mel";
   floor?: number;
   ceiling?: number;
+  /** Its own brightness (#495): added to every level, in dB. */
+  gain?: number;
   className?: string;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -71,7 +74,7 @@ export function Spectrogram({
           const d = Math.abs(freq - fund * k);
           if (d < 0.004) v += (40 / k) * phrase * tail * lead * (1 - d / 0.004);
         }
-        v += (noise[py * w + px] ?? 0) * 10 - 5;
+        v += (noise[py * w + px] ?? 0) * 10 - 5 + gain;
         const n = Math.min(1, Math.max(0, (v - floor) / range));
         const [r, g, b] = map(n);
         const i = (py * w + px) * 4;
@@ -82,7 +85,7 @@ export function Spectrogram({
       }
     }
     ctx.putImageData(img, 0, 0);
-  }, [seed, width, height, colourMap, scale, floor, ceiling]);
+  }, [seed, width, height, colourMap, scale, floor, ceiling, gain]);
   return (
     <canvas
       ref={canvas}
@@ -96,7 +99,7 @@ export function Spectrogram({
 
 export function FrequencyScale({
   height,
-  scale = "log",
+  scale = "mel",
 }: {
   height: number;
   scale?: "linear" | "log" | "mel";

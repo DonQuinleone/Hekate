@@ -20,6 +20,8 @@ export interface View {
   spectrogram: "off" | "below" | "behind" | "instead";
   colourMap: ColourMap;
   scale: "linear" | "log" | "mel";
+  /** The spectrogram's own brightness (#495), in dB either way. */
+  gain: number;
   /**
    * How the spectrogram is analysed (#34): the window, the FFT's size and how far windows
    * overlap. Anything but the default is drawn on the server when first asked for.
@@ -36,10 +38,12 @@ export interface View {
 
 export const defaultView: View = {
   split: false,
-  wave: { colour: "ink", opacity: 0.5, height: 0.32 },
+  // Full brightness and the Mel scale by default (#495).
+  wave: { colour: "ink", opacity: 1, height: 0.32 },
   spectrogram: "off",
   colourMap: "cyan-orange",
-  scale: "log",
+  scale: "mel",
+  gain: 0,
   analysis: { window: "hann", fftSize: "auto", overlap: "75" },
   normalised: false,
   loudness: true,
@@ -184,7 +188,8 @@ export function ViewMenu({
                 Brightness
                 <input
                   type="range"
-                  min={15}
+                  // No fainter than 40% (#495): below that it vanishes over a spectrogram.
+                  min={40}
                   max={100}
                   value={Math.round(view.wave.opacity * 100)}
                   onChange={(e) =>
@@ -275,6 +280,22 @@ export function ViewMenu({
                       ]}
                     />
                   </div>
+                  <label className="flex items-center gap-3 text-[12px] text-ink-3">
+                    Brightness
+                    <input
+                      type="range"
+                      min={-24}
+                      max={24}
+                      value={view.gain}
+                      onChange={(e) => onView({ ...view, gain: Number(e.target.value) })}
+                      aria-label="Spectrogram brightness"
+                      className="h-1 flex-1 accent-[var(--hk-signal)]"
+                    />
+                    <span className="tabular w-12 text-right">
+                      {view.gain > 0 ? "+" : view.gain < 0 ? "−" : ""}
+                      {Math.abs(view.gain)} dB
+                    </span>
+                  </label>
                   <button
                     type="button"
                     aria-expanded={analysing}

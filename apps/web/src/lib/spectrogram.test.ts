@@ -28,6 +28,10 @@ describe("stored views", () => {
       readView({ colourMap: "inferno", scale: "nope", floor: -90, ceiling: -95 }),
     ).toMatchObject({ colourMap: "inferno", scale: defaultView.scale, floor: -90, ceiling: -89 });
     expect(readView({ low: 5000, high: 100 })).toMatchObject({ low: 5000, high: 5001 });
+    // The spectrogram's own brightness (#495), within its range; none kept means none.
+    expect(readView({ gain: 60 })).toMatchObject({ gain: 24 });
+    expect(readView({ gain: -6 })).toMatchObject({ gain: -6 });
+    expect(readView({})).toMatchObject({ gain: 0 });
   });
 });
 
@@ -84,6 +88,15 @@ describe("rendering", () => {
     );
     expect(brightness(pixels, 4, 2, 6)).toBe(0);
     expect(brightness(pixels, 4, 0, 1)).toBe(255);
+  });
+
+  it("brightens everything by the gain, and no further than the ceiling (#495)", () => {
+    const pixels = renderSpectrogram(spectrogram, 4, 8, { ...view, gain: 24 }, grey);
+    // The click at −60 dB reads as −36 dB: 70% of the way from the floor to the ceiling.
+    expect(brightness(pixels, 4, 2, 6)).toBeCloseTo(178, -1);
+    expect(brightness(pixels, 4, 0, 1)).toBe(255);
+    const dimmed = renderSpectrogram(spectrogram, 4, 8, { ...view, gain: -24 }, grey);
+    expect(brightness(dimmed, 4, 2, 6)).toBeCloseTo(77, -1);
   });
 });
 

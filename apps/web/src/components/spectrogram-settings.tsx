@@ -3,6 +3,7 @@ import {
   type FrequencyScale,
   frequencyScales,
   isDefaultAnalysis,
+  SPECTRUM_GAIN_MAX,
   type SpectrogramAnalysis,
   spectrogramFftSizes,
   spectrogramOverlaps,
@@ -21,6 +22,11 @@ import {
 import type { SpectrogramChannelChoice } from "./spectrogram";
 import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
+import { Slider } from "./ui/slider";
+
+/** A gain as the slider says it: "+6 dB", "0 dB", "−6 dB". */
+export const gainLabel = (gain: number) =>
+  `${gain > 0 ? "+" : gain < 0 ? "−" : ""}${Math.abs(Math.round(gain))} dB`;
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -62,8 +68,10 @@ function NumberField({
   );
 }
 
-/** Every setting of the spectrogram view, beneath the player. */
-/** The spectrogram's colours and frequency scale, shown in the View menu itself (#135). */
+/**
+ * The spectrogram's colours, frequency scale and its own brightness (#495), shown in the
+ * View menu itself (#135), beside the waveform's look.
+ */
 export function SpectrogramLook({
   view,
   onView,
@@ -73,6 +81,20 @@ export function SpectrogramLook({
 }) {
   return (
     <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+      <label className="flex w-full items-center gap-3 text-[12px] text-ink-3">
+        <span className="w-16 shrink-0">Brightness</span>
+        <Slider
+          min={-SPECTRUM_GAIN_MAX}
+          max={SPECTRUM_GAIN_MAX}
+          step={1}
+          value={view.gain}
+          aria-label="Spectrogram brightness"
+          aria-valuetext={gainLabel(view.gain)}
+          onChange={(event) => onView({ ...view, gain: Number(event.target.value) })}
+          className="min-w-0 flex-1"
+        />
+        <span className="tabular w-12 shrink-0 text-right">{gainLabel(view.gain)}</span>
+      </label>
       <Field label="Colours">
         <Select
           size="sm"
