@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { FloatingLayer } from "~/components/ui/floating";
 import { useViewer } from "./context.tsx";
 
 /** The lamps in the room: slow, warm and cool, behind the chrome. */
@@ -22,22 +23,22 @@ export function Frame({ children }: { children: ReactNode }) {
     return (
       <div className="relative flex h-full items-center justify-center overflow-auto bg-canvas p-6">
         <Ambient />
-        <div
+        <FloatingLayer
           className="@container/app relative z-10 h-[844px] w-[390px] shrink-0 transform-gpu overflow-hidden rounded-[32px] border border-edge bg-ground shadow-4"
           data-flat={settings.shadows ? undefined : ""}
         >
           {children}
-        </div>
+        </FloatingLayer>
       </div>
     );
   }
   return (
-    <div
+    <FloatingLayer
       className="@container/app relative h-full bg-canvas"
       data-flat={settings.shadows ? undefined : ""}
     >
       <Ambient />
       <div className="relative z-10 h-full">{children}</div>
-    </div>
+    </FloatingLayer>
   );
 }

@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Icon, type IconName } from "~/components/icons";
 import { Button } from "~/components/ui/button";
+import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
 import { type NotificationKind, notifications, personById } from "~/data";
 import { cn } from "~/lib/cn";
@@ -53,7 +54,13 @@ export function NotificationsMenu({ waiting }: { waiting: number }) {
         )}
       </button>
       {open && (
-        <div className="rise-in absolute right-0 z-40 mt-1.5 flex w-[380px] flex-col overflow-hidden rounded-panel-lg bg-overlay shadow-4">
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
+          className="rise-in flex w-[380px] flex-col overflow-hidden rounded-panel-lg bg-overlay shadow-4"
+        >
           <div className="flex h-11 items-center gap-2 border-b border-line px-4">
             <span className="text-[14px] font-medium text-ink">Notifications</span>
             {unread > 0 && <span className="tabular text-[12px] text-ink-3">{unread} unread</span>}
@@ -108,7 +115,7 @@ export function NotificationsMenu({ waiting }: { waiting: number }) {
               All notifications
             </Button>
           </div>
-        </div>
+        </Floating>
       )}
     </div>
   );

@@ -11,6 +11,7 @@ import { ShareDialog } from "~/components/share";
 import { Dot, reviewDot } from "~/components/status";
 import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
+import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import {
@@ -112,7 +113,13 @@ function CustomiseOverview({
         Customise
       </Button>
       {open && (
-        <div className="rise-in absolute right-0 z-30 mt-1 w-64 rounded-panel-lg bg-overlay p-2 shadow-4">
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
+          className="rise-in w-64 rounded-panel-lg bg-overlay p-2 shadow-4"
+        >
           <Label className="px-2">Sections, in order</Label>
           <ul className="mt-1 flex flex-col">
             {[...sections, ...all.filter((id) => !sections.includes(id))].map((id) => {
@@ -161,7 +168,7 @@ function CustomiseOverview({
               Reset
             </button>
           </div>
-        </div>
+        </Floating>
       )}
     </div>
   );

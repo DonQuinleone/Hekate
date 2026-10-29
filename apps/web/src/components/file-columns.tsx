@@ -5,6 +5,7 @@ import {
   fileColumns,
 } from "@hekate/shared";
 import { type PointerEvent, useRef } from "react";
+import { Floating } from "~/components/ui/floating";
 import { moveColumn, resizeColumn, toggleColumn } from "~/lib/browser";
 import { Icon } from "./icons";
 import { usePopover } from "./ui/menu";
@@ -55,11 +56,15 @@ export function ColumnsMenu({
         <Icon name="sliders" size={14} />
       </button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="dialog"
           aria-label="Columns"
           data-e2e-overlap
-          className="rise-in absolute top-full right-0 z-30 mt-1 w-60 rounded-panel-lg bg-overlay p-2 text-[13px] font-normal normal-case tracking-normal shadow-4"
+          className="rise-in w-60 rounded-panel-lg bg-overlay p-2 text-[13px] font-normal normal-case tracking-normal shadow-4"
         >
           <p className="eyebrow m-0 px-2 text-ink-2">Columns, in order</p>
           <ul className="m-0 mt-1 flex list-none flex-col p-0">
@@ -109,7 +114,7 @@ export function ColumnsMenu({
               Reset
             </button>
           </div>
-        </div>
+        </Floating>
       )}
     </div>
   );

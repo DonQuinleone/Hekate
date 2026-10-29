@@ -5,6 +5,7 @@ import { Avatar } from "~/components/avatar";
 import { Mark } from "~/components/brand";
 import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
+import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
@@ -122,12 +123,16 @@ export function NotificationsMenu() {
         )}
       </button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="dialog"
           aria-label="Notifications"
           // A panel over the page, as menus are.
           data-e2e-overlap
-          className="rise-in absolute inset-x-3 top-full z-40 mt-1.5 flex flex-col overflow-hidden rounded-panel-lg bg-overlay shadow-4 @3xl/app:inset-x-auto @3xl/app:top-auto @3xl/app:right-0 @3xl/app:w-[380px]"
+          className="rise-in flex w-[calc(100cqw-24px)] flex-col overflow-hidden rounded-panel-lg bg-overlay shadow-4 @3xl/app:w-[380px]"
         >
           <div className="flex h-11 items-center gap-2 border-b border-line px-4">
             <span className="text-[14px] font-medium text-ink">Notifications</span>
@@ -164,7 +169,7 @@ export function NotificationsMenu() {
               All notifications
             </Button>
           </div>
-        </div>
+        </Floating>
       )}
     </div>
   );

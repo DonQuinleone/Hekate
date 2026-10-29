@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
+import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
 import { cn } from "~/lib/cn";
 import { followStep, leaderState } from "~/lib/listening";
@@ -83,11 +84,15 @@ export function ListenTogether({ fileId, projectId }: { fileId: string; projectI
         <span className="sr-only lg:not-sr-only">{label}</span>
       </Button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="dialog"
           aria-label="Listen together"
           data-e2e-overlap
-          className="rise-in absolute top-full right-0 z-40 mt-1.5 flex w-80 max-w-[calc(100vw-32px)] flex-col gap-3 rounded-panel-lg bg-overlay p-4 shadow-4"
+          className="rise-in flex w-80 max-w-[calc(100vw-32px)] flex-col gap-3 rounded-panel-lg bg-overlay p-4 shadow-4"
         >
           {!inRoom && (
             <>
@@ -203,7 +208,7 @@ export function ListenTogether({ fileId, projectId }: { fileId: string; projectI
               </div>
             </>
           )}
-        </div>
+        </Floating>
       )}
     </div>
   );

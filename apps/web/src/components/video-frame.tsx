@@ -10,6 +10,7 @@ import {
   videoTimecode,
 } from "@hekate/shared";
 import { useId, useState } from "react";
+import { Floating } from "~/components/ui/floating";
 import { cn } from "~/lib/cn";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
@@ -178,42 +179,49 @@ export function GoToTimecode({
         Go to
       </Button>
       {open && (
-        <form
+        <Floating
+          anchor={box}
+          align="end"
+          onClose={() => setOpen(false)}
           data-e2e-overlap
-          className="rise-in absolute top-full right-0 z-30 mt-1 flex w-64 flex-col gap-1.5 rounded-panel bg-overlay p-2 shadow-3"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const frame = parseTimecode(value, clock);
-            if (frame === null || frame > last) {
-              setWrong(true);
-              return;
-            }
-            onGo(frame);
-            setOpen(false);
-          }}
+          className="rise-in w-64 rounded-panel bg-overlay p-2 shadow-3"
         >
-          <Input
-            size="sm"
-            autoFocus
-            onFocus={(event) => event.target.select()}
-            value={value}
-            onChange={(event) => {
-              setValue(event.target.value);
-              setWrong(false);
+          <form
+            className="flex flex-col gap-1.5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const frame = parseTimecode(value, clock);
+              if (frame === null || frame > last) {
+                setWrong(true);
+                return;
+              }
+              onGo(frame);
+              setOpen(false);
             }}
-            aria-label="Timecode"
-            aria-invalid={wrong}
-            aria-describedby={hint}
-            inputMode="numeric"
-            spellCheck={false}
-            className="tabular"
-          />
-          <span id={hint} className={cn("text-[12px]", wrong ? "text-signal" : "text-ink-2")}>
-            {wrong
-              ? "That timecode is not in this file."
-              : "A timecode, or a time from the start such as 12:00."}
-          </span>
-        </form>
+          >
+            <Input
+              size="sm"
+              autoFocus
+              onFocus={(event) => event.target.select()}
+              value={value}
+              onChange={(event) => {
+                setValue(event.target.value);
+                setWrong(false);
+              }}
+              aria-label="Timecode"
+              aria-invalid={wrong}
+              aria-describedby={hint}
+              inputMode="numeric"
+              spellCheck={false}
+              className="tabular"
+            />
+            <span id={hint} className={cn("text-[12px]", wrong ? "text-signal" : "text-ink-2")}>
+              {wrong
+                ? "That timecode is not in this file."
+                : "A timecode, or a time from the start such as 12:00."}
+            </span>
+          </form>
+        </Floating>
       )}
     </div>
   );

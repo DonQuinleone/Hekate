@@ -1,8 +1,8 @@
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
-import { within } from "~/lib/dom";
 import { Icon } from "../icons";
 import { Button } from "./button";
+import { Floating, withinOrFloatingFrom } from "./floating";
 import { fieldClass } from "./input";
 
 /** Opens on its control, closes on a click elsewhere or Escape. */
@@ -16,7 +16,7 @@ export function usePopover(): [
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => {
-      if (!within(event, box.current)) setOpen(false);
+      if (!withinOrFloatingFrom(event, box.current)) setOpen(false);
     };
     const onEscape = (event: KeyboardEvent) => event.key === "Escape" && setOpen(false);
     window.addEventListener("pointerdown", away);
@@ -39,56 +39,75 @@ export interface MenuAction {
   onSelect: () => void;
 }
 
-/** The floating list itself. */
+/**
+ * The list itself. Given its anchor it floats from it, over everything; without one (a group
+ * inside a larger menu) it sits where it is declared.
+ */
 export function MenuList({
   actions,
   onClose,
+  anchor,
   align = "right",
+  side = "bottom",
   className,
+  role = "menu",
 }: {
   actions: (MenuAction | "divider")[];
   onClose: () => void;
-  align?: "left" | "right";
+  anchor?: RefObject<HTMLElement | null>;
+  /** Its right edge on the anchor's, its left edge on the anchor's, or as wide as the anchor. */
+  align?: "left" | "right" | "stretch";
+  side?: "top" | "bottom";
   className?: string;
+  /** "group" when the list sits inside a larger menu. */
+  role?: "menu" | "group";
 }) {
+  const items = actions.map((a, i) =>
+    a === "divider" ? (
+      <div key={`d-${String(i)}`} className="mx-2 my-1 h-px bg-line" />
+    ) : (
+      <button
+        key={a.label}
+        type="button"
+        {...(a.checked === undefined
+          ? { role: "menuitem" }
+          : { role: "menuitemradio", "aria-checked": a.checked })}
+        onClick={() => {
+          onClose();
+          a.onSelect();
+        }}
+        className={cn(
+          "flex cursor-pointer items-center gap-3 whitespace-nowrap rounded-control border-0 bg-transparent px-2.5 py-1.5 text-left text-[13px] transition-colors hover:bg-raised",
+          a.danger ? "text-signal" : "text-ink",
+        )}
+      >
+        {a.icon && (
+          <span className="flex min-w-4 shrink-0 justify-center text-ink-2">{a.icon}</span>
+        )}
+        <span className="flex-1">{a.label}</span>
+        {a.hint && <span className="text-ink-3">{a.hint}</span>}
+        {a.checked && <Icon name="check" size={14} className="text-ink-2" />}
+      </button>
+    ),
+  );
+  const look = "rise-in flex min-w-44 flex-col rounded-panel bg-overlay p-1 shadow-3";
+  if (anchor)
+    return (
+      <Floating
+        anchor={anchor}
+        align={align === "right" ? "end" : align === "left" ? "start" : "stretch"}
+        side={side}
+        onClose={onClose}
+        data-e2e-overlap
+        role={role}
+        className={cn(look, className)}
+      >
+        {items}
+      </Floating>
+    );
   return (
-    <div
-      data-e2e-overlap
-      role="menu"
-      className={cn(
-        "rise-in absolute z-30 mt-1 flex min-w-44 flex-col rounded-panel bg-overlay p-1 shadow-3",
-        align === "right" ? "right-0" : "left-0",
-        className,
-      )}
-    >
-      {actions.map((a, i) =>
-        a === "divider" ? (
-          <div key={`d-${String(i)}`} className="mx-2 my-1 h-px bg-line" />
-        ) : (
-          <button
-            key={a.label}
-            type="button"
-            {...(a.checked === undefined
-              ? { role: "menuitem" }
-              : { role: "menuitemradio", "aria-checked": a.checked })}
-            onClick={() => {
-              onClose();
-              a.onSelect();
-            }}
-            className={cn(
-              "flex cursor-pointer items-center gap-3 whitespace-nowrap rounded-control border-0 bg-transparent px-2.5 py-1.5 text-left text-[13px] transition-colors hover:bg-raised",
-              a.danger ? "text-signal" : "text-ink",
-            )}
-          >
-            {a.icon && (
-              <span className="flex min-w-4 shrink-0 justify-center text-ink-2">{a.icon}</span>
-            )}
-            <span className="flex-1">{a.label}</span>
-            {a.hint && <span className="text-ink-3">{a.hint}</span>}
-            {a.checked && <Icon name="check" size={14} className="text-ink-2" />}
-          </button>
-        ),
-      )}
+    <div data-e2e-overlap role={role} className={cn(look, "relative", className)}>
+      {items}
     </div>
   );
 }
@@ -124,7 +143,7 @@ export function ActionMenu({
       >
         <Icon name="more" size={16} strokeWidth={2.5} />
       </Button>
-      {open && <MenuList actions={actions} onClose={() => setOpen(false)} />}
+      {open && <MenuList anchor={box} actions={actions} onClose={() => setOpen(false)} />}
     </div>
   );
 }
@@ -140,12 +159,15 @@ export function Dropdown({
   size = "md",
   variant = "ghost",
   label,
+  above = false,
   className,
 }: {
   value: ReactNode;
   actions: (MenuAction | "divider")[];
   align?: "left" | "right";
   size?: "sm" | "md";
+  /** Opens upward by preference; either way it opens where there is room. */
+  above?: boolean | "wide";
   variant?: "ghost" | "field";
   /** What the control chooses, for a screen reader, where no label is beside it. */
   label?: string;
@@ -189,10 +211,11 @@ export function Dropdown({
       </button>
       {open && (
         <MenuList
+          anchor={box}
           actions={actions}
           onClose={() => setOpen(false)}
-          align={align}
-          className={field ? "min-w-full" : undefined}
+          align={field ? "stretch" : align}
+          side={above ? "top" : "bottom"}
         />
       )}
     </div>

@@ -8,6 +8,7 @@ import { Dot } from "~/components/status";
 import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
+import { Floating } from "~/components/ui/floating";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
 import {
@@ -194,7 +195,13 @@ function ColumnsChooser() {
         <Icon name="sliders" size={14} />
       </button>
       {open && (
-        <div className="rise-in absolute top-full right-0 z-30 mt-1 w-56 rounded-panel-lg bg-overlay p-2 shadow-4">
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
+          className="rise-in w-56 rounded-panel-lg bg-overlay p-2 shadow-4"
+        >
           <Label>Columns, in order</Label>
           {columnChoices.map((c) => (
             <button
@@ -208,7 +215,7 @@ function ColumnsChooser() {
               {on.includes(c) && <Icon name="check" size={13} />}
             </button>
           ))}
-        </div>
+        </Floating>
       )}
     </div>
   );
@@ -563,17 +570,21 @@ function FilterMenu() {
         )}
       </button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="start"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="dialog"
           aria-label="Filter files"
-          className="rise-in absolute left-0 z-30 mt-1 w-64 rounded-panel-lg bg-overlay p-1.5 shadow-4 @3xl/app:right-0 @3xl/app:left-auto"
+          className="rise-in w-64 rounded-panel-lg bg-overlay p-1.5 shadow-4"
         >
           <p className="eyebrow m-0 px-2 pt-1 pb-1 text-ink-3">Show only</p>
           {filterChoices.map(([icon, label]) => row(icon, label))}
           <div className="mx-2 my-1.5 h-px bg-line" />
           <p className="eyebrow m-0 px-2 pt-1 pb-1 text-ink-3">Tagged</p>
           {sampleTags.map(([label, n]) => row("tag", label, n))}
-        </div>
+        </Floating>
       )}
     </div>
   );

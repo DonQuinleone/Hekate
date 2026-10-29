@@ -10,6 +10,7 @@ import { StatusRows } from "~/components/status-desk";
 import { TicketDialog, TicketRow } from "~/components/tickets";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
+import { Floating } from "~/components/ui/floating";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
 import {
@@ -1961,10 +1962,14 @@ function AccessLogSection({ empty }: { empty: boolean }) {
               )}
             </Button>
             {open && (
-              <div
+              <Floating
+                anchor={box}
+                align="end"
+                side="bottom"
+                onClose={() => setOpen(false)}
                 role="dialog"
                 aria-label="Filter entries"
-                className="rise-in absolute right-0 z-30 mt-1 flex w-72 flex-col gap-3 rounded-panel-lg bg-overlay p-3 shadow-4"
+                className="rise-in flex w-72 flex-col gap-3 rounded-panel-lg bg-overlay p-3 shadow-4"
               >
                 {(
                   [
@@ -2001,7 +2006,7 @@ function AccessLogSection({ empty }: { empty: boolean }) {
                     </Button>
                   </div>
                 )}
-              </div>
+              </Floating>
             )}
           </div>
           <Button variant="secondary" size="md">

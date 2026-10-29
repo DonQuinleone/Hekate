@@ -17,6 +17,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
 import { ToggleChip } from "~/components/ui/chip";
+import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { ReviewerDot, type ReviewerDotState } from "~/components/ui/status";
@@ -90,11 +91,15 @@ function Customise({
         Customise
       </Button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="dialog"
           aria-label="Customise the board"
           data-e2e-overlap
-          className="rise-in absolute right-0 z-30 mt-1 w-72 rounded-panel-lg bg-overlay p-3 shadow-4"
+          className="rise-in w-72 rounded-panel-lg bg-overlay p-3 shadow-4"
         >
           <div className="flex flex-col gap-1.5">
             <span className="eyebrow">Group by</span>
@@ -173,7 +178,7 @@ function Customise({
               {defaultError}
             </p>
           )}
-        </div>
+        </Floating>
       )}
     </div>
   );

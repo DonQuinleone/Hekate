@@ -18,6 +18,7 @@ import { ProjectCover } from "~/components/project-cover";
 import { Property } from "~/components/property";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
+import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
 import { StatusDot } from "~/components/ui/status";
 import { Switch } from "~/components/ui/toggle";
@@ -80,11 +81,15 @@ function Customise({
         Customise
       </Button>
       {open && (
-        <div
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
           role="dialog"
           aria-label="Customise the overview"
           data-e2e-overlap
-          className="rise-in absolute right-0 z-30 mt-1 w-64 rounded-panel-lg bg-overlay p-2 shadow-4"
+          className="rise-in w-64 rounded-panel-lg bg-overlay p-2 shadow-4"
         >
           <p className="eyebrow m-0 px-2 text-ink-2">Sections, in order</p>
           <ul className="m-0 mt-1 flex list-none flex-col p-0">
@@ -136,7 +141,7 @@ function Customise({
               Reset
             </button>
           </div>
-        </div>
+        </Floating>
       )}
     </div>
   );

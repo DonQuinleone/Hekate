@@ -260,6 +260,7 @@ export function Transcript({
               </Button>
               {exportOpen && (
                 <MenuList
+                  anchor={exportBox}
                   onClose={() => setExportOpen(false)}
                   actions={captionFormats.map((f) => ({
                     label: `${captionFormatNames[f]} (.${f})`,

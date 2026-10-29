@@ -258,6 +258,7 @@ export function TranscriptColumn({
               </button>
               {exportOpen && (
                 <MenuList
+                  anchor={exportBox}
                   align="right"
                   onClose={() => setExportOpen(false)}
                   actions={(["srt", "vtt", "ttml"] as const).map((f) => ({

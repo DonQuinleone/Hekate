@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon, type IconName } from "~/components/icons";
 import { Kbd } from "~/components/label";
+import { Floating } from "~/components/ui/floating";
 import { MenuList, usePopover } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import type { File } from "~/data";
@@ -263,8 +264,12 @@ export function GoTo({ onGo }: { onGo: (seconds: number) => void }) {
         Go to
       </button>
       {open && (
-        <form
-          className="rise-in absolute right-0 z-30 mt-1 flex items-center gap-2 rounded-panel bg-overlay p-2 shadow-3"
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
+          className="rise-in flex items-center gap-2 rounded-panel bg-overlay p-2 shadow-3"
           onSubmit={(e) => {
             e.preventDefault();
             const [h = 0, m = 0, s = 0, f = 0] = value.split(":").map(Number);
@@ -279,7 +284,7 @@ export function GoTo({ onGo }: { onGo: (seconds: number) => void }) {
             className="tabular h-8 w-32 rounded-control border border-line bg-ground/60 px-2 text-[13px] text-ink focus:border-edge-strong focus:outline-none"
           />
           <Kbd>↵</Kbd>
-        </form>
+        </Floating>
       )}
     </div>
   );
@@ -324,7 +329,13 @@ export function AudioLayoutMenu({ layout }: { layout: string }) {
         )}
       </button>
       {open && (
-        <div className="rise-in absolute right-0 z-30 mt-1 flex w-64 flex-col gap-2 rounded-panel bg-overlay p-3 shadow-3">
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
+          className="rise-in flex w-64 flex-col gap-2 rounded-panel bg-overlay p-3 shadow-3"
+        >
           <span className="text-[13px] text-ink">Channels: {layout}</span>
           <ul className="flex flex-col gap-1">
             {channels.map((c) => (
@@ -408,7 +419,7 @@ export function AudioLayoutMenu({ layout }: { layout: string }) {
               Hear it as recorded
             </button>
           )}
-        </div>
+        </Floating>
       )}
     </div>
   );
