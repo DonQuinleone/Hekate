@@ -255,7 +255,7 @@ export function WorkflowsPage({
               {!mayView ? (
                 <Empty
                   title="Not among what your role does"
-                  text="Workflows are built by those whose role edits them."
+                  text="Seeing a project's workflows needs the permission in a project role. Ask whoever runs the project."
                 />
               ) : error ? (
                 <p className="m-0 text-signal">{error.message}</p>
