@@ -1,3 +1,4 @@
+import { capital } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, Navigate, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
@@ -5,8 +6,9 @@ import { FollowButton } from "~/components/follow-button";
 import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
+import { ShareDialog } from "~/components/share";
 import { TakeManager } from "~/components/takes";
-import { primaryOf, TrackHeading, TrackVersions } from "~/components/track-versions";
+import { TrackHeading, TrackVersions } from "~/components/track-versions";
 import { Button } from "~/components/ui/button";
 import { Segmented } from "~/components/ui/segmented";
 import {
@@ -16,6 +18,7 @@ import {
   useProjectCan,
   useProjectTool,
 } from "~/lib/queries";
+import { primaryOf } from "~/lib/versions";
 
 /**
  * A track (#131): it opens in the player on its latest version's primary file, like a
@@ -34,6 +37,7 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
   const { words, video } = useItemWords(track?.projectId);
   const navigate = useNavigate();
   const [adding, setAdding] = useState(false);
+  const [sharing, setSharing] = useState(false);
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!track || !project) return <p className="p-8 text-ink-3">Loading</p>;
   const latest = track.versions.at(-1);
@@ -88,6 +92,12 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
                   </Button>
                 )}
                 {can("request_reviews") && latest && (
+                  <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
+                    <Icon name="link" size={14} />
+                    Share
+                  </Button>
+                )}
+                {can("request_reviews") && latest && (
                   <Button variant="secondary" size="sm" asChild>
                     <Link
                       to="/projects/$projectId/reviews/new"
@@ -109,6 +119,13 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
           </>
         }
       />
+      {sharing && (
+        <ShareDialog
+          projectId={track.projectId}
+          item={{ kind: "track", id: track.id, name: track.name, what: capital(words.track) }}
+          onClose={() => setSharing(false)}
+        />
+      )}
       <Page width="narrow" className="max-w-[1040px] gap-6">
         {takes ? (
           <>

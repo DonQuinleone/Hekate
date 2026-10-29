@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/label";
 import { FollowDaw } from "~/components/recorder";
@@ -45,24 +45,32 @@ export const defaultView: View = {
   loudness: true,
 };
 
+/**
+ * A few choices of the same thing, one pressed at a time. An `action` adds one more to the
+ * set (another variation beside the dry and the wet): a small button at its end, after a
+ * hairline.
+ */
 export function Seg<T extends string>({
   value,
   options,
   onChange,
   label,
   size = "sm",
+  action,
 }: {
   value: T;
   options: { id: T; label: string; hint?: string }[];
   onChange: (v: T) => void;
   label: string;
   size?: "sm" | "md";
+  /** A way to add to the choices, at the end: its name (read and shown on hover) and icon. */
+  action?: { label: string; icon: ReactNode; onSelect: () => void };
 }) {
   return (
     <div
       role="radiogroup"
       aria-label={label}
-      className="flex shrink-0 rounded-control border border-line bg-ground/60 p-0.5"
+      className="flex shrink-0 items-center rounded-control border border-line bg-ground/60 p-0.5"
     >
       {options.map((o) => (
         <button
@@ -81,6 +89,23 @@ export function Seg<T extends string>({
           {o.hint && <span className="text-ink-3">{o.hint}</span>}
         </button>
       ))}
+      {action && (
+        <>
+          <span aria-hidden="true" className="mx-0.5 h-4 w-px shrink-0 bg-line" />
+          <button
+            type="button"
+            aria-label={action.label}
+            title={action.label}
+            onClick={action.onSelect}
+            className={cn(
+              "flex items-center justify-center rounded-[4px] text-ink-3 transition-colors hover:bg-overlay/60 hover:text-ink",
+              size === "sm" ? "size-6" : "size-7",
+            )}
+          >
+            {action.icon}
+          </button>
+        </>
+      )}
     </div>
   );
 }

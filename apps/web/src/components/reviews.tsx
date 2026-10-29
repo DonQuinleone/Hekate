@@ -1,11 +1,9 @@
 import { reviewKindNames } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
 import { formatDates } from "~/lib/locale";
 import { projectReviewsQuery, type ReviewSummary, useProjectCan } from "~/lib/queries";
 import { Icon } from "./icons";
-import { ShareDialog } from "./share";
 import { Button } from "./ui/button";
 import { type ReviewState, StatusPill } from "./ui/status";
 
@@ -22,8 +20,8 @@ export function reviewState(review: Pick<ReviewSummary, "status" | "outcome">): 
 export function ProjectReviews({ projectId }: { projectId: string }) {
   const { data: all, error } = useQuery(projectReviewsQuery(projectId));
   const can = useProjectCan(projectId);
-  const [sharing, setSharing] = useState(false);
-  // Sharing is not reviewing (#138): shares are listed apart, as the prototype lists them.
+  // Sharing is not reviewing (#138): shares are listed apart, as the prototype lists them, and
+  // start from the item shared (#489), not from here.
   const reviews = all?.filter((r) => r.kind !== "share");
   const shares = all?.filter((r) => r.kind === "share") ?? [];
   return (
@@ -38,24 +36,18 @@ export function ProjectReviews({ projectId }: { projectId: string }) {
           )}
         </h2>
         {can("request_reviews") && (
-          <span className="flex gap-1.5">
-            <Button variant="secondary" onClick={() => setSharing(true)}>
-              <Icon name="link" size={14} />
-              Share
-            </Button>
-            <Button asChild>
-              <Link to="/projects/$projectId/reviews/new" params={{ projectId }}>
-                Request a review
-              </Link>
-            </Button>
-          </span>
+          <Button asChild>
+            <Link to="/projects/$projectId/reviews/new" params={{ projectId }}>
+              Request a review
+            </Link>
+          </Button>
         )}
       </div>
       {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
       {reviews && reviews.length === 0 && (
         <p className="m-0 text-[13px] text-ink-3">
           No reviews yet. A review asks people to approve, or to give feedback on, tracks and files.
-          Sharing, for those who only need to listen, is separate.
+          Sharing, for those who only need to listen, starts from the file or track itself.
         </p>
       )}
       {reviews && reviews.length > 0 && (
@@ -122,7 +114,6 @@ export function ProjectReviews({ projectId }: { projectId: string }) {
           </ul>
         </section>
       )}
-      {sharing && <ShareDialog projectId={projectId} onClose={() => setSharing(false)} />}
     </section>
   );
 }

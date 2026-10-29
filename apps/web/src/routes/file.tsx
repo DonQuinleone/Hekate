@@ -43,6 +43,7 @@ import { Player, PlayerStrip } from "~/components/player";
 import { checkNames, findingMarks, QaSummary, QualityChecks, qaIssues } from "~/components/qa";
 import { VideoQa } from "~/components/qa-video";
 import { ScorePane } from "~/components/score";
+import { ShareDialog } from "~/components/share";
 import { FileContext, ScoreSwitch, VersionNote } from "~/components/tracks";
 import { PanelTabs, type SidePanel, Transcript } from "~/components/transcript";
 import { TriageView } from "~/components/triage";
@@ -77,6 +78,7 @@ import {
   usePreferences,
   useProjectCan,
 } from "~/lib/queries";
+import { fileKindWords } from "~/lib/shares";
 import { useViewer } from "~/lib/viewer";
 
 const dateFormat = formatDates({
@@ -423,6 +425,7 @@ export function FilePage({
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [versioning, setVersioning] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const [chosenNormal, setChosenNormal] = useNormalisedChoice();
   // Arriving from another version or variation: start where that one was (#15).
   const { media, onMedia } = useFileMedia(fileId, startAt, onStarted);
@@ -926,6 +929,13 @@ export function FilePage({
                 <Icon name="info" size={14} />
                 Details
               </Button>
+              {/* Sharing this file (#489): the sheet the browser and a track's versions open too. */}
+              {can("request_reviews") && project && !project.archivedAt && (
+                <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
+                  <Icon name="link" size={14} />
+                  Share
+                </Button>
+              )}
               {(canTriage || canVersion) && (
                 <ActionMenu
                   always
@@ -956,6 +966,13 @@ export function FilePage({
         }
       />
       {versioning && <NewVersionDialog file={file} onClose={() => setVersioning(false)} />}
+      {sharing && (
+        <ShareDialog
+          projectId={file.projectId}
+          item={{ kind: "file", id: file.id, name: file.name, what: fileKindWords[file.kind] }}
+          onClose={() => setSharing(false)}
+        />
+      )}
       {exporting && <ExportCommentsDialog file={file} onClose={() => setExporting(false)} />}
       {importing && <ImportMarkersDialog file={file} onClose={() => setImporting(false)} />}
       {!guest && showDetails && (

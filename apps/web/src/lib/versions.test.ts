@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { type StripVersion, variationChoices, versionChoices } from "./versions";
+import {
+  primaryOf,
+  type StripVersion,
+  variationChoices,
+  variationNames,
+  versionChoices,
+} from "./versions";
 
 const v1: StripVersion = {
   id: "v1",
@@ -61,5 +67,46 @@ describe("the variation switch (#15)", () => {
       { value: "v3-atmos", label: "Atmos", hint: "failed" },
     ]);
     expect(variationChoices(v1).map((c) => c.hint)).toEqual([undefined, undefined]);
+  });
+});
+
+describe("the names suggested for a new variation (#486)", () => {
+  const project = [
+    {
+      versions: [
+        {
+          createdAt: "2026-01-01T10:00:00Z",
+          variations: [{ name: "Dry" }, { name: "Wet" }],
+        },
+        {
+          createdAt: "2026-03-01T10:00:00Z",
+          variations: [{ name: "dry" }, { name: "Instrumental" }],
+        },
+      ],
+    },
+    {
+      versions: [{ createdAt: "2026-02-01T10:00:00Z", variations: [{ name: " Wet " }] }],
+    },
+  ];
+
+  it("lists each name once, the most recently used first, as it was last spelt", () => {
+    expect(variationNames(project)).toEqual(["dry", "Instrumental", "Wet"]);
+  });
+
+  it("leaves out the names the version already has, whatever their case", () => {
+    expect(variationNames(project, ["DRY", "Wet"])).toEqual(["Instrumental"]);
+  });
+
+  it("stops at the limit and gives nothing for a project without versions", () => {
+    expect(variationNames(project, [], 2)).toEqual(["dry", "Instrumental"]);
+    expect(variationNames([{ versions: [] }])).toEqual([]);
+  });
+});
+
+describe("the file a version opens with", () => {
+  it("is its primary variation, else its first", () => {
+    expect(primaryOf(v1)?.fileId).toBe("v1-dry");
+    expect(primaryOf({ variations: [{ isPrimary: false, fileId: "x" }] })?.fileId).toBe("x");
+    expect(primaryOf({ variations: [] })).toBeUndefined();
   });
 });

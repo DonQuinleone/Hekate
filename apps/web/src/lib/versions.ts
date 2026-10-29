@@ -69,3 +69,41 @@ export function variationChoices(version: StripVersion) {
     hint: stateHint(v.streamStatus),
   }));
 }
+
+/** The file a version opens with: its primary variation, else its first. */
+export const primaryOf = <V extends { isPrimary: boolean }>(version: {
+  variations: readonly V[];
+}): V | undefined => version.variations.find((v) => v.isPrimary) ?? version.variations[0];
+
+/** What suggesting a variation's name needs of a project's tracks: when each version was added, and what its variations are called. */
+export interface NamedVersion {
+  createdAt: string;
+  variations: readonly { name: string }[];
+}
+
+/**
+ * The names a project's variations go by (Dry, Wet, Instrumental), to suggest for a new one
+ * (#486): each name once, as the most recent version to use it spelt it, the most recently
+ * used first, leaving out those the version already has. At most `limit` of them.
+ */
+export function variationNames(
+  tracks: readonly { versions: readonly NamedVersion[] }[],
+  taken: readonly string[] = [],
+  limit = 6,
+): string[] {
+  const have = new Set(taken.map((n) => n.trim().toLowerCase()));
+  const names: string[] = [];
+  const versions = tracks
+    .flatMap((t) => t.versions)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  for (const version of versions) {
+    for (const { name } of version.variations) {
+      const key = name.trim().toLowerCase();
+      if (!key || have.has(key)) continue;
+      have.add(key);
+      names.push(name.trim());
+      if (names.length === limit) return names;
+    }
+  }
+  return names;
+}

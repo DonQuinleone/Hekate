@@ -3,6 +3,7 @@ import {
   applyPermissions,
   type CreateReviewInput,
   capital,
+  type DownloadLevel,
   type GuestInput,
   type ReviewerInput,
   type ReviewerPermissionsChange,
@@ -44,6 +45,7 @@ import {
   useProjectCan,
   workspaceSettingsQuery,
 } from "~/lib/queries";
+import { guestFromEmail } from "~/lib/shares";
 
 const kinds: { id: ReviewKind; label: string; hint: string }[] = [
   {
@@ -119,10 +121,21 @@ export function RequestReviewPage({
   projectId,
   kind: kindParam,
   item,
+  items: itemsParam,
+  version,
+  people: peopleParam,
+  download,
+  until,
 }: {
   projectId: string;
   kind?: ReviewKind;
   item?: string;
+  /** From a share sheet's "More options" (#489): its items, one version, its people, and what they may download and until when. */
+  items?: string[];
+  version?: string;
+  people?: string[];
+  download?: DownloadLevel;
+  until?: string;
 }) {
   const navigate = useNavigate();
   const { data: project, error } = useQuery(projectQuery(projectId));
@@ -143,20 +156,46 @@ export function RequestReviewPage({
 
   const [kind, setKind] = useState<ReviewKind>(kindParam ?? "approval");
   const [chosen, setChosen] = useState<Chosen>(
-    () => new Map(item ? [[item, { versionId: null }]] : []),
+    () =>
+      new Map(
+        [...(item ? [item] : []), ...(itemsParam ?? [])].map((key) => [
+          key,
+          // A version named is of the one track asked about (#489).
+          { versionId: version && key.startsWith("track:") ? version : null },
+        ]),
+      ),
   );
   // The order, step by step; everyone in a step is asked together.
-  const [steps, setSteps] = useState<Key[][]>([[]]);
+  const [steps, setSteps] = useState<Key[][]>([peopleParam ?? []]);
   const [inTurn, setInTurn] = useState(false);
   const [rule, setRule] = useState<ApprovalRule>("all");
   const [share, setShare] = useState("66");
   const [due, setDue] = useState("");
   const [remind, setRemind] = useState(true);
   const [message, setMessage] = useState("");
-  const [overrides, setOverrides] = useState<Record<Key, ReviewerPermissionsChange>>({});
+  // What a share sheet chose for everyone it named (#489) comes in as their overrides, since
+  // the page sets what people may do one person at a time.
+  const [overrides, setOverrides] = useState<Record<Key, ReviewerPermissionsChange>>(() =>
+    download || until
+      ? Object.fromEntries(
+          (peopleParam ?? []).map((key) => [
+            key,
+            { ...(download ? { download } : {}), ...(until ? { expiresAt: until } : {}) },
+          ]),
+        )
+      : {},
+  );
   const [overriding, setOverriding] = useState<Key | null>(null);
-  // Guests typed in here, by key, and the form for one more.
-  const [added, setAdded] = useState<Map<Key, GuestInput>>(new Map());
+  // Guests typed in here, by key, and the form for one more. One a share sheet named by
+  // address alone (#489) is named from it, until the People page renames them.
+  const [added, setAdded] = useState<Map<Key, GuestInput>>(
+    () =>
+      new Map(
+        (peopleParam ?? [])
+          .filter((key) => key.startsWith("guest:"))
+          .map((key) => [key, guestFromEmail(key.slice("guest:".length))]),
+      ),
+  );
   const [inviting, setInviting] = useState(false);
   const [guest, setGuest] = useState({ name: "", email: "", label: "" });
   const [guestError, setGuestError] = useState<string | null>(null);
@@ -202,12 +241,13 @@ export function RequestReviewPage({
 
   const deciders = new Set(roles.filter((r) => r.permissions.includes("decide")).map((r) => r.id));
   const memberById = new Map(members.map((m) => [m.userId, m]));
+  // A guest the project knows keeps their name over one made from their address.
   const guestsByKey = new Map<Key, GuestInput>([
+    ...added,
     ...known.map((g): [Key, GuestInput] => [
       `guest:${g.email}`,
       { name: g.name, email: g.email, label: g.label ?? undefined },
     ]),
-    ...added,
   ]);
   const people = steps.flat();
   const has = (key: Key) => people.includes(key);

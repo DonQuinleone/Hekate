@@ -87,6 +87,7 @@ import {
   type Version,
 } from "~/lib/queries";
 import { swappedSummary } from "~/lib/score-swap";
+import { type ShareTarget, shareTargetOf } from "~/lib/shares";
 import { useShortcuts } from "~/lib/shortcuts";
 import { Avatar, AvatarRow } from "./avatar";
 import { DownloadDialog } from "./downloads";
@@ -99,7 +100,6 @@ import { Icon, type IconName } from "./icons";
 import { Card } from "./page";
 import { ShareDialog } from "./share";
 import { TagInput } from "./tag-input";
-import { VariationDialog } from "./track-versions";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/choice";
 import { Floating, type Point, withinOrFloatingFrom } from "./ui/floating";
@@ -108,6 +108,7 @@ import { ActionMenu, ContextMenu, type MenuAction } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
 import { StatusDot } from "./ui/status";
 import { UploadRequestDialog } from "./upload-requests";
+import { VariationDialog } from "./variation-dialog";
 
 type View = "list" | "columns" | "grid";
 const VIEW_KEY = "hekate.files.view";
@@ -419,8 +420,8 @@ export function FileBrowser({
   const [view, setView] = useState<View>(storedView);
   const [naming, setNaming] = useState<"folder" | "track" | null>(null);
   const [requesting, setRequesting] = useState(false);
-  /** What is being shared from its row (`track:<id>` or `file:<id>`), downloaded, or replaced. */
-  const [sharing, setSharing] = useState<string | null>(null);
+  /** What is being shared from its row (#489), downloaded, or replaced. */
+  const [sharing, setSharing] = useState<ShareTarget | null>(null);
   const [downloading, setDownloading] = useState<{ fileId: string; name: string } | null>(null);
   const [replacing, setReplacing] = useState<{ track: Track; version: Version } | null>(null);
   /** What linking another score did to the marks on the old one. */
@@ -975,8 +976,13 @@ export function FileBrowser({
             },
           ]
         : []),
-      ...(item.kind !== "folder" && can("request_reviews")
-        ? [{ label: "Share…", onSelect: () => setSharing(key) }]
+      ...(can("request_reviews")
+        ? [
+            {
+              label: "Share…",
+              onSelect: () => setSharing(shareTargetOf(item, words, versionLabel)),
+            },
+          ]
         : []),
       ...(item.kind === "file"
         ? [
