@@ -866,7 +866,8 @@ export function FileBrowser({
    */
   const slowClickOn = (item: Item) => (event: MouseEvent<HTMLElement>) => {
     const key = markKey(item);
-    if (!manage || !selected.has(key) || event.button !== 0) return;
+    // A click the keyboard made (Enter on the name) opens, as a link does; only a pointer's renames.
+    if (!manage || !selected.has(key) || event.button !== 0 || event.detail === 0) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     if (slowClick.current) {

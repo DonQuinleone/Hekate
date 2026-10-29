@@ -18,7 +18,7 @@ type Suggestion = { kind: "tag"; tag: Tag } | { kind: "create"; name: string };
  */
 export function TagInput({
   tags,
-  value,
+  value: given,
   mixed = [],
   onChange,
   onCreate,
@@ -51,6 +51,18 @@ export function TagInput({
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [making, setMaking] = useState(false);
+  // What is chosen, ahead of the server: two tags added before the first save comes back
+  // both stay, and each save sends the whole list as it stands here.
+  const [value, setValue] = useState(given);
+  const seen = useRef(given);
+  if (seen.current !== given) {
+    seen.current = given;
+    setValue(given);
+  }
+  const change = (next: string[]) => {
+    setValue(next);
+    onChange(next);
+  };
   // On the next frame, once a popover it sits in has been placed: it starts out of sight, and
   // focus cannot land on what is hidden.
   useEffect(() => {
@@ -67,7 +79,7 @@ export function TagInput({
   const highlighted = Math.min(active, Math.max(0, options.length - 1));
 
   const add = (tagId: string) => {
-    if (!value.includes(tagId)) onChange([...value, tagId]);
+    if (!value.includes(tagId)) change([...value, tagId]);
     setTyped("");
     setActive(0);
     input.current?.focus();
@@ -81,7 +93,7 @@ export function TagInput({
     else input.current?.focus();
   };
   const remove = (tagId: string) => {
-    onChange(value.filter((t) => t !== tagId));
+    change(value.filter((t) => t !== tagId));
     input.current?.focus();
   };
 
