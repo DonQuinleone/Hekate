@@ -132,6 +132,8 @@ describe("contracting statements (#421)", () => {
       "0147_gaps_two",
       "0148_metadata_editor",
       "0149_variants",
+      "0150_comment_assignment",
+      "0151_calendar_entries",
     ]) {
       const text = readFileSync(join(migrationsFolder, `${name}.sql`), "utf8");
       expect(contractingStatements(text)).toEqual([]);
