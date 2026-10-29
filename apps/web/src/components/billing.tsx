@@ -464,7 +464,10 @@ function ChangePlan({ billing, onClose }: { billing: WorkspaceBilling; onClose: 
             />
           ))}
         </div>
-        <Field label="Promo code" hint="If you were given one.">
+        <Field
+          label="Promo code"
+          hint="If you were given one, its discount comes off your next invoice."
+        >
           <Input
             value={code}
             onChange={(e) => setCode(e.target.value)}

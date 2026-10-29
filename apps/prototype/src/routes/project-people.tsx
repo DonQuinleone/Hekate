@@ -100,7 +100,7 @@ export function People({ project }: { project: Project }) {
       <section className="flex flex-col gap-3">
         <SectionHead
           title="Reviewers"
-          hint="guests without accounts, by link"
+          hint="guests, who reach a review by link"
           action={
             manageReviewers && (
               <Button
@@ -179,7 +179,7 @@ export function People({ project }: { project: Project }) {
       <section className="flex flex-col gap-3">
         <SectionHead
           title="Groups"
-          hint="asked together as one step of a review"
+          hint="people a review or a role can name as one"
           action={
             manageReviewers && (
               <Button
@@ -278,7 +278,7 @@ export function People({ project }: { project: Project }) {
       {dialog === "group" && (
         <Dialog
           title={groupId ? "Edit group" : "New group"}
-          description="A group is one step of a review: everyone in it is asked together."
+          description="A set of people, members and reviewers alike, that a review or a role can be given to as one. Ask the group, and everyone in it is asked together."
           onClose={() => setDialog(null)}
           width="sm"
           footer={

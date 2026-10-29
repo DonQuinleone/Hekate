@@ -501,7 +501,10 @@ function StorageStep({ code, state, advance, back }: StepProps) {
             )
           ) : (
             <>
-              <Field label="Endpoint" hint="Leave empty for Amazon S3.">
+              <Field
+                label="Endpoint"
+                hint="The address of an S3-compatible service. Leave empty for Amazon S3 itself."
+              >
                 <Input
                   value={s3.endpoint}
                   onChange={set("endpoint")}

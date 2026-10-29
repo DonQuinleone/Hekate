@@ -87,6 +87,17 @@ One set, in `apps/web/src/components/ui`, restyled on the tokens and never stock
 
 Every piece, in each of its states, is on the reference page at `/reference`. It exists in `pnpm dev` and in the build the visual suite captures, never in a release: it is a reference for whoever builds screens, not part of the product.
 
+## Voice
+
+The words are part of the design, and read as one person wrote them.
+
+- Direct and concrete. Say what the thing is for and what happens next, in one or two short sentences. Second person where it helps ("Ask the group, and everyone in it is asked together").
+- Nouns from `docs/domain.md`: track, version, variation, take, session, review, approval, guest, group, workflow. Copy says "workspace", never "organisation".
+- A description or hint earns its place by adding what the label cannot: the purpose, the consequence, the limit. One that repeats its label is removed, not padded.
+- Never "seamlessly", "powerful", "simply", "easily", "effortlessly", "robust" or "leverage". No marketing register anywhere, and no exclamation marks.
+- British English (colour, organisation in code, licence as a noun, behaviour). Sentence case. No em-dashes: commas, colons, semicolons or parentheses.
+- Errors say what went wrong and what to do; empty states say what will appear here and how to make it so.
+
 ## A workspace's own branding
 
 A workspace may show its own logo and accent on its sign-in page, its guest pages and its email (#185, decision 226). The logo takes the lockup's place there; the lockup stays in the member's shell and the foot of every email. The accent stands in for the signal in Signal's dark and light themes only, and is held to the signal's rule: 4.5:1 on every surface in the dark theme, refused otherwise, with a darker cut computed for the light theme that holds 4.5:1 there (`packages/shared/src/branding.ts`). Other palettes keep their own signal.

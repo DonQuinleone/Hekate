@@ -997,7 +997,7 @@ function Comments({ project }: { project: Project }) {
       {tracks && tracks.length > 0 && (
         <Section
           title="Normalised playback by track"
-          intro="Tracks that play otherwise than the project."
+          intro="Tracks with a normalisation of their own, in place of the project's: a set heard together can play as one."
         >
           {tracks?.map((t) => (
             <Row

@@ -153,7 +153,10 @@ export function ProfileSection() {
         <Row name="Email" hint="Sign-in mail and notifications go here.">
           <EmailField email={user.email} />
         </Row>
-        <Row name="Language" hint="How dates and numbers read.">
+        <Row
+          name="Language"
+          hint="How dates and numbers read to you. The interface itself is in English."
+        >
           <Select
             aria-label="Language"
             className="w-56"
@@ -174,7 +177,10 @@ export function ProfileSection() {
             ))}
           </Select>
         </Row>
-        <Row name="Time zone" hint="When things happened, and when they are due.">
+        <Row
+          name="Time zone"
+          hint="Every time is shown in it: when something happened, and when a review is due."
+        >
           <Select
             aria-label="Time zone"
             className="w-56"

@@ -44,8 +44,10 @@ import { toolCopy } from "./project-settings.tsx";
 const intros: Record<string, string> = {
   transfers: "Projects moving in from, or out to, another workspace, and what each waits for.",
   general: "The workspace's name, how guests sign in, and what every project starts from.",
-  defaults: "What a new project copies unless it says otherwise.",
-  categories: "The categories a comment can carry, and how each kind is handled.",
+  defaults:
+    "What a review grants its reviewers, and what a new project starts with, unless the request or the project says otherwise.",
+  categories:
+    "The labels a comment can carry, such as Noise or Balance, and where triage sends each kind. Every new project starts with these.",
   delivery: "The numbers the checks measure against, shared by every project that picks a profile.",
   branding:
     "The workspace's logo and accent, on its sign-in page, guest pages and email. Hekate's own mark stays in the app.",
@@ -53,7 +55,8 @@ const intros: Record<string, string> = {
     "The mark, the colours, the type, and every reusable component with the rule for using it.",
   email: "What every message from Hekate looks like, and the words the workspace sends.",
   members: "Who has an account here, who is invited, and which guests hold a link.",
-  security: "Who may sign in and how.",
+  security:
+    "How members sign in: the ways allowed, the second factor, single sign-on or a directory, and how long a session lasts.",
   notifications: "Where events go: mail, Slack, Discord, webhooks.",
   api: "Applications that connect on people's behalf, and tokens that act for the workspace itself.",
   billing: "The plan, what it includes, what it costs, and every invoice.",
@@ -61,7 +64,8 @@ const intros: Record<string, string> = {
   storage: "Where files live and how much they take.",
   leaks: "Find which recipient a leaked file was watermarked for.",
   log: "Every key issue, page render and download.",
-  operations: "What the instance is doing for this workspace.",
+  operations:
+    "The instance's version, worker, jobs, keys and backups, as they stand for this workspace. Read-only: the operators change them.",
 };
 
 const sections = [
@@ -295,7 +299,10 @@ export function SettingsPage({
         />
       )}
       {sec === "support" && env.support !== "app" && (
-        <Section title="Support" intro="This instance answers elsewhere.">
+        <Section
+          title="Support"
+          intro="The people who run this instance take questions outside Hekate. Here is where to reach them."
+        >
           <Row
             name="Where"
             hint={
@@ -1580,7 +1587,10 @@ export function SettingsPage({
                 {state === "processing" ? "Key v3 · re-wrapping, 41 to go" : "Key v3 since 2 Oct"}
               </span>
             </Row>
-            <Row name="Metrics" hint="For Prometheus.">
+            <Row
+              name="Metrics"
+              hint="Exported for Prometheus at /metrics, when the instance turns it on."
+            >
               <span className="tabular text-[13px] text-ink-2">/metrics · read 14 s ago</span>
             </Row>
           </Section>
