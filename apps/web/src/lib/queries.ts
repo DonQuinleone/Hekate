@@ -327,6 +327,11 @@ export interface Me {
   /** How the instance answers support (#181): the help menu and the Support page follow it. */
   support?: SupportModule;
   /**
+   * Whether this workspace's mail only reaches the instance's log (#503): the instance sends
+   * none, as a development install does, and the workspace has no mail of its own.
+   */
+  mail?: { logOnly: boolean };
+  /**
    * Whether they have a code app and how many passkeys, what this workspace asks of a sign-in
    * (a second factor; a hardware security key), whether this sign-in met it, and recovery codes left.
    */
