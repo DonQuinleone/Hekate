@@ -1395,6 +1395,24 @@ test("file-share", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Deferring a thread to a stage (#499): the stages of the workflows that apply to the track,
+// listed by workflow, then the stage the Noise category names, said to be its. Nothing typed.
+test("file-defer", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  const thread = page
+    .locator("section[aria-label=Comments] li[data-thread]")
+    .filter({ hasText: "bass" })
+    .first();
+  await thread.getByRole("button", { name: "Actions for this thread" }).click();
+  await page.getByRole("menuitem", { name: "Defer to a stage…" }).click();
+  await settle(page, "[role=dialog] >> text=Named by a category");
+  await expect(page.getByRole("radio", { name: /Label approval/ })).toBeVisible();
+  await saveScreen(page, "file-defer");
+  await checkScreen(page);
+});
+
 // The workflow builder's canvas (#26), with a node chosen: its inspector beside it.
 test("workflows-inspector", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);

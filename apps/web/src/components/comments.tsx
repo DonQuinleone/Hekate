@@ -70,6 +70,8 @@ import {
 import { useShortcuts } from "~/lib/shortcuts";
 import { useViewer } from "~/lib/viewer";
 import { Avatar } from "./avatar";
+import { CommentAssignee } from "./comment-assignee";
+import { DeferDialog } from "./defer-dialog";
 import type { RegionMarker } from "./document-viewer";
 import type { FrameDraft, FrameDrawing } from "./drawings";
 import { Icon } from "./icons";
@@ -566,52 +568,6 @@ function CommentBody({
   );
 }
 
-/** Defer a thread to a stage: one the project's categories name, or another. */
-export function DeferDialog({
-  stages,
-  onDefer,
-  onClose,
-}: {
-  stages: string[];
-  onDefer: (stage: string) => void;
-  onClose: () => void;
-}) {
-  const [stage, setStage] = useState(stages[0] ?? "");
-  return (
-    <Dialog
-      title="Defer to a stage"
-      description="The comment stays open but leaves this round's list, and comes back when that stage starts."
-      onClose={onClose}
-      width="sm"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button variant="primary" disabled={!stage.trim()} onClick={() => onDefer(stage.trim())}>
-            Defer
-          </Button>
-        </>
-      }
-    >
-      <div className="flex flex-col gap-3">
-        {stages.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {stages.map((s) => (
-              <ToggleChip key={s} pressed={stage === s} onClick={() => setStage(s)}>
-                {s}
-              </ToggleChip>
-            ))}
-          </div>
-        )}
-        <Field label="Stage">
-          <Input value={stage} maxLength={80} onChange={(e) => setStage(e.target.value)} />
-        </Field>
-      </div>
-    </Dialog>
-  );
-}
-
 /** Assign a thread to someone in the project, or to no one. */
 export function AssignDialog({
   people,
@@ -984,12 +940,17 @@ function ThreadView({
             </Link>
           )}
           {comment.deferredTo && <span>deferred to {comment.deferredTo}</span>}
-          {comment.assigneeName && <span>for {comment.assigneeName}</span>}
+          {comment.assigneeId && comment.assigneeName && (
+            <CommentAssignee id={comment.assigneeId} name={comment.assigneeName} />
+          )}
         </p>
       )}
-      {asking === "defer" && (
+      {asking === "defer" && projectId && (
         <DeferDialog
-          stages={[...new Set(categories.flatMap((c) => (c.stage ? [c.stage] : [])))]}
+          fileId={fileId}
+          projectId={projectId}
+          categories={categories}
+          current={comment.deferredTo}
           onDefer={(stage) => {
             triage({ deferredTo: stage });
             setAsking(null);

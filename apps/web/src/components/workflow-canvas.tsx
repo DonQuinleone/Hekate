@@ -16,6 +16,7 @@ import {
   type WorkflowSummary,
 } from "@hekate/shared";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AssignmentPicker } from "~/components/assignment-picker";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Button } from "~/components/ui/button";
@@ -1655,7 +1656,7 @@ function NodeInspector({
   node: WorkflowNode;
   flow?: WorkflowSummary;
   editing: boolean;
-  onChange: (change: Partial<Pick<WorkflowNode, "name" | "groupId">>) => void;
+  onChange: (change: Partial<Pick<WorkflowNode, "name" | "groupId" | "assign">>) => void;
   onConfig: (config: Record<string, string>) => void;
   onAddAfter: (outcome: string) => void;
   onConnect: (outcome: string, to: string) => void;
@@ -1665,6 +1666,8 @@ function NodeInspector({
 }) {
   const info = nodeTypes[node.type];
   const outs = outcomesOf(node.type);
+  // A stage a run waits at (#499): comments opened meanwhile can be given to someone.
+  const isStage = info.kind === "action" && !info.immediate && node.type !== "finish";
   const definition = flow?.definition;
   const isTrigger = definition ? triggersOf(definition).some((t) => t.id === node.id) : false;
   const loops = definition ? flowShape(definition).loops : new Set<string>();
@@ -1719,6 +1722,22 @@ function NodeInspector({
             onChange={(value) => onConfig({ [f.id]: value })}
           />
         ))}
+        {isStage && (
+          <span className="flex flex-col gap-1.5 text-[12px] text-ink-3">
+            <span aria-hidden="true">Assign new comments to</span>
+            <AssignmentPicker
+              projectId={projectId}
+              value={node.assign}
+              inherits="Track or project default"
+              disabled={!editing}
+              aria-label={`${node.name}: assign new comments to`}
+              onChange={(rule) => onChange({ assign: rule ?? undefined })}
+            />
+            <span className="text-[11px]">
+              Whoever a comment opened while the track waits here is for.
+            </span>
+          </span>
+        )}
         {definition && definition.groups.length > 0 && (
           <label className="flex flex-col gap-1.5 text-[12px] text-ink-3">
             Stage
