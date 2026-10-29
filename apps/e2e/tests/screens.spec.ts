@@ -3686,6 +3686,37 @@ const dayThreeFiles = () =>
     { take: "30", scene: "The Entertainer", day: "2026-10-16", start: 50_520 },
   ]);
 
+// Takes are added from their track (#490): the Add takes dialog with the track settled, from
+// its Takes view (and from its row's menu in the files). Every file is a take of it, the
+// session and the bars are chosen once, and nothing is chosen by row.
+test("track-takes-upload", async ({ page }) => {
+  const { trackId } = seeded();
+  await page.goto(`/tracks/${trackId}?view=takes`);
+  await settle(page, "text=no take of bars 17 to 24");
+  await page.getByRole("button", { name: "Add takes" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add takes" });
+  await dialog.getByLabel("Take files").setInputFiles(
+    sessionFiles([
+      { take: "27", scene: "Maple Leaf Rag", day: "2026-10-14", start: 36_842, mics: ["Mix"] },
+      { take: "28", scene: "Maple Leaf Rag", day: "2026-10-14", start: 37_180, mics: ["Mix"] },
+    ]).filter((f) => f.name !== "Room tone.wav"),
+  );
+  await dialog.getByLabel("First bar").fill("1");
+  await dialog.getByLabel("Last bar").fill("16");
+  await expect(dialog.getByText(/^2 files, /)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Propose the takes" })).toBeEnabled();
+  await saveScreen(page, "track-takes-upload");
+  await checkScreen(page);
+  await dialog.getByRole("button", { name: "Propose the takes" }).click();
+  // Both are the track's, in Day 3 as their day says, with the bars given under each.
+  await expect(dialog.getByRole("region", { name: "Day 3" })).toContainText("adds to this session");
+  await expect(dialog.getByText("Bars 1 to 16")).toHaveCount(2);
+  await expect(dialog.getByLabel(/^Track of/)).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Add 2 takes" })).toBeEnabled();
+  await saveScreen(page, "track-takes-upload-proposed");
+  await checkScreen(page);
+});
+
 async function openTakeImport(page: Page) {
   await page.goto(`/projects/${seeded().musicProjectId}/sessions`);
   await settle(page, "main >> text=Day 2");

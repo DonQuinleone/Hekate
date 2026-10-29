@@ -7,10 +7,12 @@ import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { ShareDialog } from "~/components/share";
+import { TakeImportDialog } from "~/components/take-import";
 import { TakeManager } from "~/components/takes";
 import { TrackHeading, TrackVersions } from "~/components/track-versions";
 import { Button } from "~/components/ui/button";
 import { Segmented } from "~/components/ui/segmented";
+import type { Picked } from "~/lib/picked-files";
 import {
   projectQuery,
   trackQuery,
@@ -24,7 +26,8 @@ import { primaryOf } from "~/lib/versions";
  * A track (#131): it opens in the player on its latest version's primary file, like a
  * folder of its versions; its versions page is one step from there (`?view=versions`), and
  * where a track without versions opens. Its takes (#21) sit beside its versions, for those
- * who may see them.
+ * who may see them, and are added from here (#490): the Add takes dialog, with the track
+ * settled, opened by the button or by dropping files on the takes.
  */
 export function TrackPage({ trackId, view }: { trackId: string; view?: "versions" | "takes" }) {
   const { data: track, error } = useQuery(trackQuery(trackId));
@@ -38,6 +41,8 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
   const navigate = useNavigate();
   const [adding, setAdding] = useState(false);
   const [sharing, setSharing] = useState(false);
+  /** The files dropped on the takes, or none, while the Add takes dialog is open. */
+  const [addingTakes, setAddingTakes] = useState<Picked[] | null>(null);
   if (error) return <p className="p-8 text-signal">{error.message}</p>;
   if (!track || !project) return <p className="p-8 text-ink-3">Loading</p>;
   const latest = track.versions.at(-1);
@@ -48,6 +53,8 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
     return <Navigate to="/files/$fileId" params={{ fileId: playable.fileId }} replace />;
   }
   const live = !project.archivedAt;
+  // Adding takes uploads their files, which needs the upload permission as well as the takes'.
+  const canAddTakes = live && can("edit_takes") && can("upload");
   const switcher =
     can("view_takes") && !video ? (
       <Segmented
@@ -114,6 +121,12 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
                     Add {words.version}
                   </Button>
                 )}
+                {takes && canAddTakes && !addingTakes && (
+                  <Button variant="primary" size="sm" onClick={() => setAddingTakes([])}>
+                    <Icon name="upload" size={14} />
+                    Add takes
+                  </Button>
+                )}
               </>
             )}
           </>
@@ -130,7 +143,15 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
         {takes ? (
           <>
             <TrackHeading track={track} aside={switcher} />
-            <TakeManager track={track} />
+            <TakeManager track={track} onAdd={canAddTakes ? setAddingTakes : undefined} />
+            {addingTakes && (
+              <TakeImportDialog
+                projectId={track.projectId}
+                track={track}
+                initial={addingTakes}
+                onClose={() => setAddingTakes(null)}
+              />
+            )}
           </>
         ) : (
           <TrackVersions

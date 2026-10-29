@@ -21,7 +21,7 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type DragEvent, type FormEvent, useRef, useState } from "react";
+import { type DragEvent, type FormEvent, useState } from "react";
 import { cn } from "~/lib/cn";
 import {
   barsUsedOf,
@@ -32,6 +32,7 @@ import {
   usedAtBar,
 } from "~/lib/edit-decisions";
 import { formatLoop } from "~/lib/loop";
+import { type Picked, pickedFromDrop } from "~/lib/picked-files";
 import {
   editDecisionsQuery,
   projectSessionsQuery,
@@ -41,7 +42,6 @@ import {
   useProjectCan,
   useTakeMutations,
 } from "~/lib/queries";
-import { uploadFile } from "~/lib/upload";
 import { Empty } from "./empty";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
@@ -49,7 +49,7 @@ import { Chip } from "./ui/chip";
 import { Checkbox } from "./ui/choice";
 import { Dialog } from "./ui/dialog";
 import { Field } from "./ui/field";
-import { FileInput, Input, Select, Textarea } from "./ui/input";
+import { Input, Select, Textarea } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
 
@@ -78,24 +78,23 @@ export function Rating({ value }: { value: number }) {
 const rulerEnd = (takes: TakeRow[]) =>
   Math.max(16, Math.ceil(Math.max(0, ...takes.map((t) => barsOf(t)?.[1] ?? 0)) / 10) * 10);
 
-/** A file on its way to becoming a take. */
-interface Sending {
-  key: string;
-  name: string;
-  progress: number;
-  error: string | null;
-}
-
 /**
  * A track's takes (#21, #46): each recording made for it, with the bars it covers when bars
- * matter, its rating, star and notes. Files dropped here or chosen are uploaded into the
- * track's folder and become its next takes.
+ * matter, its rating, star and notes. Adding takes, by the button or by dropping files here,
+ * goes through the track's Add takes dialog (#490), which `onAdd` opens with what was dropped.
  */
-export function TakeManager({ track }: { track: Track }) {
+export function TakeManager({
+  track,
+  onAdd,
+}: {
+  track: Track;
+  /** Opens the Add takes dialog; absent where this person cannot add takes. */
+  onAdd?: ((picked: Picked[]) => void) | undefined;
+}) {
   const can = useProjectCan(track.projectId);
   const canEdit = can("edit_takes");
   // Adding takes uploads their files first, which needs the project's upload permission too.
-  const canAdd = canEdit && can("upload");
+  const canAdd = canEdit && can("upload") && onAdd !== undefined;
   const { data: takes, error } = useQuery(trackTakesQuery(track.id));
   // What the score marks say of each take at a bar (#52): which fixed it, which went wrong.
   const { data: marking } = useQuery({
@@ -103,7 +102,7 @@ export function TakeManager({ track }: { track: Track }) {
     enabled: can("view_production"),
     retry: false,
   });
-  const { add, change, remove } = useTakeMutations(track.id);
+  const { change, remove } = useTakeMutations(track.id);
   const [filter, setFilter] = useState<"all" | "best" | "used">("all");
   const [bar, setBar] = useState("");
   // The latest version's edit decision list, matched to these takes (#56).
@@ -112,57 +111,15 @@ export function TakeManager({ track }: { track: Track }) {
   const [mode, setMode] = useState<"takes" | "edits">("takes");
   const showing = decisions ? mode : "takes";
   const [editing, setEditing] = useState<TakeRow | null>(null);
-  const [sending, setSending] = useState<Sending[]>([]);
   const [dragging, setDragging] = useState(false);
-  const chooser = useRef<HTMLInputElement>(null);
-
-  const upload = async (chosen: File[]) => {
-    const batch = chosen.map((file) => ({
-      file,
-      key: `${file.name}:${file.size}:${Math.random()}`,
-    }));
-    setSending((list) => [
-      ...list,
-      ...batch.map(({ file, key }) => ({ key, name: file.name, progress: 0, error: null })),
-    ]);
-    const update = (key: string, next: Partial<Sending>) =>
-      setSending((list) => list.map((s) => (s.key === key ? { ...s, ...next } : s)));
-    const sent = await Promise.all(
-      batch.map(({ file, key }) =>
-        uploadFile(file, {
-          projectId: track.projectId,
-          folderId: track.folderId,
-          signal: new AbortController().signal,
-          onProgress: (p) => update(key, { progress: p.total ? p.sent / p.total : 0 }),
-        }).then(
-          (done) => ({ key, id: done.id }),
-          (failure: unknown) => {
-            update(key, { error: failure instanceof Error ? failure.message : "Upload failed" });
-            return null;
-          },
-        ),
-      ),
-    );
-    const ready = sent.filter((s) => s !== null);
-    if (ready.length === 0) return;
-    // Numbered in the order chosen, once every file is in the project.
-    add.mutate(
-      ready.map((s) => s.id),
-      {
-        onSuccess: () =>
-          setSending((list) => list.filter((s) => !ready.some((r) => r.key === s.key))),
-        onError: (failure) =>
-          ready.forEach((r) => {
-            update(r.key, { error: failure.message });
-          }),
-      },
-    );
-  };
 
   const onDrop = (event: DragEvent) => {
     event.preventDefault();
     setDragging(false);
-    if (canAdd && event.dataTransfer.files.length) void upload([...event.dataTransfer.files]);
+    if (!canAdd || !onAdd) return;
+    void pickedFromDrop(event.dataTransfer).then((picked) => {
+      if (picked.length > 0) onAdd(picked);
+    });
   };
 
   if (error) return <p className="text-signal">{error.message}</p>;
@@ -189,23 +146,12 @@ export function TakeManager({ track }: { track: Track }) {
   const withBars = takes.some((t) => t.barFrom !== null);
   const end = rulerEnd(takes);
   const gaps = coverageGaps(takes);
+  // The page's header carries Add takes; the empty state offers it too, as the versions do.
   const addButton = canAdd && (
-    <>
-      <FileInput
-        ref={chooser}
-        multiple
-        accept="audio/*,video/*"
-        aria-label="Choose takes to add"
-        onChange={(e) => {
-          if (e.target.files?.length) void upload([...e.target.files]);
-          e.target.value = "";
-        }}
-      />
-      <Button variant="secondary" size="sm" onClick={() => chooser.current?.click()}>
-        <Icon name="upload" size={14} />
-        Add takes
-      </Button>
-    </>
+    <Button variant="primary" onClick={() => onAdd?.([])}>
+      <Icon name="upload" size={14} />
+      Add takes
+    </Button>
   );
 
   return (
@@ -220,12 +166,12 @@ export function TakeManager({ track }: { track: Track }) {
       onDrop={onDrop}
       className="flex flex-col gap-3"
     >
-      {takes.length === 0 && sending.length === 0 ? (
+      {takes.length === 0 ? (
         <Empty
           title="No takes yet"
           text={
             canAdd
-              ? "Drop the session's scratch mixes here, or choose them. Each becomes the next take of this track; give it bars when they matter."
+              ? "Drop the recordings made for this track here, or choose them. Each becomes its next take, numbered as its file says; give them bars when they matter."
               : "Takes recorded for this track appear here once someone adds them."
           }
           action={addButton || undefined}
@@ -282,7 +228,6 @@ export function TakeManager({ track }: { track: Track }) {
                   ]}
                 />
               )}
-              {addButton}
             </div>
           </div>
           {showing === "edits" && decisions ? (
@@ -371,34 +316,6 @@ export function TakeManager({ track }: { track: Track }) {
                 )}
               </ul>
             </div>
-          )}
-          {sending.length > 0 && (
-            <ul aria-label="Takes being added" className="border-t border-line px-4 py-2">
-              {sending.map((s) => (
-                <li key={s.key} className="flex items-center gap-3 py-1 text-[13px]">
-                  <span className="min-w-0 flex-1 truncate text-ink-2">{s.name}</span>
-                  {s.error ? (
-                    <span role="alert" className="text-signal">
-                      {s.error}
-                    </span>
-                  ) : (
-                    <span className="tabular text-ink-3">
-                      {s.progress < 1 ? `${Math.round(s.progress * 100)}%` : "Adding"}
-                    </span>
-                  )}
-                  {s.error && (
-                    <Button
-                      variant="ghost"
-                      size="iconSm"
-                      aria-label={`Dismiss ${s.name}`}
-                      onClick={() => setSending((list) => list.filter((x) => x.key !== s.key))}
-                    >
-                      <Icon name="close" size={13} />
-                    </Button>
-                  )}
-                </li>
-              ))}
-            </ul>
           )}
         </div>
       )}
