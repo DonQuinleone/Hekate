@@ -1,6 +1,6 @@
 import { defaultWaveLook } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { toChannelArrays, waveStyle } from "./waveform";
+import { drawnOpacity, toChannelArrays, waveStyle } from "./waveform";
 
 describe("waveform", () => {
   it("splits interleaved peaks into one min/max series per channel", () => {
@@ -19,18 +19,23 @@ describe("waveform", () => {
 });
 
 describe("the waveform's look (#135)", () => {
-  it("draws the default as it always was: the rest dim, the played part brighter, full scale", () => {
-    expect(waveStyle(defaultWaveLook, "#f4f4f5", false)).toEqual({
-      waveColor: "rgba(244, 244, 245, 0.15)",
-      progressColor: "rgba(244, 244, 245, 0.5)",
+  it("draws the default at full brightness: the rest dim, the played part bright, full scale", () => {
+    expect(waveStyle(defaultWaveLook, "#f4f4f5")).toEqual({
+      waveColor: "rgba(244, 244, 245, 0.3)",
+      progressColor: "rgba(244, 244, 245, 1)",
       barHeight: 1,
     });
   });
 
-  it("follows brightness and height, a little brighter over a spectrogram", () => {
-    const style = waveStyle({ colour: "cool", opacity: 1, height: 0.64 }, "#7cc1e9", true);
-    expect(style.progressColor).toBe("rgba(124, 193, 233, 1)");
-    expect(style.waveColor).toBe("rgba(124, 193, 233, 0.56)");
+  it("follows brightness and height", () => {
+    const style = waveStyle({ colour: "cool", opacity: 0.6, height: 0.64 }, "#7cc1e9");
+    expect(style.progressColor).toBe("rgba(124, 193, 233, 0.6)");
+    expect(style.waveColor).toBe("rgba(124, 193, 233, 0.18)");
     expect(style.barHeight).toBe(2);
+  });
+
+  it("draws no fainter than the floor, whatever look was kept before it (#495)", () => {
+    expect(drawnOpacity({ colour: "ink", opacity: 0.15, height: 0.32 })).toBe(0.4);
+    expect(drawnOpacity({ colour: "ink", opacity: 0.8, height: 0.32 })).toBe(0.8);
   });
 });

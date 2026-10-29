@@ -30,6 +30,7 @@ import {
   videoClock,
   videoTimecode,
   WAVE_LOOK_MIN,
+  WAVE_OPACITY_MIN,
   type WatermarkPosition,
   type WaveLook,
   waveColours,
@@ -39,6 +40,7 @@ import type Hls from "hls.js";
 import {
   type KeyboardEvent,
   type ReactNode,
+  type PointerEvent as ReactPointerEvent,
   type RefObject,
   useCallback,
   useEffect,
@@ -61,6 +63,7 @@ import type { EditSegment } from "~/lib/edit-decisions";
 import { type Loop, loopEntry, loopFrom, type Rolls, roll, wrapTarget } from "~/lib/loop";
 import { adjacentMarker, markerTimes } from "~/lib/markers";
 import { usePlayerView } from "~/lib/player-view";
+import { fractionAt } from "~/lib/playhead";
 import { type Playback, type Rendition, usePreferences, useSavePreferences } from "~/lib/queries";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
 import { readView, type SpectrogramView } from "~/lib/spectrogram";
@@ -68,7 +71,17 @@ import { holdRate } from "~/lib/speed";
 import { familyOf, type VideoFamily, videoFamilyFor } from "~/lib/video-family";
 import { useViewer } from "~/lib/viewer";
 import { stepVolume, useVolume, VOLUME_MAX, VOLUME_STEP, volumeGain } from "~/lib/volume";
-import { anchoredScroll, followScroll, maxZoom, panScroll, zoomLabel, zoomStep } from "~/lib/zoom";
+import {
+  anchoredScroll,
+  fingerSpan,
+  followScroll,
+  maxZoom,
+  panScroll,
+  wheelZoomFactor,
+  zoomAbout,
+  zoomLabel,
+  zoomStep,
+} from "~/lib/zoom";
 import { ChannelsButton, ChannelsPanel } from "./channels";
 import { CutVideo } from "./cut-video";
 import {
@@ -84,6 +97,7 @@ import { Filmstrip } from "./filmstrip";
 import { Icon } from "./icons";
 import { LoopControls, LoopSurface } from "./loop";
 import { PlayheadMeters } from "./loudness";
+import { usePlayheadFrames } from "./playhead";
 import { Spectrogram, type SpectrogramChannelChoice } from "./spectrogram";
 import { SpectrogramLook, SpectrogramSettings } from "./spectrogram-settings";
 import { nativeSource, StreamPart, wholeRendition } from "./stream-part";
@@ -126,6 +140,12 @@ function useRolls(): [Rolls, (rolls: Rolls) => void] {
   };
   return [rolls, save];
 }
+
+/**
+ * How far the playhead's stem rises from the scrub bar's thumb: across the gap to the
+ * waveform above (12 px) and the half of the bar above the thumb, so the line meets it.
+ */
+const SCRUB_STEM = 20;
 
 /** How the audio is drawn above the transport. */
 type Display = "waveform" | "spectrogram" | "both" | "overlay";
@@ -507,7 +527,12 @@ export function Player({
   const mostZoom = maxZoom(duration, info?.audio?.sampleRate ?? 0, surfaceWidth);
   const zoom = Math.min(chosenZoom, mostZoom);
   /** Where the view was when the zoom changed, to keep the same moment under the anchor. */
-  const zooming = useRef<{ from: number; scroll: number; anchor: number } | null>(null);
+  const zooming = useRef<{
+    from: number;
+    scroll: number;
+    anchor: number;
+    pointer?: boolean;
+  } | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: each file opens whole.
   useEffect(() => setZoom(1), [fileId]);
   useEffect(() => {
@@ -531,18 +556,116 @@ export function Player({
     };
     setZoom(next);
   };
+  /**
+   * The zoom asked for but not yet drawn: a pinch sends several changes a frame, and each
+   * goes on from the last asked rather than the last drawn.
+   */
+  const requested = useRef<number | null>(null);
+  /** A zoom about the pointer keeps its point: the next follow of the playhead stands down. */
+  const anchoredToPointer = useRef(false);
   // biome-ignore lint/correctness/useExhaustiveDependencies: only a new zoom moves the view.
   useLayoutEffect(() => {
     const element = surface;
     const from = zooming.current;
     zooming.current = null;
-    if (element && from)
+    requested.current = null;
+    if (element && from) {
       element.scrollLeft = anchoredScroll(from.scroll, from.anchor, from.from, zoom);
+      anchoredToPointer.current = from.pointer === true;
+    }
   }, [zoom]);
+  /** Zoom by a factor about a point across the view (#494): a pinch, or a wheel with the key. */
+  const zoomAround = (factor: number, fraction: number) => {
+    const element = surface;
+    if (!element) return;
+    const next = zoomAbout(
+      {
+        zoom: requested.current ?? zoom,
+        scrollLeft: element.scrollLeft,
+        width: element.clientWidth,
+        most: mostZoom,
+      },
+      factor,
+      fraction,
+    );
+    if (next.zoom === zoom) return;
+    requested.current = next.zoom;
+    // Measured against what is drawn now, which the pending zoom has not changed yet.
+    zooming.current ??= {
+      from: zoom,
+      scroll: element.scrollLeft,
+      anchor: fraction * element.clientWidth,
+      pointer: true,
+    };
+    setZoom(next.zoom);
+  };
+  const zoomAroundNow = useRef(zoomAround);
+  zoomAroundNow.current = zoomAround;
+  const zoomNow = useRef({ zoom, mostZoom });
+  zoomNow.current = { zoom, mostZoom };
+  // A trackpad pinch arrives as a wheel with the control key, and must not zoom the page: a
+  // listener that is not passive, so it can say so. Plain scrolling pans a zoomed waveform.
+  useEffect(() => {
+    if (!surface) return;
+    const onWheel = (event: WheelEvent) => {
+      const { zoom, mostZoom } = zoomNow.current;
+      if (mostZoom <= 1) return;
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        const box = surface.getBoundingClientRect();
+        zoomAroundNow.current(
+          wheelZoomFactor(event.deltaY),
+          fractionAt(event.clientX, box.left, box.width),
+        );
+      } else if (zoom > 1 && Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+        event.preventDefault();
+        surface.scrollLeft += event.deltaY;
+      }
+    };
+    surface.addEventListener("wheel", onWheel, { passive: false });
+    return () => surface.removeEventListener("wheel", onWheel);
+  }, [surface]);
+  /** Two fingers on the waveform (#494): where each is, and how far apart they were last. */
+  const fingers = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<number | null>(null);
+  const pinchHandlers = {
+    onPointerDownCapture: (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.pointerType !== "touch") return;
+      fingers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      pinch.current = fingers.current.size === 2 ? fingerSpan(fingers.current.values()) : null;
+    },
+    onPointerMoveCapture: (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!fingers.current.has(event.pointerId)) return;
+      fingers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      const before = pinch.current;
+      if (fingers.current.size !== 2 || before === null) return;
+      const span = fingerSpan(fingers.current.values());
+      pinch.current = span;
+      if (!(before > 0) || !(span > 0)) return;
+      const box = event.currentTarget.getBoundingClientRect();
+      const [a, b] = [...fingers.current.values()];
+      const centre = ((a?.x ?? 0) + (b?.x ?? 0)) / 2;
+      zoomAround(span / before, fractionAt(centre, box.left, box.width));
+    },
+    onPointerUpCapture: (event: ReactPointerEvent<HTMLDivElement>) => {
+      fingers.current.delete(event.pointerId);
+      if (fingers.current.size < 2) pinch.current = null;
+    },
+    onPointerCancelCapture: (event: ReactPointerEvent<HTMLDivElement>) => {
+      fingers.current.delete(event.pointerId);
+      if (fingers.current.size < 2) pinch.current = null;
+    },
+  };
   // The playhead stays in view as it plays or is moved, a page at a time.
   useEffect(() => {
     const element = surface;
     if (!element || zoom <= 1 || !(duration > 0)) return;
+    // A pinch or a wheel zoomed about the pointer: the view stays where it was put, and the
+    // playhead is followed again from the next move.
+    if (anchoredToPointer.current) {
+      anchoredToPointer.current = false;
+      return;
+    }
     const next = followScroll(
       element.scrollLeft,
       element.clientWidth,
@@ -551,6 +674,39 @@ export function Player({
     );
     if (next !== null) element.scrollLeft = next;
   }, [surface, time, zoom, duration]);
+  // The playhead over the waveform and the scrub bar's thumb and progress, moved every frame
+  // from one clock (#492), so they glide together between the media's own time updates.
+  const content = useRef<HTMLDivElement>(null);
+  const playheadLine = useRef<HTMLDivElement>(null);
+  const scrubFill = useRef<HTMLDivElement>(null);
+  const scrubThumb = useRef<HTMLDivElement>(null);
+  const previewLine = useRef<HTMLDivElement>(null);
+  const previewTime = useRef<HTMLSpanElement>(null);
+  const previewThumb = useRef<HTMLDivElement>(null);
+  usePlayheadFrames(element, playing, rate, duration, (share) => {
+    const at = `${share * 100}%`;
+    if (playheadLine.current) playheadLine.current.style.left = at;
+    if (scrubThumb.current) scrubThumb.current.style.left = at;
+    if (scrubFill.current) scrubFill.current.style.width = at;
+  });
+  /** A hover over the waveform or the scrub bar previews the moment on both; null ends it. */
+  const preview = (share: number | null) => {
+    for (const ref of [previewLine, previewThumb]) {
+      const node = ref.current;
+      if (!node) continue;
+      node.style.display = share === null ? "none" : "block";
+      if (share !== null) node.style.left = `${share * 100}%`;
+    }
+    const chip = previewTime.current;
+    if (chip && share !== null) {
+      chip.textContent = formatDuration(share * duration);
+      // On the line's right, until the edge is near; then on its left.
+      chip.style.left = share > 0.85 ? "auto" : "6px";
+      chip.style.right = share > 0.85 ? "6px" : "auto";
+    }
+  };
+  const previewFrom = (clientX: number, box: DOMRect | undefined) =>
+    preview(box && duration > 0 ? fractionAt(clientX, box.left, box.width) : null);
 
   useEffect(() => {
     const element = media.current;
@@ -691,6 +847,13 @@ export function Player({
   const seek = (seconds: number) => {
     const element = media.current;
     if (element) element.currentTime = Math.max(0, Math.min(duration, seconds));
+  };
+
+  /** A double-click where the loop is on (#494): off, and the playhead goes there. */
+  const clearLoop = (at: number) => {
+    setLooping(false);
+    seek(at);
+    say("Loop off");
   };
 
   /** A new loop starts playing from its entry, so it can be heard at once. */
@@ -859,6 +1022,11 @@ export function Player({
             run: () => zoomTo(zoomStep(zoom, -1, mostZoom)),
           },
           { keys: ["0"], label: "Fit the whole file", run: () => zoomTo(1) },
+          {
+            keys: ["Mod+Scroll", "Pinch"],
+            label: "Zoom about the pointer",
+            where: "On the waveform; plain scrolling moves along it once zoomed",
+          },
         ]
       : []),
     ...(canLoop
@@ -875,6 +1043,12 @@ export function Player({
                 return !on;
               });
             },
+          },
+          {
+            keys: ["Double-click"],
+            label: "Loop off, and the playhead there",
+            where:
+              kind === "video" ? "On the picture or its lanes" : "On the waveform or spectrogram",
           },
         ]
       : []),
@@ -954,6 +1128,7 @@ export function Player({
               </div>
               <LookSlider
                 label="Brightness"
+                min={WAVE_OPACITY_MIN}
                 value={look.opacity}
                 onChange={(opacity) => setLook({ opacity })}
               />
@@ -1202,7 +1377,13 @@ export function Player({
   );
 
   const scrub = (
-    <div className="relative h-4 shrink-0">
+    <div
+      className="relative h-4 shrink-0"
+      onPointerMove={(event) =>
+        previewFrom(event.clientX, event.currentTarget.getBoundingClientRect())
+      }
+      onPointerLeave={() => preview(null)}
+    >
       <div className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-hairline" />
       {loop && duration > 0 && (
         <div
@@ -1247,13 +1428,30 @@ export function Player({
         style={{ width: `${share(buffered)}%` }}
       />
       <div
+        ref={scrubFill}
         className="absolute top-1/2 left-0 h-0.5 -translate-y-1/2 rounded-full bg-signal"
         style={{ width: `${share(time)}%` }}
       />
       <div
-        className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-ink"
-        style={{ left: `${share(time)}%` }}
+        ref={previewThumb}
+        aria-hidden="true"
+        className="pointer-events-none absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-ink-2 bg-ground"
+        style={{ display: "none" }}
       />
+      {/* The playhead's foot: its line comes down from the waveform to meet the thumb (#492). */}
+      <div
+        ref={scrubThumb}
+        className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-signal ring-2 ring-ground"
+        style={{ left: `${share(time)}%` }}
+      >
+        {kind === "audio" && zoom <= 1 && (
+          <span
+            aria-hidden="true"
+            className="absolute bottom-1/2 left-1/2 w-px -translate-x-1/2 bg-signal"
+            style={{ height: SCRUB_STEM }}
+          />
+        )}
+      </div>
       <Slider
         aria-label="Position"
         min={0}
@@ -1282,12 +1480,13 @@ export function Player({
           active={active}
           onSeek={seek}
           onLoop={canLoop ? setLoop : undefined}
+          onClear={active ? clearLoop : undefined}
           label={
             playback.filmstrip
               ? canLoop
-                ? "Filmstrip: click to move the playhead, drag to loop a passage"
+                ? "Filmstrip: click to move the playhead, drag to loop a passage, double-click to stop looping"
                 : "Filmstrip: click to move the playhead"
-              : "Loop lane: drag to loop a passage"
+              : "Loop lane: drag to loop a passage, double-click to stop looping"
           }
           className={cn("shrink-0", playback.filmstrip ? "h-12" : "h-7")}
         >
@@ -1334,6 +1533,8 @@ export function Player({
           ref={media}
           playsInline
           onClick={toggle}
+          // A double-click where the loop is on ends it (#494); the two clicks play and pause.
+          onDoubleClick={active ? () => clearLoop(media.current?.currentTime ?? time) : undefined}
           className={cn(
             "aspect-video w-full cursor-pointer bg-ground",
             comparing !== "side" && "rounded-panel",
@@ -1488,10 +1689,11 @@ export function Player({
         zoom > 1 && "overflow-x-auto overscroll-x-contain",
       )}
       // Zoomed in, it scrolls, so the keyboard can reach it and move along it.
+      {...pinchHandlers}
       {...(zoom > 1 && {
         tabIndex: 0,
         role: "group",
-        "aria-label": `Waveform, zoomed ${zoom} times: the arrow keys move along it`,
+        "aria-label": `Waveform, zoomed ${zoomLabel(zoom).replace("×", "")} times: the arrow keys move along it, and scrolling does; pinch, or hold Ctrl and scroll, to zoom`,
         onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => {
           const box = event.currentTarget;
           const next = panScroll(event.key, box.scrollLeft, box.clientWidth, box.scrollWidth);
@@ -1502,17 +1704,26 @@ export function Player({
         },
       })}
       data-zoom={zoom}
+      onPointerMove={(event) =>
+        previewFrom(event.clientX, content.current?.getBoundingClientRect())
+      }
+      onPointerLeave={() => preview(null)}
     >
-      <div className="flex min-h-0 flex-1 flex-col" style={{ width: `${zoom * 100}%` }}>
+      <div
+        ref={content}
+        className="relative flex min-h-0 flex-1 flex-col"
+        style={{ width: `${zoom * 100}%` }}
+      >
         <LoopSurface
           duration={duration}
           loop={loop}
           active={active}
           onSeek={seek}
           onLoop={canLoop ? setLoop : undefined}
+          onClear={active ? clearLoop : undefined}
           label={
             canLoop
-              ? "Waveform: click to move the playhead, drag to loop a passage"
+              ? "Waveform: click to move the playhead, drag to loop a passage, double-click to stop looping"
               : "Waveform: click to move the playhead"
           }
           className="flex min-h-0 flex-1 flex-col gap-3"
@@ -1525,6 +1736,7 @@ export function Player({
               layout={info?.audio?.channelLayout}
               view={view}
               look={look}
+              cursor={false}
               fill
             />
           )}
@@ -1537,6 +1749,7 @@ export function Player({
               channel={spectrumChannel}
               view={spectrum}
               height={WAVEFORM_HEIGHT}
+              playhead={false}
               fill
             />
           )}
@@ -1566,6 +1779,7 @@ export function Player({
                 view={view}
                 look={look}
                 overlay
+                cursor={false}
                 fill
               />
             </div>
@@ -1576,6 +1790,27 @@ export function Player({
             <EditLane edits={edits} duration={duration} time={time} onSeek={seek} />
           </div>
         )}
+        {/* The moment under the pointer, on the way to the scrub bar's own preview. */}
+        <div
+          ref={previewLine}
+          aria-hidden="true"
+          data-e2e-overlap
+          className="pointer-events-none absolute inset-y-0 z-20 w-px bg-ink/40"
+          style={{ display: "none" }}
+        >
+          <span
+            ref={previewTime}
+            className="tabular absolute top-1 whitespace-nowrap rounded-chip bg-surface/85 px-1 text-[10px] leading-4 text-ink-2"
+          />
+        </div>
+        {/* The playhead, over everything on the surface and down to the scrub bar (#492). */}
+        <div
+          ref={playheadLine}
+          aria-hidden="true"
+          data-e2e-overlap
+          className="pointer-events-none absolute inset-y-0 z-20 w-px bg-signal"
+          style={{ left: `${share(time)}%` }}
+        />
       </div>
     </div>
   );
@@ -1887,8 +2122,8 @@ export function Player({
                 {audioSurface}
                 {meters}
               </div>
-              {caption && <CaptionLine cues={caption.cues} time={time} />}
               {scrub}
+              {caption && <CaptionLine cues={caption.cues} time={time} />}
             </div>
           )
         ) : compact ? (
@@ -2209,13 +2444,15 @@ function StripPanel({
   );
 }
 
-/** A share of the waveform's look, from 15% to 100%. */
+/** A share of the waveform's look, from its floor (15%, or 40% for brightness) to 100%. */
 function LookSlider({
   label,
+  min = WAVE_LOOK_MIN,
   value,
   onChange,
 }: {
   label: string;
+  min?: number;
   value: number;
   onChange: (value: number) => void;
 }) {
@@ -2224,7 +2461,7 @@ function LookSlider({
     <label className="flex items-center gap-3 text-[12px] text-ink-3">
       <span className="w-16 shrink-0">{label}</span>
       <Slider
-        min={Math.round(WAVE_LOOK_MIN * 100)}
+        min={Math.round(min * 100)}
         max={100}
         value={percent}
         aria-valuetext={`${percent}%`}

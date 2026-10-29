@@ -7,6 +7,7 @@ import {
 } from "@hekate/shared";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { backingWidth } from "~/lib/canvas";
 import { cn } from "~/lib/cn";
 import { spectrogramQuery, spectrogramsQuery, useRetrySpectrogram } from "~/lib/queries";
 import {
@@ -30,9 +31,6 @@ const token = (name: string) =>
 /** Frequencies worth a label, kept only where they fall inside the range shown. */
 const TICKS = [50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 40_000];
 const tickLabel = (hz: number) => (hz >= 1000 ? `${hz / 1000}k` : `${hz}`);
-
-/** Wider than this, browsers refuse to draw a canvas at all. */
-const MAX_CANVAS_WIDTH = 16_384;
 
 /** One spectrogram drawn to fill its box at the screen's resolution. */
 function Plane({
@@ -71,7 +69,7 @@ function Plane({
     if (!element || !context || size.width === 0 || size.height === 0) return;
     const ratio = window.devicePixelRatio || 1;
     // A zoomed plane can be wider than a canvas may be; the stored spectra are coarser anyway.
-    const width = Math.min(Math.round(size.width * ratio), MAX_CANVAS_WIDTH);
+    const width = backingWidth(size.width, ratio);
     const height = Math.round(size.height * ratio);
     element.width = width;
     element.height = height;
@@ -108,10 +106,11 @@ function Plane({
           {label}
         </span>
       )}
+      {/* Above the waveform drawn over the plane (#495), on a little ground, so they stay legible. */}
       {ticks.map((t) => (
         <span
           key={t.hz}
-          className="tabular pointer-events-none absolute right-1 -translate-y-1/2 text-[9px] text-ink/70"
+          className="tabular pointer-events-none absolute right-1 z-10 -translate-y-1/2 rounded-[2px] bg-ground/60 px-0.5 text-[9px] text-ink/70"
           style={{ top: `${(1 - t.at) * 100}%` }}
           aria-hidden="true"
         >
