@@ -3,6 +3,7 @@ import type { Backends } from "@hekate/storage";
 import { and, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import { recordInstanceEvent } from "./instance-events.ts";
 import type { Keyring } from "./keyring.ts";
+import { deleteVariants } from "./variants.ts";
 
 /**
  * Deletes a workspace set to be deleted, by an operator (#174) or by its owners (#186), once its
@@ -54,8 +55,8 @@ export async function purgeWorkspace(
       .for("update");
     // Reinstated, or kept, since it was chosen: it stays.
     if (!row?.suspendedAt || !row.deleteAfter || row.deleteAfter > now) return null;
-    // A variation holds on to its file, so variations go before the cascade reaches files.
-    await tx.delete(schema.variations).where(inOrg(schema.variations, organisationId));
+    // A variant holds on to its file, so variants go before the cascade reaches files.
+    await deleteVariants(tx, organisationId);
     await tx.delete(schema.organisations).where(eq(schema.organisations.id, organisationId));
     return row.name;
   });

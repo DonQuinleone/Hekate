@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { deliveryProfiles, suggestedProfile } from "./qa.ts";
-import { createVersionInput, variationNameFrom, versionRefusals, withPrimary } from "./tracks.ts";
+import { createVersionInput, variantNameFrom, versionRefusals, withPrimary } from "./tracks.ts";
 
 const a = "0190a6f0-0000-7000-8000-00000000000a";
 const b = "0190a6f0-0000-7000-8000-00000000000b";
 
 describe("tracks", () => {
-  it("needs at least one variation, one primary at most, and each file once", () => {
-    expect(createVersionInput.safeParse({ variations: [] }).success).toBe(false);
+  it("needs at least one variant, one primary at most, and each file once", () => {
+    expect(createVersionInput.safeParse({ variants: [] }).success).toBe(false);
     expect(
       createVersionInput.safeParse({
-        variations: [
+        variants: [
           { fileId: a, name: "Dry", primary: true },
           { fileId: b, name: "Wet", primary: true },
         ],
@@ -18,7 +18,7 @@ describe("tracks", () => {
     ).toBe(false);
     expect(
       createVersionInput.safeParse({
-        variations: [
+        variants: [
           { fileId: a, name: "Dry" },
           { fileId: a, name: "Wet" },
         ],
@@ -26,7 +26,16 @@ describe("tracks", () => {
     ).toBe(false);
   });
 
-  it("makes exactly one variation primary, the first unless another is chosen", () => {
+  it("reads the variants under either name, and answers with the new one (decision 275)", () => {
+    const sent = [{ fileId: a, name: "Dry" }];
+    expect(createVersionInput.parse({ variants: sent })).toMatchObject({ variants: sent });
+    const parsed = createVersionInput.parse({ variations: sent });
+    expect(parsed).toMatchObject({ variants: sent });
+    expect("variations" in parsed).toBe(false);
+    expect(createVersionInput.safeParse({ notes: "No files" }).success).toBe(false);
+  });
+
+  it("makes exactly one variant primary, the first unless another is chosen", () => {
     type Input = { name: string; primary?: boolean };
     const plain: Input[] = [{ name: "Dry" }, { name: "Wet" }];
     const chosen: Input[] = [{ name: "Dry" }, { name: "Wet", primary: true }];
@@ -37,12 +46,10 @@ describe("tracks", () => {
     ]);
   });
 
-  it("names a variation from its file, without the track's name", () => {
-    expect(variationNameFrom("Maple Leaf Rag - Dry mix v3.wav", "Maple Leaf Rag")).toBe(
-      "Dry mix v3",
-    );
-    expect(variationNameFrom("Wet.flac")).toBe("Wet");
-    expect(variationNameFrom(".wav")).toBe("Main");
+  it("names a variant from its file, without the track's name", () => {
+    expect(variantNameFrom("Maple Leaf Rag - Dry mix v3.wav", "Maple Leaf Rag")).toBe("Dry mix v3");
+    expect(variantNameFrom("Wet.flac")).toBe("Wet");
+    expect(variantNameFrom(".wav")).toBe("Main");
   });
 });
 
@@ -109,7 +116,7 @@ describe("version checks", () => {
     expect(past?.message).toBe(
       "The upload workflow refused V2.edl: its edits run to 3:32, past the end of this version at 3:05, so it may be another version's list. Attach this version's EDL, or ask a producer to let it through.",
     );
-    // A tail under a second is an export's rounding; the longest variation counts; a version
+    // A tail under a second is an export's rounding; the longest variant counts; a version
     // not yet measured is not judged on its length.
     const near = { name: "V3.edl", edits: 9, end: 185.9 };
     expect(versionRefusals(rule, suggested, [{ ...hot, duration: 185.2 }], near)).toEqual([]);
@@ -125,7 +132,7 @@ describe("version checks", () => {
       ),
     ).toEqual([]);
     expect(versionRefusals(rule, suggested, [hot], long)).toEqual([]);
-    // Nor while one variation is still being probed: it may be the longer one.
+    // Nor while one variant is still being probed: it may be the longer one.
     expect(
       versionRefusals(
         rule,

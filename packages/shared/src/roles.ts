@@ -77,7 +77,7 @@ export const accessAreas = [
   {
     id: "files",
     label: "Files",
-    hint: "Folders, tracks, versions and variations",
+    hint: "Folders, tracks, versions and variants",
     levels: [
       { id: "none", label: "None", grants: [] },
       { id: "view", label: "View", grants: ["view"] },

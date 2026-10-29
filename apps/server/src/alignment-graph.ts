@@ -7,7 +7,7 @@ import {
 } from "@hekate/shared";
 import { and, eq, inArray } from "drizzle-orm";
 
-const { alignments, variations, versions } = schema;
+const { alignments, variants, versions } = schema;
 
 export interface Reached {
   fileId: string;
@@ -19,7 +19,7 @@ export interface Reached {
 
 /**
  * Every file of the same track that alignments reach from this one, each with the map from
- * this file's times to its own. Alignments join successive versions; variations of one
+ * this file's times to its own. Alignments join successive versions; variants of one
  * version are one edit, so they share their times. Walking both, V3 reaches V1 through V2,
  * and a wet mix reaches the previous version's dry mix through its own dry mix.
  */
@@ -30,16 +30,16 @@ export async function alignmentsFrom(
 ): Promise<Reached[]> {
   const [mine] = await db
     .select({ trackId: versions.trackId })
-    .from(variations)
-    .innerJoin(versions, eq(versions.id, variations.versionId))
-    .where(inOrg(variations, organisationId, eq(variations.fileId, fileId)));
+    .from(variants)
+    .innerJoin(versions, eq(versions.id, variants.versionId))
+    .where(inOrg(variants, organisationId, eq(variants.fileId, fileId)));
   // A loose file has only its own alignments; one in a track can walk the track.
   const family = mine
     ? await db
-        .select({ fileId: variations.fileId, versionId: variations.versionId })
-        .from(variations)
-        .innerJoin(versions, eq(versions.id, variations.versionId))
-        .where(inOrg(variations, organisationId, eq(versions.trackId, mine.trackId)))
+        .select({ fileId: variants.fileId, versionId: variants.versionId })
+        .from(variants)
+        .innerJoin(versions, eq(versions.id, variants.versionId))
+        .where(inOrg(variants, organisationId, eq(versions.trackId, mine.trackId)))
     : [{ fileId, versionId: "" }];
   const ids = family.map((f) => f.fileId);
   const rows = await db

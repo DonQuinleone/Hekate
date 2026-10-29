@@ -6,7 +6,7 @@ import {
   profileFor,
   renditionTraits,
   restartPoints,
-  variationNameFrom,
+  variantNameFrom,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -20,7 +20,6 @@ import {
   type Project,
   type ProjectFile,
   projectFilesQuery,
-  projectTracksQuery,
   projectWorkflowsQuery,
   type Track,
   trackStandingQuery,
@@ -49,7 +48,7 @@ import { FileInput, Input, Select, Textarea } from "./ui/input";
 import { ActionMenu, Dropdown, type MenuAction } from "./ui/menu";
 import { ReviewerDot } from "./ui/status";
 import { type ChosenFile, UploadDialog } from "./ui/upload-dialog";
-import { useLooseMedia, VariationDialog } from "./variation-dialog";
+import { useLooseMedia, VariantDialog } from "./variant-dialog";
 import { letThrough, versionProblem } from "./version-problem";
 import { WorkflowHistory } from "./workflow-history";
 
@@ -107,7 +106,7 @@ function useEdlPick(track: Track) {
 }
 
 /**
- * The next version of a track (#131): its files, each a variation with one primary, what
+ * The next version of a track (#131): its files, each a variant with one primary, what
  * changed, an edit decision list, and the threads the last version leaves open, each to
  * carry over, hide or settle. The files are uploaded when the version is added; the
  * project's checks answer before it lands, a refusal says why, and someone who may edit
@@ -133,10 +132,10 @@ function NewVersion({
   const loose = useLooseMedia(track);
   const edl = useEdlPick(track);
   const [chosen, setChosen] = useState<ChosenFile<UploadedFile>[]>([]);
-  /** Each file's variation name as typed; until then, read from the file's name. */
+  /** Each file's variant name as typed; until then, read from the file's name. */
   const [names, setNames] = useState<Record<string, string>>({});
   const nameOf = (c: ChosenFile<UploadedFile>) =>
-    names[c.key] ?? variationNameFrom(c.name, track.name);
+    names[c.key] ?? variantNameFrom(c.name, track.name);
   const [primary, setPrimary] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [choices, setChoices] = useState<Record<string, CarryChoice>>({});
@@ -165,7 +164,7 @@ function NewVersion({
     await createVersion.mutateAsync({
       trackId: track.id,
       notes: notes.trim() || undefined,
-      variations: sent.flatMap((c) =>
+      variants: sent.flatMap((c) =>
         c.result
           ? [
               {
@@ -192,13 +191,13 @@ function NewVersion({
   return (
     <UploadDialog<UploadedFile>
       title={`${capital(words.version)} ${next}`}
-      description={`A new edit is a new ${words.version}, never a replacement. One file per ${words.variation}; one of them is the primary.`}
+      description={`A new edit is a new ${words.version}, never a replacement. One file per ${words.variant}; one of them is the primary.`}
       onClose={onClose}
       width="lg"
       inputLabel={`${capital(words.version)} files`}
       listLabel={`Files of this ${words.version}`}
       prompt={`Drop the files of this ${words.version} here, or choose them`}
-      hint={`One file per ${words.variation}.`}
+      hint={`One file per ${words.variant}.`}
       accept="audio/*,video/*"
       multiple
       initial={initial}
@@ -239,7 +238,7 @@ function NewVersion({
             size="sm"
             value={nameOf(c)}
             onChange={(e) => setNames((n) => ({ ...n, [c.key]: e.target.value }))}
-            aria-label={`${capital(words.variation)} name for ${c.name}`}
+            aria-label={`${capital(words.variant)} name for ${c.name}`}
             className="w-48 min-w-0 flex-1 @3xl/app:flex-none"
           />
           <label className="flex cursor-pointer items-center gap-1.5 text-[13px] text-ink-2">
@@ -287,7 +286,7 @@ function NewVersion({
                       <span className="block truncate text-[12px] text-ink-3">
                         {[
                           t.authorName,
-                          t.variation,
+                          t.variant,
                           t.anchor ? formatAnchor(t.anchor).replace(/(^|\s)0(\d:)/g, "$1$2") : null,
                         ]
                           .filter(Boolean)
@@ -411,7 +410,7 @@ const saidOf = (value: boolean | null): Said => (value === null ? "" : value ? "
 const answerOf = (said: Said) => (said === "" ? null : said === "yes");
 
 /**
- * A version's variations by name, and for a deliverable's renditions what sets each apart
+ * A version's variants by name, and for a deliverable's renditions what sets each apart
  * (#16): subtitled or clean, graded or ungraded. Its shape and codec are measured, not said.
  */
 function DescribeDialog({
@@ -423,10 +422,10 @@ function DescribeDialog({
   version: Version;
   onClose: () => void;
 }) {
-  const { updateVariation } = useTrackMutations(track.projectId);
+  const { updateVariant } = useTrackMutations(track.projectId);
   const { versionLabel, video } = useItemWords(track.projectId);
   const [rows, setRows] = useState(() =>
-    version.variations.map((v) => ({
+    version.variants.map((v) => ({
       id: v.id,
       name: v.name,
       subtitled: saidOf(v.subtitled),
@@ -444,7 +443,7 @@ function DescribeDialog({
     setError(null);
     try {
       for (const row of rows) {
-        const was = version.variations.find((v) => v.id === row.id);
+        const was = version.variants.find((v) => v.id === row.id);
         if (!was) continue;
         const name = row.name.trim();
         const input = {
@@ -455,7 +454,7 @@ function DescribeDialog({
           ...(video && answerOf(row.graded) !== was.graded ? { graded: answerOf(row.graded) } : {}),
         };
         if (Object.keys(input).length > 0)
-          await updateVariation.mutateAsync({ id: row.id, ...input });
+          await updateVariant.mutateAsync({ id: row.id, ...input });
       }
       onClose();
     } catch (failure) {
@@ -466,7 +465,7 @@ function DescribeDialog({
   };
   return (
     <Dialog
-      title={`${video ? "Renditions" : "Variations"} of ${versionLabel(version.number)}`}
+      title={`${video ? "Renditions" : "Variants"} of ${versionLabel(version.number)}`}
       description={
         video
           ? "Each rendition's shape and codec are read from its file; say whether it is subtitled and graded."
@@ -626,8 +625,8 @@ function VersionRow({
   const [dialog, setDialog] = useState<"add" | "replace" | "edl" | "describe" | "share" | null>(
     null,
   );
-  const pending = version.variations.some((v) => v.streamStatus === "pending");
-  const failed = version.variations.some((v) => v.streamStatus === "failed");
+  const pending = version.variants.some((v) => v.streamStatus === "pending");
+  const failed = version.variants.some((v) => v.streamStatus === "failed");
   const actions: MenuAction[] = [
     // Two versions side by side, aligned by their audio (#137).
     ...(previous && tool("compare")
@@ -646,14 +645,14 @@ function VersionRow({
     // This version alone (#489), where a track's share follows its latest.
     ...(can("request_reviews") ? [{ label: "Share…", onSelect: () => setDialog("share") }] : []),
     ...(can("upload")
-      ? [{ label: `Add a ${words.variation}…`, onSelect: () => setDialog("add") }]
+      ? [{ label: `Add a ${words.variant}…`, onSelect: () => setDialog("add") }]
       : []),
     ...(can("organise")
       ? [
           { label: "Replace a file…", onSelect: () => setDialog("replace") },
-          // A rendition says how it differs (#16); a variation only needs a name.
+          // A rendition says how it differs (#16); a variant only needs a name.
           {
-            label: video ? "Describe the renditions…" : `Rename the ${words.variations}…`,
+            label: video ? "Describe the renditions…" : `Rename the ${words.variants}…`,
             onSelect: () => setDialog("describe"),
           },
           {
@@ -670,7 +669,7 @@ function VersionRow({
                 },
               ]
             : []),
-          ...version.variations
+          ...version.variants
             .filter((v) => !v.isPrimary)
             .map((v) => ({
               label: `Make ${v.name} the primary`,
@@ -738,7 +737,7 @@ function VersionRow({
         </p>
       )}
       <ul className="flex flex-wrap gap-2">
-        {version.variations.map((v) => {
+        {version.variants.map((v) => {
           const file = files.get(v.fileId);
           const open = file?.openComments ?? 0;
           const facts =
@@ -786,7 +785,7 @@ function VersionRow({
         })}
       </ul>
       {(dialog === "add" || dialog === "replace") && (
-        <VariationDialog
+        <VariantDialog
           track={track}
           version={version}
           mode={dialog}
@@ -871,7 +870,7 @@ function ScoreChoice({ track, canEdit }: { track: Track; canEdit: boolean }) {
 
 /**
  * A track's versions (#131), newest first: who added each and when, its note, its
- * variations with the primary marked, and adding the next. The track itself opens in the
+ * variants with the primary marked, and adding the next. The track itself opens in the
  * player on its latest version; this page is one step from there.
  */
 /** A track's name, how many versions it has, and a way into the player. */
@@ -929,7 +928,7 @@ export function TrackVersions({
   const newest = [...track.versions].reverse();
   const latest = newest[0];
   const open = track.versions
-    .flatMap((v) => v.variations)
+    .flatMap((v) => v.variants)
     .reduce((n, v) => n + (byId.get(v.fileId)?.openComments ?? 0), 0);
   // The track's own profile, else the project's or the workspace's (#144).
   const { data: customs = [] } = useQuery(customProfilesQuery);

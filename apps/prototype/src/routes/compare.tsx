@@ -90,7 +90,7 @@ export function ComparePage({
             >
               {versions.map((v) => (
                 <option key={v.id} value={v.number}>
-                  V{v.number} · {v.variations.find((x) => x.primary)?.name}
+                  V{v.number} · {v.variants.find((x) => x.primary)?.name}
                 </option>
               ))}
             </Select>
@@ -149,7 +149,7 @@ export function ComparePage({
                   <span className="font-medium text-ink">{label(v, which)}</span>
                   {!blind && (
                     <span className="text-ink-3">
-                      {v.variations.find((x) => x.primary)?.name} · {v.note}
+                      {v.variants.find((x) => x.primary)?.name} · {v.note}
                     </span>
                   )}
                   <span className="tabular ml-auto text-ink-3">

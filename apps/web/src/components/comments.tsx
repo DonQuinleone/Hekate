@@ -1184,7 +1184,7 @@ export function Comments({
     return clock ? (seconds: number) => videoTimecode(seconds, clock) : null;
   }, [video]);
   // A thread on a bar of a track's version can list the track's takes of that bar (#46).
-  const takesOf = !guest && can("view_takes") ? file?.variation?.trackId : undefined;
+  const takesOf = !guest && can("view_takes") ? file?.variant?.trackId : undefined;
   const { data: me } = useQuery(meQuery);
   const mutations = useCommentMutations(fileId);
   // Categories name each thread's kind for members; whom to assign to, for those who triage.

@@ -27,14 +27,14 @@ export const trackById = (id: string): Track | undefined => tracks.find((t) => t
 export const reviewById = (id: string): Review | undefined => reviews.find((r) => r.id === id);
 export const folderById = (id: string) => folders.find((f) => f.id === id);
 
-/** The track and version a file is a variation of, if any. */
-export function variationOf(
+/** The track and version a file is a variant of, if any. */
+export function variantOf(
   fileId: string,
-): { track: Track; version: Version; variationName: string } | null {
+): { track: Track; version: Version; variantName: string } | null {
   for (const track of tracks) {
     for (const version of track.versions) {
-      const v = version.variations.find((x) => x.fileId === fileId);
-      if (v) return { track, version, variationName: v.name };
+      const v = version.variants.find((x) => x.fileId === fileId);
+      if (v) return { track, version, variantName: v.name };
     }
   }
   return null;
@@ -44,4 +44,4 @@ export const latestVersion = (track: Track): Version | undefined =>
   [...track.versions].sort((a, b) => b.number - a.number)[0];
 
 export const primaryFile = (version: Version): File | undefined =>
-  fileById((version.variations.find((v) => v.primary) ?? version.variations[0])?.fileId ?? "");
+  fileById((version.variants.find((v) => v.primary) ?? version.variants[0])?.fileId ?? "");

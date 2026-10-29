@@ -17,7 +17,7 @@ import {
   type Task,
   tasks,
   tracks,
-  variationOf,
+  variantOf,
 } from "~/data";
 import { cn } from "~/lib/cn";
 import { ago, dueIn, formatDate, formatDateTime } from "~/lib/format";
@@ -77,7 +77,7 @@ function TaskPanel({
   const [status, setStatus] = useState<Status>(task.status);
   const file = task.fileId ? allFiles.find((f) => f.id === task.fileId) : undefined;
   const comment = task.commentId ? comments.find((c) => c.id === task.commentId) : undefined;
-  const track = file ? variationOf(file.id)?.track : undefined;
+  const track = file ? variantOf(file.id)?.track : undefined;
   const due = task.dueAt ? dueIn(`${task.dueAt}T23:59:00Z`) : null;
   const log = [
     comment
@@ -395,7 +395,7 @@ export function ProjectTasks({
                           </span>
                           {file && (
                             <span className="block truncate text-[12px] text-ink-3">
-                              {variationOf(file.id)?.track.name ?? file.name}
+                              {variantOf(file.id)?.track.name ?? file.name}
                             </span>
                           )}
                         </span>

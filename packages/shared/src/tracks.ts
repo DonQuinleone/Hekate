@@ -10,7 +10,9 @@ const label = (what: string, max: number) =>
     .max(max, `${what} names can be at most ${max} characters`);
 
 export const trackName = label("A track", 200);
-export const variationName = label("A variation", 80);
+export const variantName = label("A variant", 80);
+/** @deprecated The name before decision 275; release 2 of the rename removes it. Use `variantName`. */
+export const variationName = variantName;
 
 export const createTrackInput = z.object({
   name: trackName,
@@ -30,15 +32,15 @@ export const updateTrackInput = z
   })
   .refine((t) => Object.keys(t).length > 0, { message: "Nothing to change" });
 
-const variationInput = z.object({
+const variantInput = z.object({
   fileId: z.uuid(),
-  name: variationName,
+  name: variantName,
   primary: z.boolean().optional(),
 });
 
 /**
- * A new version of a track: the next number, with its variations. Every version has at
- * least one variation and exactly one primary; when none is marked, the first is primary.
+ * A new version of a track: the next number, with its variants. Every version has at
+ * least one variant and exactly one primary; when none is marked, the first is primary.
  */
 /**
  * What becomes of each of the previous version's open threads on the new one (decision
@@ -47,48 +49,76 @@ const variationInput = z.object({
 export const carryChoices = ["open", "hidden", "fixed", "wont_fix"] as const;
 export type CarryChoice = (typeof carryChoices)[number];
 
-export const createVersionInput = z
-  .object({
-    notes: z.string().trim().max(2000).optional(),
-    variations: z.array(variationInput).min(1, "A version needs at least one file").max(16),
-    /** The previous version's threads, by id, where not simply carried and shown. */
-    carry: z.record(z.uuid(), z.enum(carryChoices)).optional(),
-    /** An edit decision list in the same project: how this version was cut from the takes. */
-    edlFileId: z.uuid().nullish(),
-    /** Let it in past the project's version checks: for those who may edit workflows. */
-    letThrough: z.boolean().optional(),
-    /** Start one of the track's workflows again from a stage (#25): for those who edit them. */
-    restartFrom: workflowRestartInput.nullish(),
+const versionVariants = z.array(variantInput).min(1, "A version needs at least one file").max(16);
+
+const versionFields = z.object({
+  notes: z.string().trim().max(2000).optional(),
+  /** The version's files, each a variant; one is primary. */
+  variants: versionVariants.optional(),
+  /**
+   * @deprecated The field's name before decision 275, read for one release so a client of the
+   * release before still lands versions; release 2 of the rename removes it. Send `variants`.
+   */
+  variations: versionVariants.optional(),
+  /** The previous version's threads, by id, where not simply carried and shown. */
+  carry: z.record(z.uuid(), z.enum(carryChoices)).optional(),
+  /** An edit decision list in the same project: how this version was cut from the takes. */
+  edlFileId: z.uuid().nullish(),
+  /** Let it in past the project's version checks: for those who may edit workflows. */
+  letThrough: z.boolean().optional(),
+  /** Start one of the track's workflows again from a stage (#25): for those who edit them. */
+  restartFrom: workflowRestartInput.nullish(),
+});
+
+/** A version as the routes read it: its variants under the one name, whichever was sent. */
+export type ParsedVersionInput = Omit<z.output<typeof versionFields>, "variations" | "variants"> & {
+  variants: z.output<typeof versionVariants>;
+};
+
+export const createVersionInput = versionFields
+  .transform(({ variations, variants, ...rest }, ctx): ParsedVersionInput => {
+    const given = variants ?? variations;
+    if (!given) {
+      ctx.addIssue({
+        code: "custom",
+        message: "A version needs at least one file",
+        path: ["variants"],
+      });
+      return z.NEVER;
+    }
+    return { ...rest, variants: given };
   })
-  .refine((v) => v.variations.filter((x) => x.primary).length <= 1, {
-    message: "Only one variation can be primary",
-    path: ["variations"],
+  .refine((v) => v.variants.filter((x) => x.primary).length <= 1, {
+    message: "Only one variant can be primary",
+    path: ["variants"],
   })
-  .refine((v) => new Set(v.variations.map((x) => x.fileId)).size === v.variations.length, {
-    message: "A file can be one variation only",
-    path: ["variations"],
+  .refine((v) => new Set(v.variants.map((x) => x.fileId)).size === v.variants.length, {
+    message: "A file can be one variant only",
+    path: ["variants"],
   });
 
 export type CreateVersionInput = z.input<typeof createVersionInput>;
 
-export const addVariationInput = variationInput;
+export const addVariantInput = variantInput;
+/** @deprecated The name before decision 275; release 2 of the rename removes it. Use `addVariantInput`. */
+export const addVariationInput = addVariantInput;
 
 /** A version's edit decision list (#56): an .edl file of the project, or null to take it off. */
 export const versionEdlInput = z.object({ fileId: z.uuid().nullable() });
 
-/** The variations as they will be stored: positions in order, and exactly one primary. */
+/** The variants as they will be stored: positions in order, and exactly one primary. */
 export function withPrimary<T extends { primary?: boolean }>(
-  variations: T[],
+  variants: T[],
 ): (T & { isPrimary: boolean; position: number })[] {
   const primary = Math.max(
     0,
-    variations.findIndex((v) => v.primary),
+    variants.findIndex((v) => v.primary),
   );
-  return variations.map((v, position) => ({ ...v, isPrimary: position === primary, position }));
+  return variants.map((v, position) => ({ ...v, isPrimary: position === primary, position }));
 }
 
-/** A variation name from a file name: "Maple Leaf Rag - Dry mix v3.wav" reads "Dry mix v3". */
-export function variationNameFrom(fileName: string, trackName?: string): string {
+/** A variant name from a file name: "Maple Leaf Rag - Dry mix v3.wav" reads "Dry mix v3". */
+export function variantNameFrom(fileName: string, trackName?: string): string {
   let name = fileName.replace(/\.[a-z0-9]{1,5}$/i, "").trim();
   if (trackName) {
     const escaped = trackName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -96,9 +126,13 @@ export function variationNameFrom(fileName: string, trackName?: string): string 
   }
   return name.slice(0, 80) || "Main";
 }
+/** @deprecated The name before decision 275; release 2 of the rename removes it. Use `variantNameFrom`. */
+export const variationNameFrom = variantNameFrom;
 
-/** Replacing a variation's file: the new file takes its place, and its threads follow. */
-export const replaceVariationInput = z.object({ fileId: z.uuid() });
+/** Replacing a variant's file: the new file takes its place, and its threads follow. */
+export const replaceVariantInput = z.object({ fileId: z.uuid() });
+/** @deprecated The name before decision 275; release 2 of the rename removes it. Use `replaceVariantInput`. */
+export const replaceVariationInput = replaceVariantInput;
 
 /** What a project checks before a new version lands; off unless the project asks. */
 export interface VersionChecks {
@@ -194,7 +228,7 @@ export function versionRefusals(
   // The list is read as well as asked for (#56): one with no edits, or one running past the
   // end of the version (most often another version's list), is no record of this edit.
   if (checks.edl && edl) {
-    // The longest variation counts, so the length is judged only once every one is probed.
+    // The longest variant counts, so the length is judged only once every one is probed.
     const durations = files.flatMap((f) => (typeof f.duration === "number" ? [f.duration] : []));
     const probed = files.every((f) => f.duration !== undefined);
     const duration = probed && durations.length > 0 ? Math.max(...durations) : null;

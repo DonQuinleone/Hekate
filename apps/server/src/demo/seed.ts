@@ -408,22 +408,22 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
     return found.id;
   };
   const { track: withCut } = await owner.api<{
-    track: { versions: { variations: { id: string }[] }[] };
+    track: { versions: { variants: { id: string }[] }[] };
   }>("POST", `/api/tracks/${deliverable.id}/versions`, {
     notes: "Picture lock candidate.",
-    variations: [
+    variants: [
       { fileId: rendition("16x9"), name: "Main" },
       { fileId: rendition("9x16"), name: "Social" },
     ],
   });
-  const main = withCut.versions[0]?.variations[0];
+  const main = withCut.versions[0]?.variants[0];
   if (main) {
-    await owner.api("PATCH", `/api/variations/${main.id}`, { subtitled: false, graded: true });
+    await owner.api("PATCH", `/api/variants/${main.id}`, { subtitled: false, graded: true });
   }
   // Its second cut, to compare with the first frame by frame (#147).
   await owner.api("POST", `/api/tracks/${deliverable.id}/versions`, {
     notes: "Titles moved up a second.",
-    variations: [{ fileId: rendition("Cut 2"), name: "Main" }],
+    variants: [{ fileId: rendition("Cut 2"), name: "Main" }],
   });
 
   // A track in two versions, and one not yet started.
@@ -434,14 +434,14 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
   );
   await owner.api("POST", `/api/tracks/${track.id}/versions`, {
     notes: "First edit from the Tuesday sessions.",
-    variations: [{ fileId: named("Mix v1"), name: "Mix" }],
+    variants: [{ fileId: named("Mix v1"), name: "Mix" }],
   });
   const { track: withTwo } = await owner.api<{ track: { versions: { id: string }[] } }>(
     "POST",
     `/api/tracks/${track.id}/versions`,
     {
       notes: "Bars 12 to 16 replaced with take 7.",
-      variations: [
+      variants: [
         { fileId: dry, name: "Dry" },
         { fileId: named("Wet v2"), name: "Wet" },
       ],

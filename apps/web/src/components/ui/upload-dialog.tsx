@@ -7,7 +7,7 @@ import { Button } from "./button";
 import { Dialog } from "./dialog";
 
 /**
- * The one way a file is chosen in a dialog (#477): a new version, a variation, a marker
+ * The one way a file is chosen in a dialog (#477): a new version, a variant, a marker
  * list, a session's takes, a comment's attachments. A drop zone that is also the file picker
  * (a real file input under it, for the keyboard and screen readers), the files chosen listed
  * with their size and a way to take each off, the one or two fields the job needs, a line on
@@ -188,7 +188,7 @@ export function ChosenList<T>({
 }: {
   chosen: ChosenFile<T>[];
   label?: string;
-  /** Below a file: what the job asks of it (a variation's name). */
+  /** Below a file: what the job asks of it (a variant's name). */
   row?: ((chosen: ChosenFile<T>) => ReactNode) | undefined;
   disabled?: boolean;
   onRemove: (key: string) => void;
@@ -292,7 +292,7 @@ export interface UploadDialogProps<T> {
   disabled?: boolean;
   /** Each time the list changes: a file taken, one taken off. */
   onChange?: (chosen: ChosenFile<T>[]) => void;
-  /** Below each file: what the job asks of it (a variation's name). */
+  /** Below each file: what the job asks of it (a variant's name). */
   row?: ((chosen: ChosenFile<T>) => ReactNode) | undefined;
   /** Above the files chosen, once there are any: a choice that decides what they become. */
   before?: ReactNode;

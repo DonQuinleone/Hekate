@@ -60,7 +60,7 @@ export const accessAreas: { id: string; label: string; hint: string; levels: str
   {
     id: "files",
     label: "Files",
-    hint: "Folders, tracks, versions and variations",
+    hint: "Folders, tracks, versions and variants",
     levels: ["None", "View", "Upload", "Organise", "Delete"],
   },
   {
@@ -164,7 +164,7 @@ const kindCopy: Record<QaRuleKind, { label: string; hint: string }> = {
 
 export const permissionCopy: Record<ProjectPermission, { label: string; hint: string }> = {
   view: { label: "View", hint: "See the project and play its files" },
-  upload: { label: "Upload", hint: "Add files, versions and variations" },
+  upload: { label: "Upload", hint: "Add files, versions and variants" },
   organise: { label: "Organise", hint: "Folders, renaming, moving, tags" },
   comment: { label: "Comment", hint: "Write and reply" },
   request_reviews: { label: "Request reviews", hint: "Approval, feedback and shares" },
@@ -185,7 +185,7 @@ export const toolCopy: Record<Tool, { label: string; hint: string }> = {
   spectrogram: { label: "Spectrogram", hint: "Below, behind or instead of the waveform" },
   score: { label: "Score", hint: "The linked score beside the recording" },
   takes: { label: "Takes", hint: "Sessions, takes and the other options for a bar" },
-  compare: { label: "Compare", hint: "Versions and variations on keys 1 to 4" },
+  compare: { label: "Compare", hint: "Versions and variants on keys 1 to 4" },
   loops: { label: "Loops", hint: "Drag, nudge, pre and post roll" },
   normalise: { label: "Normalise", hint: "Level-matched playback, where the project allows it" },
   download: { label: "Download", hint: "The proxy or the original, watermarked and logged" },

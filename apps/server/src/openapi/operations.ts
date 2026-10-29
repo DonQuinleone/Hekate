@@ -33,6 +33,8 @@ export interface ApiOperation {
   request?: unknown;
   /** The answer's example. */
   response?: unknown;
+  /** Why it is deprecated and what to call instead; the document marks it so. */
+  deprecated?: string;
 }
 
 const ids = {
@@ -40,7 +42,7 @@ const ids = {
   folder: "01929b8e-6a20-7c11-8e2f-5d3b9a0c7f12",
   track: "01929b8e-7b44-7a09-b1c3-8e6f2d4a9c35",
   version: "01929b8f-0d12-7e45-a6b7-1c9e3f5d2a84",
-  variation: "01929b8f-1e23-7f56-b7c8-2d0f4a6e3b95",
+  variant: "01929b8f-1e23-7f56-b7c8-2d0f4a6e3b95",
   file: "01929b8f-2f34-7067-88d9-3e1a5b7f4ca6",
   upload: "01929b8f-3a45-7178-99ea-4f2b6c8a5db7",
   comment: "01929b8f-4b56-7289-aafb-5a3c7d9b6ec8",
@@ -281,6 +283,7 @@ export const apiOperations: Record<string, ApiOperation> = {
       file: {
         ...answers.file,
         uploadedBy: "Tomas Varga",
+        variant: null,
         variation: null,
         chain: [],
         tools: ["qa", "meters", "spectrogram"],
@@ -314,7 +317,7 @@ export const apiOperations: Record<string, ApiOperation> = {
   "GET /files/{id}/compare": {
     summary: "List what a file can be compared with",
     description:
-      "Its track's versions and their variations, as far as the token's member may open them.",
+      "Its track's versions and their variants, as far as the token's member may open them.",
   },
   "GET /files/{id}/peaks": {
     summary: "Read a file's waveform levels",
@@ -394,7 +397,7 @@ export const apiOperations: Record<string, ApiOperation> = {
   },
   "GET /tracks/{id}": {
     summary: "Read a track",
-    description: "The track with its versions, each version's variations, and where it stands.",
+    description: "The track with its versions, each version's variants, and where it stands.",
     response: { track: answers.track },
   },
   "PATCH /tracks/{id}": { summary: "Change a track" },
@@ -424,14 +427,14 @@ export const apiOperations: Record<string, ApiOperation> = {
       "Which take each stretch of a version comes from, read from its edit decision list.",
   },
 
-  // Versions and variations.
+  // Versions and variants.
   "POST /tracks/{id}/versions": {
     summary: "Add a version to a track",
     description:
-      "From one or more uploaded files, each a variation (dry and wet mixes, say); one is primary. Start each file with `POST /uploads` and finish it first, then name the files here.",
+      "From one or more uploaded files, each a variant (dry and wet mixes, say); one is primary. Start each file with `POST /uploads` and finish it first, then name the files here.",
     request: {
       notes: "Horns up at bar 12, as asked.",
-      variations: [{ fileId: ids.file, name: "Wet mix", primary: true }],
+      variants: [{ fileId: ids.file, name: "Wet mix", primary: true }],
     },
   },
   "GET /tracks/{id}/carry": {
@@ -443,15 +446,36 @@ export const apiOperations: Record<string, ApiOperation> = {
     summary: "Set a version's edit decision list",
     description: "Given or changed after the version was made, or taken off.",
   },
-  "POST /versions/{id}/variations": {
-    summary: "Add a variation to a version",
+  "POST /versions/{id}/variants": {
+    summary: "Add a variant to a version",
     description: "Another treatment of the same edit, from an uploaded file.",
   },
-  "PATCH /variations/{id}": { summary: "Rename a variation, or change its treatment" },
-  "POST /variations/{id}/primary": { summary: "Make a variation its version's primary" },
-  "POST /variations/{id}/replace": {
-    summary: "Replace a variation's file",
+  "PATCH /variants/{id}": { summary: "Rename a variant, or change its treatment" },
+  "POST /variants/{id}/primary": { summary: "Make a variant its version's primary" },
+  "POST /variants/{id}/replace": {
+    summary: "Replace a variant's file",
     description: "With another uploaded file, before anyone has commented on or reviewed it.",
+  },
+  // The variant calls under their name before decision 275, answered for one release.
+  "POST /versions/{id}/variations": {
+    summary: "Add a variant to a version (deprecated name)",
+    deprecated:
+      "Call `POST /versions/{id}/variants`, which answers the same; this name goes in the next release.",
+  },
+  "PATCH /variations/{id}": {
+    summary: "Rename a variant, or change its treatment (deprecated name)",
+    deprecated:
+      "Call `PATCH /variants/{id}`, which answers the same; this name goes in the next release.",
+  },
+  "POST /variations/{id}/primary": {
+    summary: "Make a variant its version's primary (deprecated name)",
+    deprecated:
+      "Call `POST /variants/{id}/primary`, which answers the same; this name goes in the next release.",
+  },
+  "POST /variations/{id}/replace": {
+    summary: "Replace a variant's file (deprecated name)",
+    deprecated:
+      "Call `POST /variants/{id}/replace`, which answers the same; this name goes in the next release.",
   },
 
   // Uploads.

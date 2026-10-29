@@ -186,7 +186,7 @@ const fileSearchSchema = loopSearchSchema.extend({
   sheet: z.enum(["details"]).optional().catch(undefined),
   /** The review it was opened from, whose decision can be given beside it (#15). */
   review: z.uuid().optional().catch(undefined),
-  /** Where to start playing, in seconds: kept while switching version or variation (#15). */
+  /** Where to start playing, in seconds: kept while switching version or variant (#15). */
   t: z.coerce.number().min(0).max(172_800).optional().catch(undefined),
   /** A thread to bring into view, as a task made from it links back to it (#140). */
   comment: z.uuid().optional().catch(undefined),

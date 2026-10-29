@@ -56,6 +56,7 @@ import { followersOf, notifyNow } from "../notifications.ts";
 import { zValidator } from "../openapi/validator.ts";
 import { admit, tooMany } from "../rate-limit.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { bothNames } from "../variants.ts";
 
 const {
   reviews,
@@ -67,7 +68,7 @@ const {
   comments,
   tracks,
   versions,
-  variations,
+  variants,
   files,
   users,
   members,
@@ -358,13 +359,13 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
       const treatments = version
         ? await db
             .select({
-              fileId: variations.fileId,
-              name: variations.name,
-              primary: variations.isPrimary,
+              fileId: variants.fileId,
+              name: variants.name,
+              primary: variants.isPrimary,
             })
-            .from(variations)
-            .where(inOrg(variations, organisationId, eq(variations.versionId, version.id)))
-            .orderBy(desc(variations.isPrimary), asc(variations.createdAt))
+            .from(variants)
+            .where(inOrg(variants, organisationId, eq(variants.versionId, version.id)))
+            .orderBy(desc(variants.isPrimary), asc(variants.createdAt))
         : [];
       const primary = treatments.find((t) => t.primary) ?? treatments[0];
       return {
@@ -373,7 +374,7 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
         trackId: item.trackId,
         name: item.trackName,
         follows: item.versionId ? ("version" as const) : ("latest" as const),
-        version: version ? { ...version, variations: treatments.map((t) => t.name) } : null,
+        version: version ? { ...version, ...bothNames(treatments.map((t) => t.name)) } : null,
         fileId: primary?.fileId ?? null,
         fileIds: treatments.map((t) => t.fileId),
       };
@@ -2654,13 +2655,10 @@ export async function noteOpened(db: Database, actor: Actor, fileId: string) {
     );
   if (mine.length === 0) return;
   const holding = await db
-    .select({ versionId: variations.versionId, trackId: versions.trackId })
-    .from(variations)
-    .innerJoin(
-      versions,
-      and(eq(versions.id, variations.versionId), eq(versions.organisationId, org)),
-    )
-    .where(inOrg(variations, org, eq(variations.fileId, fileId)));
+    .select({ versionId: variants.versionId, trackId: versions.trackId })
+    .from(variants)
+    .innerJoin(versions, and(eq(versions.id, variants.versionId), eq(versions.organisationId, org)))
+    .where(inOrg(variants, org, eq(variants.fileId, fileId)));
   const items = await db
     .select({ id: reviewItems.id, reviewId: reviewItems.reviewId })
     .from(reviewItems)

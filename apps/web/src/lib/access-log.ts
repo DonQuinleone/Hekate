@@ -24,6 +24,8 @@ const actionWords = {
   "review.reviewer_add": "Reviewer added",
   "review.reviewer_remove": "Reviewer removed",
   "version.let_through": "Let past the version checks",
+  "variant.replace": "File replaced",
+  // Rows written before decision 275 carry the action under its old name.
   "variation.replace": "File replaced",
   "comment.takes_share": "Takes shared",
   "comment.takes_unshare": "Takes unshared",

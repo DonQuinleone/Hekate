@@ -6,7 +6,7 @@ import { Button } from "./button";
 import { Dialog } from "./dialog";
 
 /**
- * The one way a file is chosen in a dialog (#477): a new version, a variation, a marker
+ * The one way a file is chosen in a dialog (#477): a new version, a variant, a marker
  * list, a session's takes, a comment's attachments. A drop zone that is also the file picker
  * (a real file input under it, for the keyboard and screen readers), the files chosen listed
  * with their size and a way to take each off, the field or two the job needs, a line on what
@@ -106,7 +106,7 @@ export function ChosenList({
 }: {
   chosen: ChosenFile[];
   label?: string;
-  /** Below a file: what the job asks of it (a variation's name). */
+  /** Below a file: what the job asks of it (a variant's name). */
   row?: (chosen: ChosenFile) => ReactNode;
   onRemove?: (key: string) => void;
 }) {
@@ -203,7 +203,7 @@ export function UploadDialog({
   /** The zone was used: the screen puts its sample files on the list. */
   onPick: () => void;
   onRemove?: (key: string) => void;
-  /** Below each file: what the job asks of it (a variation's name). */
+  /** Below each file: what the job asks of it (a variant's name). */
   row?: (chosen: ChosenFile) => ReactNode;
   /** Above the files chosen, once there are any: a choice that decides what they become. */
   before?: ReactNode;
@@ -215,7 +215,7 @@ export function UploadDialog({
   what?: ReactNode;
   /** What went wrong, in the job's words, with any way out it offers. */
   error?: ReactNode;
-  /** The primary action's name: "Upload version 3", "Add variation", "Import markers". */
+  /** The primary action's name: "Upload version 3", "Add variant", "Import markers". */
   action: string;
   disabled?: boolean;
   onAction: () => void;

@@ -4512,7 +4512,7 @@ describe.runIf(url)("api", () => {
             .insert(schema.versions)
             .values({ organisationId: id, trackId: track?.id ?? "", number: 1 })
             .returning();
-          await db.insert(schema.variations).values({
+          await db.insert(schema.variants).values({
             organisationId: id,
             versionId: version?.id ?? "",
             fileId: file?.id ?? "",
@@ -4631,7 +4631,7 @@ describe.runIf(url)("api", () => {
             .insert(schema.versions)
             .values({ organisationId, trackId: track?.id ?? "", number: 1 })
             .returning();
-          await db.insert(schema.variations).values({
+          await db.insert(schema.variants).values({
             organisationId,
             versionId: version?.id ?? "",
             fileId: file?.id ?? "",
@@ -7775,11 +7775,11 @@ describe.runIf(url)("api", () => {
           expect(await versionFromRequest(deps, { organisationId, fileId })).toBe("made");
           expect(await versionFromRequest(deps, { organisationId, fileId })).toBe("none");
           expect((await versionsOf()).map((v) => v.number)).toEqual([1, 2]);
-          const [variation] = await db
-            .select({ name: schema.variations.name, isPrimary: schema.variations.isPrimary })
-            .from(schema.variations)
-            .where(eq(schema.variations.fileId, fileId));
-          expect(variation).toEqual({ name: "Dry", isPrimary: true });
+          const [variant] = await db
+            .select({ name: schema.variants.name, isPrimary: schema.variants.isPrimary })
+            .from(schema.variants)
+            .where(eq(schema.variants.fileId, fileId));
+          expect(variant).toEqual({ name: "Dry", isPrimary: true });
           // The requester hears of it, as of any version.
           const told = await db
             .select({ text: schema.notifications.text })
@@ -8146,7 +8146,7 @@ describe.runIf(url)("api", () => {
         versions: {
           id: string;
           number: number;
-          variations: {
+          variants: {
             id: string;
             fileId: string;
             name: string;
@@ -8351,7 +8351,109 @@ describe.runIf(url)("api", () => {
         expect(await swap(third)).toBeUndefined();
       });
 
-      it("builds a track from numbered versions, each with one primary variation", async () => {
+      it("writes every variant to both tables while the rename runs (decision 275)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const projectId = await newProject(organisationId);
+        const [dry = "", wet = "", fixed = ""] = await Promise.all(
+          ["Dry.wav", "Wet.wav", "Dry fixed.wav"].map((n) => addFile(organisationId, projectId, n)),
+        );
+        const track = await trackFrom(
+          await app.request(
+            `/api/projects/${projectId}/tracks`,
+            json({ name: "Pine Apple Rag" }, owner),
+          ),
+        );
+        // The new table and the old hold the same rows under the same ids, after every write.
+        const both = async () => {
+          const shape = (rows: (typeof schema.variants.$inferSelect)[]) =>
+            rows
+              .map(({ createdAt: _made, updatedAt: _changed, ...row }) => row)
+              .sort((a, b) => a.position - b.position);
+          const [fresh, old] = await Promise.all([
+            db
+              .select()
+              .from(schema.variants)
+              .where(eq(schema.variants.organisationId, organisationId)),
+            db
+              .select()
+              .from(schema.variations)
+              .where(eq(schema.variations.organisationId, organisationId)),
+          ]);
+          expect(shape(old)).toEqual(shape(fresh));
+          return shape(fresh).map((v) => [v.fileId, v.name, v.isPrimary]);
+        };
+        const made = await send(
+          "POST",
+          `/api/tracks/${track.id}/versions`,
+          { variants: [{ fileId: dry, name: "Dry" }] },
+          owner,
+        );
+        expect(made.status).toBe(201);
+        const version = (await trackFrom(made)).versions[0];
+        expect(await both()).toEqual([[dry, "Dry", true]]);
+        const withWet = (
+          await trackFrom(
+            await send(
+              "POST",
+              `/api/versions/${version?.id}/variants`,
+              { fileId: wet, name: "Wet", primary: true },
+              owner,
+            ),
+          )
+        ).versions[0];
+        expect(await both()).toEqual([
+          [dry, "Dry", false],
+          [wet, "Wet", true],
+        ]);
+        const [first, second] = withWet?.variants ?? [];
+        await send("POST", `/api/variants/${first?.id}/primary`, {}, owner);
+        expect(await both()).toEqual([
+          [dry, "Dry", true],
+          [wet, "Wet", false],
+        ]);
+        // The routes under their old name answer the same, for a client of the release before.
+        await send("PATCH", `/api/variations/${second?.id}`, { name: "Wet mix" }, owner);
+        await send("POST", `/api/variants/${first?.id}/replace`, { fileId: fixed }, owner);
+        expect(await both()).toEqual([
+          [fixed, "Dry", true],
+          [wet, "Wet mix", false],
+        ]);
+        // A client of the release before still names the files the old way.
+        expect(
+          (
+            await send(
+              "POST",
+              `/api/tracks/${track.id}/versions`,
+              { variants: [{ fileId: dry, name: "Dry" }] },
+              owner,
+            )
+          ).status,
+        ).toBe(201);
+        expect((await both()).map((v) => v[0]).sort()).toEqual([fixed, wet, dry].sort());
+        // The release before writes `variations` alone: its rows follow into `variants` through
+        // the trigger, so a version made or changed during the upgrade is read here too.
+        const [kept] = await db
+          .select()
+          .from(schema.variations)
+          .where(eq(schema.variations.fileId, dry));
+        if (!kept) throw new Error("the old table lost the new version");
+        await db.delete(schema.variations).where(eq(schema.variations.id, kept.id));
+        await db
+          .update(schema.variants)
+          .set({ name: "Stale" })
+          .where(eq(schema.variants.fileId, wet));
+        await db
+          .update(schema.variations)
+          .set({ name: "Wet" })
+          .where(eq(schema.variations.fileId, wet));
+        await db.insert(schema.variations).values({ ...kept, id: uuidv7() });
+        expect((await both()).map((v) => `${v[0]} ${v[1]}`).sort()).toEqual(
+          [`${fixed} Dry`, `${wet} Wet`, `${dry} Dry`].sort(),
+        );
+      });
+
+      it("builds a track from numbered versions, each with one primary variant", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);
         const projectId = await newProject(organisationId);
@@ -8381,7 +8483,7 @@ describe.runIf(url)("api", () => {
           json(
             {
               notes: "First edit",
-              variations: [
+              variants: [
                 { fileId: dry, name: "Dry" },
                 { fileId: wet, name: "Wet" },
               ],
@@ -8392,7 +8494,7 @@ describe.runIf(url)("api", () => {
         expect(first.status).toBe(201);
         const afterFirst = await trackFrom(first);
         expect(afterFirst.versions[0]?.number).toBe(1);
-        expect(afterFirst.versions[0]?.variations.map((v) => [v.name, v.isPrimary])).toEqual([
+        expect(afterFirst.versions[0]?.variants.map((v) => [v.name, v.isPrimary])).toEqual([
           ["Dry", true],
           ["Wet", false],
         ]);
@@ -8400,18 +8502,18 @@ describe.runIf(url)("api", () => {
         const next = await trackFrom(
           await app.request(
             `/api/tracks/${track.id}/versions`,
-            json({ variations: [{ fileId: v2, name: "Dry" }] }, owner),
+            json({ variants: [{ fileId: v2, name: "Dry" }] }, owner),
           ),
         );
         const version2 = next.versions[1];
         expect(version2?.number).toBe(2);
 
-        // A file is one variation only.
+        // A file is one variant only.
         expect(
           (
             await app.request(
               `/api/tracks/${track.id}/versions`,
-              json({ variations: [{ fileId: dry, name: "Again" }] }, owner),
+              json({ variants: [{ fileId: dry, name: "Again" }] }, owner),
             )
           ).status,
         ).toBe(409);
@@ -8419,31 +8521,31 @@ describe.runIf(url)("api", () => {
         // A wet mix arrives for version 2 and becomes the primary; then the dry one is restored.
         const withWet = await trackFrom(
           await app.request(
-            `/api/versions/${version2?.id}/variations`,
+            `/api/versions/${version2?.id}/variants`,
             json({ fileId: wet2, name: "Wet", primary: true }, owner),
           ),
         );
-        const variations2 = withWet.versions[1]?.variations ?? [];
-        expect(variations2.map((v) => [v.name, v.isPrimary])).toEqual([
+        const variants2 = withWet.versions[1]?.variants ?? [];
+        expect(variants2.map((v) => [v.name, v.isPrimary])).toEqual([
           ["Dry", false],
           ["Wet", true],
         ]);
         const restored = await trackFrom(
-          await app.request(`/api/variations/${variations2[0]?.id}/primary`, json({}, owner)),
+          await app.request(`/api/variants/${variants2[0]?.id}/primary`, json({}, owner)),
         );
-        expect(restored.versions[1]?.variations.map((v) => v.isPrimary)).toEqual([true, false]);
+        expect(restored.versions[1]?.variants.map((v) => v.isPrimary)).toEqual([true, false]);
 
-        // A variation is renamed; in a music project it has no treatment to say (#16).
-        const variationPath = `/api/variations/${variations2[1]?.id}`;
-        expect((await send("PATCH", variationPath, { subtitled: true }, owner)).status).toBe(422);
+        // A variant is renamed; in a music project it has no treatment to say (#16).
+        const variantPath = `/api/variants/${variants2[1]?.id}`;
+        expect((await send("PATCH", variantPath, { subtitled: true }, owner)).status).toBe(422);
         // In a video project it is a rendition, and says it; unsaid stays null.
         const asVideo = (profile: "music" | "video") =>
           db.update(schema.projects).set({ profile }).where(eq(schema.projects.id, projectId));
         await asVideo("video");
         const treated = await trackFrom(
-          await send("PATCH", variationPath, { name: "Wet, subtitled", subtitled: true }, owner),
+          await send("PATCH", variantPath, { name: "Wet, subtitled", subtitled: true }, owner),
         );
-        expect(treated.versions[1]?.variations[1]).toMatchObject({
+        expect(treated.versions[1]?.variants[1]).toMatchObject({
           name: "Wet, subtitled",
           subtitled: true,
           graded: null,
@@ -8451,17 +8553,17 @@ describe.runIf(url)("api", () => {
         });
         // Its name back, its treatment kept.
         const named = await trackFrom(
-          await send("PATCH", `/api/variations/${variations2[1]?.id}`, { name: "Wet" }, owner),
+          await send("PATCH", `/api/variants/${variants2[1]?.id}`, { name: "Wet" }, owner),
         );
-        expect(named.versions[1]?.variations[1]).toMatchObject({ name: "Wet", subtitled: true });
-        expect(
-          (await send("PATCH", `/api/variations/${variations2[1]?.id}`, {}, owner)).status,
-        ).toBe(400);
+        expect(named.versions[1]?.variants[1]).toMatchObject({ name: "Wet", subtitled: true });
+        expect((await send("PATCH", `/api/variants/${variants2[1]?.id}`, {}, owner)).status).toBe(
+          400,
+        );
         // Only those who organise the project change it.
-        const reviewer = await joinAs(owner, "variation-reviewer@example.test", "member");
+        const reviewer = await joinAs(owner, "variant-reviewer@example.test", "member");
         await grantRole(owner, projectId, reviewer, "Reviewer");
         expect(
-          (await send("PATCH", `/api/variations/${variations2[1]?.id}`, { graded: true }, reviewer))
+          (await send("PATCH", `/api/variants/${variants2[1]?.id}`, { graded: true }, reviewer))
             .status,
         ).toBe(403);
         await asVideo("music");
@@ -8481,14 +8583,14 @@ describe.runIf(url)("api", () => {
             await app.request(`/api/projects/${projectId}/tracks`, { headers: { cookie: owner } })
           ).json()) as { tracks: TrackView[] }
         ).tracks;
-        // A variation's file knows where it sits.
+        // A variant's file knows where it sits.
         const detail = (
           (await (
             await app.request(`/api/files/${wet2}`, { headers: { cookie: owner } })
           ).json()) as {
-            file: { variation: unknown };
+            file: { variant: unknown };
           }
-        ).file.variation;
+        ).file.variant;
         expect(detail).toMatchObject({
           name: "Wet",
           isPrimary: false,
@@ -8517,7 +8619,7 @@ describe.runIf(url)("api", () => {
           fileIds.map((fileId) =>
             app.request(
               `/api/tracks/${track.id}/versions`,
-              json({ variations: [{ fileId, name: "Mix" }] }, owner),
+              json({ variants: [{ fileId, name: "Mix" }] }, owner),
             ),
           ),
         );
@@ -8527,7 +8629,7 @@ describe.runIf(url)("api", () => {
         );
         expect(final.versions.map((v) => v.number)).toEqual([1, 2, 3, 4]);
 
-        // Variations added at once, each asking to be primary: distinct positions, one primary.
+        // Variants added at once, each asking to be primary: distinct positions, one primary.
         const more = await Promise.all(
           ["e.wav", "f.wav", "g.wav"].map((n) => addFile(organisationId, projectId, n)),
         );
@@ -8535,7 +8637,7 @@ describe.runIf(url)("api", () => {
         const added = await Promise.all(
           more.map((fileId, i) =>
             app.request(
-              `/api/versions/${version}/variations`,
+              `/api/versions/${version}/variants`,
               json({ fileId, name: `Mix ${i}`, primary: true }, owner),
             ),
           ),
@@ -8545,16 +8647,16 @@ describe.runIf(url)("api", () => {
         const afterAdding = await trackFrom(
           await app.request(`/api/tracks/${track.id}`, { headers: { cookie: owner } }),
         );
-        const variations = afterAdding.versions[0]?.variations ?? [];
+        const variants = afterAdding.versions[0]?.variants ?? [];
         const switched = await Promise.all(
-          variations.map((v) => app.request(`/api/variations/${v.id}/primary`, json({}, owner))),
+          variants.map((v) => app.request(`/api/variants/${v.id}/primary`, json({}, owner))),
         );
         expect(switched.every((r) => r.status === 200)).toBe(true);
         const settled = (
           await trackFrom(
             await app.request(`/api/tracks/${track.id}`, { headers: { cookie: owner } }),
           )
-        ).versions[0]?.variations;
+        ).versions[0]?.variants;
         expect(settled?.map((v) => (v as unknown as { position: number }).position)).toEqual([
           0, 1, 2, 3,
         ]);
@@ -8583,12 +8685,12 @@ describe.runIf(url)("api", () => {
         const track = await trackFrom(
           await app.request(`/api/projects/${projectId}/tracks`, json({ name: "Rag" }, owner)),
         );
-        // Files from another project are refused, as variations and as scores.
+        // Files from another project are refused, as variants and as scores.
         expect(
           (
             await app.request(
               `/api/tracks/${track.id}/versions`,
-              json({ variations: [{ fileId: stray, name: "Mix" }] }, owner),
+              json({ variants: [{ fileId: stray, name: "Mix" }] }, owner),
             )
           ).status,
         ).toBe(422);
@@ -8620,8 +8722,8 @@ describe.runIf(url)("api", () => {
           .insert(schema.versions)
           .values({ organisationId: other?.id ?? "", trackId: foreignTrack?.id ?? "", number: 1 })
           .returning();
-        const [foreignVariation] = await db
-          .insert(schema.variations)
+        const [foreignVariant] = await db
+          .insert(schema.variants)
           .values({
             organisationId: other?.id ?? "",
             versionId: foreignVersion?.id ?? "",
@@ -8643,25 +8745,25 @@ describe.runIf(url)("api", () => {
         expect(
           (
             await app.request(
-              `/api/versions/${foreignVersion?.id}/variations`,
+              `/api/versions/${foreignVersion?.id}/variants`,
               json({ fileId: foreignFile, name: "x" }, owner),
             )
           ).status,
         ).toBe(404);
         expect(
-          (await app.request(`/api/variations/${foreignVariation?.id}/primary`, json({}, owner)))
+          (await app.request(`/api/variants/${foreignVariant?.id}/primary`, json({}, owner)))
             .status,
         ).toBe(404);
         expect(
-          (await send("PATCH", `/api/variations/${foreignVariation?.id}`, { graded: true }, owner))
+          (await send("PATCH", `/api/variants/${foreignVariant?.id}`, { graded: true }, owner))
             .status,
         ).toBe(404);
-        // Nor can another organisation's file become a variation here.
+        // Nor can another organisation's file become a variant here.
         expect(
           (
             await app.request(
               `/api/tracks/${track.id}/versions`,
-              json({ variations: [{ fileId: foreignFile, name: "x" }] }, owner),
+              json({ variants: [{ fileId: foreignFile, name: "x" }] }, owner),
             )
           ).status,
         ).toBe(422);
@@ -8899,7 +9001,7 @@ describe.runIf(url)("api", () => {
         const trackId = ((await track.json()) as { track: { id: string } }).track.id;
         await app.request(
           `/api/tracks/${trackId}/versions`,
-          json({ variations: [{ fileId, name: "Mix" }] }, owner),
+          json({ variants: [{ fileId, name: "Mix" }] }, owner),
         );
         const onTrack = await send("PUT", `/api/tracks/${trackId}/delivery-profile`, {
           deliveryProfile: "broadcast",
@@ -9952,11 +10054,11 @@ describe.runIf(url)("api", () => {
         const trackId = ((await track.json()) as { track: { id: string } }).track.id;
         const versioned = await app.request(
           `/api/tracks/${trackId}/versions`,
-          json({ variations: [{ fileId, name: "Dry" }] }, owner),
+          json({ variants: [{ fileId, name: "Dry" }] }, owner),
         );
         const version = (
           (await versioned.json()) as {
-            track: { versions: { id: string; variations: { id: string }[] }[] };
+            track: { versions: { id: string; variants: { id: string }[] }[] };
           }
         ).track.versions[0];
         const thread = await app.request(
@@ -10017,23 +10119,22 @@ describe.runIf(url)("api", () => {
             (c) =>
               app.request(
                 `/api/tracks/${trackId}/versions`,
-                json({ variations: [{ fileId, name: "Again" }] }, c),
+                json({ variants: [{ fileId, name: "Again" }] }, c),
               ),
           ],
           [
             "upload",
-            "add a variation",
+            "add a variant",
             (c) =>
               app.request(
-                `/api/versions/${version?.id}/variations`,
+                `/api/versions/${version?.id}/variants`,
                 json({ fileId, name: "Wet" }, c),
               ),
           ],
           [
             "organise",
-            "choose the primary variation",
-            (c) =>
-              app.request(`/api/variations/${version?.variations[0]?.id}/primary`, json({}, c)),
+            "choose the primary variant",
+            (c) => app.request(`/api/variants/${version?.variants[0]?.id}/primary`, json({}, c)),
           ],
           [
             "manage_roles",
@@ -10421,7 +10522,7 @@ describe.runIf(url)("api", () => {
         const trackId = ((await track.json()) as { track: { id: string } }).track.id;
         await app.request(
           `/api/tracks/${trackId}/versions`,
-          json({ variations: [{ fileId: mix, name: "Mix" }] }, owner),
+          json({ variants: [{ fileId: mix, name: "Mix" }] }, owner),
         );
         const composer = await joinAs(owner, "composer@example.test");
         const accompanist = await joinAs(owner, "accompanist@example.test");
@@ -10550,7 +10651,7 @@ describe.runIf(url)("api", () => {
           (
             await app.request(
               `/api/tracks/${s.trackId}/versions`,
-              json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+              json({ variants: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
             )
           ).status,
         ).toBe(201);
@@ -10695,7 +10796,7 @@ describe.runIf(url)("api", () => {
           .returning({ id: schema.files.id });
         await app.request(
           `/api/tracks/${s.trackId}/versions`,
-          json({ variations: [{ fileId: third?.id, name: "Mix" }] }, s.owner),
+          json({ variants: [{ fileId: third?.id, name: "Mix" }] }, s.owner),
         );
         expect(((await compare()) as Compared).b.number).toBe(3);
         await db
@@ -10982,7 +11083,7 @@ describe.runIf(url)("api", () => {
           (
             await app.request(
               `/api/tracks/${s.trackId}/versions`,
-              json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+              json({ variants: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
             )
           ).status,
         ).toBe(201);
@@ -11450,7 +11551,7 @@ describe.runIf(url)("api", () => {
           file: { name: string; uploadedBy: string | null; tagIds: string[] };
           storage: { backend: string; encrypted: boolean; sha256: string | null };
           usedIn: {
-            versions: { track: string; number: number; variation: string; latest: boolean }[];
+            versions: { track: string; number: number; variant: string; latest: boolean }[];
             reviews: { title: string }[];
           };
           can: { organise: boolean; log: boolean; delete: boolean };
@@ -11468,7 +11569,7 @@ describe.runIf(url)("api", () => {
           expect.objectContaining({
             track: "Maple Leaf Rag",
             number: 1,
-            variation: "Mix",
+            variant: "Mix",
             latest: true,
           }),
         ]);
@@ -11702,7 +11803,7 @@ describe.runIf(url)("api", () => {
         // A version uploaded after the approval has not been reviewed.
         await app.request(
           `/api/tracks/${s.trackId}/versions`,
-          json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+          json({ variants: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
         );
         expect(
           (await home(s.owner)).projects.find((p) => p.id === s.projectId)?.approvedTracks,
@@ -16348,7 +16449,7 @@ describe.runIf(url)("api", () => {
               .returning();
             const added = await send(
               `/api/tracks/${s.trackId}/versions`,
-              { variations: [{ fileId: file?.id ?? "", name: "Mix" }], ...extra },
+              { variants: [{ fileId: file?.id ?? "", name: "Mix" }], ...extra },
               cookie,
             );
             expect(added.status).toBe(expected);
@@ -16733,7 +16834,7 @@ describe.runIf(url)("api", () => {
               })
               .returning();
             await send(`/api/tracks/${s.trackId}/versions`, {
-              variations: [{ fileId: file?.id ?? "", name: "Mix" }],
+              variants: [{ fileId: file?.id ?? "", name: "Mix" }],
             });
           };
           type Run = { id: string; state: string; waiting: { nodeId: string }[] };
@@ -16797,7 +16898,7 @@ describe.runIf(url)("api", () => {
               })
               .returning();
             await send(`/api/tracks/${s.trackId}/versions`, {
-              variations: [{ fileId: file?.id ?? "", name: "Mix" }],
+              variants: [{ fileId: file?.id ?? "", name: "Mix" }],
             });
           };
           const stageReviews = () =>
@@ -16972,7 +17073,7 @@ describe.runIf(url)("api", () => {
           sent.length = 0;
           await app.request(
             `/api/tracks/${s.trackId}/versions`,
-            json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+            json({ variants: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
           );
           const clock = sent.find((j) => j.name === "workflow-wait")?.data as {
             organisationId: string;
@@ -17087,7 +17188,7 @@ describe.runIf(url)("api", () => {
           );
           await app.request(
             `/api/tracks/${s.trackId}/versions`,
-            json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+            json({ variants: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
           );
 
           // A share, of the new version, for the project's reviewers and both guests, for a week.
@@ -17198,7 +17299,7 @@ describe.runIf(url)("api", () => {
           });
           await app.request(
             `/api/tracks/${s.trackId}/versions`,
-            json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
+            json({ variants: [{ fileId: s.artwork, name: "Mix" }] }, s.owner),
           );
           const told = await db
             .select({ text: schema.notifications.text, detail: schema.notifications.detail })
@@ -17278,7 +17379,7 @@ describe.runIf(url)("api", () => {
           const newVersion = (fileId: string) =>
             app.request(
               `/api/tracks/${s.trackId}/versions`,
-              json({ variations: [{ fileId, name: "Mix" }] }, s.owner),
+              json({ variants: [{ fileId, name: "Mix" }] }, s.owner),
             );
           const latest = async () => {
             const [run] = (
@@ -17504,7 +17605,7 @@ describe.runIf(url)("api", () => {
 
           await app.request(
             `/api/tracks/${s.trackId}/versions`,
-            json({ variations: [{ fileId: s.artwork, name: "Mix" }] }, s.engineer),
+            json({ variants: [{ fileId: s.artwork, name: "Mix" }] }, s.engineer),
           );
           for (const cookie of [s.owner, s.composer]) {
             expect((await inbox(cookie)).notifications[0]).toMatchObject({
@@ -18131,10 +18232,10 @@ describe.runIf(url)("api", () => {
         const carry = (await (
           await getAs(`/api/tracks/${s.trackId}/carry`, s.engineer)
         ).json()) as {
-          threads: { commentId: string; variation: string; authorName: string }[];
+          threads: { commentId: string; variant: string; authorName: string }[];
         };
         expect(carry.threads.map((t) => t.commentId).sort()).toEqual([hide, fixed].sort());
-        expect(carry.threads[0]?.variation).toBe("Mix");
+        expect(carry.threads[0]?.variant).toBe("Mix");
         expect(carry.threads[0]?.authorName).toEqual(expect.any(String));
         expect((await getAs(`/api/tracks/${s.trackId}/carry`, s.composer)).status).toBe(403);
 
@@ -18152,7 +18253,7 @@ describe.runIf(url)("api", () => {
         const add = (body: Record<string, unknown>, cookie = s.engineer) =>
           app.request(
             `/api/tracks/${s.trackId}/versions`,
-            json({ variations: [{ fileId: v2, name: "Mix" }], ...body }, cookie),
+            json({ variants: [{ fileId: v2, name: "Mix" }], ...body }, cookie),
           );
         // One edit, from the start of the timeline to a given timecode.
         const cut = (end: string) =>
@@ -18223,12 +18324,12 @@ describe.runIf(url)("api", () => {
         expect(settled?.resolvedAt).not.toBeNull();
 
         // A corrected export replaces version 2's file; its threads move with it.
-        const variation = (
-          await db.select().from(schema.variations).where(eq(schema.variations.fileId, v2))
+        const variant = (
+          await db.select().from(schema.variants).where(eq(schema.variants.fileId, v2))
         )[0];
         const corrected = await audioFile("Mix v2 fixed.wav");
         const replace = (fileId: string, cookie = s.engineer) =>
-          app.request(`/api/variations/${variation?.id}/replace`, json({ fileId }, cookie));
+          app.request(`/api/variants/${variant?.id}/replace`, json({ fileId }, cookie));
         expect((await replace(corrected, s.composer)).status).toBe(403);
         expect((await replace(notes)).status).toBe(422);
         expect((await replace(corrected)).status).toBe(200);
@@ -18241,18 +18342,18 @@ describe.runIf(url)("api", () => {
           ).length,
         ).toBe(2);
         const replaced = await audit.query(s.organisationId, {
-          action: "variation.replace",
+          action: "variant.replace",
           limit: 5,
         });
         expect(replaced.events[0]?.details).toMatchObject({ replaced: v2 });
 
         // Changing the primary is for those who organise the project.
         const primary = (id: string, cookie: string) =>
-          app.request(`/api/variations/${id}/primary`, json({}, cookie));
-        expect((await primary(variation?.id ?? "", s.composer)).status).toBe(403);
-        expect((await primary(variation?.id ?? "", s.owner)).status).toBe(200);
+          app.request(`/api/variants/${id}/primary`, json({}, cookie));
+        expect((await primary(variant?.id ?? "", s.composer)).status).toBe(403);
+        expect((await primary(variant?.id ?? "", s.owner)).status).toBe(200);
 
-        // Another workspace's track and variations do not exist from here.
+        // Another workspace's track and variants do not exist from here.
         const [elsewhere] = await db
           .insert(schema.organisations)
           .values({ name: "Elsewhere", slug: "elsewhere-versions" })
@@ -18283,8 +18384,8 @@ describe.runIf(url)("api", () => {
           .insert(schema.versions)
           .values({ organisationId: theirOrg, trackId: theirTrack?.id ?? "", number: 1 })
           .returning();
-        const [theirVariation] = await db
-          .insert(schema.variations)
+        const [theirVariant] = await db
+          .insert(schema.variants)
           .values({
             organisationId: theirOrg,
             versionId: theirVersion?.id ?? "",
@@ -18294,11 +18395,11 @@ describe.runIf(url)("api", () => {
           })
           .returning();
         expect((await getAs(`/api/tracks/${theirTrack?.id}/carry`, s.owner)).status).toBe(404);
-        expect((await primary(theirVariation?.id ?? "", s.owner)).status).toBe(404);
+        expect((await primary(theirVariant?.id ?? "", s.owner)).status).toBe(404);
         expect(
           (
             await app.request(
-              `/api/variations/${theirVariation?.id}/replace`,
+              `/api/variants/${theirVariant?.id}/replace`,
               json({ fileId: corrected }, s.owner),
             )
           ).status,
@@ -19704,7 +19805,7 @@ describe.runIf(url)("api", () => {
             .returning();
           const second = await app.request(
             `/api/tracks/${s.trackId}/versions`,
-            json({ variations: [{ fileId: v2?.id, name: "Mix" }] }, s.owner),
+            json({ variants: [{ fileId: v2?.id, name: "Mix" }] }, s.owner),
           );
           expect(second.status).toBe(201);
           expect(await sees(v2?.id ?? "")).toBe(200);
@@ -19752,7 +19853,7 @@ describe.runIf(url)("api", () => {
             ],
             quality: 0.9,
           });
-          type Family = { versions: { number: number; variations: { fileId: string }[] }[] };
+          type Family = { versions: { number: number; variants: { fileId: string }[] }[] };
           const family = async (cookie: string) => {
             const res = await getAs(`/api/files/${v2?.id}/compare`, cookie);
             return res.status === 200 ? ((await res.json()) as Family) : res.status;
@@ -19775,7 +19876,7 @@ describe.runIf(url)("api", () => {
           expect(
             ((await family(s.cookie)) as Family).versions.map((v) => [
               v.number,
-              v.variations.map((x) => x.fileId),
+              v.variants.map((x) => x.fileId),
             ]),
           ).toEqual([
             [1, [s.mix]],
@@ -20948,7 +21049,7 @@ describe.runIf(url)("api", () => {
         const trackId = ((await track.json()) as { track: { id: string } }).track.id;
         await app.request(
           `/api/tracks/${trackId}/versions`,
-          json({ variations: [{ fileId: s.mix, name: "Mix" }] }, s.owner),
+          json({ variants: [{ fileId: s.mix, name: "Mix" }] }, s.owner),
         );
         const inVersion = await remove(`/api/files/${s.mix}`, s.owner);
         expect(inVersion.status).toBe(409);
@@ -21048,7 +21149,7 @@ describe.runIf(url)("api", () => {
         const trackId = ((await track.json()) as { track: { id: string } }).track.id;
         await app.request(
           `/api/tracks/${trackId}/versions`,
-          json({ variations: [{ fileId: inTrack, name: "Mix" }] }, s.owner),
+          json({ variants: [{ fileId: inTrack, name: "Mix" }] }, s.owner),
         );
         expect((await next(s.stem, inTrack)).status).toBe(409);
         expect((await next(inTrack, third)).status).toBe(409);
@@ -21314,7 +21415,7 @@ describe.runIf(url)("api", () => {
         const organisationId = await organisationOf(owner);
         const fileId = await recording(organisationId);
         const projectId = await projectOfFile(fileId);
-        // The recording is a variation of the track's first version.
+        // The recording is a variant of the track's first version.
         const [track] = await db
           .insert(schema.tracks)
           .values({ organisationId, projectId, name: "Maple Leaf Rag" })
@@ -21324,7 +21425,7 @@ describe.runIf(url)("api", () => {
           .values({ organisationId, trackId: track?.id ?? "", number: 1 })
           .returning();
         await db
-          .insert(schema.variations)
+          .insert(schema.variants)
           .values({ organisationId, versionId: version?.id ?? "", fileId, name: "Dry" });
         const choose = (references: object | null, who = owner, id = track?.id) =>
           send("PUT", `/api/tracks/${id}/references`, { references }, who);
@@ -21522,14 +21623,14 @@ describe.runIf(url)("api", () => {
           (
             await app.request(
               `/api/tracks/${trackId}/versions`,
-              json({ variations: [{ fileId, name: "Mix" }] }, owner),
+              json({ variants: [{ fileId, name: "Mix" }] }, owner),
             )
           ).status,
         ).toBe(201);
         const heard = async (cookie: string, id = fileId) =>
           (
             (await (await app.request(`/api/files/${id}`, { headers: { cookie } })).json()) as {
-              file: { normalisation: { mode: string } | null; variation: Record<string, unknown> };
+              file: { normalisation: { mode: string } | null; variant: Record<string, unknown> };
             }
           ).file;
         const choose = (normalisation: string | null, who = owner) =>
@@ -21553,7 +21654,7 @@ describe.runIf(url)("api", () => {
         ).toBe(201);
         expect((await heard(viewer, takeId)).normalisation).toMatchObject({ mode: "forced" });
         // The track's setting stays on the server.
-        expect(file.variation).not.toHaveProperty("trackNormalisation");
+        expect(file.variant).not.toHaveProperty("trackNormalisation");
 
         // A track can also turn it off where the project has it always.
         await send("PATCH", `/api/projects/${projectId}`, { normalisation: "forced" }, owner);
@@ -21925,8 +22026,8 @@ describe.runIf(url)("api", () => {
             await app.request(`/api/projects/${projectId}/tracks`, json({ name: "Rag" }, owner))
           ).json()) as { track: { id: string } }
         ).track;
-        const version = (variations: { fileId: string; name: string }[]) =>
-          app.request(`/api/tracks/${track.id}/versions`, json({ variations }, owner));
+        const version = (variants: { fileId: string; name: string }[]) =>
+          app.request(`/api/tracks/${track.id}/versions`, json({ variants }, owner));
         type Listed = {
           id: string;
           fileId: string;
@@ -21994,7 +22095,7 @@ describe.runIf(url)("api", () => {
           history: { versionNumber: 1, hops: [{ fileId: dry2, versionNumber: 2, status: "open" }] },
         });
         expect((await listed(wet2)).map((c) => c.body)).toEqual(["Reverb tail cut short"]);
-        // Each earlier variation is queued for alignment with its counterpart.
+        // Each earlier variant is queued for alignment with its counterpart.
         const pairs = await db
           .select({
             id: schema.alignments.id,

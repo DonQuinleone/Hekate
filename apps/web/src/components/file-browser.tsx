@@ -54,7 +54,7 @@ import {
   rangeBetween,
   trackNext,
   unviewed,
-  variationNameFor,
+  variantNameFor,
   versionSummary,
   versionsOf,
 } from "~/lib/browser";
@@ -109,7 +109,7 @@ import { ActionMenu, ContextMenu, type MenuAction } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
 import { StatusDot } from "./ui/status";
 import { UploadRequestDialog } from "./upload-requests";
-import { VariationDialog } from "./variation-dialog";
+import { VariantDialog } from "./variant-dialog";
 
 type View = "list" | "columns" | "grid";
 const VIEW_KEY = "hekate.files.view";
@@ -680,13 +680,13 @@ export function FileBrowser({
     ]);
     if (work.length) void runAll(work);
   };
-  /** Loose files dropped on a track go in as its next version, one variation each. */
+  /** Loose files dropped on a track go in as its next version, one variant each. */
   const attachAll = (dropped: ProjectFile[], track: Track) =>
     trackMutations.createVersion.mutate({
       trackId: track.id,
-      variations: dropped.map((f, i) => ({
+      variants: dropped.map((f, i) => ({
         fileId: f.id,
-        name: variationNameFor(f.name, track.name),
+        name: variantNameFor(f.name, track.name),
         primary: i === 0,
       })),
     });
@@ -799,7 +799,7 @@ export function FileBrowser({
     return names.length ? `In ${names.join(" / ")}` : "At the top of the project";
   };
   const trackComments = (t: Track) =>
-    (t.versions.at(-1)?.variations ?? []).reduce(
+    (t.versions.at(-1)?.variants ?? []).reduce(
       (n, v) => n + (fileById.get(v.fileId)?.openComments ?? 0),
       0,
     );
@@ -817,7 +817,7 @@ export function FileBrowser({
     trackMutations.updateTrack.error ??
     trackMutations.chooseScore.error ??
     trackMutations.createVersion.error ??
-    trackMutations.addVariation.error;
+    trackMutations.addVariant.error;
 
   const create = (event: FormEvent) => {
     event.preventDefault();
@@ -1196,17 +1196,17 @@ export function FileBrowser({
         <AttachForm
           file={item.file}
           tracks={allTracks}
-          pending={trackMutations.createVersion.isPending || trackMutations.addVariation.isPending}
+          pending={trackMutations.createVersion.isPending || trackMutations.addVariant.isPending}
           onAttach={(track, as, name) => {
             const latest = track.versions.at(-1);
-            if (as === "variation" && latest)
-              trackMutations.addVariation.mutate(
+            if (as === "variant" && latest)
+              trackMutations.addVariant.mutate(
                 { versionId: latest.id, fileId: item.file.id, name },
                 done,
               );
             else
               trackMutations.createVersion.mutate(
-                { trackId: track.id, variations: [{ fileId: item.file.id, name }] },
+                { trackId: track.id, variants: [{ fileId: item.file.id, name }] },
                 done,
               );
           }}
@@ -1845,7 +1845,7 @@ export function FileBrowser({
         />
       )}
       {replacing && (
-        <VariationDialog
+        <VariantDialog
           track={replacing.track}
           version={replacing.version}
           mode="replace"
@@ -2399,7 +2399,7 @@ function ColumnBrowser({
                   key={item.id}
                   {...common}
                   name={versionLabel(item.version.number)}
-                  hint={`${item.version.variations.length} ${item.version.variations.length === 1 ? words.variation : words.variations} · ${ago(item.version.createdAt)}`}
+                  hint={`${item.version.variants.length} ${item.version.variants.length === 1 ? words.variant : words.variants} · ${ago(item.version.createdAt)}`}
                   container={false}
                 />
               );
@@ -2458,8 +2458,8 @@ function Preview({
       ? item.file
       : item.kind === "version"
         ? fileById.get(
-            item.version.variations.find((v) => v.isPrimary)?.fileId ??
-              item.version.variations[0]?.fileId ??
+            item.version.variants.find((v) => v.isPrimary)?.fileId ??
+              item.version.variants[0]?.fileId ??
               "",
           )
         : item.kind === "track"
@@ -2477,7 +2477,7 @@ function Preview({
   }
   if (item.kind === "version") {
     rows.push(["Added", ago(item.version.createdAt)]);
-    rows.push([capital(words.variations), item.version.variations.map((v) => v.name).join(", ")]);
+    rows.push([capital(words.variants), item.version.variants.map((v) => v.name).join(", ")]);
     if (item.version.notes) rows.push(["Notes", item.version.notes]);
   }
   if (file) {

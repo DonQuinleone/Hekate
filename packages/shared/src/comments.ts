@@ -233,7 +233,7 @@ export const updateCarryInput = z
 export type UpdateCarryInput = z.infer<typeof updateCarryInput>;
 
 /**
- * Which file of a new version a thread moves to: the variation with the same name as the
+ * Which file of a new version a thread moves to: the variant with the same name as the
  * one it was on (the wet mix to the wet mix), otherwise the new version's primary.
  */
 export function carryTarget<T extends { name: string; isPrimary: boolean }>(

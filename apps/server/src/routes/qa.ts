@@ -24,7 +24,7 @@ import { qaReport, qaReportFormats } from "../qa-report.ts";
 import { requesterOf } from "../requester.ts";
 import { attachment } from "./comments.ts";
 
-const { files, loudness, organisations, projects, qaFindings, variations, versions } = schema;
+const { files, loudness, organisations, projects, qaFindings, variants, versions } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -128,26 +128,26 @@ export const fileQaRoutes = (db: Database) =>
       if (!mayUseTool(access, "qa")) throw toolRefused(access);
       const none = { previous: null, measured: false, fixed: [], new: [] };
       const [mine] = await db
-        .select({ trackId: versions.trackId, number: versions.number, name: variations.name })
-        .from(variations)
+        .select({ trackId: versions.trackId, number: versions.number, name: variants.name })
+        .from(variants)
         .innerJoin(
           versions,
-          and(eq(versions.id, variations.versionId), eq(versions.organisationId, org)),
+          and(eq(versions.id, variants.versionId), eq(versions.organisationId, org)),
         )
-        .where(inOrg(variations, org, eq(variations.fileId, id)));
+        .where(inOrg(variants, org, eq(variants.fileId, id)));
       if (!mine) return c.json(none);
-      // The version just before, and in it the variation of the same name, else its primary.
+      // The version just before, and in it the variant of the same name, else its primary.
       const earlier = await db
         .select({
           number: versions.number,
-          fileId: variations.fileId,
-          name: variations.name,
-          isPrimary: variations.isPrimary,
+          fileId: variants.fileId,
+          name: variants.name,
+          isPrimary: variants.isPrimary,
         })
         .from(versions)
         .innerJoin(
-          variations,
-          and(eq(variations.versionId, versions.id), eq(variations.organisationId, org)),
+          variants,
+          and(eq(variants.versionId, versions.id), eq(variants.organisationId, org)),
         )
         .where(inOrg(versions, org, eq(versions.trackId, mine.trackId)));
       const previousNumber = Math.max(
@@ -209,14 +209,14 @@ export const fileQaRoutes = (db: Database) =>
           .innerJoin(organisations, eq(organisations.id, files.organisationId))
           .where(inOrg(files, org, eq(files.id, id)));
         if (!where) throw new NotFound("File");
-        const [variation] = await db
-          .select({ number: versions.number, name: variations.name })
-          .from(variations)
+        const [variant] = await db
+          .select({ number: versions.number, name: variants.name })
+          .from(variants)
           .innerJoin(
             versions,
-            and(eq(versions.id, variations.versionId), eq(versions.organisationId, org)),
+            and(eq(versions.id, variants.versionId), eq(versions.organisationId, org)),
           )
-          .where(inOrg(variations, org, eq(variations.fileId, id)));
+          .where(inOrg(variants, org, eq(variants.fileId, id)));
         const [measured] = await db
           .select({ summary: loudness.summary })
           .from(loudness)
@@ -225,7 +225,7 @@ export const fileQaRoutes = (db: Database) =>
           {
             file: {
               name: where.name,
-              version: variation ? `V${variation.number} · ${variation.name}` : null,
+              version: variant ? `V${variant.number} · ${variant.name}` : null,
             },
             workspace: where.workspace,
             project: where.project,

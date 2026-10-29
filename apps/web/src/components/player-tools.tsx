@@ -9,7 +9,7 @@ export const toolWords: Record<PlayerTool, { label: string; hint: string }> = {
   meters: { label: "Meters", hint: "Loudness and peaks beside the player" },
   spectrogram: { label: "Spectrogram", hint: "Below or instead of the waveform" },
   score: { label: "Score", hint: "The linked score beside the recording" },
-  compare: { label: "Compare", hint: "Versions and variations side by side" },
+  compare: { label: "Compare", hint: "Versions and variants side by side" },
   loops: { label: "Loops", hint: "A passage played round, from comments too" },
   normalise: {
     label: "Normalise",

@@ -449,7 +449,7 @@ function UsedIn({ details }: { details: FileDetails }) {
           className="truncate text-[13px] text-ink-2 hover:text-ink"
         >
           {v.track} · V{v.number}
-          {v.latest ? " (latest)" : ""} · {v.variation}
+          {v.latest ? " (latest)" : ""} · {v.variant}
           {v.primary ? ", primary" : ""}
         </Link>
       ))}
@@ -577,7 +577,7 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
     organise.updateFile.error ??
     organise.deleteFile.error ??
     trackMutations.createVersion.error ??
-    trackMutations.addVariation.error;
+    trackMutations.addVariant.error;
 
   return (
     <aside
@@ -709,19 +709,18 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
                     file={details.file}
                     tracks={tracks}
                     pending={
-                      trackMutations.createVersion.isPending ||
-                      trackMutations.addVariation.isPending
+                      trackMutations.createVersion.isPending || trackMutations.addVariant.isPending
                     }
                     onAttach={(track, as, name) => {
                       const latest = track.versions.at(-1);
-                      if (as === "variation" && latest)
-                        trackMutations.addVariation.mutate(
+                      if (as === "variant" && latest)
+                        trackMutations.addVariant.mutate(
                           { versionId: latest.id, fileId, name },
                           refresh,
                         );
                       else
                         trackMutations.createVersion.mutate(
-                          { trackId: track.id, variations: [{ fileId, name }] },
+                          { trackId: track.id, variants: [{ fileId, name }] },
                           refresh,
                         );
                     }}

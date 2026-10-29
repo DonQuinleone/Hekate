@@ -118,7 +118,7 @@ describe("sharing one item (#489)", () => {
         versions: Array.from({ length: versions }, (_, i) => ({
           id: `${id}-v${i + 1}`,
           number: i + 1,
-          variations: [],
+          variants: [],
         })),
       }) as unknown as Track;
     const file = (id: string, folderId: string): ProjectFile =>

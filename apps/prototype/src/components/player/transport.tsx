@@ -47,7 +47,7 @@ export const defaultView: View = {
 
 /**
  * A few choices of the same thing, one pressed at a time. An `action` adds one more to the
- * set (another variation beside the dry and the wet): a small button at its end, after a
+ * set (another variant beside the dry and the wet): a small button at its end, after a
  * hairline.
  */
 export function Seg<T extends string>({

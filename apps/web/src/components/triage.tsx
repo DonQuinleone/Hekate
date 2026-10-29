@@ -414,9 +414,9 @@ export function TriageView({
             </div>
           );
         })}
-        {file.variation && (
+        {file.variant && (
           <>
-            <span className="label mt-2">Goes on to V{file.variation.versionNumber + 1}</span>
+            <span className="label mt-2">Goes on to V{file.variant.versionNumber + 1}</span>
             <span className="text-[12px] text-ink-3">
               {threads.open.length + threads.deferred.length} open threads, offered for carrying
               when the next version is made.

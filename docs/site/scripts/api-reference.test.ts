@@ -27,7 +27,7 @@ describe("the API reference pages (#197)", () => {
         pages.filter((p) => p.body.includes(`${operation} ·`)),
         operation,
       ).toHaveLength(1);
-    expect(pages.find((p) => p.slug === "versions-and-variations")?.order).toBe(5);
+    expect(pages.find((p) => p.slug === "versions-and-variants")?.order).toBe(5);
   });
 
   it("shows each call with its scope, an example to copy, and its answer where there is one", () => {

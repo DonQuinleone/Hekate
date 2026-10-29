@@ -48,8 +48,8 @@
       "description": "Tracks, pieces of music, with their references and comparisons."
     },
     {
-      "name": "Versions and variations",
-      "description": "A track's successive versions, and each version's variations."
+      "name": "Versions and variants",
+      "description": "A track's successive versions, and each version's variants."
     },
     {
       "name": "Uploads",
@@ -7469,7 +7469,7 @@
           "Tracks"
         ],
         "summary": "Read a track",
-        "description": "The track with its versions, each version's variations, and where it stands.\n\nNeeds the `files:read` scope.",
+        "description": "The track with its versions, each version's variants, and where it stands.\n\nNeeds the `files:read` scope.",
         "security": [
           {
             "token": [
@@ -7990,10 +7990,10 @@
       "post": {
         "operationId": "postTracksIdVersions",
         "tags": [
-          "Versions and variations"
+          "Versions and variants"
         ],
         "summary": "Add a version to a track",
-        "description": "From one or more uploaded files, each a variation (dry and wet mixes, say); one is primary. Start each file with `POST /uploads` and finish it first, then name the files here.\n\nNeeds the `files:write` scope.",
+        "description": "From one or more uploaded files, each a variant (dry and wet mixes, say); one is primary. Start each file with `POST /uploads` and finish it first, then name the files here.\n\nNeeds the `files:write` scope.",
         "security": [
           {
             "token": [
@@ -8023,6 +8023,32 @@
                   "notes": {
                     "type": "string",
                     "maxLength": 2000
+                  },
+                  "variants": {
+                    "minItems": 1,
+                    "maxItems": 16,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "fileId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "primary": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "fileId",
+                        "name"
+                      ]
+                    }
                   },
                   "variations": {
                     "minItems": 1,
@@ -8106,14 +8132,11 @@
                       }
                     ]
                   }
-                },
-                "required": [
-                  "variations"
-                ]
+                }
               },
               "example": {
                 "notes": "Horns up at bar 12, as asked.",
-                "variations": [
+                "variants": [
                   {
                     "fileId": "01929b8f-2f34-7067-88d9-3e1a5b7f4ca6",
                     "name": "Wet mix",
@@ -13724,7 +13747,7 @@
       "put": {
         "operationId": "putVersionsIdEdl",
         "tags": [
-          "Versions and variations"
+          "Versions and variants"
         ],
         "summary": "Set a version's edit decision list",
         "description": "Given or changed after the version was made, or taken off.\n\nNeeds the `files:write` scope.",
@@ -13806,13 +13829,13 @@
         }
       }
     },
-    "/versions/{id}/variations": {
+    "/versions/{id}/variants": {
       "post": {
-        "operationId": "postVersionsIdVariations",
+        "operationId": "postVersionsIdVariants",
         "tags": [
-          "Versions and variations"
+          "Versions and variants"
         ],
-        "summary": "Add a variation to a version",
+        "summary": "Add a variant to a version",
         "description": "Another treatment of the same edit, from an uploaded file.\n\nNeeds the `files:write` scope.",
         "security": [
           {
@@ -13895,14 +13918,330 @@
         }
       }
     },
+    "/versions/{id}/variations": {
+      "post": {
+        "operationId": "postVersionsIdVariations",
+        "tags": [
+          "Versions and variants"
+        ],
+        "summary": "Add a variant to a version (deprecated name)",
+        "description": "Call `POST /versions/{id}/variants`, which answers the same; this name goes in the next release.\n\nNeeds the `files:write` scope.",
+        "deprecated": true,
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "primary": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "fileId",
+                  "name"
+                ]
+              },
+              "example": {
+                "fileId": "01929b8e-5c1a-7d3e-9f40-2b6c8d1e4a57",
+                "name": "Final mixes"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Made.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/variants/{id}": {
+      "patch": {
+        "operationId": "patchVariantsId",
+        "tags": [
+          "Versions and variants"
+        ],
+        "summary": "Rename a variant, or change its treatment",
+        "description": "Needs the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "subtitled": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "graded": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  }
+                }
+              },
+              "example": {
+                "subtitled": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/variants/{id}/primary": {
+      "post": {
+        "operationId": "postVariantsIdPrimary",
+        "tags": [
+          "Versions and variants"
+        ],
+        "summary": "Make a variant its version's primary",
+        "description": "Needs the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/variants/{id}/replace": {
+      "post": {
+        "operationId": "postVariantsIdReplace",
+        "tags": [
+          "Versions and variants"
+        ],
+        "summary": "Replace a variant's file",
+        "description": "With another uploaded file, before anyone has commented on or reviewed it.\n\nNeeds the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "fileId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "fileId"
+                ]
+              },
+              "example": {
+                "fileId": "01929b8e-5c1a-7d3e-9f40-2b6c8d1e4a57"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
     "/variations/{id}": {
       "patch": {
         "operationId": "patchVariationsId",
         "tags": [
-          "Versions and variations"
+          "Versions and variants"
         ],
-        "summary": "Rename a variation, or change its treatment",
-        "description": "Needs the `files:write` scope.",
+        "summary": "Rename a variant, or change its treatment (deprecated name)",
+        "description": "Call `PATCH /variants/{id}`, which answers the same; this name goes in the next release.\n\nNeeds the `files:write` scope.",
+        "deprecated": true,
         "security": [
           {
             "token": [
@@ -13988,10 +14327,11 @@
       "post": {
         "operationId": "postVariationsIdPrimary",
         "tags": [
-          "Versions and variations"
+          "Versions and variants"
         ],
-        "summary": "Make a variation its version's primary",
-        "description": "Needs the `files:write` scope.",
+        "summary": "Make a variant its version's primary (deprecated name)",
+        "description": "Call `POST /variants/{id}/primary`, which answers the same; this name goes in the next release.\n\nNeeds the `files:write` scope.",
+        "deprecated": true,
         "security": [
           {
             "token": [
@@ -14045,10 +14385,11 @@
       "post": {
         "operationId": "postVariationsIdReplace",
         "tags": [
-          "Versions and variations"
+          "Versions and variants"
         ],
-        "summary": "Replace a variation's file",
-        "description": "With another uploaded file, before anyone has commented on or reviewed it.\n\nNeeds the `files:write` scope.",
+        "summary": "Replace a variant's file (deprecated name)",
+        "description": "Call `POST /variants/{id}/replace`, which answers the same; this name goes in the next release.\n\nNeeds the `files:write` scope.",
+        "deprecated": true,
         "security": [
           {
             "token": [
@@ -14910,6 +15251,7 @@
                     "analysisStatus": "pending",
                     "createdAt": "2026-10-23T09:30:00.000Z",
                     "uploadedBy": "Tomas Varga",
+                    "variant": null,
                     "variation": null,
                     "chain": [],
                     "tools": [
@@ -15143,7 +15485,7 @@
           "Files"
         ],
         "summary": "List what a file can be compared with",
-        "description": "Its track's versions and their variations, as far as the token's member may open them.\n\nNeeds the `files:read` scope.",
+        "description": "Its track's versions and their variants, as far as the token's member may open them.\n\nNeeds the `files:read` scope.",
         "security": [
           {
             "token": [
@@ -20038,7 +20380,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "hk_pat_… (a member's) or hk_svc_… (a service token)",
-        "description": "An API token, sent in each call's `Authorization` header. Each operation names the scope it needs:\n\n- `files:read`: List and read projects, folders, files, tracks, versions and variations\n- `files:write`: Upload versions and variations, make folders, change files\n- `reviews:read`: Read reviews, reviewers and decisions\n- `reviews:write`: Request reviews and record decisions as the token's member\n- `comments`: Read and write comments and their anchors\n- `downloads`: Download originals and proxies, watermarked and logged\n- `workflows`: Read and change workflows and their runs\n- `org:read`: Members, roles and settings, read-only"
+        "description": "An API token, sent in each call's `Authorization` header. Each operation names the scope it needs:\n\n- `files:read`: List and read projects, folders, files, tracks, versions and variants\n- `files:write`: Upload versions and variants, make folders, change files\n- `reviews:read`: Read reviews, reviewers and decisions\n- `reviews:write`: Request reviews and record decisions as the token's member\n- `comments`: Read and write comments and their anchors\n- `downloads`: Download originals and proxies, watermarked and logged\n- `workflows`: Read and change workflows and their runs\n- `org:read`: Members, roles and settings, read-only"
       }
     },
     "schemas": {
@@ -20145,7 +20487,7 @@
             "example": {
               "error": {
                 "code": "insufficient_scope",
-                "message": "That needs the files:write scope (upload versions and variations, make folders, change files), which this token does not have."
+                "message": "That needs the files:write scope (upload versions and variants, make folders, change files), which this token does not have."
               }
             }
           }

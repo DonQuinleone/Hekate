@@ -1,4 +1,4 @@
-import { variationNameFrom } from "@hekate/shared";
+import { variantNameFrom } from "@hekate/shared";
 
 /**
  * What audio uploaded into a music project becomes (#485): a new track (version 1 of a track
@@ -30,12 +30,12 @@ export type UploadPlan =
   | { kind: "tracks"; tracks: { key: string; name: string }[] }
   /** One track, the files its versions 1 to n in name order. */
   | { kind: "one-track"; name: string; versions: { key: string; number: number }[] }
-  /** The files as the variations of the track's next version. */
+  /** The files as the variants of the track's next version. */
   | {
       kind: "version";
       track: TargetTrack;
       number: number;
-      variations: { key: string; name: string; primary: boolean }[];
+      variants: { key: string; name: string; primary: boolean }[];
     }
   /** Uploaded as they are. */
   | { kind: "files"; count: number };
@@ -97,7 +97,7 @@ export interface PlanOptions {
   names?: Record<string, string>;
   /** The track a new version goes to; without one, the version choice falls back to files. */
   track?: TargetTrack | null;
-  /** The key of the variation that is primary; the first otherwise. */
+  /** The key of the variant that is primary; the first otherwise. */
   primary?: string | null;
 }
 
@@ -121,9 +121,9 @@ export function planUpload(
       kind: "version",
       track,
       number: track.versions + 1,
-      variations: files.map((f) => ({
+      variants: files.map((f) => ({
         key: f.key,
-        name: named(options.names, f.key, variationNameFrom(f.name, track.name)),
+        name: named(options.names, f.key, variantNameFrom(f.name, track.name)),
         primary: f.key === primary,
       })),
     };
@@ -172,10 +172,10 @@ export function describePlan(plan: UploadPlan, folder: string | null, others = 0
       return `${n} files become versions 1 to ${n} of one track ${into}, in name order${rest}.`;
     }
     case "version": {
-      const n = plan.variations.length;
+      const n = plan.variants.length;
       return n === 1
         ? `The file becomes version ${plan.number} of ${plan.track.name}${rest}.`
-        : `${n} files become the variations of version ${plan.number} of ${plan.track.name}${rest}.`;
+        : `${n} files become the variants of version ${plan.number} of ${plan.track.name}${rest}.`;
     }
     default:
       return plan.count === 0

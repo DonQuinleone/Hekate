@@ -159,7 +159,7 @@ describe("the public API's OpenAPI document (#197)", () => {
     expect(tagOf("/files/{id}/comments/export")).toBe("Comments");
     expect(tagOf("/files/{id}/downloads")).toBe("Downloads");
     expect(tagOf("/reviews/{id}/decisions")).toBe("Reviews");
-    expect(tagOf("/tracks/{id}/versions")).toBe("Versions and variations");
+    expect(tagOf("/tracks/{id}/versions")).toBe("Versions and variants");
     expect(tagOf("/tracks/{id}")).toBe("Tracks");
     expect(tagOf("/files/{id}/tags")).toBe("Files");
     expect(tagOf("/projects/{id}")).toBe("Projects");

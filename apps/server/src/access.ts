@@ -37,7 +37,7 @@ const {
   reviewReviewers,
   tracks,
   versions,
-  variations,
+  variants,
 } = schema;
 
 /** A signed-in member, in the organisation the request is scoped to. */
@@ -95,7 +95,7 @@ export type GuestGrant = NonNullable<ReturnType<typeof mergeGrants>>;
 
 /**
  * The files a guest may open: everything the open reviews they are asked to contain. A
- * track item gives the variations of its version (a given one, or the latest).
+ * track item gives the variants of its version (a given one, or the latest).
  */
 export async function guestFileIds(
   db: Pick<Database, "select">,
@@ -197,20 +197,20 @@ export async function guestReach(
       .orderBy(desc(versions.number))
       .limit(item.permissions.history ? 1000 : 1);
     if (found.length === 0) continue;
-    const variants = await db
-      .select({ fileId: variations.fileId })
-      .from(variations)
+    const ofVersions = await db
+      .select({ fileId: variants.fileId })
+      .from(variants)
       .where(
         inOrg(
-          variations,
+          variants,
           guest.organisationId,
           inArray(
-            variations.versionId,
+            variants.versionId,
             found.map((v) => v.id),
           ),
         ),
       );
-    for (const v of variants) add(v.fileId, item);
+    for (const v of ofVersions) add(v.fileId, item);
     // The track's score, as a page beside the recording, for those given it.
     if (item.permissions.tools.includes("score")) {
       const [track] = await db

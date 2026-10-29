@@ -38,7 +38,7 @@ export { profileIcon };
 
 const profileHint: Record<ProjectProfile, string> = {
   music:
-    "Tracks with versions and variations, takes, scores, bars in comments, QA against a delivery profile.",
+    "Tracks with versions and variants, takes, scores, bars in comments, QA against a delivery profile.",
   video:
     "Deliverables with cuts and renditions, frame-accurate comments, timecode, regions on the picture, broadcast checks.",
   general:

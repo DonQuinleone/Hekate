@@ -47,7 +47,7 @@ export function FileChain({ file }: { file: FileDetail }) {
 
 /** Whether a new version can follow this file: a loose file, the latest of its chain. */
 export const takesVersions = (file: FileDetail) =>
-  !file.variation && !file.takeId && (file.chain.at(-1)?.id ?? file.id) === file.id;
+  !file.variant && !file.takeId && (file.chain.at(-1)?.id ?? file.id) === file.id;
 
 /**
  * A file's next version (#149): dropped or chosen from this computer, uploaded into the

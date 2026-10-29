@@ -5,7 +5,7 @@ import {
   codecName,
   itemWords,
   renditionTraits,
-  updateVariationInput,
+  updateVariantInput,
   versionLabel,
 } from "./item-words.ts";
 
@@ -14,12 +14,12 @@ describe("a project's words for its items (#16)", () => {
     expect(itemWords("video")).toMatchObject({
       track: "deliverable",
       versions: "cuts",
-      variation: "rendition",
+      variant: "rendition",
     });
     expect(itemWords("music")).toMatchObject({ tracks: "tracks", version: "version" });
-    expect(itemWords("general").variation).toBe("variation");
+    expect(itemWords("general").variant).toBe("variant");
     expect(itemWords(undefined).track).toBe("track");
-    expect(capital(itemWords("video").variations)).toBe("Renditions");
+    expect(capital(itemWords("video").variants)).toBe("Renditions");
   });
 
   it("names a version as its project does", () => {
@@ -68,10 +68,10 @@ describe("a rendition's traits (#16)", () => {
   });
 
   it("changes a name or a treatment, and refuses an empty change", () => {
-    expect(updateVariationInput.safeParse({ subtitled: true }).success).toBe(true);
-    expect(updateVariationInput.safeParse({ graded: null }).success).toBe(true);
-    expect(updateVariationInput.safeParse({ name: "9:16 clean" }).success).toBe(true);
-    expect(updateVariationInput.safeParse({}).success).toBe(false);
-    expect(updateVariationInput.safeParse({ name: "" }).success).toBe(false);
+    expect(updateVariantInput.safeParse({ subtitled: true }).success).toBe(true);
+    expect(updateVariantInput.safeParse({ graded: null }).success).toBe(true);
+    expect(updateVariantInput.safeParse({ name: "9:16 clean" }).success).toBe(true);
+    expect(updateVariantInput.safeParse({}).success).toBe(false);
+    expect(updateVariantInput.safeParse({ name: "" }).success).toBe(false);
   });
 });

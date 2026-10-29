@@ -194,13 +194,13 @@ function Playback({
   const drawings = useFrameDrawings(file.id, file.kind === "video" && !file.grant?.listenOnly);
   const { data: qa } = useQuery({ ...qaQuery(file.id), enabled: showFindings });
   const findings = showFindings ? findingMarks(qa?.findings ?? []) : [];
-  const variation = showEdits ? file.variation : null;
+  const variant = showEdits ? file.variant : null;
   const { data: decisions } = useQuery({
-    ...editDecisionsQuery(variation?.trackId ?? "", undefined, variation?.versionId),
-    enabled: Boolean(variation),
+    ...editDecisionsQuery(variant?.trackId ?? "", undefined, variant?.versionId),
+    enabled: Boolean(variant),
   });
   const { data: takes } = useQuery({
-    ...trackTakesQuery(variation?.trackId ?? ""),
+    ...trackTakesQuery(variant?.trackId ?? ""),
     enabled: Boolean(decisions),
   });
   const edits = useMemo(
@@ -210,7 +210,7 @@ function Playback({
   // A deliverable's cut is compared frame by frame with the one before it (#147).
   const { data: family } = useQuery({
     ...compareFamilyQuery(file.id),
-    enabled: file.kind === "video" && Boolean(file.variation),
+    enabled: file.kind === "video" && Boolean(file.variant),
   });
   const before = family ? previousCut(family, file.id, file.profile) : undefined;
   const cuts = before
@@ -218,11 +218,11 @@ function Playback({
         ...before,
         // Where the two cuts' comments and findings are set side by side (#137).
         compare:
-          comparePage && file.variation
+          comparePage && file.variant
             ? {
-                trackId: file.variation.trackId,
+                trackId: file.variant.trackId,
                 a: before.previous.versionNumber,
-                b: file.variation.versionNumber,
+                b: file.variant.versionNumber,
               }
             : null,
       }
@@ -252,7 +252,7 @@ function Playback({
   }
   if (file.kind !== "audio" && file.kind !== "video")
     return <NothingToShow fileId={file.id} name={file.name} />;
-  // Waiting, the strip above stays: the version and variation can still be changed.
+  // Waiting, the strip above stays: the version and variant can still be changed.
   const waiting = (message: ReactNode) => (
     <div className="flex flex-[1_0_auto] flex-col">
       {(strip?.lead || strip?.end) && <PlayerStrip lead={strip.lead}>{strip.end}</PlayerStrip>}
@@ -280,7 +280,7 @@ function Playback({
       onMedia={onMedia}
       markers={markers}
       findings={findings}
-      edits={variation ? edits : []}
+      edits={variant ? edits : []}
       loop={loop}
       onLoop={onLoop}
       cue={cue}
@@ -397,7 +397,7 @@ export function FilePage({
    */
   view?: FileView;
   onView?: (view: FileView) => void;
-  /** The passage being looped, kept in the address so it holds across versions and variations. */
+  /** The passage being looped, kept in the address so it holds across versions and variants. */
   loop?: Loop | null;
   onLoop?: (loop: Loop | null) => void;
 }) {
@@ -427,7 +427,7 @@ export function FilePage({
   const [versioning, setVersioning] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [chosenNormal, setChosenNormal] = useNormalisedChoice();
-  // Arriving from another version or variation: start where that one was (#15).
+  // Arriving from another version or variant: start where that one was (#15).
   const { media, onMedia } = useFileMedia(fileId, startAt, onStarted);
   // Leading or following a listening room (#200) with this page's player; members only.
   const listening = useListeningSync(fileId, file?.projectId ?? "", guest ? null : media);
@@ -464,12 +464,12 @@ export function FilePage({
   const [captionId, setCaptionId] = useState<string | null>(null);
   const [transcriptId, setTranscriptId] = useState<string | null>(null);
   const [panel, setPanel] = useState<SidePanel>("comments");
-  // The comparison of versions and variations (#44), opened from the transport as the
+  // The comparison of versions and variants (#44), opened from the transport as the
   // prototype's; asking to hear a passage before and after opens it too.
   const [compareOpen, setCompareOpen] = useState(false);
   const { data: compareFamily } = useQuery({
     ...compareFamilyQuery(fileId),
-    enabled: file?.kind === "audio" && Boolean(file?.variation),
+    enabled: file?.kind === "audio" && Boolean(file?.variant),
   });
   // A track belongs to its file; the panel stays as it was where the next file has tracks too.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset whenever the file changes.
@@ -511,8 +511,8 @@ export function FilePage({
       fileId: target.fileId,
       shift: target.shift,
       nonce: Date.now(),
-      ...(target.label && file.variation
-        ? { outside: { label: target.label, trackId: file.variation.trackId } }
+      ...(target.label && file.variant
+        ? { outside: { label: target.label, trackId: file.variant.trackId } }
         : {}),
     });
     onLoop(target.loop);
@@ -601,17 +601,17 @@ export function FilePage({
             </Link>
           ),
         },
-        ...(file.variation
+        ...(file.variant
           ? [
               {
                 key: "track",
                 link: (
                   <Link
                     to="/tracks/$trackId"
-                    params={{ trackId: file.variation.trackId }}
+                    params={{ trackId: file.variant.trackId }}
                     search={{ view: "versions" }}
                   >
-                    {file.variation.trackName}
+                    {file.variant.trackName}
                   </Link>
                 ),
               },
@@ -640,19 +640,19 @@ export function FilePage({
   );
   /** The track's score, where it is linked and this viewer has it: shown from the strip. */
   const hasScore = Boolean(
-    file.variation?.scoreFileId &&
+    file.variant?.scoreFileId &&
       allows("score") &&
       (file.kind === "audio" || file.kind === "video"),
   );
-  /** Something to compare with: another version, variation or take this viewer may hear. */
+  /** Something to compare with: another version, variant or take this viewer may hear. */
   const compareOffered =
     comparing &&
     Boolean(compareFamily && compareSources(compareFamily, file.id, file.profile).length > 0);
-  // The strip above the player (#15): the version and variation, or a loose file's versions
+  // The strip above the player (#15): the version and variant, or a loose file's versions
   // (#149), leading; the score's switch at its end, before the player's own menus.
   const strip = {
     lead:
-      shown !== "triage" && (file.variation || file.chain.some((v) => v.id === file.id)) ? (
+      shown !== "triage" && (file.variant || file.chain.some((v) => v.id === file.id)) ? (
         <>
           <FileContext
             file={file}
@@ -854,9 +854,9 @@ export function FilePage({
               </div>
             )}
             {!guest && <VersionNote file={file} />}
-            {hasScore && layout.score && file.variation?.scoreFileId && (
+            {hasScore && layout.score && file.variant?.scoreFileId && (
               <ScorePane
-                scoreFileId={file.variation.scoreFileId}
+                scoreFileId={file.variant.scoreFileId}
                 guest={guest}
                 onHide={() => setLayout({ score: false })}
               />
