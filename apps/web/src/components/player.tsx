@@ -1808,12 +1808,13 @@ export function Player({
   const formatLine = !failure && (choices.length > 0 || (normalised && normalisation)) && (
     // On a wide screen it gives way (truncates) before the strip's menus wrap under the version
     // and variant: a box of no width of its own that grows into what the lead leaves, so it asks
-    // the strip for nothing. On a phone the words are hidden, as the details sheet says the
-    // same, but the Quality menu stays: it is the only way to choose what is heard.
+    // the strip for nothing. On a phone the rendition's name is hidden, as the details sheet
+    // says the same, but the Quality menu stays (it is the only way to choose what is heard) and
+    // so does the normalisation note (it says the level heard is not the file's).
     <span
       className={cn(
         "w-0 min-w-0 flex-1 items-center gap-1 overflow-hidden text-[12px] text-ink-3 sm:flex",
-        choices.length > 1 ? "flex" : "hidden",
+        choices.length > 1 || (normalised && normalisation) ? "flex" : "hidden",
       )}
       title={[
         heardChoice ? renditionLabel(heardChoice, info) : null,
@@ -1847,14 +1848,14 @@ export function Player({
         choices[0] && (
           // A flex item shrinks below its words only with min-w-0; without it the line ran
           // into the menus where the font is wider.
-          <span className="tabular min-w-0 truncate px-1">
+          <span className="tabular hidden min-w-0 truncate px-1 sm:inline">
             {renditionLabel(choices[0].rendition, info)}
           </span>
         )
       )}
       {normalised && normalisation && (
-        <span className="tabular hidden min-w-0 truncate sm:inline">
-          {choices.length > 0 ? "· " : ""}
+        <span className="tabular min-w-0 truncate">
+          {choices.length > 0 && <span className="hidden sm:inline">· </span>}
           {normalisationLabel(normalisation)}
         </span>
       )}
