@@ -25,6 +25,7 @@ import { revokeMemberTokens } from "../api-tokens.ts";
 import { type Audit, csvHeader, csvRow, requestInfo } from "../audit.ts";
 import { SESSION_DAYS } from "../auth.ts";
 import { brandingOf, emailBrandOf } from "../branding.ts";
+import { instanceDateFormats, workspaceDateFormats } from "../dates.ts";
 import { assertProfileRef, customProfilesOf, deleteCustomProfile } from "../delivery-profiles.ts";
 import { render } from "../email/render.ts";
 import { sampleData, workspaceEmail } from "../email/templates.ts";
@@ -116,10 +117,11 @@ export const organisationRoutes = (
         .from(organisations)
         .where(eq(organisations.id, c.var.organisationId));
       if (!row) throw new NotFound("Workspace");
-      // With the instance's session length, which the workspace's own may only shorten.
+      // With the instance's session length, which the workspace's own may only shorten, and
+      // its date and time formats (#481), which the workspace's own stand in for.
       return c.json({
         settings: workspaceSettingsOf(row.settings),
-        instance: { sessionDays: SESSION_DAYS },
+        instance: { sessionDays: SESSION_DAYS, ...(await instanceDateFormats(db)) },
       });
     })
     .patch(
@@ -286,6 +288,7 @@ export const organisationRoutes = (
           template,
           sample,
           workspaceSettingsOf(workspace.settings).emailSubjects,
+          (await workspaceDateFormats(db, c.var.organisationId, workspace.settings)).dateFormat,
         );
         // With the workspace's logo and accent (#185): the logo at this origin, as the preview
         // is shown in this app.
@@ -316,6 +319,7 @@ export const organisationRoutes = (
         template,
         sample,
         workspaceSettingsOf(workspace.settings).emailSubjects,
+        (await workspaceDateFormats(db, c.var.organisationId, workspace.settings)).dateFormat,
       );
       try {
         await sendEmail(

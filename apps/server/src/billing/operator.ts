@@ -1,7 +1,8 @@
 import { inOrg, schema, uuidv7 } from "@hekate/db";
 import { type BillingCredit, formatMoney } from "@hekate/shared";
 import { desc, eq, inArray, isNotNull } from "drizzle-orm";
-import { longDate } from "../email/templates.ts";
+import { workspaceDateFormats } from "../dates.ts";
+import { mailDate } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { sendEmail } from "../mail.ts";
 import { type BillingDeps, priceOf } from "./billing.ts";
@@ -190,11 +191,12 @@ export async function sendLatestInvoice(
   if (owners.length === 0) throw new NotFound("Owner");
   const number = invoice.number ?? latest.number;
   const amount = formatMoney(invoice.amountDue, invoice.currency);
+  const { dateFormat } = await workspaceDateFormats(db, organisationId);
   const standing =
     invoice.status === "paid"
       ? "It is paid: this copy is for your records."
       : invoice.dueAt
-        ? `It is due on ${longDate(invoice.dueAt)}.`
+        ? `It is due on ${mailDate(invoice.dueAt, dateFormat)}.`
         : "It is still to be paid.";
   for (const owner of owners)
     await sendEmail(

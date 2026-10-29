@@ -1,5 +1,7 @@
 import {
   coverage,
+  type DateFormat,
+  formatDate,
   headCount,
   type Personnel,
   rowWords,
@@ -31,6 +33,8 @@ export interface ScheduleExport {
   tracks: { id: string; name: string }[];
   venues: { id: string; name: string; address: string }[];
   personnel: Personnel[];
+  /** How its dates read (#481); ISO 8601 unless the workspace chose otherwise. */
+  dateFormat?: DateFormat;
 }
 
 const A4 = { width: 595.28, height: 841.89 };
@@ -46,34 +50,27 @@ const COLUMNS = [
   { title: "Notes", width: WIDE - 398 },
 ];
 
-const dayFormat = new Intl.DateTimeFormat("en-GB", {
-  weekday: "long",
-  day: "numeric",
-  month: "long",
-  year: "numeric",
-  timeZone: "UTC",
-});
-
-/** "Saturday 12 September 2026" of "2026-09-12". */
-export const longDate = (date: string) => {
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    dayFormat.formatToParts(new Date(date)).find((p) => p.type === type)?.value ?? "";
-  return `${part("weekday")} ${part("day")} ${part("month")} ${part("year")}`;
-};
+/** "Saturday, 2026-09-12" of "2026-09-12", with its day named, in the workspace's format (#481). */
+export const longDate = (date: string, format: DateFormat = "iso") =>
+  formatDate(format, `${date}T12:00:00Z`, { timeZone: "UTC", weekday: "long" });
 
 /** A day's heading words: its label, date and venue. */
-function dayLine(day: ScheduleDay, venues: ScheduleExport["venues"]): string {
-  const venue = venues.find((v) => v.id === day.venueId);
-  return [day.label, day.date ? longDate(day.date) : null, venue?.name].filter(Boolean).join(" · ");
+function dayLine(day: ScheduleDay, s: ScheduleExport): string {
+  const venue = s.venues.find((v) => v.id === day.venueId);
+  return [day.label, day.date ? longDate(day.date, s.dateFormat) : null, venue?.name]
+    .filter(Boolean)
+    .join(" · ");
 }
 
-/** The dates the schedule spans: "12 to 13 September 2026", or none. */
-function span(days: ScheduleDay[]): string {
-  const dates = days.flatMap((d) => (d.date ? [d.date] : [])).sort();
+/** The dates the schedule spans: "Saturday, 2026-09-12 to Sunday, 2026-09-13", or none. */
+function span(s: ScheduleExport): string {
+  const dates = s.days.flatMap((d) => (d.date ? [d.date] : [])).sort();
   const first = dates[0];
   const last = dates[dates.length - 1];
   if (!first || !last) return "";
-  return first === last ? longDate(first) : `${longDate(first)} to ${longDate(last)}`;
+  return first === last
+    ? longDate(first, s.dateFormat)
+    : `${longDate(first, s.dateFormat)} to ${longDate(last, s.dateFormat)}`;
 }
 
 const num = (n: number) => String(Math.round(n * 100) / 100);
@@ -124,7 +121,7 @@ export function schedulePages(s: ScheduleExport): string[] {
   newPage(front);
   ops.push(text("HB", 22, MARGIN, y - 24, fitted(s.project, WIDE, 22, true)));
   y -= 36;
-  const when = span(s.days);
+  const when = span(s);
   if (when) line(when, front, 0.35);
   y -= 14;
   const used = s.venues.filter((v) => s.days.some((d) => d.venueId === v.id));
@@ -157,7 +154,7 @@ export function schedulePages(s: ScheduleExport): string[] {
   for (const d of s.days) {
     const times = timesOf(d);
     const hours = times.length > 0 ? `${times[0]?.start}–${times[times.length - 1]?.end}` : d.start;
-    line(`${dayLine(d, s.venues)} · ${hours}`, front);
+    line(`${dayLine(d, s)} · ${hours}`, front);
   }
 
   // Each day: a table of its rows.
@@ -170,7 +167,7 @@ export function schedulePages(s: ScheduleExport): string[] {
           13,
           MARGIN,
           y - 14,
-          fitted(`${dayLine(d, s.venues)}${cont ? " (cont.)" : ""}`, WIDE, 13, true),
+          fitted(`${dayLine(d, s)}${cont ? " (cont.)" : ""}`, WIDE, 13, true),
         ),
       );
       y -= 26;

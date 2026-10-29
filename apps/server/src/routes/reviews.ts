@@ -45,7 +45,8 @@ import {
   reviewAccess,
 } from "../access.ts";
 import { type Audit, type RequestInfo, requestInfo } from "../audit.ts";
-import { decisionWords, longDate, subjectValues, workspaceEmail } from "../email/templates.ts";
+import { workspaceDateFormats } from "../dates.ts";
+import { decisionWords, mailDate, subjectValues, workspaceEmail } from "../email/templates.ts";
 import { NotFound } from "../errors.ts";
 import { emitEvent } from "../events.ts";
 import { issueGuestLink, revokeGuest, type ViewerVariables } from "../guests.ts";
@@ -776,6 +777,12 @@ async function notify(
 ) {
   if (review.kind === "share") return notifyShare(deps, people, review, asking);
   const context = await mailContext(deps.db, review);
+  // Its dates as the workspace reads them (#481).
+  const { dateFormat } = await workspaceDateFormats(
+    deps.db,
+    review.organisationId,
+    context?.settings,
+  );
   // A guest's link opens at the workspace's own address with subdomains on (#437).
   const base = linkBase(deps, context?.slug);
   const requester =
@@ -814,7 +821,7 @@ async function notify(
         ? `reminds you to ${ask(review, follow)}`
         : `asks you to ${ask(review, follow)}`,
       detail:
-        [review.message, review.dueAt ? `Due ${longDate(review.dueAt)}.` : null]
+        [review.message, review.dueAt ? `Due ${mailDate(review.dueAt, dateFormat)}.` : null]
           .filter(Boolean)
           .join("\n\n") || null,
       link: `/reviews/${review.id}`,
@@ -851,6 +858,7 @@ async function notify(
           : {}),
       },
       workspaceSettingsOf(context?.settings).emailSubjects,
+      dateFormat,
     );
     await sendEmail(deps.mailer, person.email, email, review.organisationId).catch(
       (error: unknown) =>
@@ -899,6 +907,11 @@ async function notifyShare(
     asking?.name ?? (review.createdBy ? await nameOf(deps.db, review.createdBy) : "A colleague");
   const from = asking ? asking.userId : review.createdBy;
   const subjects = workspaceSettingsOf(context?.settings).emailSubjects;
+  const { dateFormat } = await workspaceDateFormats(
+    deps.db,
+    review.organisationId,
+    context?.settings,
+  );
   const dataFor = (person: SharePerson) => ({
     workspace: context?.workspace ?? "Hekate",
     requester,
@@ -921,7 +934,9 @@ async function notifyShare(
       reviewId: review.id,
       text: `shared "${review.title}" with you`,
       // The share's own words, as a guest's mail has them: until when, how often, what to keep.
-      detail: workspaceEmail("shared", { ...data, url: "" }, subjects).body.join("\n\n"),
+      detail: workspaceEmail("shared", { ...data, url: "" }, subjects, dateFormat).body.join(
+        "\n\n",
+      ),
       link: `/reviews/${review.id}`,
       mail: { template: "shared", values: subjectValues("shared", { ...data, url: "" }) },
     }).catch((error: unknown) =>
@@ -940,6 +955,7 @@ async function notifyShare(
       "shared",
       { ...dataFor(person), url: `${base}/guest/${issued.token}`, guestLinkDays: issued.days },
       subjects,
+      dateFormat,
     );
     await sendEmail(deps.mailer, person.email, email, review.organisationId).catch(
       (error: unknown) => console.warn(`Could not send a share to someone: ${String(error)}`),

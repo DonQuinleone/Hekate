@@ -17,7 +17,8 @@ import {
   type WorkspaceBilling,
 } from "@hekate/shared";
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
-import { longDate } from "../email/templates.ts";
+import { workspaceDateFormats } from "../dates.ts";
+import { mailDate } from "../email/templates.ts";
 import { CodedException, NotFound } from "../errors.ts";
 import { type LinkRoots, workspaceLinkBase } from "../hosts.ts";
 import { recordInstanceEvent } from "../instance-events.ts";
@@ -799,6 +800,8 @@ async function tellOwners(
   const owed = open ? ` of ${formatMoney(open.amountDue - open.amountPaid, open.currency)}` : "";
   const suspended = dunningStepsOf(rule)[step - 1]?.action === "suspend";
   const pay = open?.url ?? (await billingUrl(db, deps, organisationId));
+  // Its dates as the workspace reads them (#481).
+  const { dateFormat } = await workspaceDateFormats(db, organisationId);
   for (const owner of owners) {
     const subject = suspended
       ? `${owner.workspace} is suspended until its payment is made`
@@ -811,14 +814,14 @@ async function tellOwners(
         subject,
         heading: suspended
           ? `${owner.workspace} is suspended: a payment${owed} is ${rule.suspend} days overdue`
-          : `A payment${owed} for ${owner.workspace} failed on ${longDate(since)}`,
+          : `A payment${owed} for ${owner.workspace} failed on ${mailDate(since, dateFormat)}`,
         body: suspended
           ? [
               "Its members cannot open it until the payment is made. It opens again as soon as it is.",
               "Nothing in it has been deleted.",
             ]
           : [
-              `Pay it, or change the card it is taken from, before ${longDate(suspendAt)}. If it is still owed then, the workspace is suspended until it is paid.`,
+              `Pay it, or change the card it is taken from, before ${mailDate(suspendAt, dateFormat)}. If it is still owed then, the workspace is suspended until it is paid.`,
               "Nothing in the workspace is deleted.",
             ],
         action: { label: "Pay the invoice", url: pay },

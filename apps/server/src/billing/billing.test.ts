@@ -359,7 +359,7 @@ describe.runIf(url)("billing (#178)", () => {
     expect(mine().map((m) => m.subject)).toEqual([
       "Endless Hall Records: a payment of £49.00 is overdue",
     ]);
-    expect(mine()[0]?.text).toContain("before 22 October 2026");
+    expect(mine()[0]?.text).toContain("before 2026-10-22");
     await runDunning(deps, new Date(failed.getTime() + 14 * day));
     expect(mine()).toHaveLength(2);
     await runDunning(deps, new Date(failed.getTime() + 21 * day));
@@ -409,7 +409,7 @@ describe.runIf(url)("billing (#178)", () => {
     const mine = () => mailer.sent.filter((m) => m.to === w.email);
     await runDunning(ruled, new Date(failed.getTime() + 3 * day));
     expect(mine()).toHaveLength(1);
-    expect(mine()[0]?.text).toContain("before 31 October 2026");
+    expect(mine()[0]?.text).toContain("before 2026-10-31");
     await runDunning(ruled, new Date(failed.getTime() + 21 * day));
     expect(mine()).toHaveLength(2);
     expect((await organisation(w.id))?.suspendedAt).toBeNull();
