@@ -79,17 +79,25 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       for (const main of document.querySelectorAll("main")) {
         if (backdrop.contains(main) || !shown(main)) continue;
         const r = main.getBoundingClientRect();
-        const left = Math.max(r.left, 0) + 2;
-        const right = Math.min(r.right, window.innerWidth) - 2;
-        const top = Math.max(r.top, 0) + 2;
-        const bottom = Math.min(r.bottom, window.innerHeight) - 2;
-        const corners = [
+        // Inside the pane's rounded corners, which clip hit-testing; the midpoints of the
+        // edges besides, since a backdrop the size of a column or a page misses one of them.
+        const left = Math.max(r.left, 0) + 24;
+        const right = Math.min(r.right, window.innerWidth) - 24;
+        const top = Math.max(r.top, 0) + 24;
+        const bottom = Math.min(r.bottom, window.innerHeight) - 24;
+        const midX = (left + right) / 2;
+        const midY = (top + bottom) / 2;
+        const points = [
           [left, top],
           [right, top],
           [left, bottom],
           [right, bottom],
+          [midX, top - 20],
+          [midX, bottom + 20],
+          [left - 20, midY],
+          [right + 20, midY],
         ] as const;
-        for (const [x, y] of corners) {
+        for (const [x, y] of points) {
           const hit = document.elementFromPoint(x, y);
           if (hit && backdrop.contains(hit)) continue;
           problems.push({
