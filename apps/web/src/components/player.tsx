@@ -1588,11 +1588,12 @@ export function Player({
   const heardChoice = choices.find((c) => c.level === level)?.rendition;
   const formatLine = !failure && (choices.length > 0 || (normalised && normalisation)) && (
     // On a wide screen it gives way (truncates) before the strip's menus wrap under the version
-    // and variant. On a phone the words are hidden, as the details sheet says the same, but the
-    // Quality menu stays: it is the only way to choose what is heard.
+    // and variant: a box of no width of its own that grows into what the lead leaves, so it asks
+    // the strip for nothing. On a phone the words are hidden, as the details sheet says the
+    // same, but the Quality menu stays: it is the only way to choose what is heard.
     <span
       className={cn(
-        "min-w-0 items-center gap-1 overflow-hidden text-[12px] text-ink-3 sm:flex",
+        "w-0 min-w-0 flex-1 items-center gap-1 overflow-hidden text-[12px] text-ink-3 sm:flex",
         choices.length > 1 ? "flex" : "hidden",
       )}
       title={[
@@ -2172,14 +2173,12 @@ export function PlayerStrip({
 }) {
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2 lg:px-4">
-      {/* On a phone the lead keeps its width and the menus wrap under it; on a wide screen it grows, and the line after it gives way. */}
-      <div className="flex flex-wrap items-center gap-2 lg:min-w-0 lg:flex-1 lg:flex-nowrap">
+      {/* On a phone the lead keeps its width and the menus wrap under it; on a wide screen it grows and the line after it gives way; when the lead alone is too wide the menus wrap under it rather than being run into, as this box is never narrower than the lead. */}
+      <div className="flex flex-wrap items-center gap-2 lg:flex-1 lg:flex-nowrap">
         <div className="flex shrink-0 flex-wrap items-center gap-2">{lead}</div>
         {after}
       </div>
-      <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1">
-        {children}
-      </div>
+      <div className="ml-auto flex flex-wrap items-center justify-end gap-1">{children}</div>
     </div>
   );
 }
