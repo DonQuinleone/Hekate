@@ -110,3 +110,12 @@ describe("zooming the waveform (#34)", () => {
     expect(panScroll(" ", 0, 800, 3_200)).toBeNull();
   });
 });
+
+describe("backingWidth", () => {
+  it("gives a plane its device pixels, up to what a canvas allows", async () => {
+    const { backingWidth, MAX_CANVAS_WIDTH } = await import("./canvas");
+    expect(backingWidth(1000, 2)).toBe(2000);
+    expect(backingWidth(1000 * 32, 2)).toBe(MAX_CANVAS_WIDTH);
+    expect(backingWidth(0, 2)).toBe(1);
+  });
+});
