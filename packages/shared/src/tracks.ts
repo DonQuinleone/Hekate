@@ -29,6 +29,8 @@ export const updateTrackInput = z
     position: z.number().int().nonnegative().optional(),
     /** Move it to a folder; null is the top of the project. */
     folderId: z.uuid().nullable().optional(),
+    /** Its deadline (#505), an instant; null clears it. */
+    dueAt: z.iso.datetime({ offset: true }).nullable().optional(),
   })
   .refine((t) => Object.keys(t).length > 0, { message: "Nothing to change" });
 
