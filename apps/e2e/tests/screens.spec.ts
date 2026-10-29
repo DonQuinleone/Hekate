@@ -3206,6 +3206,68 @@ test("project-files-attach", async ({ page }) => {
   await checkScreen(page);
 });
 
+// Uploading audio into a music project asks what it becomes (#485): a new track (one each, or
+// one track with a version per file), a new version of a track, or just a file; the line says
+// what will happen and the button is named for it.
+test("files-upload-audio", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/files`);
+  await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
+  await page.getByRole("button", { name: "Upload", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Upload", exact: true });
+  await dialog
+    .locator("input[type=file][aria-label='Files to upload']")
+    .setInputFiles(
+      ["Pine Apple Rag - V1 mix.wav", "Pine Apple Rag - V2 mix.wav", "Elite Syncopations.wav"].map(
+        (name) => ({
+          name,
+          mimeType: "audio/wav",
+          buffer: Buffer.from(waveBytes({ seconds: 0.2 })),
+        }),
+      ),
+    );
+  await settle(page, "[role=dialog] ul[aria-label='Files chosen'] li");
+  // Three choices above the files; a new track by default, each named from its file.
+  await expect(dialog.getByRole("radio", { name: "New track" })).toBeChecked();
+  await expect(dialog.getByLabel("Track name for Elite Syncopations.wav")).toHaveValue(
+    "Elite Syncopations",
+  );
+  await expect(dialog).toContainText("3 files become 3 tracks");
+  await expect(dialog.getByRole("button", { name: "Make 3 tracks" })).toBeEnabled();
+  await saveScreen(page, "files-upload-audio");
+  await checkScreen(page);
+  // One track with a version per file, in name order.
+  await dialog.getByRole("radio", { name: "One track, 3 versions" }).check();
+  await expect(dialog).toContainText("3 files become versions 1 to 3 of one track");
+  // Nothing the three names share: the first file's name, to be typed over.
+  await expect(dialog.getByLabel("Track name")).toHaveValue("Pine Apple Rag - V1 mix");
+  await expect(dialog.getByRole("button", { name: "Make the track" })).toBeEnabled();
+  // A new version of a track that exists: each file a variation, one primary.
+  await dialog.getByRole("radio", { name: "New version of" }).check();
+  await expect(dialog.getByRole("combobox", { name: "Track" })).toHaveValue(/./);
+  await dialog.getByRole("combobox", { name: "Track" }).selectOption({ label: "Maple Leaf Rag" });
+  await expect(dialog).toContainText(
+    "3 files become the variations of version 3 of Maple Leaf Rag",
+  );
+  await expect(dialog.getByLabel("Variation name for Pine Apple Rag - V1 mix.wav")).toHaveValue(
+    "Pine Apple Rag - V1 mix",
+  );
+  await expect(dialog.getByRole("button", { name: "Upload version 3" })).toBeEnabled();
+  // Just a file.
+  await dialog.getByRole("radio", { name: "Just a file" }).check();
+  await expect(dialog.getByRole("button", { name: "Upload 3 files" })).toBeEnabled();
+  // The last choice is remembered for this project.
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await page.getByRole("button", { name: "Upload", exact: true }).click();
+  await dialog.locator("input[type=file][aria-label='Files to upload']").setInputFiles({
+    name: "Solace.wav",
+    mimeType: "audio/wav",
+    buffer: Buffer.from(waveBytes({ seconds: 0.2 })),
+  });
+  await expect(dialog.getByRole("radio", { name: "Just a file" })).toBeChecked();
+});
+
 // A track's row: its quick ways in on hover (the player, versions and notes, takes, what it
 // wants next), and its menu with comparing, sharing and its score.
 test("project-files-track-actions", async ({ page }, info) => {
