@@ -15,7 +15,8 @@
  * the rest are still taken. Look at what it wrote before committing it.
  *
  * Playwright is not a dependency of the prototype: the script uses whichever `playwright` Node
- * resolves (NODE_PATH, or a global install), and Chromium as Playwright ships it.
+ * resolves (NODE_PATH, or a global install), and Chromium as Playwright ships it, or the one
+ * `PW_CHROMIUM` points at, as the visual suite takes it.
  */
 import { spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -423,7 +424,10 @@ let failures = 0;
 try {
   await waitFor(base, server);
   mkdirSync(out, { recursive: true });
-  const browser = await chromium.launch();
+  // Chromium as Playwright ships it, or the one PW_CHROMIUM names, as the visual suite takes it.
+  const browser = await chromium.launch(
+    process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {},
+  );
   try {
     for (const screen of chosen) {
       try {

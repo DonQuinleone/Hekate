@@ -17,6 +17,7 @@ import {
   Seg,
   Transport,
   type View,
+  ViewBar,
   ViewMenu,
 } from "~/components/player/transport";
 import {
@@ -30,6 +31,7 @@ import { QaView } from "~/components/qa";
 import { VideoQaView } from "~/components/qa-video";
 import { fileKindWords, ShareDialog } from "~/components/share";
 import { Dot } from "~/components/status";
+import { StatusChip } from "~/components/status-chip";
 import {
   CaptionLine,
   CaptionsMenu,
@@ -60,6 +62,7 @@ import {
   projectById,
   reviewById,
   variantOf,
+  workflows,
 } from "~/data";
 import { cn } from "~/lib/cn";
 import { chainOf, qaSummary } from "~/lib/files";
@@ -332,6 +335,8 @@ export function FilePage({
   const [panel, setPanel] = useState<SidePanel>("comments");
   const [transcriptId, setTranscriptId] = useState<string | null>(null);
   const [cuts, setCuts] = useState<"wipe" | "side" | null>(null);
+  /** The status the track was moved to from the player's chip, in this visit (#498). */
+  const [movedTo, setMovedTo] = useState<string | null>(null);
   const duration = file?.media.duration ?? 1;
   const playback = usePlayback(duration, 14.3);
   const tab = viewParam === "qa" ? "qa" : viewParam === "triage" ? "triage" : "review";
@@ -467,7 +472,7 @@ export function FilePage({
                 {
                   id: "qa",
                   label: "QA",
-                  hint: summary && summary.issues > 0 ? String(summary.issues) : undefined,
+                  badge: summary?.issues,
                 },
               ]}
             />
@@ -601,13 +606,24 @@ export function FilePage({
       ]
     : [];
   const channels = file.media.channels ?? 2;
-  const hearing =
-    // A downmix or a soloed channel is said on the Channels button itself.
-    channels > 2
-      ? `${file.media.layout?.split(" ")[0]} lossless`
-      : view.normalised
-        ? "normalised to −16 LUFS"
-        : undefined;
+  // What is heard, as a quiet line in the strip (#493): the format, and how it is played. A
+  // downmix or a soloed channel is said on the Channels button itself.
+  const format = [
+    file.media.codec,
+    channels > 2 ? file.media.layout?.split(" ")[0] : (file.media.layout ?? "stereo"),
+    file.media.sampleRate ? `${file.media.sampleRate / 1000} kHz` : null,
+    view.normalised ? "normalised to −16 LUFS" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  /** Where the project reads bars: the prototype's recordings run 1.2 s a bar, four beats each. */
+  const barTime =
+    inTrack && project.references.bar
+      ? (bar: number, beat: number) => (bar - 1) * 1.2 + (beat - 1) * 0.3
+      : undefined;
+  // Where the track stands in its workflow (#498), moved on from here by those who may.
+  const workflow = workflows.find((w) => w.id === project.workflowId);
+  const stageNow = workflow?.stages.find((s) => s.status === (movedTo ?? inTrack?.version.status));
   const referenceNow =
     inTrack && project.references.bar
       ? formatReference(
@@ -764,8 +780,20 @@ export function FilePage({
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2 @3xl/app:px-4">
         {versionMenu}
         {variantSeg}
+        {inTrack && !viewer.isGuest && (
+          <StatusChip
+            status={movedTo ?? inTrack.version.status}
+            workflow={workflow}
+            stage={stageNow}
+            canMove={viewer.can(project.id, "edit_workflows")}
+            onMove={(to) => setMovedTo(to.status)}
+          />
+        )}
         {!access.history && inTrack && (
           <span className="text-[13px] text-ink-3">V{inTrack.version.number} is under review</span>
+        )}
+        {!pending && !failed && format && (
+          <span className="hidden truncate text-[12px] text-ink-3 @5xl/app:inline">{format}</span>
         )}
         <div className="ml-auto flex items-center gap-1">
           {score && isAudio && tools.has("score") && (
@@ -859,9 +887,11 @@ export function FilePage({
     </>
   );
 
+  // The waveform fills what the stage leaves after the view toolbar and the ruler (#493),
+  // growing with a tall window and giving way on a short one; a lane per channel has no cap.
   const waveHeight = Math.max(
-    160,
-    Math.min(stageHeight - 36, view.split ? 64 * channels + 40 : 520),
+    120,
+    Math.min(stageHeight - 68, view.split ? 64 * channels + 40 : 720),
   );
   const spectroHeight = Math.max(100, Math.round(waveHeight * 0.45));
 
@@ -891,95 +921,115 @@ export function FilePage({
       )}
     </div>
   ) : isVideo ? (
-    <div className="flex min-h-0 flex-1 flex-col justify-center px-3 pb-1 @3xl/app:px-4">
-      {cuts && previousFile ? (
-        <CompareCuts
-          a={previousFile}
-          b={file}
-          labels={[
-            `Cut ${(inTrack?.version.number ?? 2) - 1}`,
-            `Cut ${inTrack?.version.number ?? 2}`,
-          ]}
-          compare={
-            inTrack
-              ? {
-                  trackId: inTrack.track.id,
-                  a: inTrack.version.number - 1,
-                  b: inTrack.version.number,
-                }
-              : undefined
-          }
-          time={playback.time}
-          mode={cuts}
-          onMode={setCuts}
-          onClose={() => setCuts(null)}
-        />
-      ) : (
-        <div
-          className="relative mx-auto w-full shrink-0"
-          style={{
-            maxWidth: Math.max(
-              240,
-              (stageHeight - 110) *
-                (file.media.height && file.media.width && file.media.height > file.media.width
-                  ? 9 / 16
-                  : 16 / 9),
-            ),
-          }}
-        >
-          <Frame
-            file={file}
+    <div className="flex min-h-0 flex-1 flex-col pb-1">
+      <ViewBar playback={playback} loopsAllowed={tools.has("loops")} />
+      <div className="flex min-h-0 flex-1 flex-col justify-center px-3 @3xl/app:px-4">
+        {cuts && previousFile ? (
+          <CompareCuts
+            a={previousFile}
+            b={file}
+            labels={[
+              `Cut ${(inTrack?.version.number ?? 2) - 1}`,
+              `Cut ${inTrack?.version.number ?? 2}`,
+            ]}
+            compare={
+              inTrack
+                ? {
+                    trackId: inTrack.track.id,
+                    a: inTrack.version.number - 1,
+                    b: inTrack.version.number,
+                  }
+                : undefined
+            }
             time={playback.time}
-            watermark={
-              guestWatermark ??
-              (project.id === "proj-titles"
-                ? `${personById(viewer.personId).name} · 14 Oct 2026`
-                : undefined)
-            }
-            className="rounded-panel shadow-3"
-            portrait={
-              file.media.height !== undefined &&
-              file.media.width !== undefined &&
-              file.media.height > file.media.width
-            }
+            mode={cuts}
+            onMode={setCuts}
+            onClose={() => setCuts(null)}
           />
-          <SafeAreas matte={matte} safe={safe} />
-          {caption && <CaptionLine cues={caption.cues} time={playback.time} over />}
-          {drawing && (
-            <>
-              <svg
-                className="pointer-events-none absolute inset-0 h-full w-full"
-                aria-hidden="true"
-              >
-                <ellipse
-                  cx="62%"
-                  cy="30%"
-                  rx="9%"
-                  ry="14%"
-                  fill="none"
-                  stroke={colour}
-                  strokeWidth={2}
+        ) : (
+          <div
+            className="relative mx-auto w-full shrink-0"
+            style={{
+              maxWidth: Math.max(
+                240,
+                (stageHeight - 110) *
+                  (file.media.height && file.media.width && file.media.height > file.media.width
+                    ? 9 / 16
+                    : 16 / 9),
+              ),
+            }}
+          >
+            <Frame
+              file={file}
+              time={playback.time}
+              watermark={
+                guestWatermark ??
+                (project.id === "proj-titles"
+                  ? `${personById(viewer.personId).name} · 14 Oct 2026`
+                  : undefined)
+              }
+              className="rounded-panel shadow-3"
+              portrait={
+                file.media.height !== undefined &&
+                file.media.width !== undefined &&
+                file.media.height > file.media.width
+              }
+            />
+            <SafeAreas matte={matte} safe={safe} />
+            {caption && <CaptionLine cues={caption.cues} time={playback.time} over />}
+            {drawing && (
+              <>
+                <svg
+                  className="pointer-events-none absolute inset-0 h-full w-full"
+                  aria-hidden="true"
+                >
+                  <ellipse
+                    cx="62%"
+                    cy="30%"
+                    rx="9%"
+                    ry="14%"
+                    fill="none"
+                    stroke={colour}
+                    strokeWidth={2}
+                  />
+                  <line x1="72%" y1="22%" x2="86%" y2="14%" stroke={colour} strokeWidth={2} />
+                </svg>
+                <DrawToolbar
+                  tool={drawing}
+                  onTool={setDrawing}
+                  colour={colour}
+                  onColour={setColour}
+                  onClose={() => setDrawing(null)}
                 />
-                <line x1="72%" y1="22%" x2="86%" y2="14%" stroke={colour} strokeWidth={2} />
-              </svg>
-              <DrawToolbar
-                tool={drawing}
-                onTool={setDrawing}
-                colour={colour}
-                onColour={setColour}
-                onClose={() => setDrawing(null)}
-              />
-            </>
-          )}
-        </div>
-      )}
-      <Filmstrip file={file} playback={playback} markers={openThreads} />
-      <Ruler duration={duration} video className="mt-1" />
+              </>
+            )}
+          </div>
+        )}
+        <Filmstrip file={file} playback={playback} markers={openThreads} />
+        <Ruler duration={duration} video className="mt-1" />
+      </div>
     </div>
   ) : (
-    <div className="flex flex-col px-3 pb-1 @3xl/app:px-4">
+    <div className="flex flex-col pb-1">
+      <ViewBar
+        playback={playback}
+        loopsAllowed={tools.has("loops")}
+        zoom={zoom}
+        onZoom={setZoom}
+        spectrogram={view.spectrogram !== "off"}
+        onSpectrogram={
+          tools.has("spectrogram")
+            ? (on) => setView({ ...view, spectrogram: on ? "below" : "off" })
+            : undefined
+        }
+        meters={view.loudness}
+        onMeters={tools.has("meters") ? (on) => setView({ ...view, loudness: on }) : undefined}
+      />
       {/* Zoomed in, it scrolls, a page at a time with the playhead; the ruler widens with it. */}
-      <div ref={zoomBox} className={cn(zoom > 1 && "overflow-x-auto overscroll-x-contain")}>
+      <div
+        ref={zoomBox}
+        className={cn("px-3 @3xl/app:px-4", zoom > 1 && "overflow-x-auto overscroll-x-contain")}
+      >
         <div className="flex flex-col" style={{ width: `${zoom * 100}%` }}>
           {view.spectrogram !== "instead" && (
             <Waveform
@@ -1063,7 +1113,7 @@ export function FilePage({
             compareAllowed={tools.has("compare") && sources.length > 1}
             compareOpen={compareOpen}
             onCompare={() => setCompareOpen((o) => !o)}
-            hearing={hearing}
+            bars={isAudio ? barTime : undefined}
             zoom={isAudio ? zoom : undefined}
             onZoom={isAudio ? setZoom : undefined}
             marks={marks}
