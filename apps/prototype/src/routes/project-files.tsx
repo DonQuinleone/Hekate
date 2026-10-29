@@ -21,6 +21,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Floating, type Point } from "~/components/ui/floating";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, ContextMenu, type MenuAction, usePopover } from "~/components/ui/menu";
+import { UploadFilesDialog } from "~/components/upload-choice";
 import {
   files as allFiles,
   tracks as allTracks,
@@ -1300,6 +1301,8 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
   const canUpload = viewer.can(project.id, "upload");
   const uploading = state === "processing";
   const [requesting, setRequesting] = useState(false);
+  /** The upload dialog (#485): in a music project, audio is asked what it becomes. */
+  const [choosing, setChoosing] = useState(false);
   // Where an upload request's files go: a folder, or a track's next version (#425).
   const [requestInto, setRequestInto] = useState("f-day2");
   const requestTrack = allTracks.find((t) => t.id === requestInto);
@@ -1389,7 +1392,7 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
             />
           )}
           {canUpload && (
-            <Button variant="primary" size="md">
+            <Button variant="primary" size="md" onClick={() => setChoosing(true)}>
               <Icon name="upload" size={14} />
               Upload
             </Button>
@@ -1410,6 +1413,13 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
           project={project}
           current={folderId}
           onClose={() => setMoving(null)}
+        />
+      )}
+      {choosing && (
+        <UploadFilesDialog
+          projectId={project.id}
+          folderName={path.at(-1)?.name}
+          onClose={() => setChoosing(false)}
         />
       )}
       {requesting && (
@@ -1543,7 +1553,13 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
               ? "Drop files anywhere on this page to upload them here, or use Upload. A track groups a piece's versions."
               : "Files appear here once someone uploads them."
           }
-          action={canUpload ? <Button variant="primary">Upload</Button> : undefined}
+          action={
+            canUpload ? (
+              <Button variant="primary" onClick={() => setChoosing(true)}>
+                Upload
+              </Button>
+            ) : undefined
+          }
         />
       ) : view === "columns" ? (
         <ColumnBrowser project={project} folderId={folderId} />

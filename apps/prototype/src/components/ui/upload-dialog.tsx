@@ -177,6 +177,7 @@ export function UploadDialog({
   onPick,
   onRemove,
   row,
+  before,
   fields,
   alternatives,
   what,
@@ -204,6 +205,8 @@ export function UploadDialog({
   onRemove?: (key: string) => void;
   /** Below each file: what the job asks of it (a variation's name). */
   row?: (chosen: ChosenFile) => ReactNode;
+  /** Above the files chosen, once there are any: a choice that decides what they become. */
+  before?: ReactNode;
   /** One or two fields the job needs, after the list. */
   fields?: ReactNode;
   /** Another way to a file, beside the zone: the project's own, say. */
@@ -261,6 +264,7 @@ export function UploadDialog({
             )}
           </div>
         )}
+        {chosen.length > 0 && before}
         <ChosenList chosen={chosen} label={listLabel} row={row} onRemove={onRemove} />
         {fields}
         {children}
