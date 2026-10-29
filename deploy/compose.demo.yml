@@ -27,7 +27,7 @@ services:
   app:
     build: { context: .., dockerfile: Dockerfile }
     image: hekate:local
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:3000:3000"]
     # demo.env in place of the checkout's .env, which need not exist.
     env_file: !override
       - demo.env
