@@ -12,6 +12,7 @@ import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
+import { UploadDialog } from "~/components/ui/upload-dialog";
 import {
   fileById,
   type Project,
@@ -30,8 +31,20 @@ import { Empty, Refused, useScreenState } from "~/viewer/state-gate";
 
 /* ---------- Import ---------- */
 
+/** A day's files as the recorder left them: what the zone picks here. */
+const sessionFiles = [
+  ["T27_Mix.wav", 61_200_000],
+  ["T27_Tree.wav", 61_200_000],
+  ["T27_Spot.wav", 61_200_000],
+  ["T28_Mix.wav", 58_900_000],
+  ["T28_Tree.wav", 58_900_000],
+  ["T28_Spot.wav", 58_900_000],
+  ["Room tone.wav", 9_800_000],
+].map(([name, size]) => ({ key: String(name), name: String(name), size: Number(size) }));
+
 function TakeImportDialog({ onClose }: { onClose: () => void }) {
   const [step, setStep] = useState<0 | 1>(0);
+  const [picked, setPicked] = useState(false);
   const state = useScreenState();
   const joplin = tracks.filter((x) => x.projectId === "proj-joplin");
   const tree = [
@@ -55,41 +68,31 @@ function TakeImportDialog({ onClose }: { onClose: () => void }) {
       ],
     },
   ];
-  return (
-    <Dialog
-      title="Import takes"
-      description="Drop every file of a session. Takes are grouped by take number and timecode, with their mix found among the microphones, and matched to tracks by name."
-      onClose={onClose}
-      width="lg"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
+  const title = "Import takes";
+  const description =
+    "Drop every file of a session. Takes are grouped by take number and timecode, with their mix found among the microphones, and matched to tracks by name.";
+  if (step === 0)
+    return (
+      <UploadDialog
+        title={title}
+        description={description}
+        onClose={onClose}
+        width="lg"
+        inputLabel="Session files"
+        listLabel="Files of the session"
+        prompt="Drop the session's files or folder here"
+        hint="Or choose them. Only their headers are read until you import."
+        multiple
+        chosen={picked ? sessionFiles : []}
+        onPick={() => setPicked(true)}
+        onRemove={() => setPicked(false)}
+        alternatives={
+          <Button variant="ghost" size="sm" onClick={() => setPicked(true)}>
+            <Icon name="folder" size={14} />
+            Choose a folder
           </Button>
-          {step === 1 && <Button variant="secondary">Undo</Button>}
-          <Button
-            variant="primary"
-            onClick={() => (step === 0 ? setStep(1) : onClose())}
-            disabled={state === "processing"}
-          >
-            {step === 0 ? "Propose the takes" : "Import 4 takes"}
-          </Button>
-        </>
-      }
-    >
-      {step === 0 ? (
-        <div className="flex flex-col gap-4">
-          <button
-            type="button"
-            onClick={() => setStep(1)}
-            className="flex w-full flex-col items-center gap-2 rounded-panel-lg border border-dashed border-line-strong px-6 py-10 text-center transition-colors hover:border-edge-strong hover:bg-raised/40"
-          >
-            <Icon name="upload" size={20} className="text-ink-3" />
-            <span className="text-[14px] text-ink">Drop the session's files or folder here</span>
-            <span className="text-[13px] text-ink-3">
-              Or choose them. Only their headers are read until you import.
-            </span>
-          </button>
+        }
+        fields={
           <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
             File-name pattern
             <Input defaultValue="T{take} {mic}" />
@@ -98,79 +101,103 @@ function TakeImportDialog({ onClose }: { onClose: () => void }) {
               {"{session}"}, {"{track}"}, and * for anything.
             </span>
           </label>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {state === "processing" && (
-            <div className="flex items-center gap-3 text-[13px] text-ink-2">
-              <span className="breathe size-2 rounded-full border border-ink-2" /> Importing: 12 of
-              40 takes
-              <span className="ml-auto h-1 w-40 overflow-hidden rounded-full bg-raised">
-                <span className="block h-full w-[30%] bg-ink-2" />
-              </span>
-            </div>
-          )}
-          <div className="flex items-center gap-2 text-[13px] text-ink-3">
-            <input type="checkbox" aria-label="Select every take" className="size-4" />5 takes in 2
-            sessions
+        }
+        what={
+          picked &&
+          "7 files, 370 MB. Their headers are read here; nothing is uploaded until the takes are imported."
+        }
+        action="Propose the takes"
+        onAction={() => setStep(1)}
+      />
+    );
+  return (
+    <Dialog
+      title={title}
+      description={description}
+      onClose={onClose}
+      width="lg"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="secondary">Undo</Button>
+          <Button variant="primary" onClick={onClose} disabled={state === "processing"}>
+            Import 4 takes
+          </Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4">
+        {state === "processing" && (
+          <div className="flex items-center gap-3 text-[13px] text-ink-2">
+            <span className="breathe size-2 rounded-full border border-ink-2" /> Importing: 12 of 40
+            takes
+            <span className="ml-auto h-1 w-40 overflow-hidden rounded-full bg-raised">
+              <span className="block h-full w-[30%] bg-ink-2" />
+            </span>
           </div>
-          {tree.map((s) => (
-            <div key={s.session} className="flex flex-col gap-1.5">
-              <span className="flex items-center gap-3 text-[14px] text-ink">
-                <Icon name="mic" size={14} className="text-ink-3" />
-                {s.existing ? (
-                  s.session
-                ) : (
-                  <Input
-                    defaultValue={s.session}
-                    className="h-7 w-56 text-[13px]"
-                    aria-label="Session name"
-                  />
-                )}
-                <span className="text-[13px] text-ink-3">{s.note}</span>
-              </span>
-              <ul className="ml-5 flex flex-col divide-y divide-line rounded-panel border border-line bg-sunken">
-                {s.takes.map((t) => (
-                  <li key={t.label} className="flex items-center gap-3 px-3 py-2 text-[13px]">
-                    <input type="checkbox" aria-label={`Select ${t.label}`} className="size-4" />
-                    <Icon name="take" size={13} className="text-ink-3" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-ink">{t.label}</span>
-                      <span className={cn("block", t.track ? "text-ink-3" : "text-signal")}>
-                        {t.track ? `${t.track}, ${t.sure}% sure` : "Choose a track"}
-                      </span>
-                    </span>
-                    <Select defaultValue="mix" className="h-7 w-36 text-[12px]" aria-label="Mix">
-                      <option value="mix">Mix</option>
-                      <option value="tree">Tree</option>
-                      <option value="spot">Spot vln</option>
-                    </Select>
-                    <Select
-                      defaultValue={joplin.find((x) => x.name === t.track)?.id ?? ""}
-                      className="h-7 w-44 text-[12px]"
-                      aria-label="Track"
-                    >
-                      <option value="">Choose a track</option>
-                      {joplin.map((x) => (
-                        <option key={x.id} value={x.id}>
-                          {x.name}
-                        </option>
-                      ))}
-                    </Select>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-          <p className="text-[12px] text-ink-3">
-            1 file is left out: "Room tone.wav" has no take number or timecode.
-          </p>
-          <p className="text-[12px] text-ink-3">
-            Each take brings its mix, uploaded into its track's folder; its other microphones stay
-            where they are for now.
-          </p>
+        )}
+        <div className="flex items-center gap-2 text-[13px] text-ink-3">
+          <input type="checkbox" aria-label="Select every take" className="size-4" />5 takes in 2
+          sessions
         </div>
-      )}
+        {tree.map((s) => (
+          <div key={s.session} className="flex flex-col gap-1.5">
+            <span className="flex items-center gap-3 text-[14px] text-ink">
+              <Icon name="mic" size={14} className="text-ink-3" />
+              {s.existing ? (
+                s.session
+              ) : (
+                <Input
+                  defaultValue={s.session}
+                  className="h-7 w-56 text-[13px]"
+                  aria-label="Session name"
+                />
+              )}
+              <span className="text-[13px] text-ink-3">{s.note}</span>
+            </span>
+            <ul className="ml-5 flex flex-col divide-y divide-line rounded-panel border border-line bg-sunken">
+              {s.takes.map((t) => (
+                <li key={t.label} className="flex items-center gap-3 px-3 py-2 text-[13px]">
+                  <input type="checkbox" aria-label={`Select ${t.label}`} className="size-4" />
+                  <Icon name="take" size={13} className="text-ink-3" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-ink">{t.label}</span>
+                    <span className={cn("block", t.track ? "text-ink-3" : "text-signal")}>
+                      {t.track ? `${t.track}, ${t.sure}% sure` : "Choose a track"}
+                    </span>
+                  </span>
+                  <Select defaultValue="mix" className="h-7 w-36 text-[12px]" aria-label="Mix">
+                    <option value="mix">Mix</option>
+                    <option value="tree">Tree</option>
+                    <option value="spot">Spot vln</option>
+                  </Select>
+                  <Select
+                    defaultValue={joplin.find((x) => x.name === t.track)?.id ?? ""}
+                    className="h-7 w-44 text-[12px]"
+                    aria-label="Track"
+                  >
+                    <option value="">Choose a track</option>
+                    {joplin.map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.name}
+                      </option>
+                    ))}
+                  </Select>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        <p className="text-[12px] text-ink-3">
+          1 file is left out: "Room tone.wav" has no take number or timecode.
+        </p>
+        <p className="text-[12px] text-ink-3">
+          Each take brings its mix, uploaded into its track's folder; its other microphones stay
+          where they are for now.
+        </p>
+      </div>
     </Dialog>
   );
 }

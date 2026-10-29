@@ -3,6 +3,7 @@ import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/label";
 import { Button } from "~/components/ui/button";
 import { Dropdown } from "~/components/ui/menu";
+import { type ChosenFile, UploadDialog } from "~/components/ui/upload-dialog";
 import { categories } from "~/data";
 import { cn } from "~/lib/cn";
 import { formatClock, formatTimecode } from "~/lib/format";
@@ -47,6 +48,9 @@ export function Composer({
   const [target, setTarget] = useState<Target>(kind === "media" ? "playhead" : "page");
   const [body, setBody] = useState("");
   const [focused, setFocused] = useState(false);
+  // Files to go with the comment (#133), chosen in the upload dialog (#477).
+  const [attaching, setAttaching] = useState(false);
+  const [attached, setAttached] = useState<ChosenFile[]>([]);
   const fmt = (t: number) => (video ? formatTimecode(t, fps) : formatClock(t));
   if (disabledReason) {
     return (
@@ -173,10 +177,34 @@ export function Composer({
           </button>
           <button
             type="button"
+            onClick={() => setAttaching(true)}
             className="flex h-7 items-center gap-1 rounded-chip px-1.5 hover:bg-raised hover:text-ink"
           >
             <Icon name="link" size={12} /> Attach
+            {attached.length > 0 && <span className="text-ink">{attached.length}</span>}
           </button>
+          {attaching && (
+            <UploadDialog
+              title="Attach files"
+              description="Up to 10 files of 25 MB each go with the comment."
+              onClose={() => setAttaching(false)}
+              width="sm"
+              inputLabel="Files to attach"
+              listLabel="Files chosen to attach"
+              prompt="Drop the files here, or choose them"
+              multiple
+              chosen={attached}
+              onPick={() =>
+                setAttached([
+                  { key: "fingering", name: "Fingering, bars 9 to 12.pdf", size: 184_000 },
+                ])
+              }
+              onRemove={(key) => setAttached((a) => a.filter((f) => f.key !== key))}
+              what="They are attached once the comment is sent."
+              action="Attach"
+              onAction={() => setAttaching(false)}
+            />
+          )}
           <span className="ml-auto flex items-center gap-1">
             <Kbd>⌘</Kbd>
             <Kbd>↵</Kbd>
