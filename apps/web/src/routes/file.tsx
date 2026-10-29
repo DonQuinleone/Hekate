@@ -40,10 +40,11 @@ import { EmbeddedMetadataPanel } from "~/components/metadata";
 import { type Crumb, PageHeader } from "~/components/page-header";
 import { CommentsSplitter, PanelPlacement } from "~/components/panel-placement";
 import { Player, PlayerStrip } from "~/components/player";
-import { checkNames, findingMarks, QaSummary, QualityChecks, qaIssues } from "~/components/qa";
+import { checkNames, findingMarks, QualityChecks, qaIssues } from "~/components/qa";
 import { VideoQa } from "~/components/qa-video";
 import { ScorePane } from "~/components/score";
 import { ShareDialog } from "~/components/share";
+import { TrackStatusChip } from "~/components/status-chip";
 import { FileContext, ScoreSwitch, VersionNote } from "~/components/tracks";
 import { PanelTabs, type SidePanel, Transcript } from "~/components/transcript";
 import { TriageView } from "~/components/triage";
@@ -60,7 +61,6 @@ import { formatDates } from "~/lib/locale";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
 import { usePanelLayout } from "~/lib/panel-layout";
-import { usePlayerView } from "~/lib/player-view";
 import {
   captionsQuery,
   commentsQuery,
@@ -353,7 +353,7 @@ function ViewSwitch({
       onChange={onView}
       options={[
         { value: "review", label: "Review" },
-        { value: "qa", label: "QA", hint: issues > 0 ? String(issues) : undefined },
+        { value: "qa", label: "QA", badge: issues },
       ]}
       // On a phone the header's actions scroll in a row of their own; this keeps its size.
       className="shrink-0"
@@ -421,8 +421,6 @@ export function FilePage({
     enabled: !guest && view === "qa",
   });
   const preferences = usePreferences();
-  // The line of loudness and issues follows the player's View menu, as it changes (#135).
-  const loudnessShown = usePlayerView().view.loudness;
   /** On a document: the page shown, and the region drawn or thread picked on it. */
   const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
   const [frameDraft, setFrameDraft] = useState<FrameDraft | null>(null);
@@ -667,6 +665,10 @@ export function FilePage({
             takes={!guest && can("view_takes")}
           />
           <FileChain file={file} />
+          {/* Where the track stands (#498), moved on from here by those who may. */}
+          {file.variant && !guest && (
+            <TrackStatusChip trackId={file.variant.trackId} projectId={file.projectId} />
+          )}
         </>
       ) : undefined,
     end:
@@ -850,12 +852,6 @@ export function FilePage({
           <>
             {comparing && compareOpen && (
               <Compare file={file} media={media} focus={focus} gain={gain} />
-            )}
-            {hasQa && allows("qa") && loudnessShown && (
-              // Nothing measured yet, nothing shown, and no line drawn for it.
-              <div className="shrink-0 border-t border-line px-3 py-2 empty:hidden lg:px-4">
-                <QaSummary fileId={file.id} onOpen={() => onView("qa")} />
-              </div>
             )}
             {!guest && <VersionNote file={file} />}
             {hasScore && layout.score && file.variant?.scoreFileId && (

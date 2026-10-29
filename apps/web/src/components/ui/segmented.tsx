@@ -18,10 +18,16 @@ export function Segmented<T extends string>({
   label: string;
   value: T;
   /**
-   * Each choice: its value, its words, an icon to show in place of the words, and a quiet
-   * word after them (a count, or "analysing").
+   * Each choice: its value, its words, an icon to show in place of the words, a quiet word
+   * after them (a count, or "analysing"), or a count that needs a look, as a badge.
    */
-  options: readonly { value: T; label: string; icon?: ReactNode; hint?: string }[];
+  options: readonly {
+    value: T;
+    label: string;
+    icon?: ReactNode;
+    hint?: string;
+    badge?: number;
+  }[];
   onChange: (value: T) => void;
   /** A way to add to the choices, at the end: its name (read and shown on hover) and icon. */
   action?: { label: string; icon: ReactNode; onSelect: () => void } | undefined;
@@ -51,6 +57,11 @@ export function Segmented<T extends string>({
         >
           {o.icon ?? o.label}
           {!o.icon && o.hint && <span className="tabular text-ink-3">{o.hint}</span>}
+          {!o.icon && o.badge !== undefined && o.badge > 0 && (
+            <span className="tabular rounded-full bg-signal/15 px-1.5 text-[11px] leading-4 font-medium text-signal">
+              {o.badge}
+            </span>
+          )}
         </button>
       ))}
       {action && (

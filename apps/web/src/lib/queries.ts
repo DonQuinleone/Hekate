@@ -2535,6 +2535,29 @@ export const trackStandingQuery = (trackId: string) =>
   });
 
 /** A track's workflow runs (#25), newest first, each with its history of transitions. */
+/**
+ * A step a track's run waits on, ended by hand from the player's status chip (#498) by one of
+ * its outcomes: the track's standing, its runs and the project's board are read again after.
+ */
+export function useEndWorkflowStep(trackId: string, projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (step: { runId: string; nodeId: string; outcome: string }) =>
+      (
+        await json<{ run: WorkflowRunSummary | null }>(
+          await api["workflow-runs"][":id"].steps.$post({
+            param: { id: step.runId },
+            json: { nodeId: step.nodeId, outcome: step.outcome },
+          }),
+        )
+      ).run,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["tracks", trackId] });
+      void client.invalidateQueries({ queryKey: projectBoardQuery(projectId).queryKey });
+    },
+  });
+}
+
 export const trackWorkflowRunsQuery = (trackId: string) =>
   queryOptions({
     queryKey: ["tracks", trackId, "workflow-runs"],

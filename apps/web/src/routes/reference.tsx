@@ -8,6 +8,7 @@ import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Card, Page, SectionHead } from "~/components/page";
 import { Row, Section, SwitchRow } from "~/components/settings";
+import { StatusChipView } from "~/components/status-chip";
 import { Button } from "~/components/ui/button";
 import { Chip, Count, ToggleChip } from "~/components/ui/chip";
 import { Checkbox, Choice, ChoiceCard, Radio } from "~/components/ui/choice";
@@ -723,6 +724,34 @@ function Components() {
           {states.map((s) => (
             <StatusPill key={s} state={s} />
           ))}
+        </Spec>
+        <Spec
+          name="Status chip"
+          rule="A track's status in the player's header; with moves, a menu that confirms each."
+        >
+          <StatusChipView status="With the soloists" category="in_progress" />
+          <StatusChipView status="Approved" category="done" />
+          <StatusChipView
+            status="Editing"
+            category="in_progress"
+            moves={[
+              {
+                runId: "run",
+                nodeId: "edit",
+                step: "Engineer edits",
+                outcome: "done",
+                label: "Done",
+              },
+              {
+                runId: "run",
+                nodeId: "edit",
+                step: "Engineer edits",
+                outcome: "overdue",
+                label: "Due date passed",
+              },
+            ]}
+            onMove={() => {}}
+          />
         </Spec>
         <Spec
           name="Chip and count"
