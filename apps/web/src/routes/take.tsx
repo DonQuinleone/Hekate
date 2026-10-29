@@ -9,7 +9,6 @@ import { Kbd } from "~/components/kbd";
 import { PageHeader } from "~/components/page-header";
 import { Player } from "~/components/player";
 import { Rating } from "~/components/takes";
-import { primaryOf } from "~/components/track-versions";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
@@ -34,6 +33,7 @@ import {
 } from "~/lib/queries";
 import { useShortcuts } from "~/lib/shortcuts";
 import { coverageLabel, falseStartsLabel, takeLoop, timecodeSpan } from "~/lib/take-page";
+import { primaryOf } from "~/lib/versions";
 
 /**
  * One take on its own page (#21, #45), as the prototype's: what is known of it in a line,

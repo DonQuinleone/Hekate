@@ -99,7 +99,6 @@ import { Icon, type IconName } from "./icons";
 import { Card } from "./page";
 import { ShareDialog } from "./share";
 import { TagInput } from "./tag-input";
-import { VariationDialog } from "./track-versions";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/choice";
 import { Floating, type Point, withinOrFloatingFrom } from "./ui/floating";
@@ -108,6 +107,7 @@ import { ActionMenu, ContextMenu, type MenuAction } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
 import { StatusDot } from "./ui/status";
 import { UploadRequestDialog } from "./upload-requests";
+import { VariationDialog } from "./variation-dialog";
 
 type View = "list" | "columns" | "grid";
 const VIEW_KEY = "hekate.files.view";

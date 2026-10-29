@@ -33,6 +33,7 @@ import {
 } from "~/lib/queries";
 import { swappedSummary } from "~/lib/score-swap";
 import { type UploadedFile, uploadFile } from "~/lib/upload";
+import { primaryOf } from "~/lib/versions";
 import { Avatar } from "./avatar";
 import { Empty } from "./empty";
 import { kindIcon, mediaSummary } from "./files";
@@ -40,13 +41,14 @@ import { Icon } from "./icons";
 import { Card } from "./page";
 import { Button } from "./ui/button";
 import { Chip } from "./ui/chip";
-import { Checkbox, Radio } from "./ui/choice";
+import { Radio } from "./ui/choice";
 import { Dialog } from "./ui/dialog";
 import { Field } from "./ui/field";
 import { FileInput, Input, Select, Textarea } from "./ui/input";
 import { ActionMenu, Dropdown, type MenuAction } from "./ui/menu";
 import { ReviewerDot } from "./ui/status";
 import { type ChosenFile, UploadDialog } from "./ui/upload-dialog";
+import { useLooseMedia, VariationDialog } from "./variation-dialog";
 import { WorkflowHistory } from "./workflow-history";
 
 const whenFormat = formatDates({
@@ -62,10 +64,6 @@ const carryWords: Record<CarryChoice, string> = {
   fixed: "Fixed",
   wont_fix: "Won't fix",
 };
-
-/** The file a version opens with: its primary variation. */
-export const primaryOf = (version: Version) =>
-  version.variations.find((v) => v.isPrimary) ?? version.variations[0];
 
 /** The edit decision list of a version being made: uploading, or already in the project. */
 interface Pick {
@@ -104,16 +102,6 @@ function useEdlPick(track: Track) {
     setPicks([{ key: file.id, name: file.name, fileId: file.id, error: null }]);
   const busy = picks.some((p) => !p.fileId && !p.error);
   return { picks, upload, add, busy, clear: () => setPicks([]) };
-}
-
-/** Audio and video in the project that no version uses yet: what can become a variation. */
-function useLooseMedia(track: Track) {
-  const { data: files = [] } = useQuery(projectFilesQuery(track.projectId));
-  const { data: tracks = [] } = useQuery(projectTracksQuery(track.projectId));
-  const used = new Set(
-    tracks.flatMap((t) => t.versions.flatMap((v) => v.variations.map((x) => x.fileId))),
-  );
-  return files.filter((f) => (f.kind === "audio" || f.kind === "video") && !used.has(f.id));
 }
 
 /**
@@ -630,134 +618,6 @@ function EdlDialog({
       onSubmit={async ([chosen]) => {
         if (!chosen?.result) return;
         await setEdl.mutateAsync({ versionId: version.id, fileId: chosen.result.id });
-        onClose();
-      }}
-    />
-  );
-}
-
-/**
- * Another variation of a version, or a corrected file in place of one: dropped, chosen or
- * picked from the project's loose files.
- */
-export function VariationDialog({
-  track,
-  version,
-  mode,
-  onClose,
-}: {
-  track: Track;
-  version: Version;
-  mode: "add" | "replace";
-  onClose: () => void;
-}) {
-  const { addVariation, replaceFile } = useTrackMutations(track.projectId);
-  const { words, versionLabel, video } = useItemWords(track.projectId);
-  const loose = useLooseMedia(track);
-  /** The file chosen, by name, and the variation's name read from it until one is typed. */
-  const [chosen, setChosen] = useState<string | null>(null);
-  const [name, setName] = useState("");
-  const [primary, setPrimary] = useState(false);
-  const [target, setTarget] = useState(primaryOf(version)?.id ?? "");
-  const replacing = version.variations.find((v) => v.id === target);
-  return (
-    <UploadDialog<UploadedFile>
-      title={
-        mode === "add"
-          ? `Add a ${words.variation} to ${versionLabel(version.number)}`
-          : `Replace a file of ${versionLabel(version.number)}`
-      }
-      description={
-        mode === "add"
-          ? video
-            ? "Another treatment of the same cut, such as a 9:16 or a subtitled rendition beside the main one."
-            : "Another treatment of the same edit, such as a wet mix beside the dry one."
-          : "A corrected export in its place. Its comments move to the new file; the old one stays in the project."
-      }
-      onClose={onClose}
-      inputLabel={mode === "add" ? `The ${words.variation}'s file` : "The corrected file"}
-      prompt="Drop the file here, or choose it"
-      accept="audio/*,video/*"
-      send={(file, onProgress, signal) =>
-        uploadFile(file, {
-          projectId: track.projectId,
-          folderId: track.folderId,
-          signal,
-          onProgress: (p) => onProgress(p.total ? p.sent / p.total : 0),
-        })
-      }
-      alternatives={
-        loose.length > 0
-          ? (add) => (
-              <Dropdown
-                size="sm"
-                value="From the project"
-                actions={loose.map((f) => ({
-                  label: f.name,
-                  icon: <Icon name={kindIcon[f.kind]} size={13} />,
-                  onSelect: () =>
-                    add({
-                      key: f.id,
-                      name: f.name,
-                      size: f.byteSize,
-                      result: { id: f.id, name: f.name, kind: f.kind, byteSize: f.byteSize },
-                    }),
-                }))}
-              />
-            )
-          : undefined
-      }
-      onChange={(files) => {
-        const file = files[0];
-        setChosen(file?.name ?? null);
-        setName(file ? variationNameFrom(file.name, track.name) : "");
-      }}
-      fields={
-        <>
-          {mode === "replace" && version.variations.length > 1 && (
-            <Field label={capital(words.variation)}>
-              <Select value={target} onChange={(e) => setTarget(e.target.value)}>
-                {version.variations.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name} · {v.fileName}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          )}
-          {mode === "add" && chosen && (
-            <div className="flex flex-wrap items-end gap-4">
-              <Field label="Name" className="w-48">
-                <Input value={name} onChange={(e) => setName(e.target.value)} />
-              </Field>
-              <label className="flex h-9 cursor-pointer items-center gap-2 text-[14px] text-ink-2">
-                <Checkbox checked={primary} onChange={(e) => setPrimary(e.target.checked)} />
-                Make it the primary
-              </label>
-            </div>
-          )}
-        </>
-      }
-      what={
-        mode === "add"
-          ? `Uploaded into the ${words.track}'s folder, beside the other ${words.variations} of ${versionLabel(version.number)}.`
-          : replacing
-            ? `In place of ${replacing.fileName}.`
-            : undefined
-      }
-      action={mode === "add" ? `Add ${words.variation}` : "Replace"}
-      onSubmit={async ([first]) => {
-        if (!first?.result) return;
-        if (mode === "add") {
-          await addVariation.mutateAsync({
-            versionId: version.id,
-            fileId: first.result.id,
-            name: name.trim() || "Main",
-            primary,
-          });
-        } else {
-          await replaceFile.mutateAsync({ variationId: target, fileId: first.result.id });
-        }
         onClose();
       }}
     />

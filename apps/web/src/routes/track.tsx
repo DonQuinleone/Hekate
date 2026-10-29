@@ -6,7 +6,7 @@ import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { TakeManager } from "~/components/takes";
-import { primaryOf, TrackHeading, TrackVersions } from "~/components/track-versions";
+import { TrackHeading, TrackVersions } from "~/components/track-versions";
 import { Button } from "~/components/ui/button";
 import { Segmented } from "~/components/ui/segmented";
 import {
@@ -16,6 +16,7 @@ import {
   useProjectCan,
   useProjectTool,
 } from "~/lib/queries";
+import { primaryOf } from "~/lib/versions";
 
 /**
  * A track (#131): it opens in the player on its latest version's primary file, like a
