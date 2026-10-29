@@ -309,13 +309,23 @@ export function UploadProvider({
   );
 
   const start = useCallback(
-    (files: FileList | File[], into: string | null = folderId, onto: Track | null = null) => {
-      const list = Array.from(files);
+    (
+      files: FileList | File[] | Picked[],
+      into: string | null = folderId,
+      onto: Track | null = null,
+    ) => {
+      // A drop keeps each file's folder, so two alike in different folders stay two.
+      const picked: Picked[] = Array.from(files as ArrayLike<File | Picked>).map((f) =>
+        f instanceof File ? { file: f, folder: "" } : f,
+      );
       // Audio in a music project is asked what it becomes, and whatever was dropped with it
       // goes up alongside; anything else, anywhere else, goes up as it is.
-      if (asks && (onto || list.some((f) => isAudio(f))))
-        setAsking({ files: list.map((file) => ({ file, folder: "" })), onto });
-      else send(list, into);
+      if (asks && (onto || picked.some((p) => isAudio(p.file)))) setAsking({ files: picked, onto });
+      else
+        send(
+          picked.map((p) => p.file),
+          into,
+        );
     },
     [asks, folderId, send],
   );
@@ -351,11 +361,7 @@ export function UploadProvider({
   const over = usePageDrop({
     enabled: enabled && !open,
     onDrop: (picked, trackId) =>
-      start(
-        picked.map((p) => p.file),
-        folderId,
-        tracks?.find((t) => t.id === trackId) ?? null,
-      ),
+      start(picked, folderId, tracks?.find((t) => t.id === trackId) ?? null),
     onAim: asks ? setAimed : undefined,
   });
 
