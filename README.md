@@ -92,6 +92,12 @@ cosign verify ghcr.io/donquinleone/hekate:<version> \
 
 To build the image from a checkout instead, add `-f deploy/compose.build.yml` and `--build`.
 
+To try it first, on a laptop with Docker and nothing to set up, the demo brings up a seeded instance at `http://localhost:3000` (sign in as `producer@example.test` with `correct horse battery`; the install page's *Try the demo* says what is in it):
+
+```sh
+docker compose --env-file deploy/demo.env -f deploy/compose.yml -f deploy/compose.build.yml -f deploy/compose.demo.yml up -d --build
+```
+
 Back up the database, the storage and the master key, and check a restore with `backup verify`: see [docs/backup.md](docs/backup.md).
 
 ## Storage
