@@ -61,6 +61,29 @@ describe("configuration", () => {
     expect(config.WORKER_LANES).toBeNull();
   });
 
+  it("holds the demo to this machine, whose keys are published (decision 265)", () => {
+    const secrets = {
+      DATABASE_URL: "postgres://hekate:secret@localhost:5432/hekate",
+      AUTH_SECRET: "x".repeat(32),
+      MASTER_KEY: Buffer.alloc(32, 1).toString("base64"),
+    };
+    expect(loadConfig(secrets).HEKATE_DEMO).toBe(false);
+    expect(loadConfig({ ...secrets, HEKATE_DEMO: "1" }).HEKATE_DEMO).toBe(true);
+    expect(
+      loadConfig({ ...secrets, HEKATE_DEMO: "1", PUBLIC_URL: "http://127.0.0.1:8080" }).HEKATE_DEMO,
+    ).toBe(true);
+    let error: unknown;
+    try {
+      loadConfig({ ...secrets, HEKATE_DEMO: "1", PUBLIC_URL: "https://review.example.test" });
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(ConfigError);
+    expect((error as ConfigError).problems).toEqual([
+      { name: "HEKATE_DEMO", message: expect.stringContaining("not review.example.test") },
+    ]);
+  });
+
   it("takes payments through Stripe only with its keys, and test-mode keys only (#178)", () => {
     const base = {
       DATABASE_URL: "postgres://hekate:secret@localhost:5432/hekate",

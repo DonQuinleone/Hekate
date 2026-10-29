@@ -210,6 +210,17 @@ const schema = z.object({
           "The code that opens the installer and creates the first owner, three groups of four letters and digits. Leave unset: the server makes a new one at each start and prints it in its log.",
       }),
     ),
+  HEKATE_DEMO: z
+    .enum(["0", "1"], { error: "use 1 for the demo, or leave it unset" })
+    .default("0")
+    .transform((v) => v === "1")
+    .meta(
+      info({
+        group: "Server",
+        description:
+          "Set to 1 by deploy/compose.demo.yml (decision 265): `cli.ts demo seed` then fills the instance with sample data, and the server starts only with PUBLIC_URL at localhost or 127.0.0.1, so the demo's published keys and passwords can never serve a real address.",
+      }),
+    ),
   DATABASE_URL: z
     .url({
       error: "must be a PostgreSQL connection URL, such as postgres://hekate:secret@db:5432/hekate",
@@ -835,6 +846,15 @@ function together(env: Record<string, string | undefined>): ConfigProblem[] {
   if (env.HEKATE_BILLING === "stripe")
     for (const name of ["STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"])
       if (!env[name]) problems.push({ name, message: "required when HEKATE_BILLING is stripe" });
+  // The demo's keys and passwords are published (deploy/demo.env): it serves this machine only.
+  if (env.HEKATE_DEMO === "1") {
+    const host = hostOf(env.PUBLIC_URL);
+    if (host && host !== "localhost" && host !== "127.0.0.1")
+      problems.push({
+        name: "HEKATE_DEMO",
+        message: `the demo serves localhost or 127.0.0.1 only, not ${host}: its keys and passwords are published, so keep PUBLIC_URL on this machine, or unset HEKATE_DEMO`,
+      });
+  }
   // Mail leaves one way (#71): each provider's settings whole, and no more than one of them.
   const sets = {
     smtp: ["SMTP_URL"],
@@ -853,6 +873,15 @@ function together(env: Record<string, string | undefined>): ConfigProblem[] {
       message: `mail goes out one way: set only one of ${used.map(([, names]) => names[0]).join(", ")}`,
     });
   return problems;
+}
+
+/** PUBLIC_URL's host, as the schema would read it; nothing for one the schema refuses. */
+function hostOf(publicUrl: string | undefined): string | undefined {
+  try {
+    return new URL(publicUrl || "http://localhost:3000").hostname;
+  } catch {
+    return undefined;
+  }
 }
 
 /** One problem with a setting, in words: which, and what would be valid. */
