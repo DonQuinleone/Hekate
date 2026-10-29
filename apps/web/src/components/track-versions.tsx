@@ -20,7 +20,6 @@ import {
   type Project,
   type ProjectFile,
   projectFilesQuery,
-  projectTracksQuery,
   projectWorkflowsQuery,
   type Track,
   trackStandingQuery,
