@@ -1375,15 +1375,21 @@ test("score-marking-export-every", async ({ page }) => {
   }
 });
 
-// Sharing (#138): the Share dialog, from the project's Reviews, a track and someone chosen.
-test("share-dialog", async ({ page }) => {
+// Sharing one item (#489) from the player's header: the sheet for this file, with someone
+// chosen and the rest offered as you type.
+test("file-share", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().musicProjectId}/reviews`);
-  await settle(page, "main >> text=Rehearsal takes");
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
   await page.getByRole("button", { name: "Share", exact: true }).click();
-  await settle(page, "[role=dialog] >> text=Maple Leaf Rag");
-  await page.getByRole("dialog").getByRole("checkbox").first().check();
-  await saveScreen(page, "share-dialog");
+  await settle(page, "[role=dialog] >> text=Link works for 7 days");
+  const who = page.getByRole("combobox", { name: "Who" });
+  await who.fill("mira");
+  await page.getByRole("option").first().click();
+  await expect(page.getByRole("button", { name: /^Remove / })).toHaveCount(1);
+  await who.click();
+  await expect(page.getByRole("option").first()).toBeVisible();
+  await saveScreen(page, "file-share");
   await checkScreen(page);
 });
 
@@ -3217,15 +3223,18 @@ test("project-files-track-actions", async ({ page }, info) => {
   await checkScreen(page);
 });
 
-// Sharing from a row starts with that track chosen, in the same dialog as the reviews page's.
-test("project-files-share", async ({ page }) => {
+// Sharing from a row (#489) opens the same sheet for that track: who, how, its link, Send.
+test("files-share", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/files`);
   await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
   await page.getByRole("button", { name: "Actions for Maple Leaf Rag", exact: true }).click();
   await page.getByRole("menuitem", { name: "Share…" }).click();
-  await settle(page, "[role=dialog] >> text=What");
-  await saveScreen(page, "project-files-share");
+  await settle(page, "[role=dialog] >> text=Link works for 7 days");
+  await expect(page.getByRole("dialog", { name: "Share Maple Leaf Rag" })).toBeVisible();
+  await page.getByRole("button", { name: "Can download" }).click();
+  await expect(page.getByRole("dialog")).toContainText("download the original, watermarked");
+  await saveScreen(page, "files-share");
   await checkScreen(page);
 });
 
