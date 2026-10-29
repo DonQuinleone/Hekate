@@ -22,7 +22,9 @@ if (!process.env.E2E_REUSE && process.env.TEST_WORKER_INDEX === undefined) {
 export default defineConfig({
   testDir: "tests",
   outputDir: "test-results",
-  fullyParallel: false,
+  // One worker keeps the captures in order; fully parallel lets CI's shards split a file's
+  // tests between runners rather than taking whole files. Tests must not depend on each other.
+  fullyParallel: true,
   workers: 1,
   timeout: 180_000,
   expect: { timeout: 15_000 },

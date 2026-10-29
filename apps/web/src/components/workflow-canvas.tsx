@@ -1116,8 +1116,10 @@ export function WorkflowCanvas({
       {inspectorOpen && (
         <aside
           aria-label="Inspector"
-          // On a phone it covers the canvas and its toolbar, on purpose.
+          // On a phone it covers the canvas and its toolbar, on purpose: a layer, so what it
+          // covers is out of sight to the visual suite's checks.
           data-e2e-overlap
+          data-e2e-layer
           className="absolute inset-y-0 right-0 z-20 flex w-full flex-col border-l border-line bg-pane shadow-4 @3xl/app:static @3xl/app:w-[340px] @3xl/app:shadow-none"
         >
           {picking && <Picker onPick={addNode} onClose={() => setPicking(null)} />}
