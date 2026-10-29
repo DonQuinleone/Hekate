@@ -10,6 +10,7 @@ import { NotificationsMenu } from "~/components/notifications";
 import { Trail, useCurrentHeader } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-card";
 import { Dot, reviewDot } from "~/components/status";
+import { DialogLayer } from "~/components/ui/dialog";
 import { MenuList, usePopover } from "~/components/ui/menu";
 import {
   env,
@@ -376,7 +377,7 @@ export function Pane({ children, className }: { children: ReactNode; className?:
         className,
       )}
     >
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col">{children}</div>
+      <DialogLayer className="relative z-10 flex min-h-0 flex-1 flex-col">{children}</DialogLayer>
     </div>
   );
 }

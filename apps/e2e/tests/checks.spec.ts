@@ -76,3 +76,21 @@ test("checks a floating layer on its own, and leaves what it covers alone", asyn
   expect(found).toHaveLength(1);
   expect(found[0]?.what).toContain("Sheet title");
 });
+
+test("finds a modal shut inside the box it was opened in, not over the main area", async ({
+  page: p,
+}) => {
+  const shell = (
+    inside: string,
+  ) => `<!doctype html><html lang="en"><head><title>Check</title></head>
+    <body style="margin:0;height:100vh"><div style="position:relative;height:100%">
+    <main style="height:100%;overflow:auto">${inside}</main></div></body></html>`;
+  const modal = `<div style="position:absolute;inset:0;background:#000a">
+    <div role="dialog" aria-modal="true" aria-label="Make someone an operator"
+      style="position:relative;margin:40px auto;width:200px;height:60px;background:#222"></div></div>`;
+  // A page left transformed by its entrance holds the modal to its own height.
+  await p.setContent(shell(`<div style="transform:translateY(0);height:160px">${modal}</div>`));
+  expect((await layoutProblems(p)).map((x) => x.check)).toContain("uncovered-by-modal");
+  await p.setContent(shell(`<div style="height:160px"></div>${modal}`));
+  expect((await layoutProblems(p)).map((x) => x.check)).not.toContain("uncovered-by-modal");
+});

@@ -1,6 +1,23 @@
-import { type ReactNode, useEffect } from "react";
+import { createContext, type ReactNode, useContext, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "~/components/icons";
 import { cn } from "~/lib/cn";
+
+const DialogHost = createContext<HTMLElement | null>(null);
+
+/**
+ * Where dialogs open: the pane the page is drawn on. A dialog is drawn here whichever component
+ * opens it, so it covers the whole pane rather than the box (a column, a page settling in) it
+ * happens to be declared in.
+ */
+export function DialogLayer({ children, className }: { children: ReactNode; className?: string }) {
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
+  return (
+    <div ref={setHost} className={className}>
+      <DialogHost.Provider value={host}>{children}</DialogHost.Provider>
+    </div>
+  );
+}
 
 /** A floating sheet over the page: a form, a confirmation, a chooser. Escape closes it. */
 export function Dialog({
@@ -23,7 +40,8 @@ export function Dialog({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-  return (
+  const host = useContext(DialogHost);
+  const sheet = (
     <div className="absolute inset-0 z-40 flex items-end justify-center bg-canvas/70 p-0 backdrop-blur-[2px] @3xl/app:items-center @3xl/app:p-6">
       <button
         type="button"
@@ -65,4 +83,6 @@ export function Dialog({
       </div>
     </div>
   );
+  // Outside a pane (sign-in, say), where it is declared.
+  return host ? createPortal(sheet, host) : sheet;
 }

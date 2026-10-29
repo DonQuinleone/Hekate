@@ -4,8 +4,8 @@ import { expect, type Page } from "@playwright/test";
 /**
  * What a reviewer's eye should catch on every screen, checked by the browser instead:
  * text running into other text, lines drawn through text, text cut off without an
- * ellipsis, targets too small for a finger or a pointer, a page wider than the window,
- * and what axe finds against WCAG 2.2 AA.
+ * ellipsis, targets too small for a finger or a pointer, a page wider than the window, a
+ * modal that leaves part of the page uncovered, and what axe finds against WCAG 2.2 AA.
  *
  * An element that overlaps on purpose (a label on a waveform, say) says so with
  * `data-e2e-overlap`; it is then left out of the overlap checks, along with its contents.
@@ -18,7 +18,13 @@ import { expect, type Page } from "@playwright/test";
 const MIN_TARGET = 24;
 
 export interface LayoutProblem {
-  check: "overflow" | "text-overlap" | "line-through-text" | "clipped-text" | "small-target";
+  check:
+    | "overflow"
+    | "text-overlap"
+    | "line-through-text"
+    | "clipped-text"
+    | "small-target"
+    | "uncovered-by-modal";
   what: string;
 }
 
@@ -65,9 +71,46 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
       }
     }
 
+    // A modal shuts off the whole working area: its backdrop (the element it sits in) covers
+    // every corner of the main area, rather than the box of whatever it was opened inside.
+    const modal = document.querySelector("[aria-modal=true]");
+    const backdrop = modal?.parentElement;
+    if (backdrop) {
+      for (const main of document.querySelectorAll("main")) {
+        if (backdrop.contains(main) || !shown(main)) continue;
+        const r = main.getBoundingClientRect();
+        // Inside the pane's rounded corners, which clip hit-testing; the midpoints of the
+        // edges besides, since a backdrop the size of a column or a page misses one of them.
+        const left = Math.max(r.left, 0) + 24;
+        const right = Math.min(r.right, window.innerWidth) - 24;
+        const top = Math.max(r.top, 0) + 24;
+        const bottom = Math.min(r.bottom, window.innerHeight) - 24;
+        const midX = (left + right) / 2;
+        const midY = (top + bottom) / 2;
+        const points = [
+          [left, top],
+          [right, top],
+          [left, bottom],
+          [right, bottom],
+          [midX, top - 20],
+          [midX, bottom + 20],
+          [left - 20, midY],
+          [right + 20, midY],
+        ] as const;
+        for (const [x, y] of points) {
+          const hit = document.elementFromPoint(x, y);
+          if (hit && backdrop.contains(hit)) continue;
+          problems.push({
+            check: "uncovered-by-modal",
+            what: `${nameOf(modal)} leaves the main area uncovered at ${Math.round(x)},${Math.round(y)}${hit ? `, where ${nameOf(hit)} shows` : ""}`,
+          });
+          break;
+        }
+      }
+    }
+
     // Every run of visible text, as the boxes its lines take up. While a modal is open, only
     // its own: the page behind it is out of reach, and the modal lies over it on purpose.
-    const modal = document.querySelector("[aria-modal=true]");
     const layers = [...document.querySelectorAll("[data-e2e-layer]")].filter(shown);
     const layerOf = (el: Element) => el.closest("[data-e2e-layer]");
     // Whether a box outside the layers lies under one of them, out of sight.
