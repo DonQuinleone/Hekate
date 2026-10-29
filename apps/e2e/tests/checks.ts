@@ -314,6 +314,36 @@ export async function accessibilityProblems(page: Page): Promise<string[]> {
       line: `${v.id}: ${n.target.join(" ")} (${v.help})`,
     })),
   );
+  // A crowded target is named with what lies over it, so the capture's log says what to move.
+  const over = await page.evaluate(
+    (targets) =>
+      targets.map((selector) => {
+        if (!selector) return "";
+        const el = document.querySelector(selector);
+        if (!el) return "";
+        const r = el.getBoundingClientRect();
+        const points: [number, number][] = [
+          [r.left + 2, r.top + 2],
+          [r.right - 2, r.top + 2],
+          [r.left + 2, r.bottom - 2],
+          [r.right - 2, r.bottom - 2],
+          [(r.left + r.right) / 2, (r.top + r.bottom) / 2],
+        ];
+        const seen = new Set<string>();
+        for (const [x, y] of points) {
+          for (const hit of document.elementsFromPoint(x, y)) {
+            if (hit === el || el.contains(hit)) break;
+            const b = hit.getBoundingClientRect();
+            seen.add(
+              `<${hit.tagName.toLowerCase()} class="${hit.getAttribute("class")?.slice(0, 60) ?? ""}"> at ${Math.round(b.left)},${Math.round(b.top)} ${Math.round(b.width)}x${Math.round(b.height)}`,
+            );
+          }
+        }
+        return `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}${seen.size ? ` under ${[...seen].join("; ")}` : ""}`;
+      }),
+    lines.map((l) => (l.rule === "target-size" ? String(l.target[0]) : "")),
+  );
+  for (const [i, l] of lines.entries()) if (over[i]) l.line += ` [${over[i]}]`;
   // An open menu or a floating layer lies over the page on purpose, as a modal does: a target it
   // half covers would read as crowded by it. Those are checked on the screens where it is shut.
   const covered = await page.evaluate(
