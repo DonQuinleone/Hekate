@@ -68,7 +68,7 @@ const {
   spectrograms,
   spectrogramVariantFailures,
   spectrogramVariants,
-  variations,
+  variants,
   versions,
   tracks,
   takes,
@@ -205,9 +205,9 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       // Where the file sits in the music model, if it is a variation of a track's version.
       const [variation] = await deps.db
         .select({
-          id: variations.id,
-          name: variations.name,
-          isPrimary: variations.isPrimary,
+          id: variants.id,
+          name: variants.name,
+          isPrimary: variants.isPrimary,
           versionId: versions.id,
           versionNumber: versions.number,
           trackId: tracks.id,
@@ -217,11 +217,11 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           /** How the track plays normalised, over the project's (#98). */
           trackNormalisation: tracks.normalisation,
         })
-        .from(variations)
+        .from(variants)
         .innerJoin(
           versions,
           and(
-            eq(versions.id, variations.versionId),
+            eq(versions.id, variants.versionId),
             eq(versions.organisationId, c.var.organisationId),
           ),
         )
@@ -229,7 +229,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
           tracks,
           and(eq(tracks.id, versions.trackId), eq(tracks.organisationId, c.var.organisationId)),
         )
-        .where(inOrg(variations, c.var.organisationId, eq(variations.fileId, file.id)));
+        .where(inOrg(variants, c.var.organisationId, eq(variants.fileId, file.id)));
       // A take plays as its track does (#98).
       const [take] = variation
         ? []
@@ -304,31 +304,31 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       const fileId = c.req.valid("param").id;
       const [mine] = await deps.db
         .select({ trackId: versions.trackId })
-        .from(variations)
+        .from(variants)
         .innerJoin(
           versions,
-          and(eq(versions.id, variations.versionId), eq(versions.organisationId, org)),
+          and(eq(versions.id, variants.versionId), eq(versions.organisationId, org)),
         )
-        .where(inOrg(variations, org, eq(variations.fileId, fileId)));
+        .where(inOrg(variants, org, eq(variants.fileId, fileId)));
       if (!mine) return c.json({ versions: [] });
       const rows = await deps.db
         .select({
           versionId: versions.id,
           number: versions.number,
-          fileId: variations.fileId,
-          name: variations.name,
-          isPrimary: variations.isPrimary,
-          position: variations.position,
+          fileId: variants.fileId,
+          name: variants.name,
+          isPrimary: variants.isPrimary,
+          position: variants.position,
           streamStatus: files.streamStatus,
         })
-        .from(variations)
+        .from(variants)
         .innerJoin(
           versions,
-          and(eq(versions.id, variations.versionId), eq(versions.organisationId, org)),
+          and(eq(versions.id, variants.versionId), eq(versions.organisationId, org)),
         )
-        .innerJoin(files, and(eq(files.id, variations.fileId), eq(files.organisationId, org)))
-        .where(inOrg(variations, org, eq(versions.trackId, mine.trackId)))
-        .orderBy(asc(versions.number), asc(variations.position));
+        .innerJoin(files, and(eq(files.id, variants.fileId), eq(files.organisationId, org)))
+        .where(inOrg(variants, org, eq(versions.trackId, mine.trackId)))
+        .orderBy(asc(versions.number), asc(variants.position));
       const reached = await reachable(deps.db, c.var.actor);
       const shown = reached ? rows.filter((r) => reached.has(r.fileId)) : rows;
       const byVersion = new Map<

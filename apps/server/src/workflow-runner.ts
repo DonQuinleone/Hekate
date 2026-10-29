@@ -40,7 +40,7 @@ const {
   tags,
   tasks,
   tracks,
-  variations,
+  variants,
   versions,
   workflowRuns,
   workflowSteps,
@@ -102,17 +102,14 @@ async function contextOf(
     .select({ kind: files.kind, fileId: files.id })
     .from(versions)
     .innerJoin(
-      variations,
+      variants,
       and(
-        eq(variations.versionId, versions.id),
-        eq(variations.isPrimary, true),
-        eq(variations.organisationId, organisationId),
+        eq(variants.versionId, versions.id),
+        eq(variants.isPrimary, true),
+        eq(variants.organisationId, organisationId),
       ),
     )
-    .innerJoin(
-      files,
-      and(eq(files.id, variations.fileId), eq(files.organisationId, organisationId)),
-    )
+    .innerJoin(files, and(eq(files.id, variants.fileId), eq(files.organisationId, organisationId)))
     .where(inOrg(versions, organisationId, eq(versions.trackId, trackId)))
     .orderBy(desc(versions.number))
     .limit(1);
@@ -957,12 +954,9 @@ async function checkedFiles(db: Database, organisationId: string, run: RunRow) {
       streamStatus: files.streamStatus,
       analysisStatus: files.analysisStatus,
     })
-    .from(variations)
-    .innerJoin(
-      files,
-      and(eq(files.id, variations.fileId), eq(files.organisationId, organisationId)),
-    )
-    .where(inOrg(variations, organisationId, eq(variations.versionId, version.id)));
+    .from(variants)
+    .innerJoin(files, and(eq(files.id, variants.fileId), eq(files.organisationId, organisationId)))
+    .where(inOrg(variants, organisationId, eq(variants.versionId, version.id)));
   const seen: MeasuredFile[] = [];
   for (const file of rows) {
     const state = measuredState(file);
@@ -1019,10 +1013,10 @@ export async function fileMeasured(
   const { organisationId } = job;
   const runs = await deps.db
     .selectDistinct({ id: workflowRuns.id })
-    .from(variations)
+    .from(variants)
     .innerJoin(
       versions,
-      and(eq(versions.id, variations.versionId), eq(versions.organisationId, organisationId)),
+      and(eq(versions.id, variants.versionId), eq(versions.organisationId, organisationId)),
     )
     .innerJoin(
       workflowRuns,
@@ -1032,7 +1026,7 @@ export async function fileMeasured(
         eq(workflowRuns.state, "running"),
       ),
     )
-    .where(inOrg(variations, organisationId, eq(variations.fileId, job.fileId)));
+    .where(inOrg(variants, organisationId, eq(variants.fileId, job.fileId)));
   for (const { id } of runs) await checksDue(deps, organisationId, id);
 }
 

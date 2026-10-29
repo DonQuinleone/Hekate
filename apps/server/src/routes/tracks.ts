@@ -19,7 +19,7 @@ import {
   withPrimary,
   workspaceSettingsOf,
 } from "@hekate/shared";
-import { and, asc, count, eq, getTableColumns, inArray, max, ne, or } from "drizzle-orm";
+import { and, asc, count, eq, getTableColumns, inArray, max, or } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -40,13 +40,14 @@ import { swapScore } from "../score-swap.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
+import { insertVariants, updateVariants, violatesOneVariantPerFile } from "../variants.ts";
 import { type RunnerDeps, restartAt, runAfter, versionArrived } from "../workflow-runner.ts";
 import { folderIn, lockProject } from "./folders.ts";
 
 const {
   tracks,
   versions,
-  variations,
+  variants,
   files,
   projects,
   loudness,
@@ -57,12 +58,6 @@ const {
 } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
-
-/** True when a statement failed on the named unique index. */
-function violates(error: unknown, index: string): boolean {
-  const cause = (error as { cause?: { code?: string; constraint_name?: string } }).cause;
-  return cause?.code === "23505" && cause.constraint_name === index;
-}
 
 /** Every file id must belong to the project, in this organisation. */
 async function assertProjectFiles(
@@ -129,32 +124,32 @@ async function tracksOf(db: Database, organisationId: string, projectId: string)
       ? []
       : await db
           .select({
-            id: variations.id,
-            versionId: variations.versionId,
-            fileId: variations.fileId,
-            name: variations.name,
-            isPrimary: variations.isPrimary,
-            position: variations.position,
-            subtitled: variations.subtitled,
-            graded: variations.graded,
+            id: variants.id,
+            versionId: variants.versionId,
+            fileId: variants.fileId,
+            name: variants.name,
+            isPrimary: variants.isPrimary,
+            position: variants.position,
+            subtitled: variants.subtitled,
+            graded: variants.graded,
             fileName: files.name,
             kind: files.kind,
             streamStatus: files.streamStatus,
             mediaInfo: files.mediaInfo,
           })
-          .from(variations)
-          .innerJoin(files, eq(files.id, variations.fileId))
+          .from(variants)
+          .innerJoin(files, eq(files.id, variants.fileId))
           .where(
             inOrg(
-              variations,
+              variants,
               organisationId,
               inArray(
-                variations.versionId,
+                variants.versionId,
                 versionRows.map((v) => v.id),
               ),
             ),
           )
-          .orderBy(asc(variations.position), asc(variations.id));
+          .orderBy(asc(variants.position), asc(variants.id));
   // Who sent a version's file through an upload request (#425), for one no member added.
   const unsigned = new Set(versionRows.filter((v) => !v.createdBy).map((v) => v.id));
   const sentFiles = variationRows.filter((x) => unsigned.has(x.versionId)).map((x) => x.fileId);
@@ -522,10 +517,10 @@ export const trackRoutes = (
         db,
         organisationId,
         track.projectId,
-        input.variations.map((v) => v.fileId),
+        input.variants.map((v) => v.fileId),
       );
       const { project, refusals } = await versionChecksOf(db, storage, organisationId, track, {
-        fileIds: input.variations.map((v) => v.fileId),
+        fileIds: input.variants.map((v) => v.fileId),
         edlFileId: input.edlFileId ?? null,
       });
       const letThrough = refusals.length > 0 && input.letThrough === true;
@@ -592,8 +587,9 @@ export const trackRoutes = (
             path: `/tracks/${id}`,
             details: { version: number },
           });
-          await tx.insert(variations).values(
-            withPrimary(input.variations).map((v) => ({
+          await insertVariants(
+            tx,
+            withPrimary(input.variants).map((v) => ({
               organisationId,
               versionId: version?.id ?? "",
               fileId: v.fileId,
@@ -641,7 +637,7 @@ export const trackRoutes = (
           );
         });
       } catch (error) {
-        if (violates(error, "variations_file_idx")) {
+        if (violatesOneVariantPerFile(error)) {
           throw new HTTPException(409, { message: "A file is already a variation of a version" });
         }
         throw error;
@@ -742,26 +738,30 @@ export const versionRoutes = (db: Database) =>
             .where(inOrg(versions, organisationId, eq(versions.id, version.id)))
             .for("update");
           const [last] = await tx
-            .select({ position: max(variations.position) })
-            .from(variations)
-            .where(inOrg(variations, organisationId, eq(variations.versionId, version.id)));
+            .select({ position: max(variants.position) })
+            .from(variants)
+            .where(inOrg(variants, organisationId, eq(variants.versionId, version.id)));
           if (input.primary) {
-            await tx
-              .update(variations)
-              .set({ isPrimary: false, updatedAt: new Date() })
-              .where(inOrg(variations, organisationId, eq(variations.versionId, version.id)));
+            await updateVariants(
+              tx,
+              organisationId,
+              { versionId: version.id },
+              { isPrimary: false, updatedAt: new Date() },
+            );
           }
-          await tx.insert(variations).values({
-            organisationId,
-            versionId: version.id,
-            fileId: input.fileId,
-            name: input.name,
-            isPrimary: Boolean(input.primary),
-            position: (last?.position ?? -1) + 1,
-          });
+          await insertVariants(tx, [
+            {
+              organisationId,
+              versionId: version.id,
+              fileId: input.fileId,
+              name: input.name,
+              isPrimary: Boolean(input.primary),
+              position: (last?.position ?? -1) + 1,
+            },
+          ]);
         });
       } catch (error) {
-        if (violates(error, "variations_file_idx")) {
+        if (violatesOneVariantPerFile(error)) {
           throw new HTTPException(409, {
             message: "That file is already a variation of a version",
           });
@@ -789,11 +789,11 @@ export const variationRoutes = (
           projectId: tracks.projectId,
           profile: projects.profile,
         })
-        .from(variations)
-        .innerJoin(versions, eq(versions.id, variations.versionId))
+        .from(variants)
+        .innerJoin(versions, eq(versions.id, variants.versionId))
         .innerJoin(tracks, eq(tracks.id, versions.trackId))
         .innerJoin(projects, eq(projects.id, tracks.projectId))
-        .where(inOrg(variations, organisationId, eq(variations.id, id)));
+        .where(inOrg(variants, organisationId, eq(variants.id, id)));
       if (!variation) throw new NotFound("Variation");
       await canSeeTrack(db, c.var, variation.projectId, "organise");
       const input = c.req.valid("json");
@@ -806,10 +806,9 @@ export const variationRoutes = (
           message: "Only a video project's renditions are subtitled or graded",
         });
       }
-      await db
-        .update(variations)
-        .set({ ...input, updatedAt: new Date() })
-        .where(inOrg(variations, organisationId, eq(variations.id, id)));
+      await db.transaction((tx) =>
+        updateVariants(tx, organisationId, { id }, { ...input, updatedAt: new Date() }),
+      );
       return c.json({ track: await oneTrack(db, organisationId, variation.trackId) });
     })
     .post("/:id/primary", idParam, async (c) => {
@@ -817,14 +816,14 @@ export const variationRoutes = (
       const { id } = c.req.valid("param");
       const [variation] = await db
         .select({
-          versionId: variations.versionId,
+          versionId: variants.versionId,
           trackId: versions.trackId,
           projectId: tracks.projectId,
         })
-        .from(variations)
-        .innerJoin(versions, eq(versions.id, variations.versionId))
+        .from(variants)
+        .innerJoin(versions, eq(versions.id, variants.versionId))
         .innerJoin(tracks, eq(tracks.id, versions.trackId))
-        .where(inOrg(variations, organisationId, eq(variations.id, id)));
+        .where(inOrg(variants, organisationId, eq(variants.id, id)));
       if (!variation) throw new NotFound("Variation");
       await canSeeTrack(db, c.var, variation.projectId, "organise");
       await db.transaction(async (tx) => {
@@ -835,20 +834,14 @@ export const variationRoutes = (
           .where(inOrg(versions, organisationId, eq(versions.id, variation.versionId)))
           .for("update");
         // Clear the old primary first: the partial unique index allows one at a time.
-        await tx
-          .update(variations)
-          .set({ isPrimary: false, updatedAt: new Date() })
-          .where(
-            inOrg(
-              variations,
-              organisationId,
-              and(eq(variations.versionId, variation.versionId), ne(variations.id, id)),
-            ),
-          );
-        await tx
-          .update(variations)
-          .set({ isPrimary: true, updatedAt: new Date() })
-          .where(inOrg(variations, organisationId, eq(variations.id, id)));
+        const now = new Date();
+        await updateVariants(
+          tx,
+          organisationId,
+          { versionId: variation.versionId, exceptId: id },
+          { isPrimary: false, updatedAt: now },
+        );
+        await updateVariants(tx, organisationId, { id }, { isPrimary: true, updatedAt: now });
       });
       return c.json({ track: await oneTrack(db, organisationId, variation.trackId) });
     })
@@ -863,17 +856,17 @@ export const variationRoutes = (
       const { fileId } = c.req.valid("json");
       const [variation] = await db
         .select({
-          versionId: variations.versionId,
-          fileId: variations.fileId,
+          versionId: variants.versionId,
+          fileId: variants.fileId,
           trackId: versions.trackId,
           projectId: tracks.projectId,
           kind: files.kind,
         })
-        .from(variations)
-        .innerJoin(versions, eq(versions.id, variations.versionId))
+        .from(variants)
+        .innerJoin(versions, eq(versions.id, variants.versionId))
         .innerJoin(tracks, eq(tracks.id, versions.trackId))
-        .innerJoin(files, eq(files.id, variations.fileId))
-        .where(inOrg(variations, organisationId, eq(variations.id, id)));
+        .innerJoin(files, eq(files.id, variants.fileId))
+        .where(inOrg(variants, organisationId, eq(variants.id, id)));
       if (!variation) throw new NotFound("Variation");
       await canSeeTrack(db, c.var, variation.projectId, "organise");
       if (fileId === variation.fileId) {
@@ -908,9 +901,9 @@ export const variationRoutes = (
             .where(inOrg(tracks, organisationId, eq(tracks.id, variation.trackId)))
             .for("update");
           const [current] = await tx
-            .select({ fileId: variations.fileId })
-            .from(variations)
-            .where(inOrg(variations, organisationId, eq(variations.id, id)))
+            .select({ fileId: variants.fileId })
+            .from(variants)
+            .where(inOrg(variants, organisationId, eq(variants.id, id)))
             .for("update");
           if (!current) throw new NotFound("Variation");
           if (current.fileId === fileId) {
@@ -918,10 +911,7 @@ export const variationRoutes = (
           }
           const old = current.fileId;
           const now = new Date();
-          await tx
-            .update(variations)
-            .set({ fileId, updatedAt: now })
-            .where(inOrg(variations, organisationId, eq(variations.id, id)));
+          await updateVariants(tx, organisationId, { id }, { fileId, updatedAt: now });
           await tx
             .update(comments)
             .set({ fileId, updatedAt: now })
@@ -973,7 +963,7 @@ export const variationRoutes = (
           return moved.map((a) => a.id);
         });
       } catch (error) {
-        if (violates(error, "variations_file_idx")) {
+        if (violatesOneVariantPerFile(error)) {
           throw new HTTPException(409, {
             message: "That file is already a variation of a version",
           });

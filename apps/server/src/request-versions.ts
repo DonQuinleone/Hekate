@@ -1,5 +1,5 @@
 import { inOrg, schema } from "@hekate/db";
-import { variationNameFrom } from "@hekate/shared";
+import { variantNameFrom } from "@hekate/shared";
 import { and, eq, isNotNull, max } from "drizzle-orm";
 import { carryThreads } from "./carry.ts";
 import { emitEvent } from "./events.ts";
@@ -8,9 +8,10 @@ import type { Mailer } from "./mail.ts";
 import { followersOf, notifyNow } from "./notifications.ts";
 import { versionChecksOf } from "./routes/tracks.ts";
 import type { Storage } from "./storage.ts";
+import { insertVariants, violatesOneVariantPerFile } from "./variants.ts";
 import { type RunnerDeps, versionArrived } from "./workflow-runner.ts";
 
-const { files, tracks, versions, variations, uploadRequests, uploadRequestFiles } = schema;
+const { files, tracks, versions, variants, uploadRequests, uploadRequestFiles } = schema;
 
 export interface RequestVersionDeps extends RunnerDeps, LinkRoots {
   storage: Storage;
@@ -19,12 +20,6 @@ export interface RequestVersionDeps extends RunnerDeps, LinkRoots {
 
 /** What became of a file sent through an upload request, as a track's next version. */
 export type RequestVersionOutcome = "made" | "refused" | "none";
-
-/** True when a statement failed on the named unique index. */
-function violates(error: unknown, index: string): boolean {
-  const cause = (error as { cause?: { code?: string; constraint_name?: string } }).cause;
-  return cause?.code === "23505" && cause.constraint_name === index;
-}
 
 /**
  * A file sent through an upload request to a track (#425), once measured (or at once, for a file
@@ -66,9 +61,9 @@ export async function versionFromRequest(
   const trackId = sent?.request.trackId;
   if (!sent || !trackId) return "none";
   const [already] = await db
-    .select({ id: variations.id })
-    .from(variations)
-    .where(inOrg(variations, organisationId, eq(variations.fileId, fileId)));
+    .select({ id: variants.id })
+    .from(variants)
+    .where(inOrg(variants, organisationId, eq(variants.fileId, fileId)));
   if (already) return "none";
   // The track, in the request's own project: anything else is no track of this request's.
   const [track] = await db
@@ -134,14 +129,16 @@ export async function versionFromRequest(
         })
         .returning({ id: versions.id });
       versionId = version?.id ?? "";
-      await tx.insert(variations).values({
-        organisationId,
-        versionId,
-        fileId,
-        name: variationNameFrom(sent.file.name, track.name),
-        isPrimary: true,
-        position: 0,
-      });
+      await insertVariants(tx, [
+        {
+          organisationId,
+          versionId,
+          fileId,
+          name: variantNameFrom(sent.file.name, track.name),
+          isPrimary: true,
+          position: 0,
+        },
+      ]);
       await emitEvent(tx, {
         organisationId,
         kind: "version.arrived",
@@ -161,7 +158,7 @@ export async function versionFromRequest(
     });
   } catch (error) {
     // Made a version meanwhile, by another run or a member: once is enough.
-    if (violates(error, "variations_file_idx")) return "none";
+    if (violatesOneVariantPerFile(error)) return "none";
     throw error;
   }
   for (const alignmentId of aligning) {

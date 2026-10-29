@@ -19,7 +19,7 @@ const {
   peakLevels,
   loudness,
   spectrograms,
-  variations,
+  variants,
   versions,
   tracks,
   takes,
@@ -122,18 +122,18 @@ export const fileDetailRoutes = (db: Database) =>
               track: tracks.name,
               versionId: versions.id,
               number: versions.number,
-              variation: variations.name,
-              primary: variations.isPrimary,
+              variation: variants.name,
+              primary: variants.isPrimary,
               latest: sql<boolean>`${versions.number} = (select max(v2.number) from versions v2
                 where v2.track_id = ${tracks.id} and v2.organisation_id = ${org})`,
             })
-            .from(variations)
+            .from(variants)
             .innerJoin(
               versions,
-              and(eq(versions.id, variations.versionId), eq(versions.organisationId, org)),
+              and(eq(versions.id, variants.versionId), eq(versions.organisationId, org)),
             )
             .innerJoin(tracks, and(eq(tracks.id, versions.trackId), eq(tracks.organisationId, org)))
-            .where(inOrg(variations, org, eq(variations.fileId, fileId))),
+            .where(inOrg(variants, org, eq(variants.fileId, fileId))),
           // A take's place, for those who may see takes (#21).
           file.takeId && access.permissions.has("view_takes")
             ? db

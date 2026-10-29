@@ -22,7 +22,7 @@ import type { ViewerVariables } from "../guests.ts";
 import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
-const { folders, files, projects, variations, versions, tracks, reviewItems, reviews } = schema;
+const { folders, files, projects, variants, versions, tracks, reviewItems, reviews } = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
@@ -249,9 +249,9 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
           throw new HTTPException(422, { message: "That file is not in this project" });
         }
         const inVersion = await tx
-          .select({ fileId: variations.fileId })
-          .from(variations)
-          .where(inOrg(variations, actor.organisationId, inArray(variations.fileId, [id, fileId])));
+          .select({ fileId: variants.fileId })
+          .from(variants)
+          .where(inOrg(variants, actor.organisationId, inArray(variants.fileId, [id, fileId])));
         if (inVersion.length > 0 || before.takeId || after.takeId) {
           throw new HTTPException(409, {
             message: "A file in a track or a take has its versions there",
@@ -316,11 +316,11 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
         if (!file) throw new NotFound("File");
         const [variation] = await tx
           .select({ track: tracks.name, version: versions.number })
-          .from(variations)
+          .from(variants)
           .innerJoin(
             versions,
             and(
-              eq(versions.id, variations.versionId),
+              eq(versions.id, variants.versionId),
               eq(versions.organisationId, actor.organisationId),
             ),
           )
@@ -328,7 +328,7 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
             tracks,
             and(eq(tracks.id, versions.trackId), eq(tracks.organisationId, actor.organisationId)),
           )
-          .where(inOrg(variations, actor.organisationId, eq(variations.fileId, id)));
+          .where(inOrg(variants, actor.organisationId, eq(variants.fileId, id)));
         if (variation) {
           throw new HTTPException(409, {
             message: `This file is in version ${variation.version} of ${variation.track}`,

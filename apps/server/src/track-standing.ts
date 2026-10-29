@@ -9,7 +9,7 @@ import {
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { reviewersOf } from "./routes/reviews.ts";
 
-const { tracks, versions, variations, reviews, reviewItems } = schema;
+const { tracks, versions, variants, reviews, reviewItems } = schema;
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
@@ -60,7 +60,7 @@ export async function trackStandings(db: Database, organisationId: string, proje
         versionId: versions.id,
         number: versions.number,
         versionAt: versions.createdAt,
-        fileId: variations.fileId,
+        fileId: variants.fileId,
       })
       .from(tracks)
       .leftJoin(
@@ -73,11 +73,11 @@ export async function trackStandings(db: Database, organisationId: string, proje
         ),
       )
       .leftJoin(
-        variations,
+        variants,
         and(
-          eq(variations.versionId, versions.id),
-          eq(variations.organisationId, organisationId),
-          eq(variations.isPrimary, true),
+          eq(variants.versionId, versions.id),
+          eq(variants.organisationId, organisationId),
+          eq(variants.isPrimary, true),
         ),
       )
       .where(inOrg(tracks, organisationId, eq(tracks.projectId, projectId)))

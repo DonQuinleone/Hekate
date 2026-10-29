@@ -2,7 +2,7 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import { type CommentReferences, effectiveReferences, type ProjectProfile } from "@hekate/shared";
 import { and, asc, eq } from "drizzle-orm";
 
-const { tracks, variations, versions } = schema;
+const { tracks, variants, versions } = schema;
 
 type Reader = Pick<Database, "select">;
 
@@ -19,16 +19,16 @@ export async function referencesOfFile(
 ): Promise<CommentReferences> {
   const [variation] = await db
     .select({ references: tracks.commentReferences })
-    .from(variations)
+    .from(variants)
     .innerJoin(
       versions,
-      and(eq(versions.id, variations.versionId), eq(versions.organisationId, organisationId)),
+      and(eq(versions.id, variants.versionId), eq(versions.organisationId, organisationId)),
     )
     .innerJoin(
       tracks,
       and(eq(tracks.id, versions.trackId), eq(tracks.organisationId, organisationId)),
     )
-    .where(inOrg(variations, organisationId, eq(variations.fileId, fileId)))
+    .where(inOrg(variants, organisationId, eq(variants.fileId, fileId)))
     .limit(1);
   const [score] = variation
     ? []

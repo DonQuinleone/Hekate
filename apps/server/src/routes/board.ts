@@ -28,7 +28,7 @@ const {
   tasks,
   tracks,
   users,
-  variations,
+  variants,
   workflowRuns,
   workflows,
 } = schema;
@@ -174,9 +174,9 @@ export const projectBoardRoutes = (db: Database) =>
         versionIds.length === 0
           ? []
           : await db
-              .select({ versionId: variations.versionId, fileId: variations.fileId })
-              .from(variations)
-              .where(inOrg(variations, organisationId, inArray(variations.versionId, versionIds)));
+              .select({ versionId: variants.versionId, fileId: variants.fileId })
+              .from(variants)
+              .where(inOrg(variants, organisationId, inArray(variants.versionId, versionIds)));
       const fileIds = versionFiles.map((v) => v.fileId);
       const trackIds = standing.tracks.map((t) => t.id);
       const [openTasks, threads] = await Promise.all([

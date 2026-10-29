@@ -12,7 +12,7 @@ import {
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 
-const { deliveryProfiles, files, organisations, projects, tracks, variations, versions } = schema;
+const { deliveryProfiles, files, organisations, projects, tracks, variants, versions } = schema;
 
 type Reader = Pick<Database, "select">;
 
@@ -83,12 +83,12 @@ export async function profilesForFiles(db: Reader, organisationId: string, fileI
             and(eq(projects.id, files.projectId), eq(projects.organisationId, organisationId)),
           )
           .leftJoin(
-            variations,
-            and(eq(variations.fileId, files.id), eq(variations.organisationId, organisationId)),
+            variants,
+            and(eq(variants.fileId, files.id), eq(variants.organisationId, organisationId)),
           )
           .leftJoin(
             versions,
-            and(eq(versions.id, variations.versionId), eq(versions.organisationId, organisationId)),
+            and(eq(versions.id, variants.versionId), eq(versions.organisationId, organisationId)),
           )
           .leftJoin(
             tracks,

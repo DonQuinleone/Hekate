@@ -8351,6 +8351,87 @@ describe.runIf(url)("api", () => {
         expect(await swap(third)).toBeUndefined();
       });
 
+      it("writes every variant to both tables while the rename runs (decision 275)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const projectId = await newProject(organisationId);
+        const [dry = "", wet = "", fixed = ""] = await Promise.all(
+          ["Dry.wav", "Wet.wav", "Dry fixed.wav"].map((n) => addFile(organisationId, projectId, n)),
+        );
+        const track = await trackFrom(
+          await app.request(
+            `/api/projects/${projectId}/tracks`,
+            json({ name: "Pine Apple Rag" }, owner),
+          ),
+        );
+        // The new table and the old hold the same rows under the same ids, after every write.
+        const both = async () => {
+          const shape = (rows: (typeof schema.variants.$inferSelect)[]) =>
+            rows
+              .map(({ createdAt: _made, updatedAt: _changed, ...row }) => row)
+              .sort((a, b) => a.position - b.position);
+          const [fresh, old] = await Promise.all([
+            db
+              .select()
+              .from(schema.variants)
+              .where(eq(schema.variants.organisationId, organisationId)),
+            db
+              .select()
+              .from(schema.variations)
+              .where(eq(schema.variations.organisationId, organisationId)),
+          ]);
+          expect(shape(old)).toEqual(shape(fresh));
+          return shape(fresh).map((v) => [v.fileId, v.name, v.isPrimary]);
+        };
+        const made = await send(
+          "POST",
+          `/api/tracks/${track.id}/versions`,
+          { variants: [{ fileId: dry, name: "Dry" }] },
+          owner,
+        );
+        expect(made.status).toBe(201);
+        const version = (await trackFrom(made)).versions[0];
+        expect(await both()).toEqual([[dry, "Dry", true]]);
+        const withWet = (
+          await trackFrom(
+            await send(
+              "POST",
+              `/api/versions/${version?.id}/variations`,
+              { fileId: wet, name: "Wet", primary: true },
+              owner,
+            ),
+          )
+        ).versions[0];
+        expect(await both()).toEqual([
+          [dry, "Dry", false],
+          [wet, "Wet", true],
+        ]);
+        const [first, second] = withWet?.variations ?? [];
+        await send("POST", `/api/variations/${first?.id}/primary`, {}, owner);
+        expect(await both()).toEqual([
+          [dry, "Dry", true],
+          [wet, "Wet", false],
+        ]);
+        await send("PATCH", `/api/variations/${second?.id}`, { name: "Wet mix" }, owner);
+        await send("POST", `/api/variations/${first?.id}/replace`, { fileId: fixed }, owner);
+        expect(await both()).toEqual([
+          [fixed, "Dry", true],
+          [wet, "Wet mix", false],
+        ]);
+        // A client of the release before still names the files the old way.
+        expect(
+          (
+            await send(
+              "POST",
+              `/api/tracks/${track.id}/versions`,
+              { variations: [{ fileId: dry, name: "Dry" }] },
+              owner,
+            )
+          ).status,
+        ).toBe(201);
+        expect((await both()).map((v) => v[0]).sort()).toEqual([fixed, wet, dry].sort());
+      });
+
       it("builds a track from numbered versions, each with one primary variation", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);

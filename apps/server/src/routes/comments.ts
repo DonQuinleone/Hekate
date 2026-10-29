@@ -68,7 +68,7 @@ const {
   tasks,
   users,
   guests,
-  variations,
+  variants,
   versions,
 } = schema;
 const resolver = alias(users, "resolver");
@@ -671,13 +671,13 @@ export const fileCommentRoutes = (
         .where(inOrg(files, organisationId, eq(files.id, fileId)));
       if (!file) throw new NotFound("File");
       const [variation] = await db
-        .select({ number: versions.number, name: variations.name })
-        .from(variations)
+        .select({ number: versions.number, name: variants.name })
+        .from(variants)
         .innerJoin(
           versions,
-          and(eq(versions.id, variations.versionId), eq(versions.organisationId, organisationId)),
+          and(eq(versions.id, variants.versionId), eq(versions.organisationId, organisationId)),
         )
-        .where(inOrg(variations, organisationId, eq(variations.fileId, fileId)));
+        .where(inOrg(variants, organisationId, eq(variants.fileId, fileId)));
       const options = c.req.valid("query");
       const threads = threadsForExport(
         await threadsOn(db, organisationId, actor, access, fileId),

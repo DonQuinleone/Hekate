@@ -7,7 +7,7 @@ import {
 } from "@hekate/shared";
 import { and, eq, inArray } from "drizzle-orm";
 
-const { alignments, variations, versions } = schema;
+const { alignments, variants, versions } = schema;
 
 export interface Reached {
   fileId: string;
@@ -30,16 +30,16 @@ export async function alignmentsFrom(
 ): Promise<Reached[]> {
   const [mine] = await db
     .select({ trackId: versions.trackId })
-    .from(variations)
-    .innerJoin(versions, eq(versions.id, variations.versionId))
-    .where(inOrg(variations, organisationId, eq(variations.fileId, fileId)));
+    .from(variants)
+    .innerJoin(versions, eq(versions.id, variants.versionId))
+    .where(inOrg(variants, organisationId, eq(variants.fileId, fileId)));
   // A loose file has only its own alignments; one in a track can walk the track.
   const family = mine
     ? await db
-        .select({ fileId: variations.fileId, versionId: variations.versionId })
-        .from(variations)
-        .innerJoin(versions, eq(versions.id, variations.versionId))
-        .where(inOrg(variations, organisationId, eq(versions.trackId, mine.trackId)))
+        .select({ fileId: variants.fileId, versionId: variants.versionId })
+        .from(variants)
+        .innerJoin(versions, eq(versions.id, variants.versionId))
+        .where(inOrg(variants, organisationId, eq(versions.trackId, mine.trackId)))
     : [{ fileId, versionId: "" }];
   const ids = family.map((f) => f.fileId);
   const rows = await db

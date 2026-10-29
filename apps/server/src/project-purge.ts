@@ -3,8 +3,9 @@ import { and, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import { type Audit, systemActor } from "./audit.ts";
 import type { Storage } from "./storage.ts";
 import { sessionOf } from "./uploads.ts";
+import { deleteVariants } from "./variants.ts";
 
-const { files, projects, uploads, variations } = schema;
+const { files, projects, uploads } = schema;
 
 /**
  * Deletes the projects whose deletion was confirmed (#240) once their seven days are over:
@@ -69,9 +70,7 @@ async function purgeProject(
         .select({ id: files.id })
         .from(files)
         .where(inOrg(files, organisationId, eq(files.projectId, id)));
-      await tx
-        .delete(variations)
-        .where(inOrg(variations, organisationId, inArray(variations.fileId, ofProject)));
+      await deleteVariants(tx, organisationId, { fileIn: ofProject });
       await tx.delete(projects).where(inOrg(projects, organisationId, eq(projects.id, id)));
       // The log keeps the project's id and name: the event outlives what it describes.
       await audit.record(

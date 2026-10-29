@@ -22,7 +22,7 @@ import { zValidator } from "../openapi/validator.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { qaReportOf } from "./qa.ts";
 
-const { alignments, comments, files, tracks, variations, versions } = schema;
+const { alignments, comments, files, tracks, variants, versions } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
 
@@ -54,21 +54,18 @@ async function versionsOf(db: Database, org: Org, trackId: string) {
       id: versions.id,
       number: versions.number,
       notes: versions.notes,
-      fileId: variations.fileId,
-      name: variations.name,
-      isPrimary: variations.isPrimary,
-      position: variations.position,
+      fileId: variants.fileId,
+      name: variants.name,
+      isPrimary: variants.isPrimary,
+      position: variants.position,
       streamStatus: files.streamStatus,
       mediaInfo: files.mediaInfo,
     })
     .from(versions)
-    .innerJoin(
-      variations,
-      and(eq(variations.versionId, versions.id), eq(variations.organisationId, org)),
-    )
-    .innerJoin(files, and(eq(files.id, variations.fileId), eq(files.organisationId, org)))
+    .innerJoin(variants, and(eq(variants.versionId, versions.id), eq(variants.organisationId, org)))
+    .innerJoin(files, and(eq(files.id, variants.fileId), eq(files.organisationId, org)))
     .where(inOrg(versions, org, eq(versions.trackId, trackId)))
-    .orderBy(asc(versions.number), asc(variations.position));
+    .orderBy(asc(versions.number), asc(variants.position));
   const byNumber = new Map<
     number,
     {

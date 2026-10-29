@@ -38,7 +38,7 @@ const {
   takes,
   tracks,
   users,
-  variations,
+  variants,
 } = schema;
 
 const idParam = zValidator("param", z.object({ id: z.uuid() }));
@@ -192,9 +192,9 @@ export const trackTakeRoutes = (db: Database) =>
         if (found.some((f) => f.takeId))
           throw new HTTPException(409, { message: "That file is already a take" });
         const used = await tx
-          .select({ id: variations.fileId })
-          .from(variations)
-          .where(inOrg(variations, organisationId, inArray(variations.fileId, fileIds)));
+          .select({ id: variants.fileId })
+          .from(variants)
+          .where(inOrg(variants, organisationId, inArray(variants.fileId, fileIds)));
         if (used.length > 0)
           throw new HTTPException(409, { message: "A version's file cannot also be a take" });
         const [last] = await tx

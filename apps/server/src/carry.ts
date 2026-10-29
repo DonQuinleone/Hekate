@@ -8,8 +8,7 @@ import {
 } from "@hekate/shared";
 import { and, desc, eq, inArray, isNull, lt } from "drizzle-orm";
 
-const { alignments, comments, commentCarries, guests, tracks, users, variations, versions } =
-  schema;
+const { alignments, comments, commentCarries, guests, tracks, users, variants, versions } = schema;
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
@@ -23,8 +22,8 @@ export async function lockTrackOfFile(tx: Tx, organisationId: string, fileId: st
     .select({ id: tracks.id })
     .from(tracks)
     .innerJoin(versions, eq(versions.trackId, tracks.id))
-    .innerJoin(variations, eq(variations.versionId, versions.id))
-    .where(inOrg(tracks, organisationId, eq(variations.fileId, fileId)))
+    .innerJoin(variants, eq(variants.versionId, versions.id))
+    .where(inOrg(tracks, organisationId, eq(variants.fileId, fileId)))
     .for("update", { of: tracks });
 }
 
@@ -64,12 +63,12 @@ export async function carryThreads(
     [previous.id, version.id].map((versionId) =>
       tx
         .select({
-          fileId: variations.fileId,
-          name: variations.name,
-          isPrimary: variations.isPrimary,
+          fileId: variants.fileId,
+          name: variants.name,
+          isPrimary: variants.isPrimary,
         })
-        .from(variations)
-        .where(inOrg(variations, organisationId, eq(variations.versionId, versionId))),
+        .from(variants)
+        .where(inOrg(variants, organisationId, eq(variants.versionId, versionId))),
     ),
   );
   if (!before?.length || !after?.length) return [];
@@ -215,13 +214,13 @@ export async function hopsOf(
     })
     .from(commentCarries)
     .innerJoin(
-      variations,
+      variants,
       and(
-        eq(variations.fileId, commentCarries.fileId),
-        eq(variations.organisationId, commentCarries.organisationId),
+        eq(variants.fileId, commentCarries.fileId),
+        eq(variants.organisationId, commentCarries.organisationId),
       ),
     )
-    .innerJoin(versions, eq(versions.id, variations.versionId))
+    .innerJoin(versions, eq(versions.id, variants.versionId))
     .where(inOrg(commentCarries, organisationId, inArray(commentCarries.commentId, commentIds)))
     .orderBy(versions.number);
 }
@@ -234,10 +233,10 @@ export async function versionNumbersOf(
 ) {
   if (fileIds.length === 0) return new Map<string, number>();
   const rows = await db
-    .select({ fileId: variations.fileId, number: versions.number })
-    .from(variations)
-    .innerJoin(versions, eq(versions.id, variations.versionId))
-    .where(inOrg(variations, organisationId, inArray(variations.fileId, fileIds)));
+    .select({ fileId: variants.fileId, number: versions.number })
+    .from(variants)
+    .innerJoin(versions, eq(versions.id, variants.versionId))
+    .where(inOrg(variants, organisationId, inArray(variants.fileId, fileIds)));
   return new Map(rows.map((r) => [r.fileId, r.number]));
 }
 
@@ -294,9 +293,9 @@ export async function carryPreview(db: Database, organisationId: string, trackId
     .limit(1);
   if (!latest) return [];
   const own = await db
-    .select({ fileId: variations.fileId, name: variations.name })
-    .from(variations)
-    .where(inOrg(variations, organisationId, eq(variations.versionId, latest.id)));
+    .select({ fileId: variants.fileId, name: variants.name })
+    .from(variants)
+    .where(inOrg(variants, organisationId, eq(variants.versionId, latest.id)));
   if (own.length === 0) return [];
   const nameOf = new Map(own.map((v) => [v.fileId, v.name]));
   const sources = await carrySources(db, organisationId, [...nameOf.keys()]);
