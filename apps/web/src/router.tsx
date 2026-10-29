@@ -1,6 +1,7 @@
 import {
   type AuthorizeParams,
   authorizeParams,
+  downloadLevels,
   fileKinds,
   type InstanceSection,
   instanceSectionIds,
@@ -559,12 +560,29 @@ const projectReviews = createRoute({
     return <ProjectReviewsPage projectId={projectId} />;
   },
 });
-// Asking for a review: inside the project, optionally of one kind and about one item.
+// Asking for a review: inside the project, optionally of one kind and about one item, or
+// with the choices a share sheet made (#489): its items, a version, its people, and what
+// they may download and until when.
+const itemKey = z.string().regex(/^(track|file):[0-9a-f-]{36}$/i);
 const requestReviewSearch = z.object({
   kind: z.enum(["approval", "feedback"]).optional().catch(undefined),
-  item: z
-    .string()
-    .regex(/^(track|file):[0-9a-f-]{36}$/i)
+  item: itemKey.optional().catch(undefined),
+  items: z.array(itemKey).max(50).optional().catch(undefined),
+  version: z.uuid().optional().catch(undefined),
+  people: z
+    .array(
+      z
+        .string()
+        .regex(/^(member|group|guest):.+$/s)
+        .max(320),
+    )
+    .max(50)
+    .optional()
+    .catch(undefined),
+  download: z.enum(downloadLevels).optional().catch(undefined),
+  // A date, or "never" for a link that works until it is withdrawn (distinct from no choice).
+  until: z
+    .union([z.iso.datetime({ offset: true }), z.literal("never")])
     .optional()
     .catch(undefined),
 });
@@ -574,8 +592,19 @@ const requestReview = createRoute({
   validateSearch: requestReviewSearch,
   component: function RequestReviewRoute() {
     const { projectId } = requestReview.useParams();
-    const { kind, item } = requestReview.useSearch();
-    return <RequestReviewPage projectId={projectId} kind={kind} item={item} />;
+    const { kind, item, items, version, people, download, until } = requestReview.useSearch();
+    return (
+      <RequestReviewPage
+        projectId={projectId}
+        kind={kind}
+        item={item}
+        items={items}
+        version={version}
+        people={people}
+        download={download}
+        until={until}
+      />
+    );
   },
 });
 const projectPeople = createRoute({

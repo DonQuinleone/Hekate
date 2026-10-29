@@ -13,6 +13,7 @@ import { Avatar, AvatarRow } from "~/components/avatar";
 import { Icon, type IconName } from "~/components/icons";
 import { Label } from "~/components/label";
 import { Card } from "~/components/page";
+import { fileKindWords, ShareDialog } from "~/components/share";
 import { Dot } from "~/components/status";
 import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
@@ -477,6 +478,7 @@ const quickCell =
 function TrackRow({ track, project }: { track: Track; project: Project }) {
   const viewer = useViewer();
   const navigate = useNavigate();
+  const [sharing, setSharing] = useState(false);
   const s = trackState(track, project);
   const file = s.version ? primaryFile(s.version) : undefined;
   const comments = s.version
@@ -555,7 +557,7 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
           },
         ]
       : []),
-    { label: "Share…", onSelect: () => {} },
+    { label: "Share…", onSelect: () => setSharing(true) },
     "divider",
     { label: "Rename", hint: "F2", onSelect: () => row.rename() },
     { label: "Move to…", onSelect: () => row.move() },
@@ -630,12 +632,20 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
       <span className="flex items-center justify-end">
         <ActionMenu label={track.name} actions={actions} />
       </span>
+      {sharing && (
+        <ShareDialog
+          project={project}
+          item={{ kind: "track", name: track.name, what: "Track" }}
+          onClose={() => setSharing(false)}
+        />
+      )}
     </li>
   );
 }
 
 function FileRow({ file, project }: { file: File; project: Project }) {
   const viewer = useViewer();
+  const [sharing, setSharing] = useState(false);
   const comments = openCommentCount(file.id);
   const long = useScreenState() === "long";
   const actions: (MenuAction | "divider")[] = [
@@ -643,7 +653,7 @@ function FileRow({ file, project }: { file: File; project: Project }) {
     ...(viewer.can(project.id, "organise")
       ? [
           "divider" as const,
-          { label: "Share…", onSelect: () => {} },
+          { label: "Share…", onSelect: () => setSharing(true) },
           { label: "Details", onSelect: () => {} },
           "divider" as const,
           { label: "Rename", hint: "F2", onSelect: () => row.rename() },
@@ -726,18 +736,27 @@ function FileRow({ file, project }: { file: File; project: Project }) {
       <span className="flex items-center justify-end">
         <ActionMenu label={file.name} actions={actions} />
       </span>
+      {sharing && (
+        <ShareDialog
+          project={project}
+          item={{ kind: "file", name: file.name, what: fileKindWords[file.kind] }}
+          onClose={() => setSharing(false)}
+        />
+      )}
     </li>
   );
 }
 
 function FolderRow({ folder, project }: { folder: Folder; project: Project }) {
   const viewer = useViewer();
+  const [sharing, setSharing] = useState(false);
   const b = useContext(Browser);
   const actions: (MenuAction | "divider")[] = [
     ...personalActions(null),
     ...(viewer.can(project.id, "organise")
       ? [
           "divider" as const,
+          { label: "Share…", onSelect: () => setSharing(true) },
           { label: "Upload request…", onSelect: () => {} },
           "divider" as const,
           { label: "Rename", hint: "F2", onSelect: () => row.rename() },
@@ -783,6 +802,13 @@ function FolderRow({ folder, project }: { folder: Folder; project: Project }) {
       <span className="flex items-center justify-end">
         <ActionMenu label={folder.name} actions={actions} />
       </span>
+      {sharing && (
+        <ShareDialog
+          project={project}
+          item={{ kind: "folder", name: folder.name }}
+          onClose={() => setSharing(false)}
+        />
+      )}
     </li>
   );
 }

@@ -12,6 +12,7 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { type ChosenFile, UploadDialog } from "~/components/ui/upload-dialog";
+import { AddVariationDialog } from "~/components/variation-dialog";
 import {
   comments,
   fileById,
@@ -204,6 +205,9 @@ function VersionRow({
 }) {
   const viewer = useViewer();
   const canOrganise = viewer.can(projectId, "organise");
+  const canUpload = viewer.can(projectId, "upload");
+  const track = trackById(trackId);
+  const [adding, setAdding] = useState(false);
   // A video project's tracks are deliverables, in cuts and renditions (#16).
   const video = projectById(projectId)?.profile === "video";
   const label = video ? `Cut ${version.number}` : `V${version.number}`;
@@ -252,23 +256,34 @@ function VersionRow({
           {version.editDecisionList && (
             <span className="rounded-chip border border-line px-1.5 text-[12px]">EDL</span>
           )}
-          {canOrganise && (
+          {(canOrganise || canUpload) && (
             <ActionMenu
               label={label}
               actions={[
-                { label: video ? "Add a rendition…" : "Add a variation…", onSelect: () => {} },
-                { label: "Replace a file…", onSelect: () => {} },
-                {
-                  label: video ? "Describe the renditions…" : "Rename the variations…",
-                  onSelect: () => {},
-                },
-                { label: "Import an edit decision list…", onSelect: () => {} },
-                {
-                  label: video
-                    ? "Compare with the previous cut"
-                    : "Compare with the previous version",
-                  onSelect: () => {},
-                },
+                ...(canUpload
+                  ? [
+                      {
+                        label: video ? "Add a rendition…" : "Add a variation…",
+                        onSelect: () => setAdding(true),
+                      },
+                    ]
+                  : []),
+                ...(canOrganise
+                  ? [
+                      { label: "Replace a file…", onSelect: () => {} },
+                      {
+                        label: video ? "Describe the renditions…" : "Rename the variations…",
+                        onSelect: () => {},
+                      },
+                      { label: "Import an edit decision list…", onSelect: () => {} },
+                      {
+                        label: video
+                          ? "Compare with the previous cut"
+                          : "Compare with the previous version",
+                        onSelect: () => {},
+                      },
+                    ]
+                  : []),
                 ...(viewer.can(projectId, "delete")
                   ? [{ label: "Delete version…", danger: true, onSelect: () => {} }]
                   : []),
@@ -335,6 +350,9 @@ function VersionRow({
           );
         })}
       </ul>
+      {adding && track && (
+        <AddVariationDialog track={track} version={version} onClose={() => setAdding(false)} />
+      )}
     </li>
   );
 }

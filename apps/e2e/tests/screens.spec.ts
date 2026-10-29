@@ -852,6 +852,24 @@ test("file-recording-versions", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A variation added from the switch above the player (#486): the one upload dialog, with the
+// version fixed, a file picked from the project and the project's variation names suggested.
+test("file-add-variation", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Add a variation…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add a variation to V2" });
+  await dialog.getByRole("button", { name: "From the project" }).click();
+  await page.getByRole("menuitem", { name: "Maple Leaf Rag - Dry v3.wav" }).click();
+  await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue("Dry v3");
+  // The names the project's other variations go by, one press away.
+  await dialog.getByRole("button", { name: "Mix", exact: true }).click();
+  await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue("Mix");
+  await saveScreen(page, "file-add-variation");
+  await checkScreen(page);
+});
+
 // Switching to QA and back keeps the same player, so the music never stops (#15).
 test("file-recording-review-to-qa", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);
@@ -1357,15 +1375,23 @@ test("score-marking-export-every", async ({ page }) => {
   }
 });
 
-// Sharing (#138): the Share dialog, from the project's Reviews, a track and someone chosen.
-test("share-dialog", async ({ page }) => {
+// Sharing one item (#489) from the player's header: the sheet for this file, with someone
+// chosen and the rest offered as you type.
+test("file-share", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().musicProjectId}/reviews`);
-  await settle(page, "main >> text=Rehearsal takes");
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
   await page.getByRole("button", { name: "Share", exact: true }).click();
-  await settle(page, "[role=dialog] >> text=Maple Leaf Rag");
-  await page.getByRole("dialog").getByRole("checkbox").first().check();
-  await saveScreen(page, "share-dialog");
+  await settle(page, "[role=dialog] >> text=Link works for 7 days");
+  const who = page.getByRole("combobox", { name: "Who" });
+  const offered = page.getByRole("listbox", { name: "Who" }).getByRole("option");
+  await who.fill("mira");
+  await offered.first().click();
+  await expect(page.getByRole("dialog").getByRole("button", { name: /^Remove / })).toHaveCount(1);
+  // A click on the field offers everyone else.
+  await who.click();
+  await expect(offered.first()).toBeVisible();
+  await saveScreen(page, "file-share");
   await checkScreen(page);
 });
 
@@ -3199,15 +3225,18 @@ test("project-files-track-actions", async ({ page }, info) => {
   await checkScreen(page);
 });
 
-// Sharing from a row starts with that track chosen, in the same dialog as the reviews page's.
-test("project-files-share", async ({ page }) => {
+// Sharing from a row (#489) opens the same sheet for that track: who, how, its link, Send.
+test("files-share", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/files`);
   await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
   await page.getByRole("button", { name: "Actions for Maple Leaf Rag", exact: true }).click();
   await page.getByRole("menuitem", { name: "Share…" }).click();
-  await settle(page, "[role=dialog] >> text=What");
-  await saveScreen(page, "project-files-share");
+  await settle(page, "[role=dialog] >> text=Link works for 7 days");
+  await expect(page.getByRole("dialog", { name: "Share Maple Leaf Rag" })).toBeVisible();
+  await page.getByRole("button", { name: "Can download" }).click();
+  await expect(page.getByRole("dialog")).toContainText("download the original, watermarked");
+  await saveScreen(page, "files-share");
   await checkScreen(page);
 });
 

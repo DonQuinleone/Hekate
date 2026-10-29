@@ -1,31 +1,57 @@
-import type { DownloadLevel, GuestInput, ReviewerInput } from "@hekate/shared";
+import type { GuestInput } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { meQuery, projectGroupsQuery, projectMembersQuery, useCreateReview } from "~/lib/queries";
-import { endOfDay } from "~/lib/shares";
-import { GuestFields } from "./guest-fields";
+import {
+  meQuery,
+  projectFilesQuery,
+  projectFoldersQuery,
+  projectGroupsQuery,
+  projectGuestsQuery,
+  projectMembersQuery,
+  projectTracksQuery,
+  useCreateReview,
+} from "~/lib/queries";
+import {
+  type LinkLife,
+  linkLifeChoice,
+  linkLifeWords,
+  linkLives,
+  reviewerFromKey,
+  type ShareAccess,
+  type ShareTarget,
+  shareAccessCopy,
+  shareAccesses,
+  shareRequest,
+  targetItems,
+  targetPath,
+} from "~/lib/shares";
 import { Icon } from "./icons";
-import { type Chosen, ItemPicker } from "./item-picker";
+import { PeoplePicker, type Person } from "./people-picker";
 import { Button } from "./ui/button";
-import { ToggleChip } from "./ui/chip";
 import { Dialog } from "./ui/dialog";
-import { Input, Textarea } from "./ui/input";
+import { Dropdown } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
-import { Switch } from "./ui/toggle";
 
-const downloads: { value: DownloadLevel; label: string }[] = [
-  { value: "none", label: "None" },
-  { value: "proxy", label: "Proxy" },
-  { value: "original", label: "Original" },
-];
+const kindWords: Record<ShareTarget["kind"], string> = {
+  file: "File",
+  track: "Track",
+  folder: "Folder",
+  version: "Version",
+};
 
-/** A date input's value, a fortnight from now: when a share ends unless told otherwise. */
-const inAFortnight = () => new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+/** The address of a path in this app, as it is copied; the host and path alone, as shown. */
+const addressOf = (path: string) => ({
+  full: `${window.location.origin}${path}`,
+  shown: `${window.location.host}${path}`,
+});
 
 /**
- * Sharing is not reviewing (#138): a share gives people a way to listen or look, with the
- * same protections, and asks nothing of them. One dialog, no steps, as the prototype's.
+ * Sharing one item (#489), as a share sheet does it: who, how, and a link, then Send. The
+ * item is the title, so nothing asks what to share. Viewing is a share (#138); commenting,
+ * and downloading with it, a feedback review. "More options" carries the choices into the
+ * full request page, for stages, an order or a deadline. The same sheet opens from a row in
+ * the file browser, the player's header and a track's versions.
  */
 export function ShareDialog({
   projectId,
@@ -33,172 +59,220 @@ export function ShareDialog({
   onClose,
 }: {
   projectId: string;
-  /** What to start with, when shared from its row: `track:<id>` or `file:<id>`. */
-  item?: string;
+  item: ShareTarget;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
   const { data: everyone = [] } = useQuery(projectMembersQuery(projectId));
   const { data: me } = useQuery(meQuery);
-  // You share with others: you have it already.
-  const members = everyone.filter((m) => m.userId !== me?.user.id);
   const { data: groups = [] } = useQuery(projectGroupsQuery(projectId));
+  const { data: known = [] } = useQuery(projectGuestsQuery(projectId));
+  // A folder shares what is in it, at every depth: the project's tree says what that is.
+  const folder = item.kind === "folder";
+  const { data: folders = [] } = useQuery({ ...projectFoldersQuery(projectId), enabled: folder });
+  const { data: tracks, isSuccess: tracksIn } = useQuery({
+    ...projectTracksQuery(projectId),
+    enabled: folder,
+  });
+  const { data: files, isSuccess: filesIn } = useQuery({
+    ...projectFilesQuery(projectId),
+    enabled: folder,
+  });
   const create = useCreateReview(projectId);
-  // Tracks at their latest version, and files of any kind (#138), as a review asks about them.
-  const [items, setItems] = useState<Chosen>(
-    () => new Map(item ? [[item, { versionId: null }]] : []),
-  );
-  const [people, setPeople] = useState<Set<string>>(new Set());
-  const [guests, setGuests] = useState<GuestInput[]>([]);
-  const [message, setMessage] = useState("");
-  const [download, setDownload] = useState<DownloadLevel>("none");
-  const [expires, setExpires] = useState(true);
-  const [until, setUntil] = useState(inAFortnight);
-  const flip = (set: Set<string>, key: string) => {
-    const next = new Set(set);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    return next;
-  };
-  const reviewers: ReviewerInput[] = [
-    ...[...people].map((key) =>
-      key.startsWith("group:") ? { groupId: key.slice("group:".length) } : key,
+  const [chosen, setChosen] = useState<Person[]>([]);
+  const [access, setAccess] = useState<ShareAccess>("view");
+  const [life, setLife] = useState<LinkLife>(7);
+  const [copied, setCopied] = useState(false);
+
+  // You share with others: you have it already.
+  const people: Person[] = [
+    ...everyone
+      .filter((m) => m.userId !== me?.user.id)
+      .map(
+        (m): Person => ({ key: `member:${m.userId}`, name: m.name, hint: m.email, kind: "member" }),
+      ),
+    ...groups.map(
+      (g): Person => ({
+        key: `group:${g.id}`,
+        name: g.name,
+        hint: `${g.members.length} ${g.members.length === 1 ? "person" : "people"}`,
+        kind: "group",
+      }),
     ),
-    ...guests,
+    ...known.map(
+      (g): Person => ({
+        key: `guest:${g.email}`,
+        name: g.name,
+        hint: g.label ?? g.email,
+        kind: "guest",
+      }),
+    ),
   ];
-  const ready = items.size > 0 && reviewers.length > 0 && (!expires || Boolean(until));
+  const knownByEmail = new Map<string, GuestInput>(
+    known.map((g) => [g.email, { name: g.name, email: g.email, label: g.label ?? undefined }]),
+  );
+  const items = targetItems(item, { folders, tracks: tracks ?? [], files: files ?? [] });
+  const emptyFolder = folder && tracksIn && filesIn && items.length === 0;
+  const what =
+    item.what ??
+    (folder
+      ? `Folder, ${items.length === 1 ? "1 item" : `${items.length} items`}`
+      : kindWords[item.kind]);
+  const sent = create.data;
+  const address = addressOf(sent ? `/reviews/${sent.id}` : targetPath(item, projectId));
+  const ready = chosen.length > 0 && items.length > 0 && !create.isPending;
+
+  const copy = () => {
+    void navigator.clipboard?.writeText(address.full).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    });
+  };
   const send = () =>
     create.mutate(
-      {
-        kind: "share",
-        items: [...items.keys()].map((key) => {
-          const [type, id = ""] = key.split(":") as [string, string];
-          return type === "track" ? { trackId: id } : { fileId: id };
-        }),
-        reviewers,
-        message: message.trim() || undefined,
-        permissions: {
-          download,
-          expiresAt: expires && until ? endOfDay(until) : null,
-        },
-      },
-      {
-        onSuccess: (review) => {
-          onClose();
-          void navigate({ to: "/reviews/$reviewId", params: { reviewId: review.id } });
-        },
-      },
+      shareRequest({
+        access,
+        life,
+        items,
+        reviewers: chosen.map((p) => reviewerFromKey(p.key, knownByEmail)),
+        now: new Date(),
+      }),
     );
+  // The full page, with these choices made: stages, an order and a deadline live there.
+  const more = () => {
+    onClose();
+    const request = shareRequest({ access, life, items, reviewers: [], now: new Date() });
+    void navigate({
+      to: "/projects/$projectId/reviews/new",
+      params: { projectId },
+      search: {
+        kind: request.kind === "feedback" ? "feedback" : undefined,
+        items: items.map((i) => ("trackId" in i ? `track:${i.trackId}` : `file:${i.fileId}`)),
+        version: item.kind === "version" ? item.id : undefined,
+        people: chosen.map((p) => p.key),
+        download: request.permissions?.download,
+        // Null is a choice too (until withdrawn): it travels as "never", not as nothing.
+        until: request.permissions ? (request.permissions.expiresAt ?? "never") : undefined,
+      },
+    });
+  };
+
+  const linkRow = (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <div className="flex h-9 min-w-0 flex-1 basis-56 items-center gap-2 rounded-control border border-line bg-ground/70 pr-1 pl-3">
+        <Icon name="link" size={14} className="shrink-0 text-ink-3" />
+        <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2" title={address.full}>
+          {address.shown}
+        </span>
+        <Button variant="ghost" size="sm" onClick={copy} aria-live="polite">
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+      {sent ? (
+        <span className="text-[13px] text-ink-2">{linkLifeWords(life)}</span>
+      ) : (
+        <Dropdown
+          size="sm"
+          label="How long the link works"
+          value={linkLifeWords(life)}
+          actions={linkLives.map((choice) => ({
+            label: linkLifeChoice(choice),
+            checked: choice === life,
+            onSelect: () => setLife(choice),
+          }))}
+        />
+      )}
+    </div>
+  );
+
+  if (sent) {
+    const names = chosen.map((p) => p.name);
+    const who =
+      names.length <= 2
+        ? names.join(" and ")
+        : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+    return (
+      <Dialog
+        title={`Share ${item.name}`}
+        description={what}
+        onClose={onClose}
+        footer={
+          <>
+            <Button variant="ghost" asChild>
+              <Link to="/reviews/$reviewId" params={{ reviewId: sent.id }}>
+                {sent.kind === "share" ? "See who opens it" : "See the review"}
+              </Link>
+            </Button>
+            <Button variant="primary" onClick={onClose}>
+              Done
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p className="m-0 flex items-center gap-2 text-[14px] text-ink">
+            <Icon name="check" size={15} className="shrink-0 text-ink-2" />
+            Sent to {who}. Guests get a link of their own by email.
+          </p>
+          {linkRow}
+        </div>
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog
-      title="Share"
-      description="For someone who only needs to listen or look. Nothing is asked of them, and what they open is logged."
+      title={`Share ${item.name}`}
+      description={what}
       onClose={onClose}
       footer={
         <>
+          <Button variant="ghost" onClick={more} className="mr-auto">
+            More options
+          </Button>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" onClick={send} disabled={!ready || create.isPending}>
+          <Button variant="primary" onClick={send} disabled={!ready}>
             Send
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-5">
-        <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
-          <legend className="label mb-2">What</legend>
-          <ItemPicker
-            projectId={projectId}
-            chosen={items}
-            onToggle={(key) =>
-              setItems((current) => {
-                const next = new Map(current);
-                if (next.has(key)) next.delete(key);
-                else next.set(key, { versionId: null });
-                return next;
-              })
-            }
+        <div className="flex flex-col gap-1.5">
+          <span className="label">Who</span>
+          <PeoplePicker
+            label="Who"
+            people={people}
+            chosen={chosen}
+            onChange={setChosen}
+            autoFocus
           />
-        </fieldset>
-        <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
-          <legend className="label mb-2">With</legend>
-          <div className="flex flex-wrap gap-1.5">
-            {members.map((m) => (
-              <ToggleChip
-                key={m.userId}
-                pressed={people.has(m.userId)}
-                onClick={() => setPeople((s) => flip(s, m.userId))}
-              >
-                {m.name}
-              </ToggleChip>
-            ))}
-            {groups.map((g) => (
-              <ToggleChip
-                key={g.id}
-                pressed={people.has(`group:${g.id}`)}
-                onClick={() => setPeople((s) => flip(s, `group:${g.id}`))}
-              >
-                {g.name} group
-              </ToggleChip>
-            ))}
-            {guests.map((g) => (
-              <ToggleChip
-                key={g.email}
-                pressed
-                aria-label={`Leave out ${g.name}`}
-                onClick={() => setGuests((list) => list.filter((x) => x.email !== g.email))}
-              >
-                {g.name}
-                <Icon name="close" size={11} />
-              </ToggleChip>
-            ))}
-          </div>
-          <GuestFields
-            submitLabel="Add"
-            onAdd={(g) =>
-              setGuests((list) =>
-                list.some((x) => x.email.toLowerCase() === g.email.toLowerCase())
-                  ? list
-                  : [...list, g],
-              )
-            }
-          />
-          <Textarea
-            rows={2}
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="A line to go with it (optional)"
-            aria-label="A line to go with it"
-          />
-        </fieldset>
-        <div className="grid gap-4 @md/app:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <span className="label">Download</span>
-            <Segmented
-              label="Download"
-              value={download}
-              options={downloads}
-              onChange={setDownload}
-              className="self-start"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <span className="label">Expires</span>
-            <div className="flex items-center gap-3">
-              <Switch label="Expires" checked={expires} onChange={setExpires} />
-              <Input
-                type="date"
-                value={until}
-                onChange={(e) => setUntil(e.target.value)}
-                aria-label="Expires on"
-                className="h-8 w-40"
-                disabled={!expires}
-              />
-            </div>
-          </div>
         </div>
-        {create.error && <p className="m-0 text-[13px] text-signal">{create.error.message}</p>}
+        <div className="flex flex-col gap-1.5">
+          <span className="label">How</span>
+          <Segmented
+            label="How"
+            value={access}
+            options={shareAccesses.map((a) => ({ value: a, label: shareAccessCopy[a].label }))}
+            onChange={setAccess}
+            className="self-start"
+          />
+          <p className="m-0 text-[13px] text-ink-3">{shareAccessCopy[access].hint}</p>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <span className="label">Link</span>
+          {linkRow}
+        </div>
+        {emptyFolder && (
+          <p className="m-0 text-[13px] text-ink-3">Nothing in this folder to share yet.</p>
+        )}
+        {create.error && (
+          <p role="alert" className="m-0 text-[13px] text-signal">
+            {create.error.message}
+          </p>
+        )}
       </div>
     </Dialog>
   );

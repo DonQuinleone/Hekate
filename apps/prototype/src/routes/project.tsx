@@ -7,7 +7,6 @@ import { Card, Page, SectionHead } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-card";
 import { Property } from "~/components/property";
-import { ShareDialog } from "~/components/share";
 import { Dot, reviewDot } from "~/components/status";
 import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
@@ -613,7 +612,7 @@ function Overview({ project }: { project: Project }) {
 function ProjectReviews({ project }: { project: Project }) {
   const viewer = useViewer();
   const navigate = useNavigate();
-  const [sharing, setSharing] = useState(false);
+  // Sharing starts from the item shared (a row, the player, a version), not from here.
   const list = reviews.filter((r) => r.projectId === project.id && r.kind !== "share");
   const shares = reviews.filter((r) => r.projectId === project.id && r.kind === "share");
   const groups: [string, Review[]][] = [
@@ -627,12 +626,6 @@ function ProjectReviews({ project }: { project: Project }) {
         {plural(list.length, "review")}, {plural(shares.length, "share")}
       </span>
       <span className="ml-auto flex gap-1.5">
-        {canRequest && (
-          <Button variant="secondary" size="md" onClick={() => setSharing(true)}>
-            <Icon name="link" size={14} />
-            Share
-          </Button>
-        )}
         {canRequest && (
           <Button
             variant="primary"
@@ -652,9 +645,8 @@ function ProjectReviews({ project }: { project: Project }) {
         {toolbar}
         <Empty
           title="No reviews yet"
-          text="Ask people to approve or give feedback on tracks and files. Sharing, for those who only need to listen, is separate."
+          text="Ask people to approve or give feedback on tracks and files. Sharing, for those who only need to listen, starts from the file or track itself."
         />
-        {sharing && <ShareDialog project={project} onClose={() => setSharing(false)} />}
       </div>
     );
   return (
@@ -749,7 +741,6 @@ function ProjectReviews({ project }: { project: Project }) {
           </Card>
         </section>
       )}
-      {sharing && <ShareDialog project={project} onClose={() => setSharing(false)} />}
     </div>
   );
 }
