@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { commentAssignment } from "./comment-assignment.ts";
 import type { MediaInfo } from "./media.ts";
 import type { QaSeverity } from "./qa.ts";
 
@@ -182,6 +183,11 @@ export const workflowNode = z.object({
    */
   config: z.record(z.string().max(64), z.string().max(2000)).default({}),
   groupId: ident.optional(),
+  /**
+   * Whom a comment opened while a track waits at this stage is for (#499, decision 279): a
+   * member or a role, nobody, or, left out, whatever the track and the project say.
+   */
+  assign: commentAssignment.optional(),
 });
 export type WorkflowNode = z.infer<typeof workflowNode>;
 

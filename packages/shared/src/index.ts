@@ -11,6 +11,7 @@ export * from "./branding.ts";
 export * from "./calendar.ts";
 export * from "./captions.ts";
 export * from "./categories.ts";
+export * from "./comment-assignment.ts";
 export * from "./comment-export.ts";
 export * from "./comment-import.ts";
 export * from "./comments.ts";

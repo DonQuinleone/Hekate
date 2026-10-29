@@ -42,6 +42,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
+import { AssignmentPicker } from "~/components/assignment-picker";
 import { CategoryDialog } from "~/components/category-dialog";
 import {
   deliveryHint,
@@ -80,6 +81,7 @@ import {
   useProjectDeletion,
   useProjectStorage,
   useTemplateMutations,
+  useTrackCommentAssignment,
   useTrackDeliveryProfile,
   useTrackNormalisation,
   useTrackReferences,
@@ -1106,6 +1108,9 @@ function Workflow({ project }: { project: Project }) {
     ...projectWorkflowsQuery(project.id),
     enabled: mayBuild,
   });
+  // Whom new comments are for (#499): the project's rule, and each track's over it.
+  const { data: tracks } = useQuery(projectTracksQuery(project.id));
+  const onTrack = useTrackCommentAssignment(project.id);
   return (
     <>
       {mayBuild && (
@@ -1161,6 +1166,52 @@ function Workflow({ project }: { project: Project }) {
           onChange={(everyoneOnStatus) => notify({ everyoneOnStatus })}
         />
       </Section>
+      <Section
+        title="New comments"
+        intro="Whom a comment is given to as it is opened, unless the stage the track waits at says otherwise. They are told, as of comments sent to them."
+      >
+        <Row name="Assign new comments to" hint="A member, or whoever has held a role the longest">
+          <AssignmentPicker
+            projectId={project.id}
+            value={project.commentAssignment ?? { assign: null }}
+            disabled={!edit || update.isPending}
+            size="sm"
+            aria-label="Assign new comments to"
+            className="w-full @3xl/app:w-56"
+            onChange={(rule) => update.mutate({ commentAssignment: rule })}
+          />
+        </Row>
+      </Section>
+      {onTrack.error && <p className="-mt-6 text-[13px] text-signal">{onTrack.error.message}</p>}
+      {tracks && tracks.length > 0 && (
+        <Section title="Overrides" intro="Tracks whose new comments go to someone else.">
+          {tracks.map((t) => (
+            <Row
+              key={t.id}
+              name={
+                <Link
+                  to="/tracks/$trackId"
+                  params={{ trackId: t.id }}
+                  className="transition-colors hover:text-signal"
+                >
+                  {t.name}
+                </Link>
+              }
+            >
+              <AssignmentPicker
+                projectId={project.id}
+                value={t.commentAssignment}
+                inherits="Project default"
+                disabled={!edit}
+                size="sm"
+                aria-label={`Assign new comments on ${t.name} to`}
+                className="w-full @3xl/app:w-56"
+                onChange={(assignment) => onTrack.mutate({ trackId: t.id, assignment })}
+              />
+            </Row>
+          ))}
+        </Section>
+      )}
       <Section
         title="Checks on a new version"
         intro="A version that fails is refused, saying why; whoever edits the workflow can let it through, on the record."

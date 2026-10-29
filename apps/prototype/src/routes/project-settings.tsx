@@ -18,6 +18,7 @@ import {
   type Project,
   type ProjectPermission,
   type ProjectRole,
+  personById,
   projectById,
   projectPacks,
   type QaRule,
@@ -318,6 +319,34 @@ function ProfileEditor({ onClose }: { onClose: () => void }) {
         </label>
       </div>
     </Dialog>
+  );
+}
+
+/** Whom new comments are for: nobody, a role or a member of the project (#499). */
+function AssigneeSelect({ project, inherits }: { project: Project; inherits?: string }) {
+  return (
+    <Select
+      defaultValue={inherits ? "" : "nobody"}
+      aria-label="Assign new comments to"
+      className="w-full @3xl/app:w-56"
+    >
+      {inherits && <option value="">{inherits}</option>}
+      <option value="nobody">Nobody</option>
+      <optgroup label="Whoever holds the role">
+        {project.roles.map((r) => (
+          <option key={r.id} value={`role:${r.id}`}>
+            {r.name}
+          </option>
+        ))}
+      </optgroup>
+      <optgroup label="Members">
+        {project.members.map((m) => (
+          <option key={m.personId} value={`member:${m.personId}`}>
+            {personById(m.personId).name}
+          </option>
+        ))}
+      </optgroup>
+    </Select>
   );
 }
 
@@ -855,6 +884,26 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
             <SwitchRow name="Participants, in the app" checked />
             <SwitchRow name="Participants, by mail" checked />
             <SwitchRow name="Everyone in the project, on a status change" checked={false} />
+          </Section>
+          <Section
+            title="New comments"
+            intro="Whom a comment is given to as it is opened, unless the stage the track waits at says otherwise. They are told, as of comments sent to them."
+          >
+            <Row
+              name="Assign new comments to"
+              hint="A member, or whoever has held a role the longest"
+            >
+              <AssigneeSelect project={project} />
+            </Row>
+          </Section>
+          <Section title="Overrides" intro="Tracks whose new comments go to someone else.">
+            {tracks
+              .filter((t) => t.projectId === project.id)
+              .map((t) => (
+                <Row key={t.id} name={t.name}>
+                  <AssigneeSelect project={project} inherits="Project default" />
+                </Row>
+              ))}
           </Section>
           <Section
             title="Checks on a new version"

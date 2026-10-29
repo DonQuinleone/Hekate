@@ -20,6 +20,7 @@ import {
   type CategoryHandling,
   type CategoryInput,
   type ChannelRow,
+  type CommentAssignment,
   type CommentAttachment,
   type CommentMention,
   type CommentReferences,
@@ -33,6 +34,7 @@ import {
   type CustomProfile,
   type CustomProfileInput,
   type DateFormat,
+  type DeferStages,
   type DeletionConfirmation,
   type DirectorySettings,
   type DirectorySettingsInput,
@@ -488,6 +490,8 @@ export interface Project {
   workspaceMarks?: boolean;
   /** Who its workflows tell, and how (decision 259). */
   workflowNotices?: WorkflowNotices;
+  /** Whom a new comment is for, unless a track or a stage says otherwise (decision 279). */
+  commentAssignment?: CommentAssignment | null;
   /** A deletion waiting for a second owner (#240); only on a single project. */
   deletion?: ProjectDeletion | null;
   /** In the list: whether they are a member of it. */
@@ -2048,6 +2052,14 @@ export const commentsQuery = (fileId: string) =>
   });
 
 /** Whom this member may mention on a file (#133): its project's people. None for guests. */
+/** The stages a thread on a file may be deferred to (#499), for those who triage. */
+export const fileStagesQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "stages"],
+    queryFn: async () =>
+      json<DeferStages>(await api.files[":id"].stages.$get({ param: { id: fileId } })),
+  });
+
 export const mentionableQuery = (fileId: string) =>
   queryOptions({
     queryKey: ["files", fileId, "mentionable"],
@@ -2340,6 +2352,29 @@ export function useTrackReferences(projectId: string) {
   });
 }
 
+/** Whom a track's new comments are for (#499), over the project's; null keeps the project's. */
+export function useTrackCommentAssignment(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      trackId,
+      assignment,
+    }: {
+      trackId: string;
+      assignment: CommentAssignment | null;
+    }) =>
+      json(
+        await api.tracks[":id"]["comment-assignment"].$put({
+          param: { id: trackId },
+          json: { assignment },
+        }),
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: projectTracksQuery(projectId).queryKey });
+    },
+  });
+}
+
 /** The workspace's own delivery profiles, beside the built-in ones (#144). */
 export const customProfilesQuery = queryOptions({
   queryKey: ["organisation", "delivery-profiles"],
@@ -2456,6 +2491,8 @@ export interface Track {
   commentReferences: CommentReferences | null;
   /** How its recordings play normalised, over the project's; null keeps the project's (#98). */
   normalisation: NormalisationMode | null;
+  /** Whom a comment opened on it is for, over the project's; null keeps the project's (#499). */
+  commentAssignment: CommentAssignment | null;
   createdAt: string;
   versions: Version[];
   /** In a project's track list: where it stands, and who it waits on while in review. */
