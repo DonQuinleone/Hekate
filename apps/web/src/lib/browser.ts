@@ -159,7 +159,6 @@ export function trackNext(
 
 /** Someone's marks, by `kind:id`, for quick lookups. */
 export interface MarkIndex {
-  pinned: Set<string>;
   favourite: Set<string>;
   viewed: Set<string>;
 }
@@ -167,11 +166,12 @@ export interface MarkIndex {
 export const markKey = (item: { kind: string; id: string }) => `${item.kind}:${item.id}`;
 
 export function indexMarks(marks: Mark[]): MarkIndex {
-  const index: MarkIndex = { pinned: new Set(), favourite: new Set(), viewed: new Set() };
+  const index: MarkIndex = { favourite: new Set(), viewed: new Set() };
   for (const m of marks) {
     const key = markKey(m);
-    if (m.pinned) index.pinned.add(key);
-    if (m.favourite) index.favourite.add(key);
+    // One mark (decision 269): a pin kept from before reads as a favourite until it is written
+    // again, which writes both.
+    if (m.favourite || m.pinned) index.favourite.add(key);
     if (m.viewed) index.viewed.add(key);
   }
   return index;
@@ -181,10 +181,10 @@ export function indexMarks(marks: Mark[]): MarkIndex {
 export const unviewed = (file: ProjectFile, me: string | undefined, marks: MarkIndex) =>
   file.uploadedById !== me && !marks.viewed.has(markKey({ kind: "file", id: file.id }));
 
-/** Pinned things first, otherwise in the order given. */
-export const pinnedFirst = (items: Item[], marks: MarkIndex): Item[] => [
-  ...items.filter((i) => marks.pinned.has(markKey(i))),
-  ...items.filter((i) => !marks.pinned.has(markKey(i))),
+/** Favourites first, otherwise in the order given. */
+export const favouritesFirst = (items: Item[], marks: MarkIndex): Item[] => [
+  ...items.filter((i) => marks.favourite.has(markKey(i))),
+  ...items.filter((i) => !marks.favourite.has(markKey(i))),
 ];
 
 /** What narrows the file browser: ways of looking, and tags (any of them). */
@@ -270,7 +270,7 @@ export function filterProject(
       .filter((f) => !inTracks.has(f.id))
       .map((file): Item => ({ kind: "file", id: file.id, file })),
   ];
-  return pinnedFirst(
+  return favouritesFirst(
     candidates.filter(passes).sort((a, b) => name(a).localeCompare(name(b), "en-GB")),
     marks,
   );

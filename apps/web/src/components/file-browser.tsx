@@ -33,6 +33,7 @@ import {
   type BrowserFilters,
   bulkTags,
   columnsFor,
+  favouritesFirst,
   filtering,
   filterProject,
   fitColumns,
@@ -45,7 +46,6 @@ import {
   latestFile,
   markKey,
   movableTo,
-  pinnedFirst,
   processingStage,
   rangeBetween,
   trackNext,
@@ -285,9 +285,9 @@ function Comments({ n }: { n: number }) {
  * one into the next (as the Finder does), or as a grid. A track is a special kind of folder:
  * it sits among them, and the files in its versions live in it rather than loose beside it.
  * Those who can organise make folders and tracks, and rename, move, tag and delete what is
- * here; files dropped anywhere on the page land in the open folder. Everyone pins things to
- * the top of their folder, keeps favourites and sees what they have not opened, for
- * themselves; filters look across the whole project.
+ * here; files dropped anywhere on the page land in the open folder. Everyone keeps favourites
+ * (which sit at the top of their folder) and sees what they have not opened, for themselves;
+ * filters look across the whole project.
  */
 export function FileBrowser({
   projectId,
@@ -326,6 +326,9 @@ export function FileBrowser({
   const organise = useOrganise(projectId);
   const trackMutations = useTrackMutations(projectId);
   const setMarks = useMarks(projectId);
+  /** One personal mark (decision 269), written as both while the pin is still stored. */
+  const favour = (marked: { kind: MarkKind; id: string }[], on: boolean) =>
+    setMarks.mutate({ items: marked, favourite: on, pinned: on });
   const retry = useRetryFile(projectId);
   const navigate = useNavigate();
   const { data: savedColumns } = useQuery(fileColumnsQuery);
@@ -418,14 +421,14 @@ export function FileBrowser({
   const path = filtered ? [] : folderPath(all, folderId);
   const items = filtered
     ? filterProject(all, allTracks, allFiles, filters, myId, marks)
-    : pinnedFirst(itemsIn(all, allTracks, allFiles, folderId), marks);
+    : favouritesFirst(itemsIn(all, allTracks, allFiles, folderId), marks);
   const order = items.map(markKey);
   /**
    * The columns always start at the top of the project (as the Finder's do), with the open
    * folder's ancestors opened and the folder chosen; choosing another folder in them opens it.
    */
   const rootItems =
-    folderId === null ? items : pinnedFirst(itemsIn(all, allTracks, allFiles, null), marks);
+    folderId === null ? items : favouritesFirst(itemsIn(all, allTracks, allFiles, null), marks);
   const folderItems: Item[] = path.map((f) => ({ kind: "folder", id: f.id, folder: f }));
   const chooseInColumns = (next: Item[]) => {
     let deepest = -1;
@@ -702,12 +705,8 @@ export function FileBrowser({
     const seen = seenFile(item);
     const personal: (MenuAction | "divider")[] = [
       {
-        label: marks.pinned.has(key) ? "Unpin" : "Pin to the top",
-        onSelect: () => setMarks.mutate({ items: self, pinned: !marks.pinned.has(key) }),
-      },
-      {
         label: marks.favourite.has(key) ? "Remove from favourites" : "Add to favourites",
-        onSelect: () => setMarks.mutate({ items: self, favourite: !marks.favourite.has(key) }),
+        onSelect: () => favour(self, !marks.favourite.has(key)),
       },
       // What someone uploaded they have seen: only others' files can be unseen again.
       ...(seen && (isNew(item) || seen.uploadedById !== myId)
@@ -939,12 +938,6 @@ export function FileBrowser({
           >
             {itemName(item, versionLabel)}
           </span>
-          {marks.pinned.has(key) && (
-            <span title="Pinned" className="flex shrink-0 text-ink-3">
-              <Icon name="pin" size={12} aria-hidden="true" />
-              <span className="sr-only">, pinned</span>
-            </span>
-          )}
           {marks.favourite.has(key) && (
             <span title="Favourite" className="flex shrink-0 text-ink-3">
               <Icon name="star" size={12} aria-hidden="true" />
@@ -1306,7 +1299,7 @@ export function FileBrowser({
 
   const openItem = (item: Item): Item[] | null =>
     item.kind === "folder"
-      ? pinnedFirst(itemsIn(all, allTracks, allFiles, item.folder.id), marks)
+      ? favouritesFirst(itemsIn(all, allTracks, allFiles, item.folder.id), marks)
       : item.kind === "track" && item.track.versions.length
         ? versionsOf(item.track)
         : null;
@@ -1619,21 +1612,12 @@ export function FileBrowser({
           onClear={clearSelection}
           actions={[
             {
-              label: allHave(chosen.map(markKey), marks.pinned) ? "Unpin" : "Pin",
-              run: () => {
-                const items = chosen.map((i) => ({ kind: i.kind as MarkKind, id: i.id }));
-                setMarks.mutate({ items, pinned: !allHave(chosen.map(markKey), marks.pinned) });
-              },
-            },
-            {
               label: allHave(chosen.map(markKey), marks.favourite) ? "Unfavourite" : "Favourite",
-              run: () => {
-                const items = chosen.map((i) => ({ kind: i.kind as MarkKind, id: i.id }));
-                setMarks.mutate({
-                  items,
-                  favourite: !allHave(chosen.map(markKey), marks.favourite),
-                });
-              },
+              run: () =>
+                favour(
+                  chosen.map((i) => ({ kind: i.kind as MarkKind, id: i.id })),
+                  !allHave(chosen.map(markKey), marks.favourite),
+                ),
             },
             // Seen if any is new; otherwise unseen again, but only others' files.
             ...(chosen.some(isNew) ||

@@ -2036,8 +2036,10 @@ test("project-files-columns", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/files`);
   await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
   await page.getByRole("button", { name: "Columns", exact: true }).click();
+  // The track, not the score beside it (a favourite, so listed first).
   await page
     .getByRole("button", { name: /^Maple Leaf Rag/ })
+    .filter({ hasNotText: ".pdf" })
     .first()
     .click();
   await page.getByRole("button", { name: /^V2/ }).click();

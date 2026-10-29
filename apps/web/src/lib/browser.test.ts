@@ -6,6 +6,7 @@ import {
   type BrowserFilters,
   bulkTags,
   columnsFor,
+  favouritesFirst,
   filterProject,
   filtersFrom,
   filtersTo,
@@ -20,7 +21,6 @@ import {
   movableTo,
   moveColumn,
   noFilters,
-  pinnedFirst,
   processingStage,
   rangeBetween,
   resizeColumn,
@@ -174,12 +174,16 @@ describe("marks and filters", () => {
     expect(filtersTo(noFilters)).toEqual({});
   });
 
-  it("puts pinned things first", () => {
+  it("puts favourites first, a pin from before counting as one", () => {
     const items = itemsIn(folders, [], [mine, theirs], null);
     const marks = indexMarks([
-      { kind: "file", id: "Mine.wav", pinned: true, favourite: false, viewed: false },
+      { kind: "file", id: "Mine.wav", pinned: false, favourite: true, viewed: false },
     ]);
-    expect(pinnedFirst(items, marks).map((i) => i.id)).toEqual(["Mine.wav", "Mixes"]);
+    expect(favouritesFirst(items, marks).map((i) => i.id)).toEqual(["Mine.wav", "Mixes"]);
+    const pinned = indexMarks([
+      { kind: "folder", id: "Mixes", pinned: true, favourite: false, viewed: false },
+    ]);
+    expect(favouritesFirst(items, pinned).map((i) => i.id)).toEqual(["Mixes", "Mine.wav"]);
   });
 
   it("finds what is unseen, with comments, mine, a favourite or tagged, anywhere", () => {

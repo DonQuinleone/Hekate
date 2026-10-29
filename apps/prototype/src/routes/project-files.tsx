@@ -139,7 +139,7 @@ function RowPick({ id, icon, className }: { id: string; icon: IconName; classNam
 
 /**
  * What can be done to everything selected, floating at the foot of the list (Linear,
- * Dropbox): pin, favourite and mark seen for everyone; move, tag and delete for those who
+ * Dropbox): favourite and mark seen for everyone; move, tag and delete for those who
  * organise. Rows also drag onto a folder or the path to move.
  */
 function SelectionBar({ count, onClear }: { count: number; onClear: () => void }) {
@@ -150,7 +150,7 @@ function SelectionBar({ count, onClear }: { count: number; onClear: () => void }
       className="rise-in sticky bottom-4 z-20 mx-auto mt-4 flex w-full max-w-3xl flex-wrap items-center gap-1 rounded-panel-lg bg-overlay p-2 shadow-4"
     >
       <span className="tabular px-2 text-[13px] text-ink">{count} selected</span>
-      {["Pin", "Favourite", "Mark as viewed", "Move…", "Tags…", "Delete…"].map((label) => (
+      {["Favourite", "Mark as viewed", "Move…", "Tags…", "Delete…"].map((label) => (
         <Button key={label} size="sm" variant="ghost">
           {label}
         </Button>
@@ -506,13 +506,13 @@ function FolderRow({ folder, project }: { folder: Folder; project: Project }) {
 /* ---------- Personal marks and filters ---------- */
 
 /**
- * What anyone who can see a thing may do to it for themselves (#114): pin it to the top of
- * its folder, keep it as a favourite, and (files and tracks) mark it seen or not. These
- * open every row's menu; organising follows for those who may.
+ * What anyone who can see a thing may do to it for themselves (#114): keep it as a favourite
+ * (one mark, decision 269: it sits at the top of its folder and in the Favourites filter), and
+ * (files and tracks) mark it seen or not. These open every row's menu; organising follows for
+ * those who may.
  */
 function personalActions(seen: boolean | null): (MenuAction | "divider")[] {
   return [
-    { label: "Pin to the top", onSelect: () => {} },
     { label: "Add to favourites", onSelect: () => {} },
     ...(seen === null
       ? []
