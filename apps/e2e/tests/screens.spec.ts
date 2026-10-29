@@ -2105,7 +2105,12 @@ test("files-context-menu", async ({ page }) => {
   // At the pointer: its left edge where the click was (it may open above, where there is
   // no room below).
   const at = await menu.boundingBox();
-  expect(at?.x).toBeGreaterThanOrEqual((clicked?.x ?? 0) + (clicked?.width ?? 0) / 2 - 1);
+  const placed = await menu.evaluate(
+    (el) => `${el.getAttribute("style")} ${el.getBoundingClientRect().width}`,
+  );
+  expect(at?.x, `menu placed with: ${placed}`).toBeGreaterThanOrEqual(
+    (clicked?.x ?? 0) + (clicked?.width ?? 0) / 2 - 1,
+  );
   await saveScreen(page, "files-context-menu");
   await checkScreen(page);
 });

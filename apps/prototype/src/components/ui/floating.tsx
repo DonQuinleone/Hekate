@@ -99,7 +99,14 @@ export function Floating({
 }: FloatingProps) {
   const host = useContext(FloatingHost);
   const el = useRef<HTMLDivElement>(null);
-  const [style, setStyle] = useState<CSSProperties>({ visibility: "hidden" });
+  // Out of sight until placed, and already out of the flow: a block in the flow would be as
+  // wide as the layer, and the first measurement would place it by that width.
+  const [style, setStyle] = useState<CSSProperties>({
+    position: "absolute",
+    left: 0,
+    top: 0,
+    visibility: "hidden",
+  });
   const close = useRef(onClose);
   close.current = onClose;
 
