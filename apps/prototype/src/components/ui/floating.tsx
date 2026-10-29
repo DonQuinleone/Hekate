@@ -35,13 +35,30 @@ export function FloatingLayer({
 /** Each floating element's anchor, so a click inside one counts as a click on its anchor. */
 const anchors = new WeakMap<Element, Element>();
 
-/** True when the event started inside `anchor`, or inside something floating from it. */
+/**
+ * True when the event started inside `anchor`, or inside something floating from it, at any
+ * remove: a list of suggestions floating from a popover that floats from the anchor counts.
+ */
 export function withinOrFloatingFrom(event: Event, anchor: Element | null): boolean {
   if (!anchor) return false;
-  return event
-    .composedPath()
-    .some((el) => el === anchor || (el instanceof Element && anchors.get(el) === anchor));
+  for (const el of event.composedPath()) {
+    if (!(el instanceof Element)) continue;
+    let node: Element | null = el;
+    while (node) {
+      if (node === anchor || anchor.contains(node)) return true;
+      const root: Element | null = node.closest("[data-floating]");
+      node = root ? (anchors.get(root) ?? null) : null;
+    }
+  }
+  return false;
 }
+
+/** A place on the screen to float from, where there is no element: the pointer, say. */
+export interface Point {
+  x: number;
+  y: number;
+}
+const isPoint = (anchor: FloatingProps["anchor"]): anchor is Point => "x" in anchor;
 
 const MARGIN = 8;
 
@@ -51,8 +68,8 @@ const focusable = (root: HTMLElement) =>
   );
 
 interface FloatingProps extends HTMLAttributes<HTMLDivElement> {
-  /** The element it hangs from. */
-  anchor: RefObject<HTMLElement | null>;
+  /** The element it hangs from, or a point in the window (where a context menu opens). */
+  anchor: RefObject<HTMLElement | null> | Point;
   /** Below the anchor or above it; it flips when the preferred side has no room. */
   side?: "bottom" | "top";
   /** Its left edge on the anchor's left edge, its right edge on the anchor's right, or as wide as the anchor. */
@@ -86,15 +103,17 @@ export function Floating({
   const close = useRef(onClose);
   close.current = onClose;
 
+  const point = isPoint(anchor) ? anchor : null;
+  const element = isPoint(anchor) ? null : anchor;
   useLayoutEffect(() => {
-    const a = anchor.current;
+    const a = element?.current ?? null;
     const f = el.current;
-    if (!host || !a || !f) return;
-    anchors.set(f, a);
+    if (!host || !f || (!a && !point)) return;
+    if (a) anchors.set(f, a);
     let last = "";
     const place = () => {
       const H = host.getBoundingClientRect();
-      const A = a.getBoundingClientRect();
+      const A = a ? a.getBoundingClientRect() : new DOMRect(point?.x ?? 0, point?.y ?? 0, 0, 0);
       const w = align === "stretch" ? A.width : f.offsetWidth;
       // Its height unconstrained: once capped, it scrolls, and measuring the cap would say it
       // fits, lift the cap, and measure again, without end.
@@ -129,7 +148,7 @@ export function Floating({
     place();
     const watch = new ResizeObserver(place);
     watch.observe(f);
-    watch.observe(a);
+    if (a) watch.observe(a);
     watch.observe(host);
     window.addEventListener("resize", place);
     document.addEventListener("scroll", place, true);
@@ -143,34 +162,35 @@ export function Floating({
     };
     const left = (e: FocusEvent) => {
       const to = e.relatedTarget;
-      if (to instanceof Node && (f.contains(to) || a.contains(to))) return;
+      if (to instanceof Node && (f.contains(to) || a?.contains(to))) return;
       if (to === null) return;
       close.current?.();
     };
-    a.addEventListener("keydown", fromAnchor);
+    a?.addEventListener("keydown", fromAnchor);
     f.addEventListener("focusout", left);
     return () => {
       anchors.delete(f);
       watch.disconnect();
       window.removeEventListener("resize", place);
       document.removeEventListener("scroll", place, true);
-      a.removeEventListener("keydown", fromAnchor);
+      a?.removeEventListener("keydown", fromAnchor);
       f.removeEventListener("focusout", left);
     };
-  }, [anchor, host, side, align, gap]);
+  }, [element, point, host, side, align, gap]);
 
   if (!host) {
     return (
       <div
         ref={el}
+        data-floating
         className={cn(
-          "absolute z-30",
-          side === "top" ? "bottom-full mb-1" : "top-full mt-1",
-          align === "end" ? "right-0" : "left-0",
-          align === "stretch" && "right-0",
+          point ? "fixed z-30" : "absolute z-30",
+          !point && (side === "top" ? "bottom-full mb-1" : "top-full mt-1"),
+          !point && (align === "end" ? "right-0" : "left-0"),
+          !point && align === "stretch" && "right-0",
           className,
         )}
-        style={given}
+        style={point ? { ...given, left: point.x, top: point.y } : given}
         {...rest}
       >
         {children}
@@ -181,6 +201,7 @@ export function Floating({
     // A layer over the page to the visual suite: what it covers is out of sight.
     <div
       ref={el}
+      data-floating
       data-e2e-layer
       className={cn("z-40 overflow-auto", className)}
       style={{ ...given, ...style }}
