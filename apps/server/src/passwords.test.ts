@@ -1,8 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createDb, runMigrations } from "@hekate/db";
+import { createDb, runMigrations, schema, withAuditPurge } from "@hekate/db";
 import { createBackends, storageConfigFromEnv } from "@hekate/storage";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
 import { createAudit } from "./audit.ts";
@@ -67,10 +68,19 @@ describe.runIf(url)("a new account's password, with the breach check on", () => 
   const signIn = (email: string, password: string) =>
     app.request("/api/auth/sign-in/email", json({ email, password }));
 
+  // Setup refuses once anyone has an account, so the suite starts and ends with none.
+  const empty = async () => {
+    await withAuditPurge(db, (tx) =>
+      tx.execute(sql`truncate ${schema.organisations}, ${schema.users} cascade`),
+    );
+    await db.execute(sql`truncate ${schema.requestLimits}`);
+  };
   beforeAll(async () => {
     await runMigrations(url ?? "");
+    await empty();
   });
   afterAll(async () => {
+    await empty();
     await close();
     rmSync(storageRoot, { recursive: true, force: true });
   });
