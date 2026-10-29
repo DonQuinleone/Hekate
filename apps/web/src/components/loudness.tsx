@@ -556,3 +556,66 @@ export function Loudness({
     </section>
   );
 }
+
+/**
+ * The levels at the playhead beside the waveform (#493), switched from the view toolbar: a
+ * bar per channel, as tall as the waveform, peak as a line over RMS, read from the stored
+ * analysis as the Loudness panel reads it. Nothing until the file is analysed.
+ */
+export function PlayheadMeters({
+  fileId,
+  media,
+  layout,
+}: {
+  fileId: string;
+  media: HTMLMediaElement | null;
+  layout?: string;
+}) {
+  const { data } = useQuery(loudnessQuery(fileId));
+  const { data: series } = useQuery({
+    ...loudnessSeriesQuery(fileId),
+    enabled: Boolean(data?.series),
+  });
+  const frame = usePlayheadFrame(series, media);
+  if (!series) return null;
+  const names = channelNames(series.channels, layout);
+  const at = frame ?? 0;
+  return (
+    <ul
+      className="m-0 flex shrink-0 list-none items-stretch gap-1 p-0"
+      aria-label="Channel levels at the playhead"
+    >
+      {names.map((name, c) => {
+        const peak = frame === null ? SILENCE : (series.peak[at * series.channels + c] as number);
+        const rms = frame === null ? SILENCE : (series.rms[at * series.channels + c] as number);
+        return (
+          <li key={name} className="flex w-4 flex-col items-center gap-1">
+            <meter
+              className="sr-only"
+              min={METER_FLOOR}
+              max={0}
+              value={Math.max(METER_FLOOR, peak)}
+              aria-label={`${name}: peak ${formatLevel(peak)} dBFS, RMS ${formatLevel(rms)} dBFS`}
+            />
+            <div
+              className="relative min-h-16 w-1.5 flex-1 overflow-hidden rounded-[1px] bg-raised"
+              aria-hidden="true"
+            >
+              <span
+                className="absolute inset-x-0 bottom-0 bg-ink-3"
+                style={{ height: `${meterFraction(rms) * 100}%` }}
+              />
+              <span
+                className={cn("absolute inset-x-0 h-px", peak >= -0.1 ? "bg-signal" : "bg-ink")}
+                style={{ bottom: `${meterFraction(peak) * 100}%` }}
+              />
+            </div>
+            <span className="label text-[9px] normal-case" aria-hidden="true">
+              {name}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
