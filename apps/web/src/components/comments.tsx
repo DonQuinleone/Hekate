@@ -2,6 +2,7 @@ import {
   type Anchor,
   anchorShift,
   anchorTime,
+  barsLabel,
   type CarryStatus,
   COMMENT_ATTACHMENT_MAX_BYTES,
   COMMENT_ATTACHMENTS_MAX,
@@ -18,6 +19,7 @@ import {
   parseBeat,
   speakerOf,
   speakersOf,
+  type TakeRow,
   type TriageInput,
   versionLabel,
   videoClock,
@@ -75,13 +77,13 @@ import type { RegionMarker } from "./document-viewer";
 import type { FrameDraft, FrameDrawing } from "./drawings";
 import { Icon } from "./icons";
 import type { TimelineMarker } from "./player";
-import { OtherTakes, SharedTakes } from "./takes";
+import { OtherTakes, SharedTakes, TakePicker } from "./takes";
 import { Button } from "./ui/button";
 import { Chip, ToggleChip } from "./ui/chip";
 import { Dialog } from "./ui/dialog";
 import { Field } from "./ui/field";
 import { Input, Select, Textarea } from "./ui/input";
-import { ActionMenu, Dropdown, type MenuAction } from "./ui/menu";
+import { ActionMenu, Dropdown, type MenuAction, MenuList, usePopover } from "./ui/menu";
 import { UploadDialog } from "./ui/upload-dialog";
 
 const fullTime = formatDates({ dateStyle: "medium", timeStyle: "short" });
@@ -159,10 +161,12 @@ function Composer({
   initial = "",
   initialMentions = [],
   attachable = false,
+  takesFrom,
   submitLabel,
   pending,
   onSubmit,
   onAttach,
+  onShareTakes,
   onSaved,
   onCancel,
   children,
@@ -172,6 +176,8 @@ function Composer({
   initialMentions?: CommentMention[];
   /** Files may go with it (#133): chosen here, sent once the comment is saved. */
   attachable?: boolean;
+  /** The track whose takes may go with it too (#497), for those who may share them. */
+  takesFrom?: { trackId: string; projectId: string } | undefined;
   submitLabel: string;
   pending: boolean;
   /**
@@ -181,6 +187,8 @@ function Composer({
   onSubmit: (body: string, mentions: string[]) => Promise<string | undefined>;
   /** Attaches one chosen file to the comment saved. */
   onAttach?: (commentId: string, file: File) => Promise<unknown>;
+  /** Shares the takes picked on the thread saved. */
+  onShareTakes?: (commentId: string, takeIds: string[]) => Promise<unknown>;
   /** Once the comment and all its files are saved. */
   onSaved?: () => void;
   onCancel?: () => void;
@@ -191,12 +199,16 @@ function Composer({
   const [error, setError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<CommentMention[]>(initialMentions);
   const [files, setFiles] = useState<File[]>([]);
+  /** The track's takes picked to go with it (#497). */
+  const [takes, setTakes] = useState<TakeRow[]>([]);
   // Busy from saving the comment until its last file is attached.
   const [sending, setSending] = useState(false);
   // A comment saved whose files did not all attach: trying again attaches the rest to it.
   const [saved, setSaved] = useState<string | null>(null);
-  // Choosing files to attach: the upload dialog, which says what a comment may carry.
-  const [attaching, setAttaching] = useState(false);
+  // Attach opens a menu in place (#497): the track's takes, or files to upload. The upload
+  // dialog says what a comment may carry.
+  const [attachMenu, setAttachMenu, attachBox] = usePopover();
+  const [attaching, setAttaching] = useState<"upload" | "takes" | null>(null);
   /** Why a file cannot go with a comment, if it cannot: the dialog says so by the file. */
   const refuse = (f: File) =>
     f.size === 0
@@ -267,6 +279,14 @@ function Composer({
           await onAttach(id, file);
           setFiles((list) => list.filter((f) => f !== file));
         }
+      }
+      if (id && onShareTakes && takes.length > 0) {
+        setSaved(id);
+        await onShareTakes(
+          id,
+          takes.map((t) => t.id),
+        );
+        setTakes([]);
       }
       setBody("");
       setChosen([]);
@@ -380,25 +400,92 @@ function Composer({
           ))}
         </ul>
       )}
+      {takes.length > 0 && (
+        <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Takes to attach">
+          {takes.map((t) => (
+            <li key={t.id}>
+              <Chip className="h-6 gap-1 text-[12px] text-ink-2">
+                <Icon name="take" size={11} />
+                <span className="tabular">T{t.number}</span>
+                {barsLabel(t) && <span className="text-ink-3">{barsLabel(t)}</span>}
+                <Button
+                  size="iconSm"
+                  variant="quiet"
+                  className="-mr-1 size-5"
+                  aria-label={`Leave out take ${t.number}`}
+                  onClick={() => setTakes(takes.filter((x) => x.id !== t.id))}
+                >
+                  <Icon name="close" size={11} />
+                </Button>
+              </Chip>
+            </li>
+          ))}
+        </ul>
+      )}
       {error && <p className="m-0 text-xs text-signal">{error}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {children}
         {attachable && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={files.length >= COMMENT_ATTACHMENTS_MAX}
-            onClick={() => setAttaching(true)}
-          >
-            <Icon name="link" size={12} />
-            Attach
-          </Button>
+          <span ref={attachBox} className="relative">
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-haspopup="menu"
+              aria-expanded={attachMenu}
+              onClick={() => setAttachMenu(!attachMenu)}
+              className={cn(attachMenu && "bg-raised text-ink")}
+            >
+              <Icon name="link" size={12} />
+              Attach
+            </Button>
+            {attachMenu && (
+              <MenuList
+                anchor={attachBox}
+                align="left"
+                side="top"
+                label="Attach"
+                onClose={() => setAttachMenu(false)}
+                actions={[
+                  ...(takesFrom
+                    ? [
+                        {
+                          label: "Takes from this track",
+                          icon: <Icon name="take" size={14} />,
+                          onSelect: () => setAttaching("takes"),
+                        },
+                      ]
+                    : []),
+                  {
+                    label: "Upload",
+                    icon: <Icon name="upload" size={14} />,
+                    hint:
+                      files.length >= COMMENT_ATTACHMENTS_MAX
+                        ? `${COMMENT_ATTACHMENTS_MAX} already`
+                        : undefined,
+                    onSelect: () => setAttaching("upload"),
+                  },
+                ]}
+              />
+            )}
+          </span>
         )}
-        {attaching && (
+        {attaching === "takes" && takesFrom && (
+          <TakePicker
+            trackId={takesFrom.trackId}
+            projectId={takesFrom.projectId}
+            chosen={takes.map((t) => t.id)}
+            onPick={(picked) => {
+              setTakes(picked);
+              setError(null);
+            }}
+            onClose={() => setAttaching(null)}
+          />
+        )}
+        {attaching === "upload" && (
           <UploadDialog
             title="Attach files"
             description={`Up to ${COMMENT_ATTACHMENTS_MAX} files of 25 MB each go with the comment.`}
-            onClose={() => setAttaching(false)}
+            onClose={() => setAttaching(null)}
             width="sm"
             inputLabel="Files to attach"
             listLabel="Files chosen to attach"
@@ -411,7 +498,7 @@ function Composer({
             onSubmit={(chosen) => {
               setFiles([...files, ...chosen.flatMap((c) => (c.file ? [c.file] : []))]);
               setError(null);
-              setAttaching(false);
+              setAttaching(null);
             }}
           />
         )}
@@ -1462,6 +1549,11 @@ export function Comments({
       submitLabel="Comment"
       pending={mutations.create.isPending}
       attachable
+      // The track's takes (#497), by those who may share them: triage, seeing takes.
+      takesFrom={takesOf && canTriage ? { trackId: takesOf, projectId } : undefined}
+      onShareTakes={(commentId, takeIds) =>
+        mutations.shareTakes.mutateAsync({ commentId, takeIds })
+      }
       onSubmit={async (body, mentions) => {
         const { comment: made } = await mutations.create.mutateAsync({
           body,

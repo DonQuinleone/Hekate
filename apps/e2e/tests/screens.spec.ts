@@ -3033,6 +3033,7 @@ test("file-comment-attach", async ({ page }, info) => {
   await settle(page, "section[aria-label=Comments] li");
   await page.getByRole("textbox", { name: "Comment at the playhead" }).fill("Fingering as marked");
   await page.getByRole("button", { name: "Attach", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Upload" }).click();
   const dialog = page.getByRole("dialog", { name: "Attach files" });
   await dialog.locator("input[type=file][aria-label='Files to attach']").setInputFiles({
     name: "Fingering, bars 9 to 12.pdf",
@@ -3048,6 +3049,47 @@ test("file-comment-attach", async ({ page }, info) => {
   await settle(page, "ul[aria-label='Files to attach'] li");
   await saveScreen(page, "file-comment-attach");
   await checkScreen(page);
+});
+
+// Attaching the track's takes to a comment (#497): Attach opens a menu in place, the picker
+// lists the takes with their session, bars and a preview, two are ticked and go on the
+// comment at bar 12 as shared takes. On the wet mix, so the dry mix's threads stay as every
+// other screen expects.
+test("file-comment-attach-takes", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "On a phone the composer is a sheet, captured apart");
+  const { track } = (await (await page.request.get(`/api/tracks/${seeded().trackId}`)).json()) as {
+    track: { versions: { variants: { fileId: string; name: string }[] }[] };
+  };
+  const wet = track.versions.flatMap((v) => v.variants).find((v) => v.name === "Wet");
+  if (!wet) throw new Error("The seed has no wet mix");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${wet.fileId}`);
+  await settle(page, "section[aria-label=Comments] textarea");
+  await page.getByRole("textbox", { name: "Comment at the playhead" }).fill("Hear these two here");
+  await page.getByLabel("Bar", { exact: true }).fill("12");
+  // The composer's, not the picker's own Attach.
+  const attach = page
+    .locator("section[aria-label=Comments] form")
+    .getByRole("button", { name: "Attach", exact: true });
+  const before = await attach.boundingBox();
+  await attach.click();
+  await page.getByRole("menuitem", { name: "Takes from this track" }).click();
+  // The button stayed where it was.
+  expect(await attach.boundingBox()).toEqual(before);
+  const dialog = page.getByRole("dialog", { name: "Takes from this track" });
+  await expect(dialog.getByRole("listitem").first()).toContainText("Day 2 · bars 1 to 16");
+  await expect(dialog.getByRole("link", { name: /^Hear take 1 in a new tab/ })).toBeVisible();
+  await dialog.getByRole("checkbox", { name: "Attach take 1" }).check();
+  await dialog.getByRole("checkbox", { name: "Attach take 2" }).check();
+  await saveScreen(page, "file-comment-attach-takes");
+  await checkScreen(page);
+  await dialog.getByRole("button", { name: "Attach 2" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator("ul[aria-label='Takes to attach'] li")).toHaveCount(2);
+  await page.getByRole("button", { name: "Comment", exact: true }).click();
+  const thread = page.getByRole("listitem").filter({ hasText: "Hear these two here" });
+  await expect(thread.getByRole("button", { name: "2 takes attached" })).toBeVisible();
+  await expect(thread.getByRole("button", { name: /^Play bar 12 · / })).toBeVisible();
 });
 
 // The player's keys, the "?" map listing exactly them, and nothing firing while typing.
