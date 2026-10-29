@@ -133,6 +133,7 @@ describe("contracting statements (#421)", () => {
       "0148_metadata_editor",
       "0149_variants",
       "0150_comment_assignment",
+      "0151_calendar_entries",
       "0152_review_scope",
     ]) {
       const text = readFileSync(join(migrationsFolder, `${name}.sql`), "utf8");
