@@ -1811,7 +1811,7 @@ export function Player({
     // Quality menu stays: it is the only way to choose what is heard.
     <span
       className={cn(
-        "min-w-0 items-center gap-1 text-[12px] text-ink-3 sm:flex",
+        "min-w-0 items-center gap-1 overflow-hidden text-[12px] text-ink-3 sm:flex",
         choices.length > 1 ? "flex" : "hidden",
       )}
       title={[
@@ -1840,17 +1840,19 @@ export function Player({
               onSelect: () => choose(c.level),
             })),
           ]}
-          className="h-7 px-1.5 text-[12px] text-ink-3"
+          className="h-7 min-w-0 px-1.5 text-[12px] text-ink-3"
         />
       ) : (
         choices[0] && (
-          <span className="tabular truncate px-1">
+          // A flex item shrinks below its words only with min-w-0; without it the line ran
+          // into the menus where the font is wider.
+          <span className="tabular min-w-0 truncate px-1">
             {renditionLabel(choices[0].rendition, info)}
           </span>
         )
       )}
       {normalised && normalisation && (
-        <span className="tabular hidden truncate sm:inline">
+        <span className="tabular hidden min-w-0 truncate sm:inline">
           {choices.length > 0 ? "· " : ""}
           {normalisationLabel(normalisation)}
         </span>
@@ -2394,7 +2396,9 @@ export function PlayerStrip({
         <div className="flex shrink-0 flex-wrap items-center gap-2">{lead}</div>
         {after}
       </div>
-      <div className="ml-auto flex flex-wrap items-center justify-end gap-1">{children}</div>
+      <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1">
+        {children}
+      </div>
     </div>
   );
 }
