@@ -141,7 +141,7 @@ The last column names each screen's captures in `docs/screens`, 1440 by 900, as 
 | Review page: feedback | The same page with no decision: items, comments, submit feedback; what others wrote where the permission allows. | In progress; submitted; everyone submitted. | #22, canvas note | |
 | Review as a guest | No sidebar; items, player, own comments and replies, the decision, the watermark, the access window, the link's expiry. | Expired; view limit; outside the window. | #24 #31 #55 | [guest-review](screens/guest-review.png) |
 | Reviewer permissions | Adjust one reviewer: items, history, comments, tools, download, window, limit, actions. | A member's ceiling greyed. | #55 | |
-| Share | The same system as a review with a share kind instead: items, people (members and guests), permissions, expiry, download and view limit, a message; no decision and no feedback to submit; who opened what. | Open; expired; limit reached. | comment | |
+| Share | The same system as a review with a share kind instead: items, people (members and guests), permissions, expiry, download and view limit; no decision and no feedback to submit; who opened what. Opened on one item (a file, track, folder or version) from its row, the player's header or the versions page, as a small sheet: who (members, groups and guests by email, in one field with suggestions as you type), how (can view, comment or download), the item's link with how long it works beside it, and Send; "More options" opens the full request page with those choices made. | Open; expired; limit reached; sent (the link to it). | comment, #489 | |
 | Groups | A project's groups and their people in order. | Empty. | #24 | |
 
 ### 3.9 Workflow

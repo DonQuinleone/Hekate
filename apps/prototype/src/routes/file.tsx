@@ -28,6 +28,7 @@ import {
 } from "~/components/player/waveform";
 import { QaView } from "~/components/qa";
 import { VideoQaView } from "~/components/qa-video";
+import { fileKindWords, ShareDialog } from "~/components/share";
 import { Dot } from "~/components/status";
 import {
   CaptionLine,
@@ -320,7 +321,7 @@ export function FilePage({
   const [page, setPage] = useState(1);
   const [scorePage, setScorePage] = useState(1);
   const [sheet, setSheet] = useState<
-    "details" | "download" | "export" | "import" | "variation" | null
+    "details" | "download" | "export" | "import" | "variation" | "share" | null
   >(null);
   const [drawing, setDrawing] = useState<DrawTool | null>(null);
   const [colour, setColour] = useState("var(--hk-signal)");
@@ -498,12 +499,18 @@ export function FilePage({
               <span className="hidden @5xl/app:inline">Download</span>
             </Button>
           )}
+          {/* Sharing this file: the sheet the browser and a track's versions open too. */}
+          {!viewer.isGuest && project && viewer.can(project.id, "request_reviews") && (
+            <Button variant="secondary" size="md" onClick={() => setSheet("share")}>
+              <Icon name="link" size={14} />
+              Share
+            </Button>
+          )}
           {!viewer.isGuest && (
             <ActionMenu
               always
               label="file"
               actions={[
-                { label: "Copy link", onSelect: () => {} },
                 // A loose file takes a new version in its place (#149); a track's are its own.
                 ...(project && !inTrack && latestInChain && viewer.can(project.id, "upload")
                   ? [{ label: "New version…", onSelect: () => {} }]
@@ -1315,6 +1322,17 @@ export function FilePage({
         <AddVariationDialog
           track={inTrack.track}
           version={inTrack.version}
+          onClose={() => setSheet(null)}
+        />
+      )}
+      {sheet === "share" && project && (
+        <ShareDialog
+          project={project}
+          item={{
+            kind: "file",
+            name: inTrack ? `${inTrack.track.name} V${inTrack.version.number}` : file.name,
+            what: inTrack ? inTrack.variationName : fileKindWords[file.kind],
+          }}
           onClose={() => setSheet(null)}
         />
       )}
