@@ -1813,7 +1813,9 @@ export function Player({
     // so does the normalisation note (it says the level heard is not the file's).
     <span
       className={cn(
-        "w-0 min-w-0 flex-1 items-center gap-1 overflow-hidden text-[12px] text-ink-3 sm:flex",
+        // Under lg the lead and the menus wrap, so the line takes a row of its own rather than
+        // the nothing a full lead leaves beside it.
+        "min-w-0 basis-full items-center gap-1 overflow-hidden text-[12px] text-ink-3 sm:flex lg:w-0 lg:flex-1 lg:basis-0",
         choices.length > 1 || (normalised && normalisation) ? "flex" : "hidden",
       )}
       title={[
