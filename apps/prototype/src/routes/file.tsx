@@ -188,6 +188,7 @@ function PanelPlacement({ layout, set }: { layout: Layout; set: (p: Partial<Layo
       </button>
       {open && (
         <MenuList
+          anchor={box}
           onClose={() => setOpen(false)}
           actions={[
             {
@@ -200,7 +201,6 @@ function PanelPlacement({ layout, set }: { layout: Layout; set: (p: Partial<Layo
               checked: layout.comments === "below",
               onSelect: () => set({ comments: "below" }),
             },
-            { label: "Hide comments", onSelect: () => set({ comments: "hidden" }) },
           ]}
         />
       )}
@@ -468,19 +468,21 @@ export function FilePage({
               ]}
             />
           )}
-          {/* With the comments put away, the way back to them, and how many are open. */}
-          {layout.comments === "hidden" && (
-            <Button
-              variant="ghost"
-              size="md"
-              aria-label="Show comments"
-              title="Show comments"
-              onClick={() => setLayout({ comments: "right" })}
-            >
-              <Icon name="comment" size={14} />
-              {openThreads.length}
-            </Button>
-          )}
+          {/* The comments shown or put away, from one place whatever their state. */}
+          <Button
+            variant="ghost"
+            size="md"
+            aria-label={`Comments, ${openThreads.length} open`}
+            aria-pressed={layout.comments !== "hidden"}
+            title={layout.comments === "hidden" ? "Show comments" : "Hide comments"}
+            className={cn(layout.comments !== "hidden" && "bg-raised text-ink")}
+            onClick={() =>
+              setLayout({ comments: layout.comments === "hidden" ? "right" : "hidden" })
+            }
+          >
+            <Icon name="comment" size={14} />
+            {openThreads.length}
+          </Button>
           {/* Listening together (#200): members, on a recording or a video. */}
           {!viewer.isGuest && (isAudio || isVideo) && <ListenTogether fileId={fileId} />}
           {access.download !== "none" && (

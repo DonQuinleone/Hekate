@@ -35,7 +35,7 @@ import {
 } from "react";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
-import { ProductionNav } from "~/components/production-nav";
+import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
@@ -100,8 +100,7 @@ export function StagePlanPage({ projectId }: { projectId: string }) {
         const canEdit = can("edit_production") && !project.archivedAt;
         const plan = data?.plans.find((p) => p.id === chosen) ?? data?.plans[0];
         return (
-          <div className="fade-in mx-auto flex w-full max-w-[1280px] flex-col gap-5 px-5 py-6 @3xl/app:px-10">
-            <ProductionNav projectId={projectId} current="stage" can={can} />
+          <ProductionBody projectId={projectId} current="stage" can={can}>
             {!can("view_production") ? (
               <Empty
                 title="Not among what your role shows"
@@ -144,7 +143,7 @@ export function StagePlanPage({ projectId }: { projectId: string }) {
                 onMade={setChosen}
               />
             )}
-          </div>
+          </ProductionBody>
         );
       }}
     </ProjectFrame>

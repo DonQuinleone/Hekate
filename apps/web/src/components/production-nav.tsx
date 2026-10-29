@@ -1,5 +1,5 @@
-import { Link } from "@tanstack/react-router";
-import { cn } from "~/lib/cn";
+import type { ReactNode } from "react";
+import { SideNav, Split } from "~/components/settings";
 
 const sections = [
   {
@@ -59,42 +59,39 @@ const sections = [
 ] as const;
 
 /**
- * Production's own sections, as the prototype has them under the area's title: only those the
- * role may see, so no tab leads to a refusal.
+ * Production's frame, one for every section as the prototype draws it and as Settings is
+ * drawn: the sections down the left (only those the role may see, so no entry leads to a
+ * refusal), the current one's content at the right.
  */
-export function ProductionNav({
+export function ProductionBody({
   projectId,
   current,
   can,
+  children,
 }: {
   projectId: string;
   current: (typeof sections)[number]["id"];
   can: (permission: (typeof sections)[number]["needs"]) => boolean;
+  children: ReactNode;
 }) {
   const shown = sections.filter((s) => s.id === current || can(s.needs));
-  if (shown.length < 2) return null;
   return (
-    // On a phone the sections scroll sideways, one line of tabs as on a wider screen.
-    <nav
-      aria-label="Production"
-      className="scroll-quiet flex h-9 shrink-0 items-stretch gap-1 overflow-x-auto border-b border-line"
-    >
-      {shown.map((s) => (
-        <Link
-          key={s.id}
-          to={s.to}
-          params={{ projectId }}
-          aria-current={s.id === current ? "page" : undefined}
-          className={cn(
-            "inline-flex shrink-0 items-center whitespace-nowrap border-b-2 px-2.5 text-[13px] font-medium transition-colors",
-            s.id === current
-              ? "border-ink text-ink"
-              : "border-transparent text-ink-3 hover:text-ink-2",
-          )}
-        >
-          {s.label}
-        </Link>
-      ))}
-    </nav>
+    <div className="fade-in mx-auto flex w-full max-w-[1360px] flex-col gap-6 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8">
+      <Split
+        nav={
+          <SideNav
+            label="Production"
+            sections={shown.map(({ id, label }) => ({ id, label }))}
+            current={current}
+            link={(id) => ({
+              to: sections.find((s) => s.id === id)?.to ?? sections[0].to,
+              params: { projectId },
+            })}
+          />
+        }
+      >
+        {children}
+      </Split>
+    </div>
   );
 }

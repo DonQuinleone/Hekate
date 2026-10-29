@@ -13,7 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { Empty } from "~/components/empty";
 import { Icon, type IconName } from "~/components/icons";
-import { ProductionNav } from "~/components/production-nav";
+import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
@@ -67,8 +67,7 @@ export function SchedulePage({ projectId }: { projectId: string }) {
   return (
     <ProjectFrame projectId={projectId} title="Schedule">
       {(project) => (
-        <div className="fade-in mx-auto flex w-full max-w-[1100px] flex-col gap-5 px-5 py-6 @3xl/app:px-10">
-          <ProductionNav projectId={projectId} current="schedule" can={can} />
+        <ProductionBody projectId={projectId} current="schedule" can={can}>
           {!can("view_production") ? (
             <Empty
               title="Not among what your role shows"
@@ -85,7 +84,7 @@ export function SchedulePage({ projectId }: { projectId: string }) {
               canEdit={can("edit_production") && !project.archivedAt}
             />
           )}
-        </div>
+        </ProductionBody>
       )}
     </ProjectFrame>
   );

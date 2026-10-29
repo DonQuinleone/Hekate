@@ -13,7 +13,7 @@ import { Link } from "@tanstack/react-router";
 import { type DragEvent, useRef, useState } from "react";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
-import { ProductionNav } from "~/components/production-nav";
+import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
 import { FileInput, Select } from "~/components/ui/input";
 import { StatusDot } from "~/components/ui/status";
@@ -31,8 +31,7 @@ export function CroomImportPage({ projectId }: { projectId: string }) {
   return (
     <ProjectFrame projectId={projectId} title="Import">
       {(project) => (
-        <div className="fade-in mx-auto flex w-full max-w-[1100px] flex-col gap-5 px-5 py-6 @3xl/app:px-10">
-          <ProductionNav projectId={projectId} current="import" can={can} />
+        <ProductionBody projectId={projectId} current="import" can={can}>
           {!can("edit_project") ? (
             <Empty
               title="Not among what your role allows"
@@ -46,7 +45,7 @@ export function CroomImportPage({ projectId }: { projectId: string }) {
           ) : (
             <CroomImport projectId={projectId} />
           )}
-        </div>
+        </ProductionBody>
       )}
     </ProjectFrame>
   );

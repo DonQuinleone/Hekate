@@ -11,7 +11,7 @@ import {
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type BeforeAfter,
   type CommentSeed,
@@ -429,7 +429,11 @@ export function FilePage({
   );
   // Where the comments sit on a wide screen, this viewer's choice (#15).
   const [layout, setLayout] = usePanelLayout();
-  // Counted only while they are put away, for the button that brings them back.
+  /** Where the comments were before they were put away, so the toggle brings them back there. */
+  const lastPlace = useRef<"right" | "below" | null>(null);
+  if (layout.comments !== "hidden") lastPlace.current = layout.comments;
+  const commentsShown = layout.comments !== "hidden";
+  // Fetched only while they are put away: shown, the pane keeps the same query fresh.
   const { data: commentList } = useQuery({
     ...commentsQuery(fileId),
     enabled: layout.comments === "hidden",
@@ -728,21 +732,22 @@ export function FilePage({
         Download
       </Button>
     ) : undefined;
-  /** With the comments put away, the way back to them, and how many are open. */
+  /** The comments shown or put away, from one place whatever their state, with how many are open. */
   const commentsButton =
-    shown === "review" && layout.comments === "hidden" && !file.grant?.listenOnly ? (
+    shown === "review" && !file.grant?.listenOnly ? (
       <Button
         variant="ghost"
         size="sm"
         aria-label={
-          commentList
-            ? `Show comments, ${threadsOf(commentList).open.length} open`
-            : "Show comments"
+          commentList ? `Comments, ${threadsOf(commentList).open.length} open` : "Comments"
         }
-        title="Show comments"
+        aria-pressed={commentsShown}
+        title={commentsShown ? "Hide comments" : "Show comments"}
         // Only a wide screen puts the comments away; a phone always shows them.
-        className="hidden lg:inline-flex"
-        onClick={() => setLayout({ comments: "right" })}
+        className={cn("hidden lg:inline-flex", commentsShown && "bg-raised text-ink")}
+        onClick={() =>
+          setLayout({ comments: commentsShown ? "hidden" : (lastPlace.current ?? "right") })
+        }
       >
         <Icon name="comment" size={14} />
         {commentList ? threadsOf(commentList).open.length : null}
