@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Avatar } from "~/components/avatar";
+import { DeferDialog } from "~/components/comments/defer-dialog";
 import { Icon } from "~/components/icons";
 import { Kbd, Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
@@ -58,7 +59,6 @@ export function TriagePage({ file }: { file: File }) {
   const [assigning, setAssigning] = useState(false);
   const [deferring, setDeferring] = useState(false);
   const [finished, setFinished] = useState(false);
-  const stages = (workflow?.stages ?? []).filter((s) => s.kind === "task").map((s) => s.name);
   const current = queue[index];
   const playback = usePlayback(
     file.media.duration,
@@ -330,27 +330,16 @@ export function TriagePage({ file }: { file: File }) {
                 {key("S", "Skip", () => decide({ skipped: true }))}
               </div>
               {deferring && (
-                <div className="rise-in flex items-center gap-2">
-                  <Select
-                    autoFocus
-                    defaultValue=""
-                    className="w-56"
-                    onChange={(e) => {
-                      if (e.target.value) decide({ deferred: e.target.value });
-                      setDeferring(false);
-                    }}
-                  >
-                    <option value="">Defer to…</option>
-                    {stages.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </Select>
-                  <Button variant="ghost" size="sm" onClick={() => setDeferring(false)}>
-                    Cancel
-                  </Button>
-                </div>
+                <DeferDialog
+                  project={project}
+                  trackId={inTrack?.track.id ?? null}
+                  canBuild
+                  onDefer={(stage) => {
+                    decide({ deferred: stage });
+                    setDeferring(false);
+                  }}
+                  onClose={() => setDeferring(false)}
+                />
               )}
               {assigning && (
                 <div className="rise-in flex items-center gap-2">

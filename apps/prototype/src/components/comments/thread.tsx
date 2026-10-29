@@ -9,6 +9,7 @@ import { cn } from "~/lib/cn";
 import { ago, formatAnchor, formatClock, formatReference } from "~/lib/format";
 import type { FileAccess } from "~/viewer/context";
 import type { Playback } from "../player/playback.ts";
+import { DeferDialog } from "./defer-dialog.tsx";
 import { OtherTakes, SharedTakes } from "./takes.tsx";
 
 const carryCopy = { open: "Open", fixed: "Fixed", not_fixed: "Not fixed", wont_fix: "Won't fix" };
@@ -53,6 +54,7 @@ export function Thread({
   const [takesOpen, setTakesOpen] = useState(false);
   const [beforeAfter, setBeforeAfter] = useState<"before" | "after" | null>(null);
   const [resolved, setResolved] = useState(Boolean(comment.resolved));
+  const [deferring, setDeferring] = useState(false);
   const author = personById(comment.authorId);
   const category = categories.find((c) => c.id === comment.categoryId);
   const carry = comment.carries?.find((c) => c.versionNumber === versionNumber);
@@ -319,7 +321,7 @@ export function Thread({
                 "divider" as const,
                 {
                   label: comment.deferredToStage ? "Undefer" : "Defer to a stage…",
-                  onSelect: () => {},
+                  onSelect: () => !comment.deferredToStage && setDeferring(true),
                 },
                 { label: "Assign to…", onSelect: () => {} },
                 { label: "Make a task", onSelect: () => {} },
@@ -337,6 +339,17 @@ export function Thread({
           </span>
         )}
       </div>
+      {deferring && (
+        <span onClick={(e) => e.stopPropagation()}>
+          <DeferDialog
+            project={project}
+            trackId={trackId}
+            canBuild={canTriage}
+            onDefer={() => setDeferring(false)}
+            onClose={() => setDeferring(false)}
+          />
+        </span>
+      )}
       {replying && (
         <form
           className="rise-in mt-1 flex items-end gap-2"
