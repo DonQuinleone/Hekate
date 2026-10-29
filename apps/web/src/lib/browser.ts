@@ -276,8 +276,8 @@ export function filterProject(
   );
 }
 
-/** The row's cell for its quick actions (four at most, 28px each) and the one for its menu. */
-export const quickCellWidth = 120;
+/** The row's cell for its quick actions (three at most, 28px each, 2px apart) and the one for its menu. */
+export const quickCellWidth = 88;
 export const menuCellWidth = 28;
 
 /** The list's grid: the icon, the name taking what is left, each chosen column, the actions. */

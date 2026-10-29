@@ -1011,18 +1011,14 @@ export function FileBrowser({
    */
   const chosenKeys = chosen.map(markKey);
   const chosenFiles = chosen.flatMap((i) => (i.kind === "file" ? [i.file] : []));
-  const markChosen = (what: "pinned" | "favourite") => {
-    const items = chosen.map((i) => ({ kind: i.kind as MarkKind, id: i.id }));
-    setMarks.mutate({ items, [what]: !allHave(chosenKeys, marks[what]) });
-  };
   const selectionActions: (MenuAction | "divider")[] = [
     {
-      label: allHave(chosenKeys, marks.pinned) ? "Unpin" : "Pin",
-      onSelect: () => markChosen("pinned"),
-    },
-    {
       label: allHave(chosenKeys, marks.favourite) ? "Unfavourite" : "Favourite",
-      onSelect: () => markChosen("favourite"),
+      onSelect: () =>
+        favour(
+          chosen.map((i) => ({ kind: i.kind as MarkKind, id: i.id })),
+          !allHave(chosenKeys, marks.favourite),
+        ),
     },
     // Seen if any is new; otherwise unseen again, but only others' files.
     ...(chosen.some(isNew) ||

@@ -468,7 +468,7 @@ function ColumnsChooser() {
 
 /** On a phone: icon, name, menu. Wider, the columns, then a cell for the quick actions and one for the menu. */
 const rowGrid =
-  "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 @3xl/app:grid-cols-[20px_minmax(0,1fr)_150px_160px_110px_90px_120px_28px]";
+  "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 @3xl/app:grid-cols-[20px_minmax(0,1fr)_150px_160px_110px_90px_88px_28px]";
 
 /** The quick actions' cell: shown on hover or focus, and never running into the column before. */
 const quickCell =
@@ -1196,7 +1196,6 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
   const [moving, setMoving] = useState<string | null>(null);
   /** What the selection bar and the context menu on a selected row both offer. */
   const selectionActions: (MenuAction | "divider")[] = [
-    { label: "Pin", onSelect: () => {} },
     { label: "Favourite", onSelect: () => {} },
     { label: "Mark as viewed", onSelect: () => {} },
     ...(organise
