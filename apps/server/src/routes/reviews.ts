@@ -31,7 +31,21 @@ import {
   withinWindow,
   workspaceSettingsOf,
 } from "@hekate/shared";
-import { and, asc, count, desc, eq, gte, inArray, isNull, lte, max, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  max,
+  or,
+  sql,
+} from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -55,6 +69,12 @@ import { type Mailer, sendEmail } from "../mail.ts";
 import { followersOf, notifyNow } from "../notifications.ts";
 import { zValidator } from "../openapi/validator.ts";
 import { admit, tooMany } from "../rate-limit.ts";
+import {
+  type CoveredFile,
+  coveredBy,
+  workspaceCoverage,
+  workspaceItemName,
+} from "../review-scope.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { bothNames } from "../variants.ts";
 
@@ -70,6 +90,7 @@ const {
   versions,
   variants,
   files,
+  folders,
   users,
   members,
   guests,
@@ -307,7 +328,10 @@ async function lockReview(tx: Tx, actor: Actor, reviewId: string) {
 const cannotDecide =
   "Every reviewer of an approval must have a role in this project that can decide";
 
-/** The items as a reviewer opens them: for a track, the version under review and its primary file. */
+/**
+ * The items as a reviewer opens them: for a track, the version under review and its primary
+ * file; for a folder or the workspace (#501), what it covers as it is now.
+ */
 async function itemsOf(db: Database, organisationId: string, reviewId: string) {
   const rows = await db
     .select({
@@ -315,11 +339,19 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
       trackId: reviewItems.trackId,
       versionId: reviewItems.versionId,
       fileId: reviewItems.fileId,
+      folderId: reviewItems.folderId,
+      scope: reviewItems.scope,
+      projectId: reviews.projectId,
       trackName: tracks.name,
       fileName: files.name,
       fileKind: files.kind,
+      folderName: folders.name,
     })
     .from(reviewItems)
+    .innerJoin(
+      reviews,
+      and(eq(reviews.id, reviewItems.reviewId), eq(reviews.organisationId, organisationId)),
+    )
     .leftJoin(
       tracks,
       and(eq(tracks.id, reviewItems.trackId), eq(tracks.organisationId, organisationId)),
@@ -328,10 +360,27 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
       files,
       and(eq(files.id, reviewItems.fileId), eq(files.organisationId, organisationId)),
     )
+    .leftJoin(
+      folders,
+      and(eq(folders.id, reviewItems.folderId), eq(folders.organisationId, organisationId)),
+    )
     .where(inOrg(reviewItems, organisationId, eq(reviewItems.reviewId, reviewId)))
     .orderBy(asc(reviewItems.position));
   return Promise.all(
     rows.map(async (item) => {
+      if (item.folderId || item.scope) {
+        const covers = await coveredBy(db, organisationId, item);
+        return {
+          id: item.id,
+          kind: item.scope === "workspace" ? ("workspace" as const) : ("folder" as const),
+          folderId: item.folderId,
+          name: item.scope === "workspace" ? workspaceItemName : (item.folderName ?? "A folder"),
+          fileId: null,
+          /** What it covers now: the review page lists them, a file added later among them. */
+          covers,
+          fileIds: covers.map((c) => c.fileId),
+        };
+      }
       if (!item.trackId) {
         return {
           id: item.id,
@@ -380,6 +429,36 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
       };
     }),
   );
+}
+
+/**
+ * A scope's covered files as the viewer may see them (#501): a guest's review gives them every
+ * one; a member sees those in projects they may view, so a workspace-wide review never names
+ * what a project they are not in holds.
+ */
+async function scopedForViewer<T extends { fileIds: string[]; covers?: CoveredFile[] }>(
+  db: Database,
+  actor: Actor,
+  items: T[],
+): Promise<T[]> {
+  if (actor.kind === "guest") return items;
+  const seen = new Map<string, boolean>();
+  const may = async (projectId: string) => {
+    if (!seen.has(projectId))
+      seen.set(projectId, Boolean(await projectAccess(db, actor, projectId)));
+    return seen.get(projectId) ?? false;
+  };
+  const out: T[] = [];
+  for (const item of items) {
+    if (!item.covers) {
+      out.push(item);
+      continue;
+    }
+    const covers: CoveredFile[] = [];
+    for (const c of item.covers) if (await may(c.projectId)) covers.push(c);
+    out.push({ ...item, covers, fileIds: covers.map((c) => c.fileId) });
+  }
+  return out;
 }
 
 /** What the review page's activity lists from the access log; decisions come from their own log. */
@@ -503,7 +582,11 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
   const org = actor.organisationId;
   // A guest sees the items their review shows them, when it names some (#55).
   const shown = actor.kind === "guest" && me ? readGrant(me.permissions).items : null;
-  const items = (await itemsOf(db, org, reviewId)).filter((i) => !shown || shown.includes(i.id));
+  const items = await scopedForViewer(
+    db,
+    actor,
+    (await itemsOf(db, org, reviewId)).filter((i) => !shown || shown.includes(i.id)),
+  );
   const covered = [...new Set(items.flatMap((i) => i.fileIds))];
   // Which items each reviewer has opened.
   const opens =
@@ -546,8 +629,8 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
           )
           .groupBy(comments.authorId, comments.guestAuthorId)
       : [];
-  // Open threads on each item's file, for those who triage them.
-  const primaries = items.flatMap((i) => (i.fileId ? [i.fileId] : []));
+  // Open threads on each item's file (a scope's, on every file it covers), for those who triage them.
+  const primaries = items.flatMap((i) => (i.fileId ? [i.fileId] : "covers" in i ? i.fileIds : []));
   const open =
     member && primaries.length > 0
       ? await db
@@ -580,9 +663,13 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
     profile: project?.profile ?? "general",
     createdByName: review.createdByName,
     cancelledByName: r.cancelledBy ? await nameOf(db, r.cancelledBy) : null,
-    items: items.map(({ fileIds: _, ...item }) => ({
+    items: items.map(({ fileIds, ...item }) => ({
       ...item,
-      openComments: member ? (open.find((o) => o.fileId === item.fileId)?.count ?? 0) : null,
+      openComments: member
+        ? open
+            .filter((o) => (item.fileId ? o.fileId === item.fileId : fileIds.includes(o.fileId)))
+            .reduce((n, o) => n + o.count, 0)
+        : null,
     })),
     activity: member ? await activityOf(db, org, r, rows, decisions) : [],
     reviewers: rows.map((row, i) => ({
@@ -796,6 +883,7 @@ async function notify(
     kind: review.kind as ReviewKind,
     project: context?.project ?? "",
     dueAt: review.dueAt,
+    scope: await scopeOf(deps.db, review),
   };
   // An observer has no turn: nothing waits on them.
   const messageFor = (follow: boolean) =>
@@ -875,6 +963,26 @@ type SharePerson = Pick<ReviewerRow, "email" | "guestId" | "userId"> & {
     Pick<ReviewerPermissions, "decide" | "comment" | "expiresAt" | "download" | "maxPlays">
   > | null;
 };
+
+/**
+ * What a review's invitation says it covers beyond its items (#501): the whole workspace,
+ * or whole folders (so files added later are part of it); undefined for tracks and files.
+ */
+async function scopeOf(db: Database, review: { id: string; organisationId: string }) {
+  const rows = await db
+    .select({ scope: reviewItems.scope, folderId: reviewItems.folderId })
+    .from(reviewItems)
+    .where(
+      inOrg(
+        reviewItems,
+        review.organisationId,
+        eq(reviewItems.reviewId, review.id),
+        or(isNotNull(reviewItems.scope), isNotNull(reviewItems.folderId)),
+      ),
+    );
+  if (rows.some((r) => r.scope === "workspace")) return "workspace" as const;
+  return rows.length > 0 ? ("folder" as const) : undefined;
+}
 
 /** The workspace and project a review's mail speaks for. */
 async function mailContext(db: Database, review: ReviewForMail) {
@@ -1264,7 +1372,31 @@ export async function requestReview(
   // Every item must be in this project. Their names title a request that has none.
   const names: string[] = [];
   for (const item of input.items) {
-    if ("fileId" in item) {
+    if ("workspace" in item) {
+      // Everything in the workspace (#501): for whoever may manage reviews in every project.
+      const coverage = await workspaceCoverage(deps.db, actor);
+      if (!coverage.allowed) {
+        throw new HTTPException(403, {
+          message:
+            "Asking a review of everything in this workspace needs the Reviews: Manage level in every project, or a workspace admin",
+        });
+      }
+      names.push(workspaceItemName);
+    } else if ("folderId" in item) {
+      const [folder] = await deps.db
+        .select({ id: folders.id, name: folders.name })
+        .from(folders)
+        .where(
+          inOrg(
+            folders,
+            organisationId,
+            eq(folders.id, item.folderId),
+            eq(folders.projectId, projectId),
+          ),
+        );
+      if (!folder) throw new HTTPException(422, { message: "Items must come from this project" });
+      names.push(folder.name);
+    } else if ("fileId" in item) {
       const [file] = await deps.db
         .select({ id: files.id, name: files.name })
         .from(files)
@@ -1366,9 +1498,13 @@ export async function requestReview(
         organisationId,
         reviewId: created.id,
         position,
-        ...("fileId" in item
-          ? { fileId: item.fileId }
-          : { trackId: item.trackId, versionId: item.versionId ?? null }),
+        ...("workspace" in item
+          ? { scope: "workspace" as const }
+          : "folderId" in item
+            ? { folderId: item.folderId }
+            : "fileId" in item
+              ? { fileId: item.fileId }
+              : { trackId: item.trackId, versionId: item.versionId ?? null }),
       })),
     );
     const people = await expandReviewers(
@@ -1832,6 +1968,12 @@ export const reviewRoutes = (deps: ReviewDeps) =>
     .get("/", async (c) => {
       const actor = memberOnly(c.var.actor);
       return c.json({ reviews: await memberReviews(deps.db, actor) });
+    })
+    // Whether the member may ask a review of everything in the workspace (#501), and of how
+    // many projects that is: the request page offers the choice only then.
+    .get("/scope", async (c) => {
+      const actor = memberOnly(c.var.actor);
+      return c.json({ workspace: await workspaceCoverage(deps.db, actor) });
     })
     .get("/:id", idParam, async (c) =>
       c.json({ review: await reviewView(deps.db, c.var.actor, c.req.valid("param").id) }),
@@ -2681,6 +2823,31 @@ export async function noteOpened(db: Database, actor: Actor, fileId: string) {
         ),
       ),
     );
+  // A folder or workspace item (#501) covers the file when it covers it now.
+  const scoped = await db
+    .select({
+      id: reviewItems.id,
+      reviewId: reviewItems.reviewId,
+      folderId: reviewItems.folderId,
+      scope: reviewItems.scope,
+      projectId: reviews.projectId,
+    })
+    .from(reviewItems)
+    .innerJoin(reviews, and(eq(reviews.id, reviewItems.reviewId), eq(reviews.organisationId, org)))
+    .where(
+      inOrg(
+        reviewItems,
+        org,
+        inArray(
+          reviewItems.reviewId,
+          mine.map((m) => m.reviewId),
+        ),
+        or(isNotNull(reviewItems.scope), isNotNull(reviewItems.folderId)),
+      ),
+    );
+  for (const item of scoped) {
+    if ((await coveredBy(db, org, item)).some((c) => c.fileId === fileId)) items.push(item);
+  }
   const rows = items.flatMap((item) =>
     mine
       .filter((m) => m.reviewId === item.reviewId)

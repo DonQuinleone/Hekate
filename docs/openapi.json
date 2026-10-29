@@ -2165,6 +2165,30 @@
                           "required": [
                             "fileId"
                           ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "folderId": {
+                              "type": "string",
+                              "format": "uuid"
+                            }
+                          },
+                          "required": [
+                            "folderId"
+                          ]
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "workspace": {
+                              "type": "boolean",
+                              "const": true
+                            }
+                          },
+                          "required": [
+                            "workspace"
+                          ]
                         }
                       ]
                     }
@@ -18812,6 +18836,46 @@
         ],
         "summary": "List your reviews",
         "description": "The reviews the token's member is asked to take part in, open ones first.\n\nNeeds the `reviews:read` scope.",
+        "security": [
+          {
+            "token": [
+              "reviews:read"
+            ]
+          }
+        ],
+        "x-hekate-scope": "reviews:read",
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/reviews/scope": {
+      "get": {
+        "operationId": "getReviewsScope",
+        "tags": [
+          "Reviews"
+        ],
+        "summary": "Whether you may ask a review of everything in the workspace",
+        "description": "True for an owner or admin, or a member whose role has the Reviews: Manage level in every project not archived; with how many projects that covers.\n\nNeeds the `reviews:read` scope.",
         "security": [
           {
             "token": [
