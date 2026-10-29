@@ -95,7 +95,7 @@ import { Empty } from "./empty";
 import { ColumnHeading, ColumnsMenu, columnNames } from "./file-columns";
 import { FilterChips, FilterMenu } from "./file-filters";
 import { AttachForm, MovePicker, RenameInput, ScoreForm } from "./file-forms";
-import { fileSummary, kindIcon, UploadButton, UploadList, useUploads } from "./files";
+import { fileSummary, kindIcon, UploadButton, UploadList, useDropAim, useUploads } from "./files";
 import { Icon, type IconName } from "./icons";
 import { Card } from "./page";
 import { ShareDialog } from "./share";
@@ -458,6 +458,8 @@ export function FileBrowser({
   const slowClick = useRef<ReturnType<typeof setTimeout> | null>(null);
   const uploads = useUploads();
   const chooser = useRef<HTMLInputElement>(null);
+  /** The track whose row files from outside are being dragged over: they become its next version (#485). */
+  const aimed = useDropAim();
   /** Scrolls a long list to a row it has not drawn yet; set by the list itself. */
   const reveal = useRef<((index: number) => void) | null>(null);
   /** The row the keys have reached while it is still being brought into view. */
@@ -1649,6 +1651,7 @@ export function FileBrowser({
         data-index={place?.index}
         style={place?.style}
         data-key={key}
+        data-drop-track={item.kind === "track" ? item.track.id : undefined}
         draggable={manage && !open}
         onDragStart={(event) => dragStart(item, event)}
         onDragEnd={() => setDropOn(null)}
@@ -1658,6 +1661,9 @@ export function FileBrowser({
           "group border-b border-line last:border-b-0 hover:bg-raised/40",
           selected.has(key) && "bg-raised/60",
           droppedOn(item) && "bg-raised shadow-[inset_0_0_0_1px_var(--hk-edge)]",
+          item.kind === "track" &&
+            aimed === item.track.id &&
+            "bg-raised shadow-[inset_0_0_0_1px_var(--hk-signal)]",
         )}
       >
         <div className={cn(rowGrid, cut.has(key) && "opacity-50")} style={gridVars}>
@@ -1997,6 +2003,7 @@ export function FileBrowser({
                 <li
                   key={item.id}
                   data-key={markKey(item)}
+                  data-drop-track={item.kind === "track" ? item.track.id : undefined}
                   draggable={manage && !open}
                   onDragStart={(event) => dragStart(item, event)}
                   onDragEnd={() => setDropOn(null)}
@@ -2010,6 +2017,9 @@ export function FileBrowser({
                     (selected.has(markKey(item)) || droppedOn(item)) &&
                       "border-edge-strong bg-raised/60",
                     cut.has(markKey(item)) && "opacity-50",
+                    item.kind === "track" &&
+                      aimed === item.track.id &&
+                      "border-signal bg-raised/60",
                   )}
                 >
                   <span className="relative flex aspect-[2/1] items-center justify-center rounded-[6px] bg-sunken text-ink-3">

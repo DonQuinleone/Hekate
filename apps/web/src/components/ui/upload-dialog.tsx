@@ -294,6 +294,8 @@ export interface UploadDialogProps<T> {
   onChange?: (chosen: ChosenFile<T>[]) => void;
   /** Below each file: what the job asks of it (a variation's name). */
   row?: ((chosen: ChosenFile<T>) => ReactNode) | undefined;
+  /** Above the files chosen, once there are any: a choice that decides what they become. */
+  before?: ReactNode;
   /** One or two fields the job needs, after the list. */
   fields?: ReactNode;
   /** One line on what will happen, before the action. */
@@ -328,6 +330,7 @@ export function UploadDialog<T = unknown>({
   disabled = false,
   onChange,
   row,
+  before,
   fields,
   what,
   alternatives,
@@ -548,6 +551,7 @@ export function UploadDialog<T = unknown>({
             ))}
           </ul>
         )}
+        {chosen.length > 0 && before}
         <ChosenList chosen={chosen} label={listLabel} row={row} disabled={busy} onRemove={remove} />
         {fields}
         {children}
