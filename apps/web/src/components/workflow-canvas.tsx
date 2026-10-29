@@ -21,7 +21,7 @@ import { Kbd } from "~/components/kbd";
 import { Button } from "~/components/ui/button";
 import { Choice } from "~/components/ui/choice";
 import { Input, Select } from "~/components/ui/input";
-import { Dropdown } from "~/components/ui/menu";
+import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Committed, StepField } from "~/components/workflow-fields";
 import { StatusesPanel } from "~/components/workflow-statuses";
 import { cn } from "~/lib/cn";
@@ -1677,11 +1677,9 @@ function NodeInspector({
         onClose={onClose}
       >
         {editing && (
-          <Dropdown
-            size="sm"
-            align="right"
-            label="More"
-            value={<Icon name="more" size={14} />}
+          <ActionMenu
+            always
+            label="this step"
             actions={[{ label: "Delete", danger: true, onSelect: onDelete }]}
           />
         )}
@@ -1862,11 +1860,9 @@ function ConnectorInspector({
         onClose={onClose}
       >
         {editing && (
-          <Dropdown
-            size="sm"
-            align="right"
-            label="More"
-            value={<Icon name="more" size={14} />}
+          <ActionMenu
+            always
+            label="this connection"
             actions={[{ label: "Remove", danger: true, onSelect: onDelete }]}
           />
         )}
