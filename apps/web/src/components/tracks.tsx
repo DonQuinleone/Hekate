@@ -1,7 +1,7 @@
 import { type AlignmentPoints, capital, mapTime, versionLabel } from "@hekate/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import {
@@ -23,6 +23,7 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Dropdown } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
+import { VariationDialog } from "./variation-dialog";
 
 const noteDate = formatDates({
   day: "numeric",
@@ -164,7 +165,8 @@ export function ScoreSwitch({
  * all of them and their notes, and to its takes) and the variation switch. A version or
  * variation chosen starts at the same music as here, where the audio has said where that is,
  * else at the same time. A guest, who sees only what their review holds, is told which
- * version that is.
+ * version that is. Whoever may upload adds a variation from the switch itself (#486): it
+ * shows the new one as analysing, and opens it once it plays.
  */
 export function FileContext({
   file,
@@ -197,8 +199,17 @@ export function FileContext({
     enabled: Boolean(variation) && takes && !guest,
   });
   const { words } = useItemWords(guest ? undefined : track?.projectId);
-  if (!variation) return null;
-  const label = (n: number) => versionLabel(n, file.profile);
+  const can = useProjectCan(guest ? undefined : track?.projectId);
+  const client = useQueryClient();
+  const [adding, setAdding] = useState(false);
+  /** A variation just added, being prepared: the player follows it once it plays. */
+  const [pending, setPending] = useState<string | null>(null);
+  const { data: awaited } = useQuery({
+    ...fileQuery(pending ?? ""),
+    enabled: Boolean(pending),
+    retry: false,
+  });
+  const status = awaited && awaited.id === pending ? awaited.streamStatus : null;
   /** Go to another version or variation, at the same music. */
   const go = (fileId: string) =>
     void navigate({
@@ -211,6 +222,16 @@ export function FileContext({
         ...(media ? { t: positionIn(fileId, media.currentTime, alignments) } : {}),
       }),
     });
+  const trackId = variation?.trackId;
+  useEffect(() => {
+    if (!pending || status === null || status === "pending") return;
+    // Ready, it is opened at the same moment as here; failed, the switch says so and we stay.
+    setPending(null);
+    if (trackId) void client.invalidateQueries({ queryKey: ["tracks", trackId] });
+    if (status === "ready") go(pending);
+  });
+  if (!variation) return null;
+  const label = (n: number) => versionLabel(n, file.profile);
   const version = track?.versions.find((v) => v.id === variation.versionId);
   const choices = track
     ? versionChoices(track.versions, {
@@ -219,6 +240,7 @@ export function FileContext({
       })
     : [];
   const shown = choices.find((c) => c.current);
+  const mayAdd = !guest && Boolean(track) && can("upload");
   if (guest)
     return (
       <span className="text-[13px] text-ink-3">
@@ -273,7 +295,7 @@ export function FileContext({
           ]}
         />
       )}
-      {version && version.variations.length > 1 && (
+      {version && (version.variations.length > 1 || mayAdd) && (
         <Segmented
           label={capital(words.variation)}
           value={file.id}
@@ -281,6 +303,24 @@ export function FileContext({
           onChange={(fileId) => {
             if (fileId !== file.id) go(fileId);
           }}
+          action={
+            mayAdd
+              ? {
+                  label: `Add a ${words.variation}…`,
+                  icon: <Icon name="plus" size={14} />,
+                  onSelect: () => setAdding(true),
+                }
+              : undefined
+          }
+        />
+      )}
+      {adding && track && version && (
+        <VariationDialog
+          track={track}
+          version={version}
+          mode="add"
+          onClose={() => setAdding(false)}
+          onAdded={setPending}
         />
       )}
     </>

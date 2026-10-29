@@ -3,13 +3,15 @@ import { cn } from "~/lib/cn";
 
 /**
  * Two to four views of the same thing (list and grid, light and dark): one pressed at a
- * time. Tabs are for a third level of navigation only.
+ * time. Tabs are for a third level of navigation only. An `action` adds one more to the set
+ * (another variation beside the dry and the wet): a small button at its end, after a hairline.
  */
 export function Segmented<T extends string>({
   label,
   value,
   options,
   onChange,
+  action,
   className,
 }: {
   /** What the choice is, for assistive technology. */
@@ -21,6 +23,8 @@ export function Segmented<T extends string>({
    */
   options: readonly { value: T; label: string; icon?: ReactNode; hint?: string }[];
   onChange: (value: T) => void;
+  /** A way to add to the choices, at the end: its name (read and shown on hover) and icon. */
+  action?: { label: string; icon: ReactNode; onSelect: () => void } | undefined;
   className?: string;
 }) {
   return (
@@ -49,6 +53,20 @@ export function Segmented<T extends string>({
           {!o.icon && o.hint && <span className="tabular text-ink-3">{o.hint}</span>}
         </button>
       ))}
+      {action && (
+        <>
+          <span aria-hidden="true" className="mx-0.5 h-4 w-px shrink-0 bg-line" />
+          <button
+            type="button"
+            aria-label={action.label}
+            title={action.label}
+            onClick={action.onSelect}
+            className="flex h-7 w-7 items-center justify-center rounded-[5px] text-ink-3 transition-colors hover:bg-overlay/60 hover:text-ink"
+          >
+            {action.icon}
+          </button>
+        </>
+      )}
     </fieldset>
   );
 }

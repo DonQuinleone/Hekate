@@ -852,6 +852,24 @@ test("file-recording-versions", async ({ page }) => {
   await checkScreen(page);
 });
 
+// A variation added from the switch above the player (#486): the one upload dialog, with the
+// version fixed, a file picked from the project and the project's variation names suggested.
+test("file-add-variation", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Add a variation…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add a variation to V2" });
+  await dialog.getByRole("button", { name: "From the project" }).click();
+  await page.getByRole("menuitem", { name: "Maple Leaf Rag - Dry v3.wav" }).click();
+  await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue("Dry v3");
+  // The names the project's other variations go by, one press away.
+  await dialog.getByRole("button", { name: "Mix", exact: true }).click();
+  await expect(dialog.getByLabel("Name", { exact: true })).toHaveValue("Mix");
+  await saveScreen(page, "file-add-variation");
+  await checkScreen(page);
+});
+
 // Switching to QA and back keeps the same player, so the music never stops (#15).
 test("file-recording-review-to-qa", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);
