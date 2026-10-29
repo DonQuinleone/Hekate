@@ -1,9 +1,16 @@
 name: CI
 
+# A pull request runs only the jobs its files need (#474): scripts/ci-changes.sh reads the
+# diff and each job below is gated on it. A push to master, the nightly run and a run by hand
+# run everything. The one required status is `ci`, at the end, which fails if any job that ran
+# failed; a job skipped for a pull request's files does not hold it up.
 on:
   push:
     branches: [master]
   pull_request:
+  schedule:
+    - cron: "23 3 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,12 +20,106 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      check: ${{ steps.changes.outputs.check }}
+      server: ${{ steps.changes.outputs.server }}
+      web: ${{ steps.changes.outputs.web }}
+      visual: ${{ steps.changes.outputs.visual }}
+      image: ${{ steps.changes.outputs.image }}
+      kubernetes: ${{ steps.changes.outputs.kubernetes }}
+      docs: ${{ steps.changes.outputs.docs }}
+      deps: ${{ steps.changes.outputs.deps }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # A pull request checks out its merge with the base, whose first parent is the base.
+      - name: What changed
+        id: changes
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ]; then
+            git fetch --depth=1 origin "${{ github.event.pull_request.base.sha }}"
+            scripts/ci-changes.sh "${{ github.event.pull_request.base.sha }}" | tee -a "$GITHUB_OUTPUT"
+          else
+            scripts/ci-changes.sh | tee -a "$GITHUB_OUTPUT"
+          fi
+
+  # Lint and typecheck across the workspace, and the repository scanned.
   check:
+    needs: changes
+    if: needs.changes.outputs.check == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       security-events: write
       actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      # Dependencies, secrets and misconfiguration in the repository. Fails on any fixable finding.
+      - name: Exceptions to the scanners have an issue and an expiry
+        run: scripts/check-trivyignore.sh
+      - name: Trivy (repository)
+        id: trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          # Every severity fails the build while a fix exists; unfixed findings are reported
+          # below. Exceptions live in .trivyignore, each with an issue and an expiry date.
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+          exit-code: "1"
+          version: v0.75.0
+      - name: Trivy SARIF (repository)
+        if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          format: sarif
+          output: trivy-repo.sarif
+          trivyignores: .trivyignore
+          skip-setup-trivy: true
+      # The same findings, unfixed ones included, as a table in the job log: readable by anyone
+      # with the log, where code scanning is not (#170).
+      - name: Trivy report (repository, unfixed included)
+        if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          # One line per finding: severity, package, version, ID, fixed version and status.
+          format: template
+          template: '{{- range . }}{{- $t := .Target }}{{- range .Vulnerabilities }}{{ .Severity }} {{ .PkgName }} {{ .InstalledVersion }} {{ .VulnerabilityID }} fixed={{ .FixedVersion }} {{ .Status }}{{ "\n" }}{{- end }}{{- range .Misconfigurations }}{{ .Severity }} {{ $t }} {{ .ID }} {{ .Title }}{{ "\n" }}{{- end }}{{- range .Secrets }}{{ .Severity }} {{ $t }} {{ .RuleID }}{{ "\n" }}{{- end }}{{- end }}'
+          trivyignores: .trivyignore
+          exit-code: "0"
+          skip-setup-trivy: true
+      - name: Upload to code scanning
+        if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          sarif_file: trivy-repo.sarif
+          category: trivy-repository
+
+  # The server, database and storage suites, against PostgreSQL, an S3 server, an LDAP
+  # directory and an identity provider; the docs site's scripts, which read the server's routes.
+  server:
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:18-alpine
@@ -86,65 +187,40 @@ jobs:
           done
           cat "$RUNNER_TEMP/versitygw.log"
           exit 1
-      - run: pnpm check
-      - run: pnpm build
-      # Dependencies, secrets and misconfiguration in the repository. Fails on any fixable finding.
-      - name: Exceptions to the scanners have an issue and an expiry
-        run: scripts/check-trivyignore.sh
-      - name: Trivy (repository)
-        id: trivy
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      - run: pnpm exec vitest run --project server --project db --project storage --project @hekate/docs
+
+  # The web app's, the prototype's and the shared package's suites, and both apps built.
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,secret,misconfig
-          # Every severity fails the build while a fix exists; unfixed findings are reported
-          # below. Exceptions live in .trivyignore, each with an issue and an expiry date.
-          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
-          ignore-unfixed: true
-          trivyignores: .trivyignore
-          exit-code: "1"
-          version: v0.75.0
-      - name: Trivy SARIF (repository)
-        if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,secret,misconfig
-          format: sarif
-          output: trivy-repo.sarif
-          trivyignores: .trivyignore
-          skip-setup-trivy: true
-      # The same findings, unfixed ones included, as a table in the job log: readable by anyone
-      # with the log, where code scanning is not (#170).
-      - name: Trivy report (repository, unfixed included)
-        if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,secret,misconfig
-          # One line per finding: severity, package, version, ID, fixed version and status.
-          format: template
-          template: '{{- range . }}{{- $t := .Target }}{{- range .Vulnerabilities }}{{ .Severity }} {{ .PkgName }} {{ .InstalledVersion }} {{ .VulnerabilityID }} fixed={{ .FixedVersion }} {{ .Status }}{{ "\n" }}{{- end }}{{- range .Misconfigurations }}{{ .Severity }} {{ $t }} {{ .ID }} {{ .Title }}{{ "\n" }}{{- end }}{{- range .Secrets }}{{ .Severity }} {{ $t }} {{ .RuleID }}{{ "\n" }}{{- end }}{{- end }}'
-          trivyignores: .trivyignore
-          exit-code: "0"
-          skip-setup-trivy: true
-      - name: Upload to code scanning
-        if: ${{ !cancelled() && steps.trivy.outcome != 'skipped' }}
-        continue-on-error: true
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
-        with:
-          sarif_file: trivy-repo.sarif
-          category: trivy-repository
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install ffmpeg, Poppler and fonts
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg poppler-utils fonts-dejavu-core fonts-droid-fallback
+      - run: pnpm exec vitest run --project @hekate/web --project @hekate/prototype --project shared
+      - run: pnpm --filter @hekate/web build
+      - run: pnpm --filter @hekate/prototype build
 
   # Every screen, seeded with known media, at desktop and phone width: layout and
-  # accessibility checked, with the captures kept as a build artefact.
+  # accessibility checked, with the captures kept as a build artefact. Split across runners;
+  # each shard seeds its own instance.
   visual:
+    needs: changes
+    if: needs.changes.outputs.visual == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     services:
       postgres:
         image: postgres:18-alpine
@@ -175,22 +251,38 @@ jobs:
           VITE_REFERENCE: "1"
       # The key the suite's instance is encrypted with, kept for the restore drill.
       - run: echo "E2E_MASTER_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
-      - run: pnpm --filter @hekate/e2e e2e
-      # Back up the seeded instance, restore it somewhere new, and verify the restore.
+      - run: pnpm --filter @hekate/e2e e2e --shard=${{ matrix.shard }}/4
+      # Back up the seeded instance, restore it somewhere new, and verify the restore. Every
+      # shard seeds the same instance; one drill is enough.
       - name: Restore drill
+        if: ${{ matrix.shard == 1 }}
         run: scripts/backup-drill.sh
       - name: Keep the captures
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: screens
+          name: screens-${{ matrix.shard }}
           path: apps/e2e/test-results/screens
           if-no-files-found: ignore
+
+  # The shards' captures as the one `screens` artefact the docs point at.
+  screens:
+    needs: visual
+    if: ${{ !cancelled() && needs.visual.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/upload-artifact/merge@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: screens
+          pattern: screens-*
+          delete-merged: true
 
   # The server suite through PgBouncer in transaction mode, at its defaults (#411, decision 190):
   # a statement prepared for one client must never answer another's query. What needs a session
   # of its own (LISTEN) goes past the pooler, as DATABASE_DIRECT_URL says (#412).
   pooled:
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -241,6 +333,8 @@ jobs:
 
   # The documentation site builds, with the operator pages copied in from docs/.
   docs:
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -257,7 +351,8 @@ jobs:
   # Added or updated dependencies: no known vulnerability at any severity, and only licences
   # that can be combined with AGPL-3.0.
   dependencies:
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.deps == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -279,6 +374,8 @@ jobs:
           comment-summary-in-pr: never
 
   image:
+    needs: changes
+    if: needs.changes.outputs.image == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -352,6 +449,8 @@ jobs:
   # The Helm chart (#190): it lints, renders valid manifests with nothing misconfigured, and
   # installs and upgrades on a kind cluster with the image built from this commit.
   kubernetes:
+    needs: changes
+    if: needs.changes.outputs.kubernetes == 'true'
     runs-on: ubuntu-latest
     env:
       CHART: deploy/helm/hekate
@@ -508,3 +607,18 @@ jobs:
           kubectl logs deployment/hekate-api --all-containers --tail=200 || true
           kubectl logs deployment/hekate-worker --all-containers --tail=200 || true
           kubectl logs job/hekate-migrate --tail=200 || true
+
+  # The one required status: green when every job that ran passed. A job skipped for a pull
+  # request's files is not a failure.
+  ci:
+    needs: [changes, check, server, web, visual, pooled, docs, dependencies, image, kubernetes]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job that ran passed
+        run: |
+          echo '${{ toJSON(needs) }}' | tee needs.json
+          if grep -Eq '"result": "(failure|cancelled)"' needs.json; then
+            echo "A job failed or was cancelled."
+            exit 1
+          fi
