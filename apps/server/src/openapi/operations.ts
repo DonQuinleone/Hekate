@@ -695,6 +695,11 @@ export const apiOperations: Record<string, ApiOperation> = {
     description:
       "The guests its reviews and groups have asked, and whether a link still works for each.",
   },
+  "POST /projects/{id}/guests": {
+    summary: "Invite a reviewer to a project",
+    description:
+      "A guest of the project before any review asks them (#502): by name and email, with a note kept for the team and, if wanted, a group they join. Nothing is sent until a review asks them.",
+  },
   "PATCH /projects/{id}/guests/{guestId}": {
     summary: "Change how a guest appears",
     description:

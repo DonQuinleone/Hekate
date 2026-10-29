@@ -10,6 +10,7 @@ import {
   guestLabelInput,
   invitedGrant,
   type PersonInput,
+  projectGuestInput,
   type ReviewDecision,
   type ReviewerFacts,
   type ReviewerInput,
@@ -26,6 +27,8 @@ import {
   reviewTitleFor,
   shareGrant,
   standingGrant,
+  stepNameOf,
+  stepPeople,
   submitFeedbackInput,
   updateReviewInput,
   withinWindow,
@@ -78,6 +81,7 @@ const {
   guestLinks,
   guestSessions,
   projects,
+  projectGuests,
   projectReviewerGrants,
 } = schema;
 
@@ -126,8 +130,8 @@ async function grantee(
 }
 
 /**
- * A guest this project knows, through its reviews or its groups, or 404: a project's People
- * page acts only on its own guests.
+ * A guest this project knows, through its reviews, its groups or an invitation from its
+ * People page (#502), or 404: a project's People page acts only on its own guests.
  */
 async function projectGuest(
   db: Database,
@@ -156,10 +160,125 @@ async function projectGuest(
             where ${groupMembers.guestId} = ${guests.id}
             and ${groupMembers.organisationId} = ${organisationId}
             and ${groups.projectId} = ${projectId})`,
+          sql`exists (select 1 from ${projectGuests}
+            where ${projectGuests.guestId} = ${guests.id}
+            and ${projectGuests.organisationId} = ${organisationId}
+            and ${projectGuests.projectId} = ${projectId})`,
         ),
       ),
     );
   if (!known) throw new NotFound("Guest");
+}
+
+/**
+ * A project's guests (#24, #502): those its reviews have asked, those kept in its groups and
+ * those invited from its People page, each with how many of the project's reviews ask them,
+ * when they were last sent a link and whether a link or signed-in browser still works.
+ */
+async function projectGuestList(db: Database, organisationId: string, projectId: string) {
+  const fields = { id: guests.id, name: guests.name, email: guests.email, label: guests.label };
+  const asked = await db
+    .selectDistinct(fields)
+    .from(reviewReviewers)
+    .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
+    .innerJoin(guests, eq(guests.id, reviewReviewers.guestId))
+    .where(
+      and(
+        inOrg(reviewReviewers, organisationId),
+        inOrg(reviews, organisationId, eq(reviews.projectId, projectId)),
+        inOrg(guests, organisationId),
+      ),
+    );
+  const grouped = await db
+    .selectDistinct(fields)
+    .from(groupMembers)
+    .innerJoin(groups, eq(groups.id, groupMembers.groupId))
+    .innerJoin(guests, eq(guests.id, groupMembers.guestId))
+    .where(
+      and(
+        inOrg(groupMembers, organisationId),
+        inOrg(groups, organisationId, eq(groups.projectId, projectId)),
+        inOrg(guests, organisationId),
+      ),
+    );
+  const invited = await db
+    .select({ ...fields, note: projectGuests.note })
+    .from(projectGuests)
+    .innerJoin(guests, eq(guests.id, projectGuests.guestId))
+    .where(
+      and(
+        inOrg(projectGuests, organisationId, eq(projectGuests.projectId, projectId)),
+        inOrg(guests, organisationId),
+      ),
+    );
+  const byId = new Map([...asked, ...grouped, ...invited].map((g) => [g.id, g]));
+  const notes = new Map(invited.map((g) => [g.id, g.note]));
+  const ids = [...byId.keys()];
+  // How many of this project's reviews ask each of them, and how many are still open.
+  const counted =
+    ids.length === 0
+      ? []
+      : await db
+          .select({
+            guestId: reviewReviewers.guestId,
+            reviews: count(),
+            open: sql<number>`(count(*) filter (where ${reviews.status} = 'open'))::int`,
+          })
+          .from(reviewReviewers)
+          .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
+          .where(
+            and(
+              inOrg(reviewReviewers, organisationId, inArray(reviewReviewers.guestId, ids)),
+              inOrg(reviews, organisationId, eq(reviews.projectId, projectId)),
+            ),
+          )
+          .groupBy(reviewReviewers.guestId);
+  // When each was last sent a link, and whether a link or signed-in browser still works.
+  const now = new Date().toISOString();
+  const lastLink = db
+    .select({ guestId: guestLinks.guestId, at: max(guestLinks.createdAt).as("at") })
+    .from(guestLinks)
+    .where(eq(guestLinks.organisationId, organisationId))
+    .groupBy(guestLinks.guestId)
+    .as("last_link");
+  const links =
+    ids.length === 0
+      ? []
+      : await db
+          .select({
+            guestId: guests.id,
+            lastLinkAt: lastLink.at,
+            live: sql<boolean>`exists (
+              select 1 from ${guestLinks} where ${guestLinks.guestId} = ${guests.id}
+                and ${guestLinks.organisationId} = ${organisationId}
+                and ${guestLinks.usedAt} is null and ${guestLinks.revokedAt} is null
+                and ${guestLinks.expiresAt} > ${now}
+            ) or exists (
+              select 1 from ${guestSessions} where ${guestSessions.guestId} = ${guests.id}
+                and ${guestSessions.organisationId} = ${organisationId}
+                and ${guestSessions.revokedAt} is null and ${guestSessions.expiresAt} > ${now}
+            )`,
+          })
+          .from(guests)
+          // Joined, so the conditions below name the guest's columns in full.
+          .leftJoin(lastLink, eq(lastLink.guestId, guests.id))
+          .where(inOrg(guests, organisationId, inArray(guests.id, ids)));
+  const countOf = new Map(counted.map((r) => [r.guestId, r]));
+  const linkOf = new Map(links.map((r) => [r.guestId, r]));
+  return [...byId.values()]
+    .map(({ id, name, email, label }) => ({
+      id,
+      name,
+      email,
+      label,
+      /** What the People page keeps about them, where they were invited from it (#502). */
+      note: notes.get(id) ?? null,
+      reviews: countOf.get(id)?.reviews ?? 0,
+      openReviews: countOf.get(id)?.open ?? 0,
+      lastLinkAt: linkOf.get(id)?.lastLinkAt ?? null,
+      live: linkOf.get(id)?.live ?? false,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export interface ReviewDeps extends LinkRoots {
@@ -755,7 +874,23 @@ type ReviewForMail = {
   kind: string;
   message: string | null;
   dueAt: Date | null;
+  /** What its steps are called (#500), by position, where a sequence named them. */
+  stepNames?: (string | null)[] | null;
 };
+
+/**
+ * The step some reviewers are at, where a sequence named it and they share one (#500): the
+ * reviewers newly asked after a step finishes are always of one step.
+ */
+export function stepNameFor(
+  names: (string | null)[] | null | undefined,
+  people: { position?: number }[],
+): string | null {
+  const positions = new Set(people.map((p) => p.position));
+  if (positions.size !== 1) return null;
+  const [position] = positions;
+  return position === undefined ? null : (names?.[position] ?? null);
+}
 
 /**
  * Tell reviewers they have something to review. Members are notified, in the app and by
@@ -797,12 +932,19 @@ async function notify(
     project: context?.project ?? "",
     dueAt: review.dueAt,
   };
-  // An observer has no turn: nothing waits on them.
+  // An observer has no turn: nothing waits on them. A named step is named (#500).
+  const step = turn ? stepNameFor(review.stepNames, people) : null;
+  const turnLine = (follow: boolean) =>
+    turn && !reminder && !follow
+      ? step
+        ? `Those before you have responded; the review is at its ${step} step, and it is your turn.`
+        : "Those before you have responded; it is your turn."
+      : null;
   const messageFor = (follow: boolean) =>
     [
       reminder ? `A reminder from ${requester}: this review is still waiting on you.` : null,
       review.message,
-      turn && !reminder && !follow ? "Those before you have responded; it is your turn." : null,
+      turnLine(follow),
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -822,7 +964,11 @@ async function notify(
         ? `reminds you to ${ask(review, follow)}`
         : `asks you to ${ask(review, follow)}`,
       detail:
-        [review.message, review.dueAt ? `Due ${mailDate(review.dueAt, dateFormat)}.` : null]
+        [
+          review.message,
+          turnLine(follow),
+          review.dueAt ? `Due ${mailDate(review.dueAt, dateFormat)}.` : null,
+        ]
           .filter(Boolean)
           .join("\n\n") || null,
       link: `/reviews/${review.id}`,
@@ -868,8 +1014,9 @@ async function notify(
   }
 }
 
-/** Someone told of a review: who they are, and what they may do in it. */
+/** Someone told of a review: who they are, their step, and what they may do in it. */
 type SharePerson = Pick<ReviewerRow, "email" | "guestId" | "userId"> & {
+  position?: number;
   /** What they may do: an approval's observer is asked to follow it; a share says how long. */
   permissions?: Partial<
     Pick<ReviewerPermissions, "decide" | "comment" | "expiresAt" | "download" | "maxPlays">
@@ -1117,7 +1264,7 @@ async function expandReviewers(
   };
   // Each step is one position in the order: everyone in it, groups included, is asked together.
   const flat = entries.flatMap((step, i) =>
-    (Array.isArray(step) ? step : [step]).map((entry) => ({ entry, position: firstStep + i })),
+    stepPeople(step).map((entry) => ({ entry, position: firstStep + i })),
   );
   for (const { entry, position } of flat) {
     if (typeof entry === "string" || !("groupId" in entry)) {
@@ -1352,6 +1499,11 @@ export async function requestReview(
         dueAt: input.dueAt ? new Date(input.dueAt) : null,
         remind: input.remind,
         order: input.order,
+        // What the steps are called (#500), by position; kept only where a step was named.
+        stepNames:
+          input.order === "sequence" && input.reviewers.some((step) => stepNameOf(step) !== null)
+            ? input.reviewers.map(stepNameOf)
+            : null,
         rule: input.rule,
         share: input.share,
         grant: granted.data,
@@ -1531,96 +1683,76 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
       if (!access.permissions.has("view_people") && !access.permissions.has("request_reviews")) {
         throw new HTTPException(403, { message: "Your role in this project does not allow that" });
       }
-      const { projectId } = access;
-      const fields = { id: guests.id, name: guests.name, email: guests.email, label: guests.label };
-      const asked = await deps.db
-        .selectDistinct(fields)
-        .from(reviewReviewers)
-        .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
-        .innerJoin(guests, eq(guests.id, reviewReviewers.guestId))
-        .where(
-          and(
-            inOrg(reviewReviewers, organisationId),
-            inOrg(reviews, organisationId, eq(reviews.projectId, projectId)),
-            inOrg(guests, organisationId),
-          ),
+      return c.json({ guests: await projectGuestList(deps.db, organisationId, access.projectId) });
+    })
+    // Invite a reviewer from the project's People page (#502): a guest of the project before
+    // any review asks them, so they can be added to reviews later. Nothing is sent: a guest's
+    // link opens a review, and there is none yet.
+    .post("/:id/guests", idParam, zValidator("json", projectGuestInput), async (c) => {
+      const actor = actorOf(c.var);
+      const { projectId } = await can(deps.db, actor, "manage_reviewers", c.req.valid("param").id);
+      const { note, groupId, ...entry } = c.req.valid("json");
+      const who = await deps.audit.member(actor.userId);
+      const guestId = await deps.db.transaction(async (tx) => {
+        await lockLiveProject(tx, actor.organisationId, projectId);
+        const id = await upsertGuest(tx, actor.organisationId, entry, actor.userId);
+        await tx
+          .insert(projectGuests)
+          .values({
+            organisationId: actor.organisationId,
+            projectId,
+            guestId: id,
+            note: note || null,
+            createdBy: actor.userId,
+          })
+          .onConflictDoUpdate({
+            target: [projectGuests.organisationId, projectGuests.projectId, projectGuests.guestId],
+            set: { note: note || null, updatedAt: new Date() },
+          });
+        if (groupId) {
+          const [group] = await tx
+            .select({ id: groups.id })
+            .from(groups)
+            .where(
+              inOrg(
+                groups,
+                actor.organisationId,
+                eq(groups.id, groupId),
+                eq(groups.projectId, projectId),
+              ),
+            );
+          if (!group) {
+            throw new HTTPException(422, { message: "Groups must come from this project" });
+          }
+          const [last] = await tx
+            .select({ position: max(groupMembers.position) })
+            .from(groupMembers)
+            .where(inOrg(groupMembers, actor.organisationId, eq(groupMembers.groupId, group.id)));
+          await tx
+            .insert(groupMembers)
+            .values({
+              organisationId: actor.organisationId,
+              groupId: group.id,
+              guestId: id,
+              position: (last?.position ?? -1) + 1,
+            })
+            .onConflictDoNothing();
+        }
+        await deps.audit.record(
+          actor.organisationId,
+          who,
+          {
+            action: "project.guest_invite",
+            projectId,
+            details: { name: entry.name, email: entry.email, groupId: groupId ?? null },
+          },
+          requestInfo(c, deps.trustProxy),
+          tx,
         );
-      const grouped = await deps.db
-        .selectDistinct(fields)
-        .from(groupMembers)
-        .innerJoin(groups, eq(groups.id, groupMembers.groupId))
-        .innerJoin(guests, eq(guests.id, groupMembers.guestId))
-        .where(
-          and(
-            inOrg(groupMembers, organisationId),
-            inOrg(groups, organisationId, eq(groups.projectId, projectId)),
-            inOrg(guests, organisationId),
-          ),
-        );
-      const byId = new Map([...asked, ...grouped].map((g) => [g.id, g]));
-      const ids = [...byId.keys()];
-      // How many of this project's reviews ask each of them, and how many are still open.
-      const counted =
-        ids.length === 0
-          ? []
-          : await deps.db
-              .select({
-                guestId: reviewReviewers.guestId,
-                reviews: count(),
-                open: sql<number>`(count(*) filter (where ${reviews.status} = 'open'))::int`,
-              })
-              .from(reviewReviewers)
-              .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
-              .where(
-                and(
-                  inOrg(reviewReviewers, organisationId, inArray(reviewReviewers.guestId, ids)),
-                  inOrg(reviews, organisationId, eq(reviews.projectId, projectId)),
-                ),
-              )
-              .groupBy(reviewReviewers.guestId);
-      // When each was last sent a link, and whether a link or signed-in browser still works.
-      const now = new Date().toISOString();
-      const lastLink = deps.db
-        .select({ guestId: guestLinks.guestId, at: max(guestLinks.createdAt).as("at") })
-        .from(guestLinks)
-        .where(eq(guestLinks.organisationId, organisationId))
-        .groupBy(guestLinks.guestId)
-        .as("last_link");
-      const links =
-        ids.length === 0
-          ? []
-          : await deps.db
-              .select({
-                guestId: guests.id,
-                lastLinkAt: lastLink.at,
-                live: sql<boolean>`exists (
-                  select 1 from ${guestLinks} where ${guestLinks.guestId} = ${guests.id}
-                    and ${guestLinks.organisationId} = ${organisationId}
-                    and ${guestLinks.usedAt} is null and ${guestLinks.revokedAt} is null
-                    and ${guestLinks.expiresAt} > ${now}
-                ) or exists (
-                  select 1 from ${guestSessions} where ${guestSessions.guestId} = ${guests.id}
-                    and ${guestSessions.organisationId} = ${organisationId}
-                    and ${guestSessions.revokedAt} is null and ${guestSessions.expiresAt} > ${now}
-                )`,
-              })
-              .from(guests)
-              // Joined, so the conditions below name the guest's columns in full.
-              .leftJoin(lastLink, eq(lastLink.guestId, guests.id))
-              .where(inOrg(guests, organisationId, inArray(guests.id, ids)));
-      const countOf = new Map(counted.map((r) => [r.guestId, r]));
-      const linkOf = new Map(links.map((r) => [r.guestId, r]));
-      return c.json({
-        guests: [...byId.values()]
-          .map((g) => ({
-            ...g,
-            reviews: countOf.get(g.id)?.reviews ?? 0,
-            openReviews: countOf.get(g.id)?.open ?? 0,
-            lastLinkAt: linkOf.get(g.id)?.lastLinkAt ?? null,
-            live: linkOf.get(g.id)?.live ?? false,
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
+        return id;
       });
+      const listed = await projectGuestList(deps.db, actor.organisationId, projectId);
+      return c.json({ guest: listed.find((g) => g.id === guestId) ?? null }, 201);
     })
     // Send a guest a fresh link for the newest open review in this project that asks them.
     .post("/:id/guests/:guestId/link", projectGuestParam, async (c) => {

@@ -2465,6 +2465,11 @@ export const reviews = pgTable(
     message: text("message"),
     dueAt: timestamp("due_at", { withTimezone: true }),
     order: reviewOrderEnum("order").notNull().default("parallel"),
+    /**
+     * In a sequence, what each step is called, by position (#500): "Producer", "Stakeholders".
+     * Null, or a null entry, is a step named only by its place ("Step 2").
+     */
+    stepNames: jsonb("step_names").$type<(string | null)[]>(),
     /** Approvals only. */
     rule: approvalRuleEnum("rule"),
     /** With the share rule: the percentage of deciding reviewers whose approval is enough. */
@@ -2564,6 +2569,33 @@ export const reviewReviewers = pgTable(
     uniqueIndex("review_reviewers_guest_idx").on(t.organisationId, t.reviewId, t.guestId),
     index("review_reviewers_guest_lookup_idx").on(t.guestId),
     check("review_reviewers_one_person", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
+  ],
+);
+
+/**
+ * A guest invited from a project's People page (#502): a reviewer of the project before any
+ * review asks them, with a note kept for the team. A guest a review or a group names is the
+ * project's without a row here.
+ */
+export const projectGuests = pgTable(
+  "project_guests",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    guestId: uuid("guest_id")
+      .notNull()
+      .references(() => guests.id, { onDelete: "cascade" }),
+    /** Who they are to the project, for the team; never shown to the guest. */
+    note: text("note"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("project_guests_guest_idx").on(t.organisationId, t.projectId, t.guestId),
+    index("project_guests_lookup_idx").on(t.guestId),
   ],
 );
 

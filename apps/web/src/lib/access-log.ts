@@ -39,6 +39,7 @@ const actionWords = {
   "guest.code_failed": "Guest code refused",
   "guest.revoke": "Guest revoked",
   "project.reviewer_grant": "Reviewer permissions set",
+  "project.guest_invite": "Reviewer invited",
   "guest.view": "Guest opened a review",
   "comment.create": "Comment",
   "comment.attachment_add": "File attached",

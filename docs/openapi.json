@@ -2263,6 +2263,67 @@
                               }
                             ]
                           }
+                        },
+                        {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "maxLength": 80
+                            },
+                            "reviewers": {
+                              "minItems": 1,
+                              "maxItems": 50,
+                              "type": "array",
+                              "items": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 64
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "name": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 120
+                                      },
+                                      "email": {
+                                        "type": "string",
+                                        "maxLength": 254,
+                                        "format": "email"
+                                      },
+                                      "label": {
+                                        "type": "string",
+                                        "maxLength": 60
+                                      }
+                                    },
+                                    "required": [
+                                      "name",
+                                      "email"
+                                    ]
+                                  },
+                                  {
+                                    "type": "object",
+                                    "properties": {
+                                      "groupId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      }
+                                    },
+                                    "required": [
+                                      "groupId"
+                                    ]
+                                  }
+                                ]
+                              }
+                            }
+                          },
+                          "required": [
+                            "reviewers"
+                          ]
                         }
                       ]
                     }
@@ -2556,6 +2617,103 @@
         "responses": {
           "200": {
             "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      },
+      "post": {
+        "operationId": "postProjectsIdGuests",
+        "tags": [
+          "Reviews"
+        ],
+        "summary": "Invite a reviewer to a project",
+        "description": "A guest of the project before any review asks them (#502): by name and email, with a note kept for the team and, if wanted, a group they join. Nothing is sent until a review asks them.\n\nNeeds the `reviews:write` scope.",
+        "security": [
+          {
+            "token": [
+              "reviews:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "reviews:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "email": {
+                    "type": "string",
+                    "maxLength": 254,
+                    "format": "email"
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 60
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "groupId": {
+                    "type": "string",
+                    "format": "uuid"
+                  }
+                },
+                "required": [
+                  "name",
+                  "email"
+                ]
+              },
+              "example": {
+                "name": "Final mixes",
+                "email": "tomas@endlesshall.example"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Made.",
             "content": {
               "application/json": {
                 "schema": {}
