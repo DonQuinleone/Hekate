@@ -13,12 +13,10 @@ import {
   readMarkerList,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { type DragEvent, useRef, useState } from "react";
-import { Icon } from "~/components/icons";
-import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { useState } from "react";
 import { Field } from "~/components/ui/field";
-import { FileInput, Select } from "~/components/ui/input";
+import { Select } from "~/components/ui/input";
+import { type ChosenFile, UploadDialog } from "~/components/ui/upload-dialog";
 import { cn } from "~/lib/cn";
 import { categoriesQuery, mentionableQuery, meQuery, useCommentMutations } from "~/lib/queries";
 
@@ -69,18 +67,15 @@ export function ImportMarkersDialog({
   const { data: people = [] } = useQuery(mentionableQuery(file.id));
   const { data: categories = [] } = useQuery(categoriesQuery(file.projectId));
   const { importMarkers } = useCommentMutations(file.id);
-  const input = useRef<HTMLInputElement>(null);
-  const [over, setOver] = useState(false);
   const [chosen, setChosen] = useState<Chosen | null>(null);
   const [rate, setRate] = useState<FrameRateId | null>(null);
   const [author, setAuthor] = useState("");
   const [whole, setWhole] = useState(false);
   const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [error, setError] = useState<string | null>(null);
 
   const duration = file.mediaInfo?.duration ?? null;
   let list: MarkerList | null = null;
-  let unreadable: string | null = error;
+  let unreadable: string | null = null;
   if (chosen) {
     try {
       const ownFps = file.mediaInfo?.video?.fps;
@@ -100,195 +95,141 @@ export function ImportMarkersDialog({
   const usable = rows.filter((r) => r.problem === null);
   const colours = [...new Set(usable.flatMap((r) => (r.marker.colour ? [r.marker.colour] : [])))];
   const authorId = author || me?.user.id || "";
+  const authorName =
+    people.find((p) => p.id === authorId)?.name ?? (authorId === me?.user.id ? me?.user.name : "");
 
-  const choose = async (files: FileList | null) => {
-    const picked = files?.[0];
-    if (!picked) return;
-    setError(null);
+  /** The list is read in the page as soon as it is chosen; taking it off starts over. */
+  const choose = async (files: ChosenFile[]) => {
+    const picked = files[0]?.file;
     setRate(null);
     setMapping({});
-    if (picked.size > MAX_LIST_BYTES) {
+    if (!picked) {
       setChosen(null);
-      setError("A marker list can be at most 5 MB");
       return;
     }
     setChosen({ name: picked.name, bytes: new Uint8Array(await picked.arrayBuffer()) });
   };
-  const drop = (event: DragEvent) => {
-    event.preventDefault();
-    setOver(false);
-    void choose(event.dataTransfer.files);
-  };
-  const submit = () => {
+  const submit = async () => {
     if (!chosen || usable.length === 0) return;
-    importMarkers.mutate(
-      {
-        listName: chosen.name,
-        ...(authorId && authorId !== me?.user.id ? { authorId } : {}),
-        markers: usable.map(({ marker }) => ({
-          start: whole ? null : marker.start,
-          end: whole ? null : marker.end,
-          body: markerBody(marker),
-          categoryId: (marker.colour && mapping[marker.colour]) || null,
-        })),
-      },
-      { onSuccess: onClose },
-    );
+    await importMarkers.mutateAsync({
+      listName: chosen.name,
+      ...(authorId && authorId !== me?.user.id ? { authorId } : {}),
+      markers: usable.map(({ marker }) => ({
+        start: whole ? null : marker.start,
+        end: whole ? null : marker.end,
+        body: markerBody(marker),
+        categoryId: (marker.colour && mapping[marker.colour]) || null,
+      })),
+    });
+    onClose();
   };
 
   return (
-    <Dialog
+    <UploadDialog
       title="Import a marker list"
       description="Pro Tools, Nuendo, Reaper, Final Cut Pro, DaVinci Resolve, Premiere Pro, Avid, CSV or plain text."
       onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            disabled={usable.length === 0 || importMarkers.isPending}
-            onClick={submit}
-          >
-            {usable.length === 0
-              ? "Import"
-              : `Import ${usable.length} ${usable.length === 1 ? "comment" : "comments"}`}
-          </Button>
-        </>
+      inputLabel="Marker list"
+      prompt="Drop the marker list here, or choose it"
+      hint="The format is read from the file."
+      check={(f) => (f.size > MAX_LIST_BYTES ? "A marker list can be at most 5 MB" : null)}
+      onChange={(files) => void choose(files)}
+      action={
+        usable.length === 0
+          ? "Import"
+          : `Import ${usable.length} ${usable.length === 1 ? "comment" : "comments"}`
       }
-    >
-      <FileInput
-        ref={input}
-        aria-label="Marker list"
-        onChange={(e) => {
-          void choose(e.target.files);
-          e.target.value = "";
-        }}
-      />
-      {!list ? (
-        <div className="flex flex-col gap-2">
-          <button
-            type="button"
-            onClick={() => input.current?.click()}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setOver(true);
-            }}
-            onDragLeave={() => setOver(false)}
-            onDrop={drop}
-            className={cn(
-              "flex w-full cursor-pointer flex-col items-center gap-2 rounded-panel border border-dashed px-6 py-10 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-3",
-              over ? "border-ink-3 bg-raised/40" : "border-edge hover:bg-raised/40",
-            )}
-          >
-            <Icon name="upload" size={20} className="text-ink-3" />
-            <span className="text-[14px] text-ink">Drop the marker list here, or choose it</span>
-            <span className="text-[13px] text-ink-3">The format is read from the file.</span>
-          </button>
-          {unreadable && (
-            <p role="alert" className="text-[13px] text-signal">
-              {chosen ? `${chosen.name}: ` : ""}
-              {unreadable}
-            </p>
-          )}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <div className="flex min-w-0 items-center gap-2 text-[13px] text-ink-2">
-            <Icon name="file" size={14} className="shrink-0 text-ink-3" />
-            <span className="min-w-0 flex-1 break-words">
-              {chosen?.name} · {markerListFormats[list.format]} · {rows.length}{" "}
-              {rows.length === 1 ? "marker" : "markers"}
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="shrink-0"
-              onClick={() => input.current?.click()}
-            >
-              Choose another
-            </Button>
-          </div>
-          <div className="grid gap-4 @md/app:grid-cols-2">
-            <Field label="Author">
-              <Select value={authorId} onChange={(e) => setAuthor(e.target.value)}>
-                {me && !people.some((p) => p.id === me.user.id) && (
-                  <option value={me.user.id}>{me.user.name}</option>
-                )}
-                {people.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Anchor">
-              <Select
-                value={whole ? "whole" : "time"}
-                onChange={(e) => setWhole(e.target.value === "whole")}
-              >
-                <option value="time">At the marker's time</option>
-                <option value="whole">Whole file</option>
-              </Select>
-            </Field>
-            {/* Once the rate is chosen here the list no longer guesses it; the choice stays. */}
-            {(list.rateGuessed || rate !== null) && list.rate && (
-              <Field
-                label="Timecode rate"
-                hint={`${rate === null ? "Worked out from the list's frames" : "As chosen"}${list.startsAt > 0 ? `; its timeline starts at ${hourTimecode(list.startsAt)}` : ""}.`}
-              >
-                <Select value={list.rate} onChange={(e) => setRate(e.target.value as FrameRateId)}>
-                  {(Object.keys(frameRates) as FrameRateId[]).map((id) => (
-                    <option key={id} value={id}>
-                      {frameRates[id].label} fps
+      disabled={usable.length === 0}
+      onSubmit={submit}
+      error={unreadable && chosen ? `${chosen.name}: ${unreadable}` : null}
+      fields={
+        list && (
+          <>
+            <div className="grid gap-4 @md/app:grid-cols-2">
+              <Field label="Author">
+                <Select value={authorId} onChange={(e) => setAuthor(e.target.value)}>
+                  {me && !people.some((p) => p.id === me.user.id) && (
+                    <option value={me.user.id}>{me.user.name}</option>
+                  )}
+                  {people.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
                     </option>
                   ))}
                 </Select>
               </Field>
-            )}
-          </div>
-          {colours.length > 0 && categories.length > 0 && (
-            <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              Colours become categories
-              {colours.map((colour) => (
-                <span key={colour} className="flex items-center gap-3">
-                  <span className="w-24 truncate text-ink">{colour}</span>
+              <Field label="Anchor">
+                <Select
+                  value={whole ? "whole" : "time"}
+                  onChange={(e) => setWhole(e.target.value === "whole")}
+                >
+                  <option value="time">At the marker's time</option>
+                  <option value="whole">Whole file</option>
+                </Select>
+              </Field>
+              {/* Once the rate is chosen here the list no longer guesses it; the choice stays. */}
+              {(list.rateGuessed || rate !== null) && list.rate && (
+                <Field
+                  label="Timecode rate"
+                  hint={`${rate === null ? "Worked out from the list's frames" : "As chosen"}${list.startsAt > 0 ? `; its timeline starts at ${hourTimecode(list.startsAt)}` : ""}.`}
+                >
                   <Select
-                    aria-label={`Category for ${colour}`}
-                    value={mapping[colour] ?? ""}
-                    onChange={(e) => setMapping((m) => ({ ...m, [colour]: e.target.value }))}
-                    className="w-48"
+                    value={list.rate}
+                    onChange={(e) => setRate(e.target.value as FrameRateId)}
                   >
-                    <option value="">No category</option>
-                    {categories.map((k) => (
-                      <option key={k.id} value={k.id}>
-                        {k.name}
+                    {(Object.keys(frameRates) as FrameRateId[]).map((id) => (
+                      <option key={id} value={id}>
+                        {frameRates[id].label} fps
                       </option>
                     ))}
                   </Select>
-                </span>
-              ))}
+                </Field>
+              )}
             </div>
-          )}
-          <ul
-            aria-label="Markers"
-            // A long list scrolls, and can be reached to scroll from the keyboard.
-            // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region needs focus.
-            tabIndex={0}
-            className="m-0 flex max-h-56 list-none flex-col divide-y divide-line overflow-y-auto rounded-panel border border-line bg-sunken p-0 text-[12px]"
-          >
-            {rows.map(({ marker, problem }) => (
-              <Row key={marker.row} marker={marker} problem={problem} />
-            ))}
-          </ul>
-          {importMarkers.error && (
-            <p role="alert" className="text-[13px] text-signal">
-              {importMarkers.error.message}
-            </p>
-          )}
-        </div>
+            {colours.length > 0 && categories.length > 0 && (
+              <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Colours become categories
+                {colours.map((colour) => (
+                  <span key={colour} className="flex items-center gap-3">
+                    <span className="w-24 truncate text-ink">{colour}</span>
+                    <Select
+                      aria-label={`Category for ${colour}`}
+                      value={mapping[colour] ?? ""}
+                      onChange={(e) => setMapping((m) => ({ ...m, [colour]: e.target.value }))}
+                      className="w-48"
+                    >
+                      <option value="">No category</option>
+                      {categories.map((k) => (
+                        <option key={k.id} value={k.id}>
+                          {k.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        )
+      }
+      what={
+        list &&
+        `${markerListFormats[list.format]} · ${rows.length} ${rows.length === 1 ? "marker" : "markers"} · ${usable.length} become ${usable.length === 1 ? "a comment" : "comments"}${authorName ? ` by ${authorName}` : ""}${whole ? " on the whole file" : " at their times"}, each saying the list it came from.`
+      }
+    >
+      {list && (
+        <ul
+          aria-label="Markers"
+          // A long list scrolls, and can be reached to scroll from the keyboard.
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region needs focus.
+          tabIndex={0}
+          className="m-0 flex max-h-56 list-none flex-col divide-y divide-line overflow-y-auto rounded-panel border border-line bg-sunken p-0 text-[12px]"
+        >
+          {rows.map(({ marker, problem }) => (
+            <Row key={marker.row} marker={marker} problem={problem} />
+          ))}
+        </ul>
       )}
-    </Dialog>
+    </UploadDialog>
   );
 }

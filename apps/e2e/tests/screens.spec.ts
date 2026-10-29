@@ -2893,18 +2893,27 @@ test("file-comment-shared-takes", async ({ page }) => {
   await expect(page).toHaveURL(/loop=14\.2-/);
 });
 
-// Attaching files to a comment (#133): chosen, shown before sending, and on the thread.
+// Attaching files to a comment (#133): chosen in the upload dialog (#477), shown before
+// sending, and on the thread.
 test("file-comment-attach", async ({ page }, info) => {
   test.skip(info.project.name === "phone", "On a phone the composer is a sheet, captured apart");
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
   await page.getByRole("textbox", { name: "Comment at the playhead" }).fill("Fingering as marked");
-  await page.locator("input[type=file][aria-label='Files to attach']").setInputFiles({
+  await page.getByRole("button", { name: "Attach", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Attach files" });
+  await dialog.locator("input[type=file][aria-label='Files to attach']").setInputFiles({
     name: "Fingering, bars 9 to 12.pdf",
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF-1.4 fingering"),
   });
+  await settle(page, "[role=dialog] ul[aria-label='Files chosen to attach'] li");
+  // The dialog with a file chosen: its name, its size, and the action named for the job.
+  await saveScreen(page, "file-comment-attach-choose");
+  await checkScreen(page);
+  await dialog.getByRole("button", { name: "Attach", exact: true }).click();
+  await expect(dialog).toBeHidden();
   await settle(page, "ul[aria-label='Files to attach'] li");
   await saveScreen(page, "file-comment-attach");
   await checkScreen(page);
@@ -3179,7 +3188,8 @@ test("track-new-version", async ({ page }) => {
   await expect(page).toHaveURL(/\/files\//);
   await page.goto(`/tracks/${trackId}?view=versions`);
   await page.getByRole("button", { name: "Add version" }).click();
-  const form = page.getByRole("form", { name: "Version 3" });
+  // The upload dialog (#477): the files chosen, each named as a variation.
+  const form = page.getByRole("dialog", { name: "Version 3" });
   await form.getByRole("button", { name: "From the project" }).first().click();
   await page.getByRole("menuitem", { name: "Maple Leaf Rag - Dry v3.wav" }).click();
   await expect(form.getByLabel("Variation name for Maple Leaf Rag - Dry v3.wav")).toHaveValue(
@@ -3190,7 +3200,7 @@ test("track-new-version", async ({ page }) => {
   const refusal = form.getByRole("alert");
   await expect(refusal).toContainText("asks for an edit decision list");
   await expect(form.getByRole("button", { name: "Let it through" })).toBeVisible();
-  await settle(page, "form li");
+  await settle(page, "[role=dialog] li");
   await refusal.evaluate((el) => el.scrollIntoView({ block: "center" }));
   await saveScreen(page, "track-new-version");
   await checkScreen(page);
@@ -3300,7 +3310,7 @@ test("video-captions", async ({ page }) => {
 test("track-new-version-restart", async ({ page }) => {
   await page.goto(`/tracks/${seeded().trackId}?view=versions`);
   await page.getByRole("button", { name: "Add version" }).click();
-  const form = page.getByRole("form", { name: "Version 3" });
+  const form = page.getByRole("dialog", { name: "Version 3" });
   const restart = form.getByLabel("Restart the workflow from");
   await expect(restart).toHaveValue("");
   await restart.selectOption({ label: "Engineer edits" });

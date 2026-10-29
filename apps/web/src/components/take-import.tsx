@@ -16,15 +16,17 @@ import {
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { type DragEvent, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
-import { FileInput, Input, Select } from "~/components/ui/input";
+import { Input, Select } from "~/components/ui/input";
+import { type ChosenFile, UploadDialog } from "~/components/ui/upload-dialog";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
+import type { Picked } from "~/lib/picked-files";
 import {
   projectSessionsQuery,
   projectTracksQuery,
@@ -32,7 +34,7 @@ import {
   type Track,
   useSessionMutations,
 } from "~/lib/queries";
-import { type Picked, pickedFromDrop, pickedFromList, readSources } from "~/lib/take-import";
+import { readSources } from "~/lib/take-import";
 import { uploadFile } from "~/lib/upload";
 
 const dayFormat = formatDates({ day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
@@ -165,9 +167,6 @@ export function TakeImportDialog({
   const { data: tracks = [] } = useQuery(projectTracksQuery(projectId));
   const { data: existing = [] } = useQuery(projectSessionsQuery(projectId));
   const { create, importTakes } = useSessionMutations(projectId);
-  const chooser = useRef<HTMLInputElement>(null);
-  const folderChooser = useRef<HTMLInputElement>(null);
-  const [over, setOver] = useState(false);
   const [pattern, setPattern] = useState(DEFAULT_PATTERN);
   const [picked, setPicked] = useState<Picked[] | null>(null);
   const [reading, setReading] = useState<number | null>(null);
@@ -191,9 +190,18 @@ export function TakeImportDialog({
 
   /** The latest choice of files: reading one that was replaced comes to nothing. */
   const choice = useRef<AbortController | null>(null);
-  const choose = async (list: Picked[]) => {
-    if (list.length === 0) return;
+  const choose = async (files: ChosenFile[]) => {
     choice.current?.abort();
+    const list: Picked[] = files.flatMap((c) =>
+      c.file ? [{ file: c.file, folder: c.folder }] : [],
+    );
+    if (list.length === 0) {
+      setPicked(null);
+      setRead(null);
+      setReading(null);
+      setChecking(null);
+      return;
+    }
     const mine = new AbortController();
     choice.current = mine;
     setPicked(list);
@@ -387,10 +395,47 @@ export function TakeImportDialog({
     s.takes.some((t) => selected.has(t.key) && t.leftOut),
   );
 
+  const title = "Import takes";
+  const description =
+    "Drop every file of a session. Takes are grouped by take number and timecode, with their mix found among the microphones, and matched to tracks by name.";
+  if (!proposal)
+    return (
+      <UploadDialog
+        title={title}
+        description={description}
+        onClose={onClose}
+        width="lg"
+        inputLabel="Session files"
+        folderLabel="Session folder"
+        listLabel="Files of the session"
+        prompt="Drop the session's files or folder here"
+        hint="Or choose them. Only their headers are read until you import."
+        multiple
+        onChange={(files) => void choose(files)}
+        fields={
+          <Field
+            label="File-name pattern"
+            hint={`Read where the files carry no iXML: ${NAME_TOKENS.map((t) => `{${t}}`).join(", ")}, and * for anything.`}
+          >
+            <Input value={pattern} onChange={(e) => setPattern(e.target.value)} />
+          </Field>
+        }
+        what={
+          picked &&
+          (reading !== null
+            ? `Reading ${reading.toLocaleString()} of ${count(picked.length, "file")}.`
+            : `${count(picked.length, "file")}, ${formatBytes(total)}. Their headers are read here; nothing is uploaded until the takes are imported.`)
+        }
+        error={checking || null}
+        action="Propose the takes"
+        disabled={!read || reading !== null || checking === ""}
+        onSubmit={propose}
+      />
+    );
   return (
     <Dialog
-      title="Import takes"
-      description="Drop every file of a session. Takes are grouped by take number and timecode, with their mix found among the microphones, and matched to tracks by name."
+      title={title}
+      description={description}
       onClose={importing ? stop : onClose}
       width="lg"
       footer={
@@ -398,251 +443,169 @@ export function TakeImportDialog({
           <Button variant="ghost" onClick={importing ? stop : onClose}>
             {importing ? "Stop" : "Cancel"}
           </Button>
-          {proposal && !importing && (
+          {!importing && (
             <Button variant="secondary" onClick={undo} disabled={history.length === 0}>
               Undo
             </Button>
           )}
-          {proposal ? (
-            <Button
-              variant="primary"
-              onClick={() => void run()}
-              disabled={importing || toMake.length === 0}
-            >
-              {importing
-                ? "Importing"
-                : progress && made.size > 0
-                  ? `Import the other ${count(toMake.length, "take")}`
-                  : toMake.length === 0
-                    ? "Import"
-                    : `Import ${count(toMake.length, "take")}`}
-            </Button>
-          ) : (
-            <Button
-              variant="primary"
-              onClick={() => void propose()}
-              disabled={!read || reading !== null || checking === ""}
-            >
-              Propose the takes
-            </Button>
-          )}
+          <Button
+            variant="primary"
+            onClick={() => void run()}
+            disabled={importing || toMake.length === 0}
+          >
+            {importing
+              ? "Importing"
+              : progress && made.size > 0
+                ? `Import the other ${count(toMake.length, "take")}`
+                : toMake.length === 0
+                  ? "Import"
+                  : `Import ${count(toMake.length, "take")}`}
+          </Button>
         </>
       }
     >
-      <FileInput
-        ref={chooser}
-        multiple
-        aria-label="Session files"
-        onChange={(e) => {
-          if (e.target.files) void choose(pickedFromList(e.target.files));
-          e.target.value = "";
-        }}
-      />
-      <FileInput
-        ref={folderChooser}
-        aria-label="Session folder"
-        {...{ webkitdirectory: "" }}
-        onChange={(e) => {
-          if (e.target.files) void choose(pickedFromList(e.target.files));
-          e.target.value = "";
-        }}
-      />
-      {!proposal ? (
-        <div className="flex flex-col gap-4">
-          <button
-            type="button"
-            onClick={() => chooser.current?.click()}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setOver(true);
-            }}
-            onDragLeave={() => setOver(false)}
-            onDrop={(e: DragEvent) => {
-              e.preventDefault();
-              setOver(false);
-              void pickedFromDrop(e.dataTransfer).then(choose);
-            }}
-            className={cn(
-              "flex w-full cursor-pointer flex-col items-center gap-2 rounded-panel-lg border border-dashed px-6 py-10 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-3",
-              over ? "border-ink-3 bg-raised/40" : "border-line-strong hover:bg-raised/40",
-            )}
+      <div className="flex flex-col gap-4">
+        {progress && (
+          <div
+            role="status"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-ink-2"
           >
-            <Icon name="upload" size={20} className="text-ink-3" />
-            <span className="tabular text-[14px] text-ink">
-              {!picked
-                ? "Drop the session's files or folder here"
-                : reading !== null
-                  ? `Reading ${reading.toLocaleString()} of ${count(picked.length, "file")}`
-                  : `${count(picked.length, "file")}, ${formatBytes(total)}`}
+            {importing && <span className="breathe size-2 rounded-full border border-ink-2" />}
+            <span>
+              {importing
+                ? `Importing: ${progress.done.toLocaleString()} of ${count(progress.total, "take")}`
+                : `Imported ${count(progress.done, "take")}`}
+              {progress.failed.length > 0 && `; ${progress.failed.length} could not be`}
             </span>
-            <span className="text-[13px] text-ink-3">
-              {picked
-                ? "Drop or choose others to start again."
-                : "Or choose them. Only their headers are read until you import."}
+            <span className="ml-auto h-1 w-40 overflow-hidden rounded-full bg-raised">
+              <span
+                className="block h-full bg-ink-2 transition-[width]"
+                style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }}
+              />
             </span>
-          </button>
-          <div className="-mt-2 flex justify-center">
-            <Button variant="ghost" size="sm" onClick={() => folderChooser.current?.click()}>
-              <Icon name="folder" size={14} />
-              Choose a folder
-            </Button>
           </div>
-          {checking && (
-            <p role="alert" className="m-0 text-[13px] text-signal">
-              {checking}
-            </p>
-          )}
-          <Field
-            label="File-name pattern"
-            hint={`Read where the files carry no iXML: ${NAME_TOKENS.map((t) => `{${t}}`).join(", ")}, and * for anything.`}
-          >
-            <Input value={pattern} onChange={(e) => setPattern(e.target.value)} />
-          </Field>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4">
-          {progress && (
-            <div
-              role="status"
-              className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] text-ink-2"
-            >
-              {importing && <span className="breathe size-2 rounded-full border border-ink-2" />}
-              <span>
-                {importing
-                  ? `Importing: ${progress.done.toLocaleString()} of ${count(progress.total, "take")}`
-                  : `Imported ${count(progress.done, "take")}`}
-                {progress.failed.length > 0 && `; ${progress.failed.length} could not be`}
-              </span>
-              <span className="ml-auto h-1 w-40 overflow-hidden rounded-full bg-raised">
-                <span
-                  className="block h-full bg-ink-2 transition-[width]"
-                  style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }}
+        )}
+        {progress && progress.failed.length > 0 && !importing && (
+          <ul className="m-0 flex list-none flex-col gap-1 p-0 text-[13px] text-signal">
+            {progress.failed.map((f) => (
+              <li key={f.label}>
+                {f.label}: {f.message}
+              </li>
+            ))}
+          </ul>
+        )}
+        {proposal.sessions.length === 0 ? (
+          <p className="m-0 text-[13px] text-ink-2">
+            Nothing here makes a take: no file has a take number or a timecode.
+          </p>
+        ) : (
+          <div className="flex min-h-9 flex-wrap items-center gap-2 text-[13px] text-ink-3">
+            <Checkbox
+              aria-label="Select every take"
+              checked={selected.size > 0 && selected.size === allKeys.length}
+              onChange={(e) => setSelected(new Set(e.target.checked ? allKeys : []))}
+            />
+            <span className="mr-auto">
+              {selected.size > 0
+                ? `${selected.size} selected`
+                : `${count(allKeys.length, "take")} in ${count(proposal.sessions.length, "session")}`}
+            </span>
+            {selected.size > 0 && (
+              <>
+                <Select
+                  size="sm"
+                  className="w-44"
+                  aria-label="Put the selected takes on a track"
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) edit(placeTakes(proposal, selected, e.target.value));
+                  }}
+                >
+                  <option value="">Put on a track</option>
+                  {tracks.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => edit(leaveOut(proposal, selected, !someLeftOut))}
+                >
+                  {someLeftOut ? "Bring back" : "Leave out"}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+        {proposal.sessions.map((s) => (
+          <section key={s.key} aria-label={s.name} className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <Icon name="mic" size={14} className="text-ink-3" />
+              {s.sessionId && existing.some((e) => e.id === s.sessionId) ? (
+                <span className="text-[14px] text-ink">{s.name}</span>
+              ) : (
+                <Input
+                  size="sm"
+                  className="w-56"
+                  aria-label="Session name"
+                  value={s.name}
+                  onChange={(e) => edit(renameSession(proposal, s.key, e.target.value))}
                 />
+              )}
+              <span className="text-[13px] text-ink-3">
+                {[
+                  s.recordedOn && dayOf(s.recordedOn) !== s.name.trim()
+                    ? dayOf(s.recordedOn)
+                    : null,
+                  s.sessionId && existing.some((e) => e.id === s.sessionId)
+                    ? "adds to this session"
+                    : "a new session",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </span>
             </div>
-          )}
-          {progress && progress.failed.length > 0 && !importing && (
-            <ul className="m-0 flex list-none flex-col gap-1 p-0 text-[13px] text-signal">
-              {progress.failed.map((f) => (
-                <li key={f.label}>
-                  {f.label}: {f.message}
-                </li>
+            <ul className="m-0 ml-5 flex list-none flex-col divide-y divide-line rounded-panel border border-line bg-sunken p-0">
+              {s.takes.map((t) => (
+                <TakeRow
+                  key={t.key}
+                  take={t}
+                  tracks={tracks}
+                  selected={selected.has(t.key)}
+                  onSelect={(on) =>
+                    setSelected((was) => {
+                      const next = new Set(was);
+                      if (on) next.add(t.key);
+                      else next.delete(t.key);
+                      return next;
+                    })
+                  }
+                  onTrack={(trackId) => edit(placeTakes(proposal, new Set([t.key]), trackId))}
+                  onMix={(key) => edit(chooseMix(proposal, t.key, key))}
+                />
               ))}
             </ul>
-          )}
-          {proposal.sessions.length === 0 ? (
-            <p className="m-0 text-[13px] text-ink-2">
-              Nothing here makes a take: no file has a take number or a timecode.
-            </p>
-          ) : (
-            <div className="flex min-h-9 flex-wrap items-center gap-2 text-[13px] text-ink-3">
-              <Checkbox
-                aria-label="Select every take"
-                checked={selected.size > 0 && selected.size === allKeys.length}
-                onChange={(e) => setSelected(new Set(e.target.checked ? allKeys : []))}
-              />
-              <span className="mr-auto">
-                {selected.size > 0
-                  ? `${selected.size} selected`
-                  : `${count(allKeys.length, "take")} in ${count(proposal.sessions.length, "session")}`}
-              </span>
-              {selected.size > 0 && (
-                <>
-                  <Select
-                    size="sm"
-                    className="w-44"
-                    aria-label="Put the selected takes on a track"
-                    value=""
-                    onChange={(e) => {
-                      if (e.target.value) edit(placeTakes(proposal, selected, e.target.value));
-                    }}
-                  >
-                    <option value="">Put on a track</option>
-                    {tracks.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </Select>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => edit(leaveOut(proposal, selected, !someLeftOut))}
-                  >
-                    {someLeftOut ? "Bring back" : "Leave out"}
-                  </Button>
-                </>
-              )}
-            </div>
-          )}
-          {proposal.sessions.map((s) => (
-            <section key={s.key} aria-label={s.name} className="flex flex-col gap-1.5">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <Icon name="mic" size={14} className="text-ink-3" />
-                {s.sessionId && existing.some((e) => e.id === s.sessionId) ? (
-                  <span className="text-[14px] text-ink">{s.name}</span>
-                ) : (
-                  <Input
-                    size="sm"
-                    className="w-56"
-                    aria-label="Session name"
-                    value={s.name}
-                    onChange={(e) => edit(renameSession(proposal, s.key, e.target.value))}
-                  />
-                )}
-                <span className="text-[13px] text-ink-3">
-                  {[
-                    s.recordedOn && dayOf(s.recordedOn) !== s.name.trim()
-                      ? dayOf(s.recordedOn)
-                      : null,
-                    s.sessionId && existing.some((e) => e.id === s.sessionId)
-                      ? "adds to this session"
-                      : "a new session",
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </span>
-              </div>
-              <ul className="m-0 ml-5 flex list-none flex-col divide-y divide-line rounded-panel border border-line bg-sunken p-0">
-                {s.takes.map((t) => (
-                  <TakeRow
-                    key={t.key}
-                    take={t}
-                    tracks={tracks}
-                    selected={selected.has(t.key)}
-                    onSelect={(on) =>
-                      setSelected((was) => {
-                        const next = new Set(was);
-                        if (on) next.add(t.key);
-                        else next.delete(t.key);
-                        return next;
-                      })
-                    }
-                    onTrack={(trackId) => edit(placeTakes(proposal, new Set([t.key]), trackId))}
-                    onMix={(key) => edit(chooseMix(proposal, t.key, key))}
-                  />
-                ))}
-              </ul>
-            </section>
-          ))}
-          {proposal.unplaced.length > 0 && (
-            <p className="m-0 text-[12px] text-ink-3">
-              {proposal.unplaced.length === 1
-                ? "1 file is left out: "
-                : `${count(proposal.unplaced.length, "file")} are left out: `}
-              {proposal.unplaced
-                .slice(0, 3)
-                .map((u) => `“${u.name}” ${u.reason}`)
-                .join("; ")}
-              {proposal.unplaced.length > 3 && `; and ${proposal.unplaced.length - 3} more`}.
-            </p>
-          )}
+          </section>
+        ))}
+        {proposal.unplaced.length > 0 && (
           <p className="m-0 text-[12px] text-ink-3">
-            Each take brings its mix, uploaded into its track's folder; its other microphones stay
-            where they are for now.
+            {proposal.unplaced.length === 1
+              ? "1 file is left out: "
+              : `${count(proposal.unplaced.length, "file")} are left out: `}
+            {proposal.unplaced
+              .slice(0, 3)
+              .map((u) => `“${u.name}” ${u.reason}`)
+              .join("; ")}
+            {proposal.unplaced.length > 3 && `; and ${proposal.unplaced.length - 3} more`}.
           </p>
-        </div>
-      )}
+        )}
+        <p className="m-0 text-[12px] text-ink-3">
+          Each take brings its mix, uploaded into its track's folder; its other microphones stay
+          where they are for now.
+        </p>
+      </div>
     </Dialog>
   );
 }

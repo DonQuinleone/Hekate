@@ -79,8 +79,9 @@ import { Button } from "./ui/button";
 import { Chip, ToggleChip } from "./ui/chip";
 import { Dialog } from "./ui/dialog";
 import { Field } from "./ui/field";
-import { FileInput, Input, Select, Textarea } from "./ui/input";
+import { Input, Select, Textarea } from "./ui/input";
 import { ActionMenu, Dropdown, type MenuAction } from "./ui/menu";
+import { UploadDialog } from "./ui/upload-dialog";
 
 const fullTime = formatDates({ dateStyle: "medium", timeStyle: "short" });
 
@@ -193,26 +194,17 @@ function Composer({
   const [sending, setSending] = useState(false);
   // A comment saved whose files did not all attach: trying again attaches the rest to it.
   const [saved, setSaved] = useState<string | null>(null);
-  const chooser = useRef<HTMLInputElement>(null);
-  /** Files chosen, within what a comment may carry; anything past it is said, not taken. */
-  const choose = (picked: File[]) => {
-    const fits = picked.filter(
-      (f) =>
-        f.size > 0 &&
-        f.size <= COMMENT_ATTACHMENT_MAX_BYTES &&
-        // The same file chosen twice goes once.
-        !files.some((g) => fileKey(g) === fileKey(f)),
-    );
-    const next = [...files, ...fits].slice(0, COMMENT_ATTACHMENTS_MAX);
-    setFiles(next);
-    setError(
-      fits.length < picked.length
+  // Choosing files to attach: the upload dialog, which says what a comment may carry.
+  const [attaching, setAttaching] = useState(false);
+  /** Why a file cannot go with a comment, if it cannot: the dialog says so by the file. */
+  const refuse = (f: File) =>
+    f.size === 0
+      ? "It is empty"
+      : f.size > COMMENT_ATTACHMENT_MAX_BYTES
         ? "A file can be at most 25 MB"
-        : files.length + fits.length > COMMENT_ATTACHMENTS_MAX
-          ? `A comment can carry at most ${COMMENT_ATTACHMENTS_MAX} files`
-          : null,
-    );
-  };
+        : files.some((g) => fileKey(g) === fileKey(f))
+          ? "It is already attached"
+          : null;
   /** The mention being typed at the caret, and the person highlighted in the list. */
   const [typing, setTyping] = useState<{ start: number; query: string } | null>(null);
   const [index, setIndex] = useState(0);
@@ -391,26 +383,36 @@ function Composer({
       <div className="flex flex-wrap items-center gap-2">
         {children}
         {attachable && (
-          <>
-            <FileInput
-              ref={chooser}
-              multiple
-              aria-label="Files to attach"
-              onChange={(e) => {
-                choose([...(e.target.files ?? [])]);
-                e.target.value = "";
-              }}
-            />
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={files.length >= COMMENT_ATTACHMENTS_MAX}
-              onClick={() => chooser.current?.click()}
-            >
-              <Icon name="link" size={12} />
-              Attach
-            </Button>
-          </>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={files.length >= COMMENT_ATTACHMENTS_MAX}
+            onClick={() => setAttaching(true)}
+          >
+            <Icon name="link" size={12} />
+            Attach
+          </Button>
+        )}
+        {attaching && (
+          <UploadDialog
+            title="Attach files"
+            description={`Up to ${COMMENT_ATTACHMENTS_MAX} files of 25 MB each go with the comment.`}
+            onClose={() => setAttaching(false)}
+            width="sm"
+            inputLabel="Files to attach"
+            listLabel="Files chosen to attach"
+            prompt="Drop the files here, or choose them"
+            multiple
+            limit={Math.max(0, COMMENT_ATTACHMENTS_MAX - files.length)}
+            check={refuse}
+            what="They are attached once the comment is sent."
+            action="Attach"
+            onSubmit={(chosen) => {
+              setFiles([...files, ...chosen.flatMap((c) => (c.file ? [c.file] : []))]);
+              setError(null);
+              setAttaching(false);
+            }}
+          />
         )}
         {people.length > 0 && (
           <Button
