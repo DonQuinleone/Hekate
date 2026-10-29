@@ -3,6 +3,7 @@ import { readerOf, waveBytes } from "./fixtures/wave.ts";
 import {
   chooseMix,
   compileNamePattern,
+  gatherTakes,
   type ImportSource,
   importable,
   isoDay,
@@ -257,5 +258,40 @@ describe("proposing the organisation of a day's files (#45)", () => {
       ["T5", "Already imported"],
       ["T6", null],
     ]);
+  });
+
+  // Takes added from their track (#490): each file is one unless the files say otherwise,
+  // and the person may say which session they were recorded in.
+  it("makes a take of every recording when asked, named after its file where it has no number", async () => {
+    const files = [
+      ...(await take("5", 10, "Solace", "2026-10-13")),
+      await source("Solace scratch mix.wav", {}),
+      await source("Notes.txt"),
+    ];
+    const p = proposeTakeImport(files, { tracks, everyFile: true });
+    expect(p.sessions.flatMap((s) => s.takes.map((t) => [t.label, t.files.length]))).toEqual([
+      ["T5", 3],
+      ["Solace scratch mix", 1],
+    ]);
+    expect(p.unplaced.map((u) => u.name)).toEqual(["Notes.txt"]);
+  });
+
+  it("gathers every take into the session chosen, or into none", async () => {
+    const files = [
+      ...(await take("5", 10, "Solace", "2026-10-13")),
+      ...(await take("6", 400, "Solace", "2026-10-14")),
+    ];
+    const proposed = proposeTakeImport(files, { tracks });
+    expect(proposed.sessions).toHaveLength(2);
+    const day = { id: "day-2", name: "Day 2", recordedOn: "2026-10-13" };
+    const gathered = gatherTakes(proposed, day);
+    expect(
+      gathered.sessions.map((s) => [s.sessionId, s.name, s.takes.map((t) => t.label)]),
+    ).toEqual([["day-2", "Day 2", ["T5", "T6"]]]);
+    const none = gatherTakes(proposed, null);
+    expect(none.sessions.map((s) => [s.key, s.sessionId, s.takes.length])).toEqual([
+      ["none", null, 2],
+    ]);
+    expect(gatherTakes({ sessions: [], unplaced: [] }, day).sessions).toEqual([]);
   });
 });

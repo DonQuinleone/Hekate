@@ -20,7 +20,6 @@ import {
   primaryFile,
   projectById,
   reviews,
-  takes,
   trackById,
   trackHistory,
   type Version,
@@ -29,6 +28,7 @@ import {
 import { cn } from "~/lib/cn";
 import { openCommentCount, qaSummary } from "~/lib/files";
 import { formatDateTime, plural } from "~/lib/format";
+import { TakeImportDialog } from "~/routes/takes";
 import { useViewer } from "~/viewer/context";
 import { Empty, Refused, StateGate, useScreenState } from "~/viewer/state-gate";
 
@@ -364,13 +364,17 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
   const project = track ? projectById(track.projectId) : undefined;
   const visible = track && project && viewer.canSee(project.id);
   const [adding, setAdding] = useState(false);
+  const [addingTakes, setAddingTakes] = useState(false);
   const state = useScreenState();
   const versions = track ? [...track.versions].sort((a, b) => b.number - a.number) : [];
   const latest = versions[0];
   // A track opens on its latest version in the player; this page is reached from there.
   const playable =
     view !== "versions" && view !== "takes" && latest && visible ? primaryFile(latest) : undefined;
-  const hasTakes = Boolean(track && takes.some((t) => t.trackId === track.id));
+  // Takes are music's (#16): the Takes view is there for whoever has the tool, takes or not.
+  const withTakes = Boolean(
+    track && project && project.profile !== "video" && viewer.tools(project.id).has("takes"),
+  );
   useEffect(() => {
     if (playable)
       navigate({ to: "/files/$fileId", params: { fileId: playable.id }, replace: true });
@@ -405,10 +409,17 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
             </Link>
           </Button>
         )}
-        {viewer.can(project.id, "upload") && (
+        {viewer.can(project.id, "upload") && view !== "takes" && (
           <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
             <Icon name="upload" size={14} />
             {project.profile === "video" ? "Add cut" : "Add version"}
+          </Button>
+        )}
+        {/* Takes are added from their track (#490): the dialog with the track settled. */}
+        {viewer.can(project.id, "upload") && view === "takes" && withTakes && (
+          <Button variant="primary" size="sm" onClick={() => setAddingTakes(true)}>
+            <Icon name="upload" size={14} />
+            Add takes
           </Button>
         )}
       </>
@@ -450,7 +461,7 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
             )}
           </p>
         </div>
-        {hasTakes && viewer.tools(project.id).has("takes") && (
+        {withTakes && (
           <div
             role="tablist"
             className="flex rounded-control border border-line bg-raised/40 p-0.5"
@@ -487,8 +498,10 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
             track={track}
             versionNumber={latest?.number ?? 0}
             canEdit={viewer.can(project.id, "upload")}
+            onAdd={() => setAddingTakes(true)}
             page
           />
+          {addingTakes && <TakeImportDialog track={track} onClose={() => setAddingTakes(false)} />}
         </div>
       ) : null}
       {view !== "takes" && adding && (

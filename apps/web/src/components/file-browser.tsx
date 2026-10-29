@@ -100,6 +100,7 @@ import { Icon, type IconName } from "./icons";
 import { Card } from "./page";
 import { ShareDialog } from "./share";
 import { TagInput } from "./tag-input";
+import { TakeImportDialog } from "./take-import";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/choice";
 import { Floating, type Point, withinOrFloatingFrom } from "./ui/floating";
@@ -424,6 +425,8 @@ export function FileBrowser({
   const [sharing, setSharing] = useState<ShareTarget | null>(null);
   const [downloading, setDownloading] = useState<{ fileId: string; name: string } | null>(null);
   const [replacing, setReplacing] = useState<{ track: Track; version: Version } | null>(null);
+  /** The track whose takes are being added from its row (#490). */
+  const [addingTakes, setAddingTakes] = useState<Track | null>(null);
   /** What linking another score did to the marks on the old one. */
   const [scoreNote, setScoreNote] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
@@ -975,6 +978,10 @@ export function FileBrowser({
                 }),
             },
           ]
+        : []),
+      // Takes are added from their track (#490), by those who edit takes and upload.
+      ...(item.kind === "track" && live && !video && can("edit_takes") && can("upload")
+        ? [{ label: "Add takes…", onSelect: () => setAddingTakes(item.track) }]
         : []),
       ...(can("request_reviews")
         ? [
@@ -1837,6 +1844,13 @@ export function FileBrowser({
           version={replacing.version}
           mode="replace"
           onClose={() => setReplacing(null)}
+        />
+      )}
+      {addingTakes && (
+        <TakeImportDialog
+          projectId={projectId}
+          track={addingTakes}
+          onClose={() => setAddingTakes(null)}
         />
       )}
       {requesting && (

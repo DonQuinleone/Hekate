@@ -29,6 +29,7 @@ import { actorOf, visibleProjects } from "../access.ts";
 import { NotFound } from "../errors.ts";
 import { zValidator } from "../openapi/validator.ts";
 import { excerpt, prefixQuery } from "../search.ts";
+import { listedFile } from "../take-files.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
 const {
@@ -244,6 +245,8 @@ export const searchRoutes = (db: Database) =>
                     tsq ? or(matches(words.files), taggedAs) : undefined,
                     tagged,
                     inLiveProject,
+                    // A take's file is found through its take, not among the files (decision 274).
+                    listedFile,
                     after(files.createdAt),
                     by(files.uploadedBy),
                     filters.fileKind ? eq(files.kind, filters.fileKind) : undefined,

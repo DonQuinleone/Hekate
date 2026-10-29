@@ -5,6 +5,12 @@ description: Recording sessions, the takes made in them, and importing a day's f
 
 In a music project, **takes** are the snippets recorded for a track: reference material for producers and editors, never versions of it. A take belongs to its track; it can also say which **session** (a day or a sitting) it was recorded in. Sessions live in the project's **Production** area, shown to the roles that may see takes.
 
+## Adding a track's takes
+
+Open the track's **Takes** view (beside its versions) and choose **Add takes**, or choose **Add takes…** from the track's row in the project's files; dropping files on the track's takes opens the same dialog with them. Every file is a take of the track, numbered as its name or iXML says (`T27_Mix.wav` is take 27) or, with no number, named after its file; files sharing a take number are one take, heard by its mix. Say once, for the batch, which **session** they were recorded in (as the files' day says, none, or one of the project's) and which **bars** they cover, where bars matter.
+
+A take's file lives under its track, not among the project's files: it is not listed in the file browser, not counted with any folder and not found by a search for files. It is reached through the take: the track's Takes view, *Other takes* in the player, its session's page and its own page. A file that is no longer a take goes back to the folder it was uploaded to.
+
 ## Importing a day's takes
 
 Choose **Import takes** on the project's sessions and drop every file of the day, or a folder of them. Nothing is uploaded yet: only each file's header is read, and Hekate proposes how they fit together.
@@ -18,7 +24,7 @@ Correct anything before importing: a take's track or mix, a session's name, or a
 
 When the files carry no iXML, a **file-name pattern** says where the take number and the rest are: `T{take} {mic}` reads `T27_Spot.wav` as take 27 on the Spot microphone. It can name `{take}`, `{mic}`, `{tc}` (timecode), `{scene}`, `{session}` and `{track}`, and `*` matches anything.
 
-**Import** uploads each take's mix into its track's folder and makes it the track's next take, in its session. If an import stops part way, import the same files again: the takes already made are shown as *Already imported* and skipped. For now a take brings its mix only; its other microphones follow later.
+**Import** uploads each take's mix under its track and makes it the track's next take, in its session. If an import stops part way, import the same files again: the takes already made are shown as *Already imported* and skipped. For now a take brings its mix only; its other microphones follow later.
 
 ## A session's takes, and a take's own page
 

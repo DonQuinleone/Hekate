@@ -13694,6 +13694,25 @@ describe.runIf(url)("api", () => {
             [2, t2],
             [3, t3],
           ]);
+          // A take's file is the take's, not the folder's (decision 274): left out of the
+          // project's files, of its count and of a search's files, while the mix stays listed.
+          const listed = async (cookie = s.owner) =>
+            (
+              (await (await getAs(`/api/projects/${s.projectId}/files`, cookie)).json()) as {
+                files: { id: string }[];
+              }
+            ).files.map((f) => f.id);
+          expect(await listed()).toContain(s.mix);
+          expect(await listed()).not.toContain(t1);
+          expect(await listed(s.composer)).not.toContain(t1);
+          const figures = (await (await getAs("/api/projects?figures=1", s.owner)).json()) as {
+            projects: { id: string; figures: { files: number } }[];
+          };
+          expect(figures.projects.find((p) => p.id === s.projectId)?.figures.files).toBe(2);
+          const found = (await (await getAs("/api/search?q=take", s.owner)).json()) as {
+            results: { kind: string; id: string }[];
+          };
+          expect(found.results.filter((r) => r.kind === "files")).toEqual([]);
           // Not twice, not a version's file, not a document, not another project's.
           expect((await add([t1])).status).toBe(409);
           expect((await add([s.mix])).status).toBe(409);
@@ -13778,6 +13797,8 @@ describe.runIf(url)("api", () => {
             ((await (await getAs(`/api/tracks/${s.trackId}/takes`, s.owner)).json()) as Listed)
               .takes,
           ).toHaveLength(2);
+          // No longer a take, it is back among the project's files.
+          expect(await listed()).toContain(t1);
 
           // An archived project's takes are read-only.
           expect(
@@ -16037,6 +16058,29 @@ describe.runIf(url)("api", () => {
           };
           expect(after.takes.find((t) => t.id === logged.id)?.file?.id).toBe(t3);
           expect(after.takes.map((t) => t.number)).toEqual([1, 2, 3, 4, 5]);
+
+          // Bars given with the import (#490), as the track's Add takes dialog gives them, go
+          // on the takes made; a range that runs backwards is refused, as a take's page would.
+          const barred = await file("T40_Mix.wav");
+          const bars = (barFrom: number, barTo: number) =>
+            send({
+              takes: [{ fileId: barred, trackId: s.trackId, sessionId: null, barFrom, barTo }],
+            });
+          expect((await bars(20, 12)).status).toBe(422);
+          expect(await (await bars(12, 16)).json()).toEqual({
+            imported: 1,
+            matched: 0,
+            skipped: 0,
+          });
+          const withBars = (await (
+            await getAs(`/api/tracks/${s.trackId}/takes`, s.engineer)
+          ).json()) as {
+            takes: { file: { id: string } | null; barFrom: number | null; barTo: number | null }[];
+          };
+          expect(withBars.takes.find((t) => t.file?.id === barred)).toMatchObject({
+            barFrom: 12,
+            barTo: 16,
+          });
 
           // Another workspace's file is not found from here.
           const [elsewhere] = await db
