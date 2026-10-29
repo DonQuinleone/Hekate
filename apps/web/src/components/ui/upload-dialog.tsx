@@ -48,7 +48,9 @@ const PARALLEL = 2;
 /** Rows drawn of a long list; the rest are counted. */
 const SHOWN = 40;
 
-const keyOf = (file: File) => `${file.name}:${file.size}:${file.lastModified}`;
+/** The same file twice is one; two alike in different folders (one per microphone) are two. */
+const keyOf = (file: File, folder: string) =>
+  `${folder}/${file.name}:${file.size}:${file.lastModified}`;
 
 /** The file's kind by its name, for the row's icon: a finer reading comes once it is probed. */
 export function iconFor(name: string): IconName {
@@ -338,6 +340,10 @@ export function UploadDialog<T = unknown>({
   const [fault, setFault] = useState<Error | null>(null);
   const [busy, setBusy] = useState(false);
   const stopper = useRef<AbortController | null>(null);
+  // The callback as it is when the uploads finish, not when they began: a name or a choice
+  // edited meanwhile goes with the files.
+  const submit = useRef(onSubmit);
+  submit.current = onSubmit;
   useEffect(() => {
     const controller = new AbortController();
     stopper.current = controller;
@@ -360,7 +366,7 @@ export function UploadDialog<T = unknown>({
     const reasons: string[] = [];
     const fits: ChosenFile<T>[] = [];
     for (const { file, folder } of multiple ? picked : picked.slice(0, 1)) {
-      const key = keyOf(file);
+      const key = keyOf(file, folder);
       // The same file chosen twice goes once.
       if (latest.current.some((c) => c.key === key) || fits.some((c) => c.key === key)) continue;
       const why = check?.(file) ?? null;
@@ -456,7 +462,7 @@ export function UploadDialog<T = unknown>({
     setFault(null);
     try {
       if (!(await sendAll(signal)) || signal.aborted) return;
-      await onSubmit(latest.current, hint);
+      await submit.current(latest.current, hint);
     } catch (failure) {
       if (!signal.aborted)
         setFault(failure instanceof Error ? failure : new Error("It could not be done"));
