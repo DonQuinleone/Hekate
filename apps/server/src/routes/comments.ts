@@ -670,7 +670,7 @@ export const fileCommentRoutes = (
         .innerJoin(organisations, eq(organisations.id, files.organisationId))
         .where(inOrg(files, organisationId, eq(files.id, fileId)));
       if (!file) throw new NotFound("File");
-      const [variation] = await db
+      const [variant] = await db
         .select({ number: versions.number, name: variants.name })
         .from(variants)
         .innerJoin(
@@ -688,7 +688,7 @@ export const fileCommentRoutes = (
       const out = commentSheet({
         file: {
           name: file.name,
-          version: variation ? `V${variation.number} · ${variation.name}` : null,
+          version: variant ? `V${variant.number} · ${variant.name}` : null,
         },
         workspace: file.workspace,
         project: file.project,

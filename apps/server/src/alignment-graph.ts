@@ -19,7 +19,7 @@ export interface Reached {
 
 /**
  * Every file of the same track that alignments reach from this one, each with the map from
- * this file's times to its own. Alignments join successive versions; variations of one
+ * this file's times to its own. Alignments join successive versions; variants of one
  * version are one edit, so they share their times. Walking both, V3 reaches V1 through V2,
  * and a wet mix reaches the previous version's dry mix through its own dry mix.
  */

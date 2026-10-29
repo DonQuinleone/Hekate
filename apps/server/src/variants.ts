@@ -76,6 +76,13 @@ export async function deleteVariants(
     .where(inOrg(variations, organisationId, by.fileIn && inArray(variations.fileId, by.fileIn)));
 }
 
+/**
+ * A version's variants under both names in an answer: `variants`, which this release reads,
+ * and `variations`, which a client of the release before reads. Release 2 answers with
+ * `variants` alone.
+ */
+export const bothNames = <T>(variants: T[]) => ({ variants, variations: variants });
+
 /** The unique indexes that refuse a file already a variant of a version, in either table. */
 export const variantFileIndexes = ["variants_file_idx", "variations_file_idx"] as const;
 

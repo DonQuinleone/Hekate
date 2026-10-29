@@ -65,7 +65,7 @@ async function purgeProject(
           ),
         );
       for (const upload of unfinished) await storage.abortUpload(sessionOf(upload));
-      // A variation holds on to its file, so variations go before the cascade reaches files.
+      // A variant holds on to its file, so variants go before the cascade reaches files.
       const ofProject = tx
         .select({ id: files.id })
         .from(files)

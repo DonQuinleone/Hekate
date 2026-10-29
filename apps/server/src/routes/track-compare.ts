@@ -47,7 +47,7 @@ async function comparable(db: Database, vars: TenantVariables, trackId: string) 
   return { track, access };
 }
 
-/** The track's versions, oldest first, each with its variations' files. */
+/** The track's versions, oldest first, each with its variants' files. */
 async function versionsOf(db: Database, org: Org, trackId: string) {
   const rows = await db
     .select({

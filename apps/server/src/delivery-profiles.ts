@@ -61,7 +61,7 @@ async function workspaceRef(db: Reader, organisationId: string) {
 
 /**
  * What each of some files is measured against: the nearest choice among the file's own,
- * its track's (as a variation of one of its versions), its project's and the workspace's,
+ * its track's (as a variant of one of its versions), its project's and the workspace's,
  * else the profile its channels suggest.
  */
 export async function profilesForFiles(db: Reader, organisationId: string, fileIds: string[]) {

@@ -56,6 +56,7 @@ import { followersOf, notifyNow } from "../notifications.ts";
 import { zValidator } from "../openapi/validator.ts";
 import { admit, tooMany } from "../rate-limit.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { bothNames } from "../variants.ts";
 
 const {
   reviews,
@@ -373,7 +374,7 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
         trackId: item.trackId,
         name: item.trackName,
         follows: item.versionId ? ("version" as const) : ("latest" as const),
-        version: version ? { ...version, variations: treatments.map((t) => t.name) } : null,
+        version: version ? { ...version, ...bothNames(treatments.map((t) => t.name)) } : null,
         fileId: primary?.fileId ?? null,
         fileIds: treatments.map((t) => t.fileId),
       };

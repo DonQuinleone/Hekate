@@ -55,7 +55,7 @@ export async function purgeWorkspace(
       .for("update");
     // Reinstated, or kept, since it was chosen: it stays.
     if (!row?.suspendedAt || !row.deleteAfter || row.deleteAfter > now) return null;
-    // A variation holds on to its file, so variations go before the cascade reaches files.
+    // A variant holds on to its file, so variants go before the cascade reaches files.
     await deleteVariants(tx, organisationId);
     await tx.delete(schema.organisations).where(eq(schema.organisations.id, organisationId));
     return row.name;

@@ -95,7 +95,7 @@ export type GuestGrant = NonNullable<ReturnType<typeof mergeGrants>>;
 
 /**
  * The files a guest may open: everything the open reviews they are asked to contain. A
- * track item gives the variations of its version (a given one, or the latest).
+ * track item gives the variants of its version (a given one, or the latest).
  */
 export async function guestFileIds(
   db: Pick<Database, "select">,

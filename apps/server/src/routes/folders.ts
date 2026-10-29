@@ -314,7 +314,7 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
           .where(inOrg(files, actor.organisationId, eq(files.id, id)))
           .for("update");
         if (!file) throw new NotFound("File");
-        const [variation] = await tx
+        const [variant] = await tx
           .select({ track: tracks.name, version: versions.number })
           .from(variants)
           .innerJoin(
@@ -329,9 +329,9 @@ export const fileManageRoutes = (db: Database, audit: Audit, trustProxy: boolean
             and(eq(tracks.id, versions.trackId), eq(tracks.organisationId, actor.organisationId)),
           )
           .where(inOrg(variants, actor.organisationId, eq(variants.fileId, id)));
-        if (variation) {
+        if (variant) {
           throw new HTTPException(409, {
-            message: `This file is in version ${variation.version} of ${variation.track}`,
+            message: `This file is in version ${variant.version} of ${variant.track}`,
           });
         }
         const reviewedIn = await tx

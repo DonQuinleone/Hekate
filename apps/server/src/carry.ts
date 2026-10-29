@@ -13,7 +13,7 @@ const { alignments, comments, commentCarries, guests, tracks, users, variants, v
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 /**
- * Lock the track a file belongs to, if it is a variation. Creating a version holds the
+ * Lock the track a file belongs to, if it is a variant. Creating a version holds the
  * same lock while it carries threads, so settling or reopening a thread never interleaves
  * with deciding which threads move on.
  */
@@ -30,10 +30,10 @@ export async function lockTrackOfFile(tx: Tx, organisationId: string, fileId: st
 /**
  * Carry the previous version's unresolved threads to a new version (docs/domain.md,
  * Comments across versions). A thread raised there, or carried there and still open or
- * not fixed, moves to the new version's variation of the same name, or else its primary.
+ * not fixed, moves to the new version's variant of the same name, or else its primary.
  * Anchors keep their place until alignment between the versions (#33) maps them; the
  * editor can correct each one. Runs inside the transaction that creates the version, and
- * returns the alignments to compute: each earlier variation against its counterpart.
+ * returns the alignments to compute: each earlier variant against its counterpart.
  */
 export async function carryThreads(
   tx: Tx,
@@ -112,7 +112,7 @@ export async function carryThreads(
       .where(inOrg(comments, organisationId, inArray(comments.id, settled)));
   }
 
-  // Each earlier variation is aligned with the one its threads move to.
+  // Each earlier variant is aligned with the one its threads move to.
   const pairs = before.flatMap((v) => {
     const target = carryTarget(v.name, after);
     return target ? [{ organisationId, fromFileId: v.fileId, toFileId: target.fileId }] : [];
@@ -225,7 +225,7 @@ export async function hopsOf(
     .orderBy(versions.number);
 }
 
-/** The version number of each file that is a variation, for naming where a thread began. */
+/** The version number of each file that is a variant, for naming where a thread began. */
 export async function versionNumbersOf(
   db: Pick<Database, "select">,
   organisationId: string,
@@ -281,7 +281,7 @@ async function carrySources(tx: Database | Tx, organisationId: string, fileIds: 
 
 /**
  * What a new version of a track would carry over from its latest: each thread, where it
- * points, and the variation it was raised or carried on, for whoever adds the version to
+ * points, and the variant it was raised or carried on, for whoever adds the version to
  * confirm or correct before it lands.
  */
 export async function carryPreview(db: Database, organisationId: string, trackId: string) {
@@ -333,7 +333,7 @@ export async function carryPreview(db: Database, organisationId: string, trackId
             body: thread.body,
             authorName: thread.memberName ?? thread.guestName ?? null,
             anchor: s.anchor,
-            variation: nameOf.get(s.fileId) ?? null,
+            variant: nameOf.get(s.fileId) ?? null,
           },
         ]
       : [];

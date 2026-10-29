@@ -53,6 +53,7 @@ import {
   membershipOf,
   type SecondFactorRule,
 } from "../tenancy.ts";
+import { bothNames } from "../variants.ts";
 import { viewerMark } from "../viewer-mark.ts";
 import { noteOpened } from "./reviews.ts";
 
@@ -141,8 +142,8 @@ async function shownChain(db: Database, actor: Actor, fileId: string) {
   return shown.length > 1 ? shown : [];
 }
 
-/** A variation as the file page shows it; the track's settings stay on the server. */
-const shownVariation = <V extends { trackNormalisation: unknown }>({
+/** A variant as the file page shows it; the track's settings stay on the server. */
+const shownVariant = <V extends { trackNormalisation: unknown }>({
   trackNormalisation: _,
   ...shown
 }: V) => shown;
@@ -202,8 +203,8 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         .leftJoin(users, eq(files.uploadedBy, users.id))
         .where(inOrg(files, c.var.organisationId, eq(files.id, c.req.valid("param").id)));
       if (!file) throw new NotFound("File");
-      // Where the file sits in the music model, if it is a variation of a track's version.
-      const [variation] = await deps.db
+      // Where the file sits in the music model, if it is a variant of a track's version.
+      const [variant] = await deps.db
         .select({
           id: variants.id,
           name: variants.name,
@@ -231,7 +232,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         )
         .where(inOrg(variants, c.var.organisationId, eq(variants.fileId, file.id)));
       // A take plays as its track does (#98).
-      const [take] = variation
+      const [take] = variant
         ? []
         : await deps.db
             .select({ trackNormalisation: tracks.normalisation })
@@ -266,7 +267,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
             profile: file.profile,
             commentReferences,
           }),
-          variation: variation ? shownVariation(variation) : null,
+          variant: variant ? shownVariant(variant) : null,
           // Its simple version chain (#149), as far as this person may open it.
           chain: await shownChain(deps.db, c.var.actor, file.id),
           grant: access?.grant ?? null,
@@ -280,7 +281,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
             file,
             // The track's own choice, where it has one (#98).
             effectiveNormalisation(
-              variation?.trackNormalisation ?? take?.trackNormalisation,
+              variant?.trackNormalisation ?? take?.trackNormalisation,
               normalisation,
             ),
             access ? mayUseTool(access, "normalise") : false,
@@ -297,7 +298,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
       const reached = await reachable(deps.db, c.var.actor);
       return c.json({ alignments: reached ? all.filter((a) => reached.has(a.fileId)) : all });
     })
-    // What a file can be compared with (#44): its track's versions and their variations, as far
+    // What a file can be compared with (#44): its track's versions and their variants, as far
     // as the person may open them. A loose file has none.
     .get("/:id/compare", fileParam, async (c) => {
       const org = c.var.organisationId;
@@ -336,16 +337,16 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         {
           id: string;
           number: number;
-          variations: Omit<(typeof shown)[number], "versionId" | "number">[];
+          variants: Omit<(typeof shown)[number], "versionId" | "number">[];
         }
       >();
       for (const r of shown) {
         const version = byVersion.get(r.versionId) ?? {
           id: r.versionId,
           number: r.number,
-          variations: [],
+          variants: [],
         };
-        version.variations.push({
+        version.variants.push({
           fileId: r.fileId,
           name: r.name,
           isPrimary: r.isPrimary,
@@ -354,7 +355,9 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         });
         byVersion.set(r.versionId, version);
       }
-      return c.json({ versions: [...byVersion.values()] });
+      return c.json({
+        versions: [...byVersion.values()].map((v) => ({ ...v, ...bothNames(v.variants) })),
+      });
     })
     // Waveform peaks: an 8-bit envelope per channel, from which no audio can be rebuilt, so
     // members fetch them directly rather than through playback tokens.

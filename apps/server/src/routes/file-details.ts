@@ -122,7 +122,7 @@ export const fileDetailRoutes = (db: Database) =>
               track: tracks.name,
               versionId: versions.id,
               number: versions.number,
-              variation: variants.name,
+              variant: variants.name,
               primary: variants.isPrimary,
               latest: sql<boolean>`${versions.number} = (select max(v2.number) from versions v2
                 where v2.track_id = ${tracks.id} and v2.organisation_id = ${org})`,

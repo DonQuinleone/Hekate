@@ -136,7 +136,7 @@ export const fileQaRoutes = (db: Database) =>
         )
         .where(inOrg(variants, org, eq(variants.fileId, id)));
       if (!mine) return c.json(none);
-      // The version just before, and in it the variation of the same name, else its primary.
+      // The version just before, and in it the variant of the same name, else its primary.
       const earlier = await db
         .select({
           number: versions.number,
@@ -209,7 +209,7 @@ export const fileQaRoutes = (db: Database) =>
           .innerJoin(organisations, eq(organisations.id, files.organisationId))
           .where(inOrg(files, org, eq(files.id, id)));
         if (!where) throw new NotFound("File");
-        const [variation] = await db
+        const [variant] = await db
           .select({ number: versions.number, name: variants.name })
           .from(variants)
           .innerJoin(
@@ -225,7 +225,7 @@ export const fileQaRoutes = (db: Database) =>
           {
             file: {
               name: where.name,
-              version: variation ? `V${variation.number} · ${variation.name}` : null,
+              version: variant ? `V${variant.number} · ${variant.name}` : null,
             },
             workspace: where.workspace,
             project: where.project,

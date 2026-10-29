@@ -24,7 +24,7 @@ export type RequestVersionOutcome = "made" | "refused" | "none";
 /**
  * A file sent through an upload request to a track (#425), once measured (or at once, for a file
  * that is never measured), becomes the track's next version: one version for each file, its one
- * variation named from the file, numbered as each is ready. The project's version checks hold as
+ * variant named from the file, numbered as each is ready. The project's version checks hold as
  * for a member's version, and nobody can let a visitor's file through: one they refuse stays
  * beside the track as it arrived, and the requester is told why. Once only: a file already in a
  * version, or one sent to no track, is left alone.
