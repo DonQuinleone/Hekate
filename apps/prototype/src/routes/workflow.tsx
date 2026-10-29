@@ -25,6 +25,7 @@ import {
   outcomesOf,
   type Problem,
   type Project,
+  personById,
   projectById,
   projectPacks,
   qaRules,
@@ -1805,6 +1806,34 @@ function NodeInspector({
             )}
           </Field>
         ))}
+        {["approval", "feedback", "task", "checks", "wait"].includes(node.type) && (
+          <Field label="Assign new comments to">
+            <Select
+              value={node.config.assign ?? ""}
+              onChange={(e) => onChange({ config: { ...node.config, assign: e.target.value } })}
+            >
+              <option value="">Track or project default</option>
+              <option value="nobody">Nobody</option>
+              <optgroup label="Whoever holds the role">
+                {project.roles.map((r) => (
+                  <option key={r.id} value={`role:${r.id}`}>
+                    {r.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Members">
+                {project.members.map((m) => (
+                  <option key={m.personId} value={`member:${m.personId}`}>
+                    {personById(m.personId).name}
+                  </option>
+                ))}
+              </optgroup>
+            </Select>
+            <span className="text-[11px]">
+              Whoever a comment opened while the track waits here is for.
+            </span>
+          </Field>
+        )}
         {flow && flow.groups.length > 0 && (
           <Field label="Stage">
             <Select

@@ -22,6 +22,7 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can, projectAccess, visibleProjects } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
+import { assertAssignmentRule } from "../comment-assignment.ts";
 import { assertProfileRef } from "../delivery-profiles.ts";
 import { NotFound } from "../errors.ts";
 import { marksAudio } from "../forensic.ts";
@@ -391,13 +392,21 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean, b
         input.checkTruePeak !== undefined ||
         input.requireEdl !== undefined ||
         input.qaSettings !== undefined ||
-        input.workflowNotices !== undefined;
+        input.workflowNotices !== undefined ||
+        input.commentAssignment !== undefined;
       const id = c.req.valid("param").id;
       if (workflow) await can(db, actorOf(c.var), "edit_workflows", id);
       const access = await can(db, actorOf(c.var), general ? "edit_project" : "edit_workflows", id);
       const who = input.assetPolicy ? await audit.member(c.var.userId) : null;
       const project = await db.transaction(async (tx) => {
         await assertProfileRef(tx, c.var.organisationId, input.deliveryProfile);
+        // Whom new comments are for must be one of this project's people or roles (#499).
+        await assertAssignmentRule(
+          tx,
+          c.var.organisationId,
+          access.projectId,
+          input.commentAssignment,
+        );
         if (input.assetPolicy && who) {
           // Held, so two changes at once are each logged against what the other left.
           const [current] = await tx

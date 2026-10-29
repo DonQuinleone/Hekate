@@ -35,6 +35,7 @@ import { z } from "zod";
 import { actorOf, canOnFile, lockLiveProject } from "../access.ts";
 import { type Audit, requestInfo } from "../audit.ts";
 import { hopsOf, lockTrackOfFile, versionNumbersOf } from "../carry.ts";
+import { assigneeOnOpening, stagesOfFile } from "../comment-assignment.ts";
 import { commentSheet } from "../comment-sheet.ts";
 import { workspaceDateFormats } from "../dates.ts";
 import { CodedException, NotFound } from "../errors.ts";
@@ -738,6 +739,7 @@ export const fileCommentRoutes = (
           projectId: files.projectId,
           profile: projects.profile,
           references: projects.commentReferences,
+          assignment: projects.commentAssignment,
         })
         .from(files)
         .innerJoin(
@@ -837,6 +839,11 @@ export const fileCommentRoutes = (
         }
       }
 
+      // A new thread is given to whoever the track's stage, the track or the project says
+      // (#499, decision 279); a reply joins its thread and is nobody's on its own.
+      const assigneeId = input.parentId
+        ? null
+        : await assigneeOnOpening(db, organisationId, file.projectId, file.id, file.assignment);
       // Every guest comment is in the access log (docs/security.md), written with it.
       const who = actor.kind === "guest" ? await audit.guest(actor.guestId) : null;
       const created = await db.transaction(async (tx) => {
@@ -852,6 +859,7 @@ export const fileCommentRoutes = (
             body: input.body,
             mentions,
             channel: input.channel ?? null,
+            assigneeId,
             ...(category && {
               categoryId: category.id,
               deferredTo: deferralAfter(null, { categoryId: category.id }, category),
@@ -890,6 +898,25 @@ export const fileCommentRoutes = (
       ).catch((error: unknown) =>
         console.warn(`Could not tell people about a comment: ${String(error)}`),
       );
+      // Whoever it is for hears of it as of the comments sent to them, unless they wrote it.
+      if (assigneeId && !(actor.kind === "member" && actor.userId === assigneeId))
+        await notifyNow(
+          { db, ...mail },
+          {
+            organisationId,
+            kind: "assigned",
+            recipients: [assigneeId],
+            actor: actor.kind === "guest" ? { guestId: actor.guestId } : { userId: actor.userId },
+            projectId: file.projectId,
+            fileId: file.id,
+            commentId: created?.id,
+            text: `opened a comment for you on ${file.name}`,
+            detail: input.body,
+            link: `/files/${file.id}`,
+          },
+        ).catch((error: unknown) =>
+          console.warn(`Could not tell someone about a comment given to them: ${String(error)}`),
+        );
       return c.json(
         {
           comment: publicComment(
@@ -899,6 +926,16 @@ export const fileCommentRoutes = (
         },
         201,
       );
+    })
+    /**
+     * The stages a thread on this file may be deferred to (#499): those of the workflows that
+     * apply to its track (or, for a loose file, its project), with the step a running workflow
+     * waits at marked. For those who triage.
+     */
+    .get("/:id/stages", idParam, async (c) => {
+      const fileId = c.req.valid("param").id;
+      const access = await canOnFile(db, c.var.actor, "triage", fileId);
+      return c.json(await stagesOfFile(db, c.var.organisationId, access.projectId, fileId));
     })
     /**
      * A marker list from another application, as comments (#134): the markers the browser
