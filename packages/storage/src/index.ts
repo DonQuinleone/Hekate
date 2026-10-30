@@ -3,6 +3,7 @@ export * from "./config.ts";
 export * from "./errors.ts";
 export * from "./keys.ts";
 export * from "./local.ts";
+export * from "./probe.ts";
 export * from "./s3.ts";
 export * from "./types.ts";
 export * from "./wrap.ts";
