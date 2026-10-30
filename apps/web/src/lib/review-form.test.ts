@@ -119,6 +119,24 @@ describe("filling the page in from a review (#502)", () => {
       ["file:f1", { versionId: null }],
     ]);
   });
+  it("chooses a whole folder and the whole workspace again, each once", () => {
+    const scope = (id: string, kind: "folder" | "workspace", folderId: string | null) => ({
+      id,
+      kind,
+      folderId,
+      name: kind,
+      fileId: null,
+      covers: [],
+      openComments: 0,
+    });
+    const items = itemsFromReview({
+      items: [scope("i1", "folder", "d1"), scope("i2", "folder", "d2")],
+    });
+    expect([...items.keys()]).toEqual(["folder:d1", "folder:d2"]);
+    expect([...itemsFromReview({ items: [scope("i3", "workspace", null)] }).keys()]).toEqual([
+      "workspace",
+    ]);
+  });
   it("reads a due instant as the date it falls on here", () => {
     expect(dueDateOf(null)).toBe("");
     const local = new Date(2026, 10, 4, 17, 0, 0).toISOString();

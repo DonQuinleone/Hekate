@@ -1,4 +1,5 @@
 import type { ReviewDetail } from "./queries";
+import { WORKSPACE_KEY } from "./review-scope";
 
 /** A reviewer on the new review page, by key: `member:<user id>`, `guest:<email>` or `group:<id>`. */
 export type ReviewerKey = string;
@@ -79,20 +80,26 @@ export function stepsFromReview(review: {
   return review.order === "sequence" ? steps : mergeSteps(steps);
 }
 
-/** A review's items as the page chooses them: a track at the version it asked about, or a file. */
+/**
+ * A review's items as the page chooses them: a track at the version it asked about, a file, a
+ * whole folder or the whole workspace (#501), each under the key the item picker uses.
+ */
 export function itemsFromReview(
   review: Pick<ReviewDetail, "items">,
 ): Map<string, { versionId: string | null }> {
-  return new Map(
-    review.items.map((item) =>
-      item.kind === "track"
-        ? [
-            `track:${item.trackId}`,
-            { versionId: item.follows === "version" ? (item.version?.id ?? null) : null },
-          ]
-        : [`file:${item.fileId}`, { versionId: null }],
-    ),
-  );
+  const keyed: [string, { versionId: string | null }][] = [];
+  for (const item of review.items) {
+    if (item.kind === "track")
+      keyed.push([
+        `track:${item.trackId}`,
+        { versionId: item.follows === "version" ? (item.version?.id ?? null) : null },
+      ]);
+    else if (item.kind === "workspace") keyed.push([WORKSPACE_KEY, { versionId: null }]);
+    else if (item.kind === "folder") {
+      if (item.folderId) keyed.push([`folder:${item.folderId}`, { versionId: null }]);
+    } else keyed.push([`file:${item.fileId}`, { versionId: null }]);
+  }
+  return new Map(keyed);
 }
 
 /** A due instant as a date field holds it, on the viewer's calendar; empty for none. */
