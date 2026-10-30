@@ -146,6 +146,7 @@ export const reviews: Review[] = [
     requestedAt: "2026-10-13T09:00:00Z",
     dueAt: "2026-11-04T23:59:00Z",
     order: "sequence",
+    stepNames: ["Label", "Soloists", "Engineer"],
     rule: "all",
     items: [{ trackId: "t-solace", versionNumber: 1 }],
     reviewers: [

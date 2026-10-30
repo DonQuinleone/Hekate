@@ -167,6 +167,26 @@ export interface Track {
   scoreFileId: string | null;
   deliveryProfile?: DeliveryProfileId | null;
   references?: { page: boolean; bar: boolean; beat: boolean };
+  /** Its deadline (#505): on the calendar, the timeline and its card; late once past. */
+  dueAt?: string | null;
+}
+
+/**
+ * An entry on the project's calendar (#505): a dated thing that is no review, track or task
+ * deadline. A session entry books a recording session under Production as it is made.
+ */
+export interface CalendarEntry {
+  id: string;
+  projectId: string;
+  kind: "session" | "delivery" | "meeting" | "other";
+  title: string;
+  /** Its first and last days, both included; `endsOn` null for one day. */
+  startsOn: string;
+  endsOn: string | null;
+  trackId: string | null;
+  reviewId: string | null;
+  sessionId: string | null;
+  attendeeIds: string[];
 }
 
 export type AnchorKind = "time" | "region" | "bar";
@@ -295,6 +315,8 @@ export interface Review {
   requestedAt: string;
   dueAt: string | null;
   order: ReviewOrder;
+  /** In a sequence, what each step is called, by position; a step without one is "Step n". */
+  stepNames?: (string | null)[];
   rule: ApprovalRule | null;
   quorum?: number;
   items: ReviewItem[];

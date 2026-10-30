@@ -21,6 +21,7 @@ import {
 import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { NotFound } from "./errors.ts";
+import { type CoveredFile, coveredBy } from "./review-scope.ts";
 
 const {
   comments,
@@ -134,6 +135,8 @@ export async function guestReach(
       fileId: reviewItems.fileId,
       trackId: reviewItems.trackId,
       versionId: reviewItems.versionId,
+      folderId: reviewItems.folderId,
+      scope: reviewItems.scope,
     })
     .from(reviewItems)
     .innerJoin(reviews, eq(reviews.id, reviewItems.reviewId))
@@ -147,11 +150,26 @@ export async function guestReach(
     )
     .where(inOrg(reviewItems, guest.organisationId, eq(reviews.status, "open")))
     .orderBy(desc(reviews.createdAt), desc(reviews.id));
+  // A folder or workspace item covers what is beneath it now (#501), in its own project or in
+  // every project; each file is narrowed by the project it is in.
+  const scoped = new Map<string, CoveredFile[]>();
+  for (const r of rows) {
+    if (r.folderId || r.scope) scoped.set(r.itemId, await coveredBy(db, guest.organisationId, r));
+  }
   // Within their window, and among the items their review shows them (#55); with what their
   // review gives them narrowed by each project's downloads and tool exceptions (decisions 257, 258).
-  const narrowing = await guestNarrowing(db, guest, [...new Set(rows.map((r) => r.projectId))]);
+  const narrowing = await guestNarrowing(db, guest, [
+    ...new Set([
+      ...rows.map((r) => r.projectId),
+      ...[...scoped.values()].flat().map((c) => c.projectId),
+    ]),
+  ]);
   const items = rows
-    .map((r) => ({ ...r, permissions: narrowing(r.projectId, readGrant(r.permissions)) }))
+    .map((r) => ({
+      ...r,
+      granted: readGrant(r.permissions),
+      permissions: narrowing(r.projectId, readGrant(r.permissions)),
+    }))
     .filter(
       (r) =>
         withinWindow(r.permissions, now) &&
@@ -167,6 +185,19 @@ export async function guestReach(
   for (const item of items) {
     if (item.fileId) {
       add(item.fileId, item);
+      continue;
+    }
+    const covers = scoped.get(item.itemId);
+    if (covers) {
+      for (const c of covers) {
+        add(c.fileId, {
+          ...item,
+          permissions:
+            c.projectId === item.projectId
+              ? item.permissions
+              : narrowing(c.projectId, item.granted),
+        });
+      }
       continue;
     }
     if (!item.trackId) continue;

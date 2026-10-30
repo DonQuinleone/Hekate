@@ -39,6 +39,7 @@ import {
   responded,
   reviewOutcome,
   ruleCopy,
+  stepTitle,
   turnHasCome,
 } from "~/lib/reviews";
 import { useViewer } from "~/viewer/context";
@@ -209,7 +210,11 @@ function Steps({ review }: { review: Review }) {
           <Node
             key={pos}
             icon={review.kind === "approval" ? "review" : "comment"}
-            title={review.order === "sequence" ? `Step ${pos}: ${stepLabel(pos)}` : stepLabel(pos)}
+            title={
+              review.order === "sequence"
+                ? `${stepTitle(review.stepNames?.[positions.indexOf(pos)], pos)}: ${stepLabel(pos)}`
+                : stepLabel(pos)
+            }
             sub={`${done} of ${rows.length} responded`}
             state={stepState(pos)}
           />
@@ -274,7 +279,7 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
             <li key={step} className="border-b border-line last:border-b-0">
               {review.order === "sequence" && (
                 <div className="flex h-8 items-center gap-2 bg-raised/20 px-4 text-[12px] text-ink-3">
-                  Step {step}
+                  {stepTitle(review.stepNames?.[steps.indexOf(step)], step)}
                   {review.reviewers.some((r) => r.position === step && r.groupId) && (
                     <span>
                       ·{" "}
@@ -816,6 +821,7 @@ export function ReviewBody({
   const project = review ? projectById(review.projectId) : undefined;
   const allowed = review && (viewer.canSee(review.projectId) || me);
   const manage = Boolean(review && viewer.can(review.projectId, "manage_reviewers"));
+  const mayRequest = Boolean(review && viewer.can(review.projectId, "request_reviews"));
   const [cancelling, setCancelling] = useState(false);
   if (!review || !allowed) return <Refused />;
   const outcome = reviewOutcome(review);
@@ -849,21 +855,40 @@ export function ReviewBody({
                 {review.status === "open" && ` · ${due.label}`}
               </span>
             )}
-            {manage && review.status === "open" && (
+            {!viewer.isGuest && (manage || mayRequest) && (
               <span className="-my-1 ml-auto">
                 <ActionMenu
                   always
                   label="review"
                   actions={[
-                    { label: "Remind everyone waiting", onSelect: () => {} },
-                    { label: "Change the due date…", onSelect: () => {} },
+                    ...(manage && review.status === "open"
+                      ? [
+                          { label: "Remind everyone waiting", onSelect: () => {} },
+                          { label: "Change the due date…", onSelect: () => {} },
+                        ]
+                      : []),
+                    // Everything filled in from this one, to tweak before sending (#502).
+                    ...(mayRequest && review.kind !== "share"
+                      ? [
+                          {
+                            label: "Duplicate",
+                            hint: "A new review with the same items, reviewers, deadline and message",
+                            onSelect: () =>
+                              navigate({ to: "/reviews/new", search: { from: review.id } }),
+                          },
+                        ]
+                      : []),
                     { label: "Copy link", onSelect: () => {} },
-                    "divider",
-                    {
-                      label: review.kind === "share" ? "Stop sharing" : "Cancel the review…",
-                      danger: true,
-                      onSelect: () => setCancelling(true),
-                    },
+                    ...(manage && review.status === "open"
+                      ? [
+                          "divider" as const,
+                          {
+                            label: review.kind === "share" ? "Stop sharing" : "Cancel the review…",
+                            danger: true,
+                            onSelect: () => setCancelling(true),
+                          },
+                        ]
+                      : []),
                   ]}
                 />
               </span>

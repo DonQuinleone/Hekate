@@ -216,6 +216,8 @@ export interface BoardCard {
   /** Those an open review of it waits on, and the earliest such review's due date. */
   waitingOn: { id: string; name: string }[];
   dueAt: string | null;
+  /** The track's own deadline (#505), set in its details or dragged on the timeline. */
+  due?: string | null;
   decisions: BoardDecision[];
   tasks: { id: string; title: string; assignee: { id: string; name: string } | null }[];
   /** Open threads on its latest version's files, for those who may read comments. */
@@ -249,19 +251,24 @@ export function timelineWeeks(day: string, weeks = 6): string[] {
 export const shiftWeeks = (day: string, weeks: number) =>
   isoDay(Date.parse(`${day}T00:00:00Z`) + weeks * 7 * DAY);
 
+/** The day a track's bar runs to: its own deadline, else when its open review is due. */
+export const trackDeadline = (card: Pick<BoardCard, "dueAt" | "due">) =>
+  card.due ?? card.dueAt ?? null;
+
 /**
- * Where a track's bar sits on a timeline of `days` from `start`: from its latest version to the
- * due date of an open review of it, or a week on where none is due. As fractions of the span,
- * cut to it; null when it has no version or falls wholly outside.
+ * Where a track's bar sits on a timeline of `days` from `start`: from its latest version to its
+ * deadline (its own, else the due date of an open review of it), or a week on where none is
+ * set. As fractions of the span, cut to it; null when it has no version or falls wholly outside.
  */
 export function timelineBar(
-  card: Pick<BoardCard, "version" | "dueAt">,
+  card: Pick<BoardCard, "version" | "dueAt" | "due">,
   start: string,
   days: number,
 ): { left: number; width: number; from: string; to: string } | null {
   if (!card.version) return null;
   const from = Date.parse(card.version.createdAt.slice(0, 10));
-  const due = card.dueAt ? Date.parse(card.dueAt.slice(0, 10)) : from + 7 * DAY;
+  const deadline = trackDeadline(card);
+  const due = deadline ? Date.parse(deadline.slice(0, 10)) : from + 7 * DAY;
   // Its last day included, and never less than a day long.
   const to = Math.max(due, from) + DAY;
   const begin = Date.parse(start);
@@ -271,4 +278,24 @@ export function timelineBar(
   const left = (Math.max(from, begin) - begin) / span;
   const right = (Math.min(to, end) - begin) / span;
   return { left, width: right - left, from: isoDay(from), to: isoDay(to - DAY) };
+}
+
+/**
+ * Where a range of days (an entry, #505) sits on the same timeline: from its first day to the
+ * end of its last, cut to the span; null when wholly outside.
+ */
+export function timelineSpan(
+  range: { startsOn: string; endsOn: string | null },
+  start: string,
+  days: number,
+): { left: number; width: number } | null {
+  const from = Date.parse(range.startsOn);
+  const to =
+    Date.parse(range.endsOn && range.endsOn > range.startsOn ? range.endsOn : range.startsOn) + DAY;
+  const begin = Date.parse(start);
+  const end = begin + days * DAY;
+  if (to <= begin || from >= end) return null;
+  const span = end - begin;
+  const left = (Math.max(from, begin) - begin) / span;
+  return { left, width: (Math.min(to, end) - begin) / span - left };
 }

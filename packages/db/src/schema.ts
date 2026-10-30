@@ -10,6 +10,7 @@ import {
   authMethods,
   authResults,
   type BoardDisplay,
+  type CalendarEntryKind,
   type CaptionCue,
   type CaptionFormat,
   type CaptionKind,
@@ -58,6 +59,7 @@ import {
   type Release,
   type ReviewerPermissions,
   type ReviewOutcome,
+  type ReviewScope,
   reviewDecisions,
   reviewKinds,
   reviewOrders,
@@ -1469,6 +1471,8 @@ export const tracks = pgTable(
     commentAssignment: jsonb("comment_assignment").$type<CommentAssignment>(),
     /** Where it stands in its workflow ("Editing"), as the last action to set one left it (#25). */
     workflowStatus: text("workflow_status"),
+    /** Its deadline (#505): on the calendar and the timeline, and marked once past. */
+    dueAt: timestamp("due_at", { withTimezone: true }),
     position: integer("position").notNull().default(0),
     ...timestamps,
   },
@@ -2465,6 +2469,11 @@ export const reviews = pgTable(
     message: text("message"),
     dueAt: timestamp("due_at", { withTimezone: true }),
     order: reviewOrderEnum("order").notNull().default("parallel"),
+    /**
+     * In a sequence, what each step is called, by position (#500): "Producer", "Stakeholders".
+     * Null, or a null entry, is a step named only by its place ("Step 2").
+     */
+    stepNames: jsonb("step_names").$type<(string | null)[]>(),
     /** Approvals only. */
     rule: approvalRuleEnum("rule"),
     /** With the share rule: the percentage of deciding reviewers whose approval is enough. */
@@ -2502,7 +2511,14 @@ export const reviews = pgTable(
   ],
 );
 
-/** What a review covers: a track (a specific version, or its latest) or a file. */
+/**
+ * What a review covers: a track (a specific version, or its latest), a file, a folder
+ * (everything in it, as it is when the review is opened, #501) or the whole workspace (every
+ * project, present and future). Exactly one of track, file, folder and scope is set; the
+ * application sees to it, as the check that said so for tracks and files alone was dropped
+ * in migration 0151 and a check over all four follows once no release before it runs
+ * (decision 198).
+ */
 export const reviewItems = pgTable(
   "review_items",
   {
@@ -2515,16 +2531,14 @@ export const reviewItems = pgTable(
     /** With a track: a specific version. Null follows the track's latest. */
     versionId: uuid("version_id").references(() => versions.id, { onDelete: "cascade" }),
     fileId: uuid("file_id").references(() => files.id, { onDelete: "cascade" }),
+    /** A folder: the review covers what is in it, and in the folders beneath it, now. */
+    folderId: uuid("folder_id").references(() => folders.id, { onDelete: "cascade" }),
+    /** "workspace": the review covers every project, present and future. */
+    scope: text("scope").$type<ReviewScope>(),
     position: integer("position").notNull().default(0),
     ...timestamps,
   },
-  (t) => [
-    index("review_items_review_idx").on(t.organisationId, t.reviewId),
-    check(
-      "review_items_one_kind",
-      sql`(${t.trackId} is not null and ${t.fileId} is null) or (${t.trackId} is null and ${t.fileId} is not null and ${t.versionId} is null)`,
-    ),
-  ],
+  (t) => [index("review_items_review_idx").on(t.organisationId, t.reviewId)],
 );
 
 /**
@@ -2564,6 +2578,33 @@ export const reviewReviewers = pgTable(
     uniqueIndex("review_reviewers_guest_idx").on(t.organisationId, t.reviewId, t.guestId),
     index("review_reviewers_guest_lookup_idx").on(t.guestId),
     check("review_reviewers_one_person", sql`(${t.userId} is null) <> (${t.guestId} is null)`),
+  ],
+);
+
+/**
+ * A guest invited from a project's People page (#502): a reviewer of the project before any
+ * review asks them, with a note kept for the team. A guest a review or a group names is the
+ * project's without a row here.
+ */
+export const projectGuests = pgTable(
+  "project_guests",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    guestId: uuid("guest_id")
+      .notNull()
+      .references(() => guests.id, { onDelete: "cascade" }),
+    /** Who they are to the project, for the team; never shown to the guest. */
+    note: text("note"),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("project_guests_guest_idx").on(t.organisationId, t.projectId, t.guestId),
+    index("project_guests_lookup_idx").on(t.guestId),
   ],
 );
 
@@ -3780,6 +3821,58 @@ export const calendarFeeds = pgTable(
     index("calendar_feeds_org_idx").on(t.organisationId),
     uniqueIndex("calendar_feeds_token_idx").on(t.tokenHash),
     uniqueIndex("calendar_feeds_owner_idx").on(t.organisationId, t.userId, t.projectId),
+  ],
+);
+
+/**
+ * An entry on a project's calendar (#505, decision 283): a dated thing that is no review, track
+ * or task deadline, such as a session, a delivery or a listening meeting. Whole days for now,
+ * kept as instants (midnight UTC) so a time can follow without a new column. A session entry
+ * books a recording session under Production as it is made, and keeps pointing at it.
+ */
+export const calendarEntries = pgTable(
+  "calendar_entries",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    /** `session`, `delivery`, `meeting` or `other` (`calendarEntryKinds` in `packages/shared`). */
+    kind: text("kind").$type<CalendarEntryKind>().notNull().default("other"),
+    title: text("title").notNull(),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    /** The start of its last day; null for a single day. */
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    trackId: uuid("track_id").references(() => tracks.id, { onDelete: "set null" }),
+    reviewId: uuid("review_id").references((): AnyPgColumn => reviews.id, {
+      onDelete: "set null",
+    }),
+    sessionId: uuid("session_id").references(() => sessions.id, { onDelete: "set null" }),
+    createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [
+    index("calendar_entries_org_idx").on(t.organisationId),
+    index("calendar_entries_project_idx").on(t.organisationId, t.projectId, t.startsAt),
+    check("calendar_entries_kind", sql`${t.kind} in ('session', 'delivery', 'meeting', 'other')`),
+  ],
+);
+
+/** Who is expected at an entry: members, each once. */
+export const calendarAttendees = pgTable(
+  "calendar_attendees",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    entryId: uuid("entry_id")
+      .notNull()
+      .references(() => calendarEntries.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+  },
+  (t) => [
+    index("calendar_attendees_org_idx").on(t.organisationId),
+    uniqueIndex("calendar_attendees_pair_idx").on(t.entryId, t.userId),
   ],
 );
 

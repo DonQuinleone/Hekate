@@ -9,6 +9,7 @@ import {
   NO_STATUS,
   NOT_AT_A_STAGE,
   sameBoardDisplay,
+  trackDeadline,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -193,7 +194,9 @@ function Card({
   display: BoardDisplay;
   versionLabel: (n: number) => string;
 }) {
-  const late = card.dueAt !== null && new Date(card.dueAt).getTime() < Date.now();
+  // Its own deadline (#505) over its review's due date; late once past.
+  const deadline = trackDeadline(card);
+  const late = deadline !== null && new Date(deadline).getTime() < Date.now();
   const shows =
     (display.decisions && card.decisions.length > 0) ||
     (display.tasks && card.tasks.length > 0) ||
@@ -219,7 +222,7 @@ function Card({
         <span className="truncate text-[12px] text-ink-2">{card.stage}</span>
       )}
       {((display.fields.reviewers && card.waitingOn.length > 0) ||
-        (display.fields.due && card.dueAt)) && (
+        (display.fields.due && deadline)) && (
         <span className="flex items-center gap-2 text-[12px] text-ink-3">
           {display.fields.reviewers && card.waitingOn.length > 0 && (
             <>
@@ -227,9 +230,13 @@ function Card({
               <span>waiting</span>
             </>
           )}
-          {display.fields.due && card.dueAt && (
-            <span className={cn("tabular ml-auto", late && "text-signal")}>
-              {dayFormat.format(new Date(card.dueAt))}
+          {display.fields.due && deadline && (
+            <span
+              className={cn("tabular ml-auto flex items-center gap-1", late && "text-signal")}
+              title={card.due ? `Deadline${late ? ", late" : ""}` : "Review due"}
+            >
+              {card.due && <Icon name="flag" size={11} />}
+              {dayFormat.format(new Date(deadline))}
             </span>
           )}
         </span>

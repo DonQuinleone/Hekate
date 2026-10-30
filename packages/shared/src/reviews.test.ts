@@ -3,9 +3,11 @@ import {
   activeReviewers,
   approvalsNeeded,
   createReviewInput,
+  foldersBeneath,
   gateCounts,
   gateState,
   groupInput,
+  mayCoverWorkspace,
   type ReviewDecision,
   type ReviewerFacts,
   type ReviewerState,
@@ -14,6 +16,9 @@ import {
   reviewSteps,
   reviewTitleFor,
   shareGrant,
+  stepNameOf,
+  stepPeople,
+  stepTitle,
 } from "./reviews.ts";
 
 // Each reviewer its own step, in the order made, unless a test puts several on one.
@@ -341,5 +346,109 @@ describe("review steps and the gate", () => {
       toCome: 1,
     });
     expect(gateCounts("feedback", reviewers).toCome).toBe(1);
+  });
+});
+
+describe("a review's scope (#501)", () => {
+  const folders = [
+    { id: "mixes", parentId: null },
+    { id: "stems", parentId: "mixes" },
+    { id: "day-2", parentId: "stems" },
+    { id: "artwork", parentId: null },
+  ];
+
+  it("reaches a folder and every folder beneath it, and nothing beside", () => {
+    expect([...foldersBeneath(folders, "mixes")].sort()).toEqual(["day-2", "mixes", "stems"]);
+    expect([...foldersBeneath(folders, "stems")].sort()).toEqual(["day-2", "stems"]);
+    expect([...foldersBeneath(folders, "artwork")]).toEqual(["artwork"]);
+  });
+
+  it("reaches nothing from a folder that is not among those given", () => {
+    expect(foldersBeneath(folders, "elsewhere").size).toBe(0);
+  });
+
+  it("survives a cycle in the parents", () => {
+    const looped = [
+      { id: "a", parentId: "b" },
+      { id: "b", parentId: "a" },
+    ];
+    expect([...foldersBeneath(looped, "a")].sort()).toEqual(["a", "b"]);
+  });
+
+  it("lets owners and admins cover the workspace, and members who manage reviews everywhere", () => {
+    const manage = ["view", "request_reviews", "manage_reviewers"];
+    const request = ["view", "request_reviews"];
+    expect(mayCoverWorkspace("owner", [null])).toBe(true);
+    expect(mayCoverWorkspace("admin", [])).toBe(true);
+    expect(mayCoverWorkspace("member", [manage, manage])).toBe(true);
+    expect(mayCoverWorkspace("member", [manage, request])).toBe(false);
+    expect(mayCoverWorkspace("member", [manage, null])).toBe(false);
+    expect(mayCoverWorkspace("member", [])).toBe(false);
+  });
+
+  it("takes a folder or the workspace as an item, the workspace alone", () => {
+    const base = { kind: "feedback", reviewers: ["u1"] };
+    const folder = createReviewInput.safeParse({
+      ...base,
+      items: [{ folderId: "0193a4c8-0000-7000-8000-000000000001" }],
+    });
+    expect(folder.success).toBe(true);
+    expect(createReviewInput.safeParse({ ...base, items: [{ workspace: true }] }).success).toBe(
+      true,
+    );
+    const mixed = createReviewInput.safeParse({
+      ...base,
+      items: [{ workspace: true }, { fileId: "0193a4c8-0000-7000-8000-000000000002" }],
+    });
+    expect(mixed.success).toBe(false);
+    expect(createReviewInput.safeParse({ ...base, items: [{ workspace: false }] }).success).toBe(
+      false,
+    );
+  });
+});
+
+describe("named steps (#500)", () => {
+  const guest = { name: "Mira Solberg", email: "mira@example.test" };
+  it("reads who a step asks and what it is called, whichever way it was written", () => {
+    expect(stepPeople("u1")).toEqual(["u1"]);
+    expect(stepPeople(["u1", guest])).toEqual(["u1", guest]);
+    expect(stepPeople({ name: "Producer", reviewers: ["u1"] })).toEqual(["u1"]);
+    expect(stepNameOf("u1")).toBeNull();
+    expect(stepNameOf(["u1"])).toBeNull();
+    expect(stepNameOf({ reviewers: ["u1"] })).toBeNull();
+    expect(stepNameOf({ name: "Producer", reviewers: ["u1"] })).toBe("Producer");
+  });
+  it("names a step by its place when it has no name of its own", () => {
+    expect(stepTitle("Stakeholders", 2)).toBe("Stakeholders");
+    expect(stepTitle("  ", 2)).toBe("Step 2");
+    expect(stepTitle(null, 3)).toBe("Step 3");
+    expect(stepTitle(undefined, 1)).toBe("Step 1");
+  });
+  it("accepts a named step in a request, trimmed, and refuses one too long or empty", () => {
+    const base = { kind: "approval", items: [{ trackId: crypto.randomUUID() }] };
+    const ok = createReviewInput.safeParse({
+      ...base,
+      order: "sequence",
+      reviewers: [{ name: "  Producer ", reviewers: ["u1"] }, { reviewers: [guest] }],
+    });
+    expect(ok.success).toBe(true);
+    expect(ok.data?.reviewers.map(stepNameOf)).toEqual(["Producer", null]);
+    expect(
+      createReviewInput.safeParse({
+        ...base,
+        reviewers: [{ name: "x".repeat(81), reviewers: ["u1"] }],
+      }).success,
+    ).toBe(false);
+    expect(
+      createReviewInput.safeParse({ ...base, reviewers: [{ name: "Producer", reviewers: [] }] })
+        .success,
+    ).toBe(false);
+    // Someone in a named step and again elsewhere is still asked once.
+    expect(
+      createReviewInput.safeParse({
+        ...base,
+        reviewers: [{ name: "Producer", reviewers: ["u1"] }, "u1"],
+      }).success,
+    ).toBe(false);
   });
 });
