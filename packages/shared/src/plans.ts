@@ -8,7 +8,13 @@ import { z } from "zod";
  */
 
 /** The features a plan may include or leave out. */
-export const planFeatures = ["sso", "directory", "forensicMarking", "namedOperator"] as const;
+export const planFeatures = [
+  "sso",
+  "directory",
+  "forensicMarking",
+  "namedOperator",
+  "ownStorage",
+] as const;
 export type PlanFeature = (typeof planFeatures)[number];
 
 export const featureNames: Record<PlanFeature, string> = {
@@ -16,6 +22,7 @@ export const featureNames: Record<PlanFeature, string> = {
   directory: "Signing in with a directory",
   forensicMarking: "Forensic marking",
   namedOperator: "A named operator",
+  ownStorage: "Your own storage",
 };
 
 /** How urgent a support request may be marked, least first (#181). */
@@ -51,6 +58,10 @@ export const severityAllowed = (plan: Entitlements, severity: SupportSeverity) =
 /** The refusal of a feature a workspace's plan leaves out. */
 export const notEntitledMessage = (feature: PlanFeature) =>
   `${featureNames[feature]} is not on this workspace's plan.`;
+
+/** The same refusal where the plan is known by name: settings say which plan leaves it out. */
+export const notOnPlanMessage = (feature: PlanFeature, plan: string | null) =>
+  plan ? `${featureNames[feature]} is not on the ${plan} plan.` : notEntitledMessage(feature);
 
 /** A plan as the instance's operators keep it. */
 export interface Plan extends Entitlements {

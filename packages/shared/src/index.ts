@@ -101,3 +101,4 @@ export * from "./workflows.ts";
 export * from "./workspace-export.ts";
 export * from "./workspace-mail.ts";
 export * from "./workspace-operations.ts";
+export * from "./workspace-storage.ts";
