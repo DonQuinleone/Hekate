@@ -63,6 +63,8 @@ export const transferTables = {
     "schedule_days",
     "schedule_rows",
     "schedule_slot_items",
+    "calendar_entries",
+    "calendar_attendees",
     "comments",
     "comment_attachments",
     "comment_takes",
@@ -438,6 +440,10 @@ async function leavePeople(tx: Tx, projectId: string, from: string, to: string) 
     and project_id = ${projectId} and user_id not in ${kept}`);
   await tx.execute(sql`delete from group_members where organisation_id = ${from}
     and user_id is not null and user_id not in ${kept} and group_id in ${groups}`);
+  // They are no longer expected at the project's sessions and meetings either.
+  await tx.execute(sql`delete from calendar_attendees where organisation_id = ${from}
+    and user_id not in ${kept}
+    and entry_id in ${idsIn("calendar_entries", from, sql`project_id = ${projectId}`)}`);
   for (const table of [
     "marks",
     "overview_layouts",
@@ -620,6 +626,7 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
     ],
     ["schedule_rows", sql`day_id in ${of("schedule_days", byProject)}`],
     ["group_members", sql`group_id in ${of("groups", byProject)}`],
+    ["calendar_attendees", sql`entry_id in ${of("calendar_entries", byProject)}`],
     ["task_events", sql`task_id in ${of("tasks", byProject)}`],
     ["review_items", sql`review_id in ${reviews}`],
     ["review_reviewers", sql`review_id in ${reviews}`],
@@ -668,6 +675,8 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
       "notifications",
       "project_reviewer_grants",
       "project_tool_exceptions",
+      "project_guests",
+      "calendar_entries",
     ].map((t): [string, SQL] => [t, byProject]),
     ["projects", sql`id = ${P}`],
   ];

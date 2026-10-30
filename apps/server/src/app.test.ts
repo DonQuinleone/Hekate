@@ -12327,6 +12327,39 @@ describe.runIf(url)("api", () => {
             projectId: s.projectId,
             tokenHash: "f".repeat(64),
           });
+          // A meeting the owner and a reviewer are expected at (#505), and a reviewer invited
+          // from the People page without a review (#502).
+          const [meeting] = await db
+            .insert(schema.calendarEntries)
+            .values({
+              organisationId: s.organisationId,
+              projectId: s.projectId,
+              kind: "meeting",
+              title: "Listening meeting",
+              startsAt: new Date("2026-11-04T00:00:00Z"),
+            })
+            .returning();
+          await db.insert(schema.calendarAttendees).values(
+            [s.ids.owner, s.ids.composer].map((userId) => ({
+              organisationId: s.organisationId,
+              entryId: meeting?.id ?? "",
+              userId,
+            })),
+          );
+          const [invited] = await db
+            .insert(schema.guests)
+            .values({
+              organisationId: s.organisationId,
+              name: "Ines Arlow",
+              email: "ines.moved@example.test",
+            })
+            .returning();
+          await db.insert(schema.projectGuests).values({
+            organisationId: s.organisationId,
+            projectId: s.projectId,
+            guestId: invited?.id ?? "",
+            note: "Sleeve notes",
+          });
           // What the People page says for two of its people (#55).
           await db.insert(schema.projectReviewerGrants).values(
             [s.ids.engineer, s.ids.composer].map((userId) => ({
@@ -12446,6 +12479,39 @@ describe.runIf(url)("api", () => {
               .from(schema.calendarFeeds)
               .where(eq(schema.calendarFeeds.projectId, s.projectId)),
           ).toEqual([{ n: 0 }]);
+          // The meeting came, with those who came along; the invited reviewer came as a guest
+          // of the gaining workspace.
+          expect(
+            await db
+              .select({ organisationId: schema.calendarEntries.organisationId })
+              .from(schema.calendarEntries)
+              .where(eq(schema.calendarEntries.id, meeting?.id ?? "")),
+          ).toEqual([{ organisationId: to }]);
+          expect(
+            await db
+              .select({
+                userId: schema.calendarAttendees.userId,
+                organisationId: schema.calendarAttendees.organisationId,
+              })
+              .from(schema.calendarAttendees)
+              .where(eq(schema.calendarAttendees.entryId, meeting?.id ?? "")),
+          ).toEqual([{ userId: s.ids.owner, organisationId: to }]);
+          const [kept] = await db
+            .select({
+              organisationId: schema.projectGuests.organisationId,
+              guestOrganisation: schema.guests.organisationId,
+              email: schema.guests.email,
+              note: schema.projectGuests.note,
+            })
+            .from(schema.projectGuests)
+            .innerJoin(schema.guests, eq(schema.guests.id, schema.projectGuests.guestId))
+            .where(eq(schema.projectGuests.projectId, s.projectId));
+          expect(kept).toEqual({
+            organisationId: to,
+            guestOrganisation: to,
+            email: "ines.moved@example.test",
+            note: "Sleeve notes",
+          });
           // The comment is still there, still the owner's.
           const [thread] = await db
             .select({ body: schema.comments.body, organisationId: schema.comments.organisationId })
