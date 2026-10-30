@@ -64,6 +64,8 @@ export const auditActions = [
   "guest.revoke",
   /** What someone may do in a project's reviews was set on its People page (#55), or cleared. */
   "project.reviewer_grant",
+  /** A reviewer was invited from a project's People page (#502), before any review asks them. */
+  "project.guest_invite",
   /** A guest opened a review, or commented. */
   "guest.view",
   "comment.create",

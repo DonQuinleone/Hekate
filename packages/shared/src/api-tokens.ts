@@ -181,7 +181,7 @@ const rules: readonly Rule[] = [
   [/^\/projects$/, files],
   [new RegExp(`^/projects/${id}(/|$)`), files],
   [
-    /^\/(folders|files|tracks|versions|variants|variations|takes|sessions|tags|uploads|upload-requests|score-categories|score-marks|stage-boxes|patch-rows|works|venues|schedule-days|schedule-rows|personnel|stage-plans|tasks|categories)(\/|$)/,
+    /^\/(folders|files|tracks|versions|variants|variations|takes|sessions|tags|uploads|upload-requests|score-categories|score-marks|stage-boxes|patch-rows|works|venues|schedule-days|schedule-rows|personnel|stage-plans|tasks|categories|calendar-entries)(\/|$)/,
     files,
   ],
   [/^\/(search|home)(\/|$)/, files],

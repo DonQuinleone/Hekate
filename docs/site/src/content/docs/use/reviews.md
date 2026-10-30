@@ -8,7 +8,7 @@ A **review** asks people to look at files: a track's version, a cut, a score. It
 - **Approval:** each reviewer records a decision, *Approved* or *Changes requested*, and every decision is logged.
 - **Feedback:** comments only, with no formal sign-off.
 
-Reviewers can be members of the workspace, **guests** from outside it (who need no account), or **groups**. They can be asked all at once or in order, each step starting when the one before it is decided.
+Reviewers can be members of the workspace, **guests** from outside it (who need no account), or **groups**. They can be asked all at once or in steps, each step starting when the one before it is decided; a step can be named ("Producer", "Stakeholders", "Label"), and the name is what its reviewers see in place of "Step 2". A review's menu offers **Duplicate**, which opens the new review page with everything filled in from it, to tweak before sending. A reviewer can also be invited from a project's People page without starting a review: they sit under Reviewers there until a review asks them.
 
 ## Running a review
 

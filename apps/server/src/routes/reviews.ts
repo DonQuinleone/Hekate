@@ -10,6 +10,7 @@ import {
   guestLabelInput,
   invitedGrant,
   type PersonInput,
+  projectGuestInput,
   type ReviewDecision,
   type ReviewerFacts,
   type ReviewerInput,
@@ -26,12 +27,28 @@ import {
   reviewTitleFor,
   shareGrant,
   standingGrant,
+  stepNameOf,
+  stepPeople,
   submitFeedbackInput,
   updateReviewInput,
   withinWindow,
   workspaceSettingsOf,
 } from "@hekate/shared";
-import { and, asc, count, desc, eq, gte, inArray, isNull, lte, max, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  max,
+  or,
+  sql,
+} from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -55,6 +72,12 @@ import { type Mailer, sendEmail } from "../mail.ts";
 import { followersOf, notifyNow } from "../notifications.ts";
 import { zValidator } from "../openapi/validator.ts";
 import { admit, tooMany } from "../rate-limit.ts";
+import {
+  type CoveredFile,
+  coveredBy,
+  workspaceCoverage,
+  workspaceItemName,
+} from "../review-scope.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { bothNames } from "../variants.ts";
 
@@ -70,6 +93,7 @@ const {
   versions,
   variants,
   files,
+  folders,
   users,
   members,
   guests,
@@ -78,6 +102,7 @@ const {
   guestLinks,
   guestSessions,
   projects,
+  projectGuests,
   projectReviewerGrants,
 } = schema;
 
@@ -126,8 +151,8 @@ async function grantee(
 }
 
 /**
- * A guest this project knows, through its reviews or its groups, or 404: a project's People
- * page acts only on its own guests.
+ * A guest this project knows, through its reviews, its groups or an invitation from its
+ * People page (#502), or 404: a project's People page acts only on its own guests.
  */
 async function projectGuest(
   db: Database,
@@ -156,10 +181,125 @@ async function projectGuest(
             where ${groupMembers.guestId} = ${guests.id}
             and ${groupMembers.organisationId} = ${organisationId}
             and ${groups.projectId} = ${projectId})`,
+          sql`exists (select 1 from ${projectGuests}
+            where ${projectGuests.guestId} = ${guests.id}
+            and ${projectGuests.organisationId} = ${organisationId}
+            and ${projectGuests.projectId} = ${projectId})`,
         ),
       ),
     );
   if (!known) throw new NotFound("Guest");
+}
+
+/**
+ * A project's guests (#24, #502): those its reviews have asked, those kept in its groups and
+ * those invited from its People page, each with how many of the project's reviews ask them,
+ * when they were last sent a link and whether a link or signed-in browser still works.
+ */
+async function projectGuestList(db: Database, organisationId: string, projectId: string) {
+  const fields = { id: guests.id, name: guests.name, email: guests.email, label: guests.label };
+  const asked = await db
+    .selectDistinct(fields)
+    .from(reviewReviewers)
+    .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
+    .innerJoin(guests, eq(guests.id, reviewReviewers.guestId))
+    .where(
+      and(
+        inOrg(reviewReviewers, organisationId),
+        inOrg(reviews, organisationId, eq(reviews.projectId, projectId)),
+        inOrg(guests, organisationId),
+      ),
+    );
+  const grouped = await db
+    .selectDistinct(fields)
+    .from(groupMembers)
+    .innerJoin(groups, eq(groups.id, groupMembers.groupId))
+    .innerJoin(guests, eq(guests.id, groupMembers.guestId))
+    .where(
+      and(
+        inOrg(groupMembers, organisationId),
+        inOrg(groups, organisationId, eq(groups.projectId, projectId)),
+        inOrg(guests, organisationId),
+      ),
+    );
+  const invited = await db
+    .select({ ...fields, note: projectGuests.note })
+    .from(projectGuests)
+    .innerJoin(guests, eq(guests.id, projectGuests.guestId))
+    .where(
+      and(
+        inOrg(projectGuests, organisationId, eq(projectGuests.projectId, projectId)),
+        inOrg(guests, organisationId),
+      ),
+    );
+  const byId = new Map([...asked, ...grouped, ...invited].map((g) => [g.id, g]));
+  const notes = new Map(invited.map((g) => [g.id, g.note]));
+  const ids = [...byId.keys()];
+  // How many of this project's reviews ask each of them, and how many are still open.
+  const counted =
+    ids.length === 0
+      ? []
+      : await db
+          .select({
+            guestId: reviewReviewers.guestId,
+            reviews: count(),
+            open: sql<number>`(count(*) filter (where ${reviews.status} = 'open'))::int`,
+          })
+          .from(reviewReviewers)
+          .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
+          .where(
+            and(
+              inOrg(reviewReviewers, organisationId, inArray(reviewReviewers.guestId, ids)),
+              inOrg(reviews, organisationId, eq(reviews.projectId, projectId)),
+            ),
+          )
+          .groupBy(reviewReviewers.guestId);
+  // When each was last sent a link, and whether a link or signed-in browser still works.
+  const now = new Date().toISOString();
+  const lastLink = db
+    .select({ guestId: guestLinks.guestId, at: max(guestLinks.createdAt).as("at") })
+    .from(guestLinks)
+    .where(eq(guestLinks.organisationId, organisationId))
+    .groupBy(guestLinks.guestId)
+    .as("last_link");
+  const links =
+    ids.length === 0
+      ? []
+      : await db
+          .select({
+            guestId: guests.id,
+            lastLinkAt: lastLink.at,
+            live: sql<boolean>`exists (
+              select 1 from ${guestLinks} where ${guestLinks.guestId} = ${guests.id}
+                and ${guestLinks.organisationId} = ${organisationId}
+                and ${guestLinks.usedAt} is null and ${guestLinks.revokedAt} is null
+                and ${guestLinks.expiresAt} > ${now}
+            ) or exists (
+              select 1 from ${guestSessions} where ${guestSessions.guestId} = ${guests.id}
+                and ${guestSessions.organisationId} = ${organisationId}
+                and ${guestSessions.revokedAt} is null and ${guestSessions.expiresAt} > ${now}
+            )`,
+          })
+          .from(guests)
+          // Joined, so the conditions below name the guest's columns in full.
+          .leftJoin(lastLink, eq(lastLink.guestId, guests.id))
+          .where(inOrg(guests, organisationId, inArray(guests.id, ids)));
+  const countOf = new Map(counted.map((r) => [r.guestId, r]));
+  const linkOf = new Map(links.map((r) => [r.guestId, r]));
+  return [...byId.values()]
+    .map(({ id, name, email, label }) => ({
+      id,
+      name,
+      email,
+      label,
+      /** What the People page keeps about them, where they were invited from it (#502). */
+      note: notes.get(id) ?? null,
+      reviews: countOf.get(id)?.reviews ?? 0,
+      openReviews: countOf.get(id)?.open ?? 0,
+      lastLinkAt: linkOf.get(id)?.lastLinkAt ?? null,
+      live: linkOf.get(id)?.live ?? false,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export interface ReviewDeps extends LinkRoots {
@@ -307,7 +447,10 @@ async function lockReview(tx: Tx, actor: Actor, reviewId: string) {
 const cannotDecide =
   "Every reviewer of an approval must have a role in this project that can decide";
 
-/** The items as a reviewer opens them: for a track, the version under review and its primary file. */
+/**
+ * The items as a reviewer opens them: for a track, the version under review and its primary
+ * file; for a folder or the workspace (#501), what it covers as it is now.
+ */
 async function itemsOf(db: Database, organisationId: string, reviewId: string) {
   const rows = await db
     .select({
@@ -315,11 +458,19 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
       trackId: reviewItems.trackId,
       versionId: reviewItems.versionId,
       fileId: reviewItems.fileId,
+      folderId: reviewItems.folderId,
+      scope: reviewItems.scope,
+      projectId: reviews.projectId,
       trackName: tracks.name,
       fileName: files.name,
       fileKind: files.kind,
+      folderName: folders.name,
     })
     .from(reviewItems)
+    .innerJoin(
+      reviews,
+      and(eq(reviews.id, reviewItems.reviewId), eq(reviews.organisationId, organisationId)),
+    )
     .leftJoin(
       tracks,
       and(eq(tracks.id, reviewItems.trackId), eq(tracks.organisationId, organisationId)),
@@ -328,10 +479,27 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
       files,
       and(eq(files.id, reviewItems.fileId), eq(files.organisationId, organisationId)),
     )
+    .leftJoin(
+      folders,
+      and(eq(folders.id, reviewItems.folderId), eq(folders.organisationId, organisationId)),
+    )
     .where(inOrg(reviewItems, organisationId, eq(reviewItems.reviewId, reviewId)))
     .orderBy(asc(reviewItems.position));
   return Promise.all(
     rows.map(async (item) => {
+      if (item.folderId || item.scope) {
+        const covers = await coveredBy(db, organisationId, item);
+        return {
+          id: item.id,
+          kind: item.scope === "workspace" ? ("workspace" as const) : ("folder" as const),
+          folderId: item.folderId,
+          name: item.scope === "workspace" ? workspaceItemName : (item.folderName ?? "A folder"),
+          fileId: null,
+          /** What it covers now: the review page lists them, a file added later among them. */
+          covers,
+          fileIds: covers.map((c) => c.fileId),
+        };
+      }
       if (!item.trackId) {
         return {
           id: item.id,
@@ -380,6 +548,36 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
       };
     }),
   );
+}
+
+/**
+ * A scope's covered files as the viewer may see them (#501): a guest's review gives them every
+ * one; a member sees those in projects they may view, so a workspace-wide review never names
+ * what a project they are not in holds.
+ */
+async function scopedForViewer<T extends { fileIds: string[]; covers?: CoveredFile[] }>(
+  db: Database,
+  actor: Actor,
+  items: T[],
+): Promise<T[]> {
+  if (actor.kind === "guest") return items;
+  const seen = new Map<string, boolean>();
+  const may = async (projectId: string) => {
+    if (!seen.has(projectId))
+      seen.set(projectId, Boolean(await projectAccess(db, actor, projectId)));
+    return seen.get(projectId) ?? false;
+  };
+  const out: T[] = [];
+  for (const item of items) {
+    if (!item.covers) {
+      out.push(item);
+      continue;
+    }
+    const covers: CoveredFile[] = [];
+    for (const c of item.covers) if (await may(c.projectId)) covers.push(c);
+    out.push({ ...item, covers, fileIds: covers.map((c) => c.fileId) });
+  }
+  return out;
 }
 
 /** What the review page's activity lists from the access log; decisions come from their own log. */
@@ -503,7 +701,11 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
   const org = actor.organisationId;
   // A guest sees the items their review shows them, when it names some (#55).
   const shown = actor.kind === "guest" && me ? readGrant(me.permissions).items : null;
-  const items = (await itemsOf(db, org, reviewId)).filter((i) => !shown || shown.includes(i.id));
+  const items = await scopedForViewer(
+    db,
+    actor,
+    (await itemsOf(db, org, reviewId)).filter((i) => !shown || shown.includes(i.id)),
+  );
   const covered = [...new Set(items.flatMap((i) => i.fileIds))];
   // Which items each reviewer has opened.
   const opens =
@@ -546,8 +748,8 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
           )
           .groupBy(comments.authorId, comments.guestAuthorId)
       : [];
-  // Open threads on each item's file, for those who triage them.
-  const primaries = items.flatMap((i) => (i.fileId ? [i.fileId] : []));
+  // Open threads on each item's file (a scope's, on every file it covers), for those who triage them.
+  const primaries = items.flatMap((i) => (i.fileId ? [i.fileId] : "covers" in i ? i.fileIds : []));
   const open =
     member && primaries.length > 0
       ? await db
@@ -580,9 +782,13 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
     profile: project?.profile ?? "general",
     createdByName: review.createdByName,
     cancelledByName: r.cancelledBy ? await nameOf(db, r.cancelledBy) : null,
-    items: items.map(({ fileIds: _, ...item }) => ({
+    items: items.map(({ fileIds, ...item }) => ({
       ...item,
-      openComments: member ? (open.find((o) => o.fileId === item.fileId)?.count ?? 0) : null,
+      openComments: member
+        ? open
+            .filter((o) => (item.fileId ? o.fileId === item.fileId : fileIds.includes(o.fileId)))
+            .reduce((n, o) => n + o.count, 0)
+        : null,
     })),
     activity: member ? await activityOf(db, org, r, rows, decisions) : [],
     reviewers: rows.map((row, i) => ({
@@ -755,7 +961,23 @@ type ReviewForMail = {
   kind: string;
   message: string | null;
   dueAt: Date | null;
+  /** What its steps are called (#500), by position, where a sequence named them. */
+  stepNames?: (string | null)[] | null;
 };
+
+/**
+ * The step some reviewers are at, where a sequence named it and they share one (#500): the
+ * reviewers newly asked after a step finishes are always of one step.
+ */
+export function stepNameFor(
+  names: (string | null)[] | null | undefined,
+  people: { position?: number }[],
+): string | null {
+  const positions = new Set(people.map((p) => p.position));
+  if (positions.size !== 1) return null;
+  const [position] = positions;
+  return position === undefined ? null : (names?.[position] ?? null);
+}
 
 /**
  * Tell reviewers they have something to review. Members are notified, in the app and by
@@ -796,13 +1018,21 @@ async function notify(
     kind: review.kind as ReviewKind,
     project: context?.project ?? "",
     dueAt: review.dueAt,
+    scope: await scopeOf(deps.db, review),
   };
-  // An observer has no turn: nothing waits on them.
+  // An observer has no turn: nothing waits on them. A named step is named (#500).
+  const step = turn ? stepNameFor(review.stepNames, people) : null;
+  const turnLine = (follow: boolean) =>
+    turn && !reminder && !follow
+      ? step
+        ? `Those before you have responded; the review is at its ${step} step, and it is your turn.`
+        : "Those before you have responded; it is your turn."
+      : null;
   const messageFor = (follow: boolean) =>
     [
       reminder ? `A reminder from ${requester}: this review is still waiting on you.` : null,
       review.message,
-      turn && !reminder && !follow ? "Those before you have responded; it is your turn." : null,
+      turnLine(follow),
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -822,7 +1052,11 @@ async function notify(
         ? `reminds you to ${ask(review, follow)}`
         : `asks you to ${ask(review, follow)}`,
       detail:
-        [review.message, review.dueAt ? `Due ${mailDate(review.dueAt, dateFormat)}.` : null]
+        [
+          review.message,
+          turnLine(follow),
+          review.dueAt ? `Due ${mailDate(review.dueAt, dateFormat)}.` : null,
+        ]
           .filter(Boolean)
           .join("\n\n") || null,
       link: `/reviews/${review.id}`,
@@ -868,13 +1102,34 @@ async function notify(
   }
 }
 
-/** Someone told of a review: who they are, and what they may do in it. */
+/** Someone told of a review: who they are, their step, and what they may do in it. */
 type SharePerson = Pick<ReviewerRow, "email" | "guestId" | "userId"> & {
+  position?: number;
   /** What they may do: an approval's observer is asked to follow it; a share says how long. */
   permissions?: Partial<
     Pick<ReviewerPermissions, "decide" | "comment" | "expiresAt" | "download" | "maxPlays">
   > | null;
 };
+
+/**
+ * What a review's invitation says it covers beyond its items (#501): the whole workspace,
+ * or whole folders (so files added later are part of it); undefined for tracks and files.
+ */
+async function scopeOf(db: Database, review: { id: string; organisationId: string }) {
+  const rows = await db
+    .select({ scope: reviewItems.scope, folderId: reviewItems.folderId })
+    .from(reviewItems)
+    .where(
+      inOrg(
+        reviewItems,
+        review.organisationId,
+        eq(reviewItems.reviewId, review.id),
+        or(isNotNull(reviewItems.scope), isNotNull(reviewItems.folderId)),
+      ),
+    );
+  if (rows.some((r) => r.scope === "workspace")) return "workspace" as const;
+  return rows.length > 0 ? ("folder" as const) : undefined;
+}
 
 /** The workspace and project a review's mail speaks for. */
 async function mailContext(db: Database, review: ReviewForMail) {
@@ -1117,7 +1372,7 @@ async function expandReviewers(
   };
   // Each step is one position in the order: everyone in it, groups included, is asked together.
   const flat = entries.flatMap((step, i) =>
-    (Array.isArray(step) ? step : [step]).map((entry) => ({ entry, position: firstStep + i })),
+    stepPeople(step).map((entry) => ({ entry, position: firstStep + i })),
   );
   for (const { entry, position } of flat) {
     if (typeof entry === "string" || !("groupId" in entry)) {
@@ -1264,7 +1519,31 @@ export async function requestReview(
   // Every item must be in this project. Their names title a request that has none.
   const names: string[] = [];
   for (const item of input.items) {
-    if ("fileId" in item) {
+    if ("workspace" in item) {
+      // Everything in the workspace (#501): for whoever may manage reviews in every project.
+      const coverage = await workspaceCoverage(deps.db, actor);
+      if (!coverage.allowed) {
+        throw new HTTPException(403, {
+          message:
+            "Asking a review of everything in this workspace needs the Reviews: Manage level in every project, or a workspace admin",
+        });
+      }
+      names.push(workspaceItemName);
+    } else if ("folderId" in item) {
+      const [folder] = await deps.db
+        .select({ id: folders.id, name: folders.name })
+        .from(folders)
+        .where(
+          inOrg(
+            folders,
+            organisationId,
+            eq(folders.id, item.folderId),
+            eq(folders.projectId, projectId),
+          ),
+        );
+      if (!folder) throw new HTTPException(422, { message: "Items must come from this project" });
+      names.push(folder.name);
+    } else if ("fileId" in item) {
       const [file] = await deps.db
         .select({ id: files.id, name: files.name })
         .from(files)
@@ -1352,6 +1631,11 @@ export async function requestReview(
         dueAt: input.dueAt ? new Date(input.dueAt) : null,
         remind: input.remind,
         order: input.order,
+        // What the steps are called (#500), by position; kept only where a step was named.
+        stepNames:
+          input.order === "sequence" && input.reviewers.some((step) => stepNameOf(step) !== null)
+            ? input.reviewers.map(stepNameOf)
+            : null,
         rule: input.rule,
         share: input.share,
         grant: granted.data,
@@ -1366,9 +1650,13 @@ export async function requestReview(
         organisationId,
         reviewId: created.id,
         position,
-        ...("fileId" in item
-          ? { fileId: item.fileId }
-          : { trackId: item.trackId, versionId: item.versionId ?? null }),
+        ...("workspace" in item
+          ? { scope: "workspace" as const }
+          : "folderId" in item
+            ? { folderId: item.folderId }
+            : "fileId" in item
+              ? { fileId: item.fileId }
+              : { trackId: item.trackId, versionId: item.versionId ?? null }),
       })),
     );
     const people = await expandReviewers(
@@ -1531,96 +1819,76 @@ export const projectReviewRoutes = (deps: ReviewDeps) =>
       if (!access.permissions.has("view_people") && !access.permissions.has("request_reviews")) {
         throw new HTTPException(403, { message: "Your role in this project does not allow that" });
       }
-      const { projectId } = access;
-      const fields = { id: guests.id, name: guests.name, email: guests.email, label: guests.label };
-      const asked = await deps.db
-        .selectDistinct(fields)
-        .from(reviewReviewers)
-        .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
-        .innerJoin(guests, eq(guests.id, reviewReviewers.guestId))
-        .where(
-          and(
-            inOrg(reviewReviewers, organisationId),
-            inOrg(reviews, organisationId, eq(reviews.projectId, projectId)),
-            inOrg(guests, organisationId),
-          ),
+      return c.json({ guests: await projectGuestList(deps.db, organisationId, access.projectId) });
+    })
+    // Invite a reviewer from the project's People page (#502): a guest of the project before
+    // any review asks them, so they can be added to reviews later. Nothing is sent: a guest's
+    // link opens a review, and there is none yet.
+    .post("/:id/guests", idParam, zValidator("json", projectGuestInput), async (c) => {
+      const actor = actorOf(c.var);
+      const { projectId } = await can(deps.db, actor, "manage_reviewers", c.req.valid("param").id);
+      const { note, groupId, ...entry } = c.req.valid("json");
+      const who = await deps.audit.member(actor.userId);
+      const guestId = await deps.db.transaction(async (tx) => {
+        await lockLiveProject(tx, actor.organisationId, projectId);
+        const id = await upsertGuest(tx, actor.organisationId, entry, actor.userId);
+        await tx
+          .insert(projectGuests)
+          .values({
+            organisationId: actor.organisationId,
+            projectId,
+            guestId: id,
+            note: note || null,
+            createdBy: actor.userId,
+          })
+          .onConflictDoUpdate({
+            target: [projectGuests.organisationId, projectGuests.projectId, projectGuests.guestId],
+            set: { note: note || null, updatedAt: new Date() },
+          });
+        if (groupId) {
+          const [group] = await tx
+            .select({ id: groups.id })
+            .from(groups)
+            .where(
+              inOrg(
+                groups,
+                actor.organisationId,
+                eq(groups.id, groupId),
+                eq(groups.projectId, projectId),
+              ),
+            );
+          if (!group) {
+            throw new HTTPException(422, { message: "Groups must come from this project" });
+          }
+          const [last] = await tx
+            .select({ position: max(groupMembers.position) })
+            .from(groupMembers)
+            .where(inOrg(groupMembers, actor.organisationId, eq(groupMembers.groupId, group.id)));
+          await tx
+            .insert(groupMembers)
+            .values({
+              organisationId: actor.organisationId,
+              groupId: group.id,
+              guestId: id,
+              position: (last?.position ?? -1) + 1,
+            })
+            .onConflictDoNothing();
+        }
+        await deps.audit.record(
+          actor.organisationId,
+          who,
+          {
+            action: "project.guest_invite",
+            projectId,
+            details: { name: entry.name, email: entry.email, groupId: groupId ?? null },
+          },
+          requestInfo(c, deps.trustProxy),
+          tx,
         );
-      const grouped = await deps.db
-        .selectDistinct(fields)
-        .from(groupMembers)
-        .innerJoin(groups, eq(groups.id, groupMembers.groupId))
-        .innerJoin(guests, eq(guests.id, groupMembers.guestId))
-        .where(
-          and(
-            inOrg(groupMembers, organisationId),
-            inOrg(groups, organisationId, eq(groups.projectId, projectId)),
-            inOrg(guests, organisationId),
-          ),
-        );
-      const byId = new Map([...asked, ...grouped].map((g) => [g.id, g]));
-      const ids = [...byId.keys()];
-      // How many of this project's reviews ask each of them, and how many are still open.
-      const counted =
-        ids.length === 0
-          ? []
-          : await deps.db
-              .select({
-                guestId: reviewReviewers.guestId,
-                reviews: count(),
-                open: sql<number>`(count(*) filter (where ${reviews.status} = 'open'))::int`,
-              })
-              .from(reviewReviewers)
-              .innerJoin(reviews, eq(reviews.id, reviewReviewers.reviewId))
-              .where(
-                and(
-                  inOrg(reviewReviewers, organisationId, inArray(reviewReviewers.guestId, ids)),
-                  inOrg(reviews, organisationId, eq(reviews.projectId, projectId)),
-                ),
-              )
-              .groupBy(reviewReviewers.guestId);
-      // When each was last sent a link, and whether a link or signed-in browser still works.
-      const now = new Date().toISOString();
-      const lastLink = deps.db
-        .select({ guestId: guestLinks.guestId, at: max(guestLinks.createdAt).as("at") })
-        .from(guestLinks)
-        .where(eq(guestLinks.organisationId, organisationId))
-        .groupBy(guestLinks.guestId)
-        .as("last_link");
-      const links =
-        ids.length === 0
-          ? []
-          : await deps.db
-              .select({
-                guestId: guests.id,
-                lastLinkAt: lastLink.at,
-                live: sql<boolean>`exists (
-                  select 1 from ${guestLinks} where ${guestLinks.guestId} = ${guests.id}
-                    and ${guestLinks.organisationId} = ${organisationId}
-                    and ${guestLinks.usedAt} is null and ${guestLinks.revokedAt} is null
-                    and ${guestLinks.expiresAt} > ${now}
-                ) or exists (
-                  select 1 from ${guestSessions} where ${guestSessions.guestId} = ${guests.id}
-                    and ${guestSessions.organisationId} = ${organisationId}
-                    and ${guestSessions.revokedAt} is null and ${guestSessions.expiresAt} > ${now}
-                )`,
-              })
-              .from(guests)
-              // Joined, so the conditions below name the guest's columns in full.
-              .leftJoin(lastLink, eq(lastLink.guestId, guests.id))
-              .where(inOrg(guests, organisationId, inArray(guests.id, ids)));
-      const countOf = new Map(counted.map((r) => [r.guestId, r]));
-      const linkOf = new Map(links.map((r) => [r.guestId, r]));
-      return c.json({
-        guests: [...byId.values()]
-          .map((g) => ({
-            ...g,
-            reviews: countOf.get(g.id)?.reviews ?? 0,
-            openReviews: countOf.get(g.id)?.open ?? 0,
-            lastLinkAt: linkOf.get(g.id)?.lastLinkAt ?? null,
-            live: linkOf.get(g.id)?.live ?? false,
-          }))
-          .sort((a, b) => a.name.localeCompare(b.name)),
+        return id;
       });
+      const listed = await projectGuestList(deps.db, actor.organisationId, projectId);
+      return c.json({ guest: listed.find((g) => g.id === guestId) ?? null }, 201);
     })
     // Send a guest a fresh link for the newest open review in this project that asks them.
     .post("/:id/guests/:guestId/link", projectGuestParam, async (c) => {
@@ -1832,6 +2100,12 @@ export const reviewRoutes = (deps: ReviewDeps) =>
     .get("/", async (c) => {
       const actor = memberOnly(c.var.actor);
       return c.json({ reviews: await memberReviews(deps.db, actor) });
+    })
+    // Whether the member may ask a review of everything in the workspace (#501), and of how
+    // many projects that is: the request page offers the choice only then.
+    .get("/scope", async (c) => {
+      const actor = memberOnly(c.var.actor);
+      return c.json({ workspace: await workspaceCoverage(deps.db, actor) });
     })
     .get("/:id", idParam, async (c) =>
       c.json({ review: await reviewView(deps.db, c.var.actor, c.req.valid("param").id) }),
@@ -2681,6 +2955,31 @@ export async function noteOpened(db: Database, actor: Actor, fileId: string) {
         ),
       ),
     );
+  // A folder or workspace item (#501) covers the file when it covers it now.
+  const scoped = await db
+    .select({
+      id: reviewItems.id,
+      reviewId: reviewItems.reviewId,
+      folderId: reviewItems.folderId,
+      scope: reviewItems.scope,
+      projectId: reviews.projectId,
+    })
+    .from(reviewItems)
+    .innerJoin(reviews, and(eq(reviews.id, reviewItems.reviewId), eq(reviews.organisationId, org)))
+    .where(
+      inOrg(
+        reviewItems,
+        org,
+        inArray(
+          reviewItems.reviewId,
+          mine.map((m) => m.reviewId),
+        ),
+        or(isNotNull(reviewItems.scope), isNotNull(reviewItems.folderId)),
+      ),
+    );
+  for (const item of scoped) {
+    if ((await coveredBy(db, org, item)).some((c) => c.fileId === fileId)) items.push(item);
+  }
   const rows = items.flatMap((item) =>
     mine
       .filter((m) => m.reviewId === item.reviewId)

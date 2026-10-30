@@ -1,4 +1,4 @@
-import type { File, Folder, Group, Project, ProjectRole, Track } from "./types.ts";
+import type { CalendarEntry, File, Folder, Group, Project, ProjectRole, Track } from "./types.ts";
 
 const roles = (): ProjectRole[] => [
   {
@@ -471,6 +471,7 @@ export const tracks: Track[] = [
     name: "Maple Leaf Rag",
     composer: "Scott Joplin",
     scoreFileId: "file-score-maple",
+    dueAt: "2026-10-12T17:00:00Z",
     versions: [
       {
         id: "v-maple-1",
@@ -670,4 +671,32 @@ export const tracks: Track[] = [
 export const groups: Group[] = [
   { id: "g-soloists", projectId: "proj-joplin", name: "Soloists", personIds: ["p-ines", "p-mira"] },
   { id: "g-label", projectId: "proj-joplin", name: "Label", personIds: ["p-alex", "p-ines"] },
+];
+
+/** What is booked around the Joplin Rags (#505): a meeting over two days and a delivery. */
+export const calendarEntries: CalendarEntry[] = [
+  {
+    id: "entry-listening",
+    projectId: "proj-joplin",
+    kind: "meeting",
+    title: "Listening meeting with the label",
+    startsOn: "2026-10-20",
+    endsOn: "2026-10-21",
+    trackId: "t-maple",
+    reviewId: null,
+    sessionId: null,
+    attendeeIds: ["p-alex", "p-ines"],
+  },
+  {
+    id: "entry-masters",
+    projectId: "proj-joplin",
+    kind: "delivery",
+    title: "Masters to the label",
+    startsOn: "2026-10-30",
+    endsOn: null,
+    trackId: null,
+    reviewId: null,
+    sessionId: null,
+    attendeeIds: ["p-tomas"],
+  },
 ];

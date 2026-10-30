@@ -106,7 +106,7 @@ export const projectBoardRoutes = (db: Database) =>
       const [standing, statusRows, flows, running, open, [project]] = await Promise.all([
         trackStandings(db, organisationId, projectId),
         db
-          .select({ id: tracks.id, status: tracks.workflowStatus })
+          .select({ id: tracks.id, status: tracks.workflowStatus, dueAt: tracks.dueAt })
           .from(tracks)
           .where(inOrg(tracks, organisationId, eq(tracks.projectId, projectId))),
         db
@@ -169,6 +169,7 @@ export const projectBoardRoutes = (db: Database) =>
           .where(inOrg(projects, organisationId, eq(projects.id, projectId))),
       ]);
       const statusOf = new Map(statusRows.map((r) => [r.id, r.status]));
+      const deadlineOf = new Map(statusRows.map((r) => [r.id, r.dueAt]));
       const versionIds = standing.tracks.flatMap((t) => (t.version ? [t.version.id] : []));
       const versionFiles =
         versionIds.length === 0
@@ -259,6 +260,7 @@ export const projectBoardRoutes = (db: Database) =>
           stage: stage ?? null,
           waitingOn: t.waitingOn,
           dueAt: due ? due.toISOString() : null,
+          due: deadlineOf.get(t.id)?.toISOString() ?? null,
           decisions: said.get(latestOf.get(t.id) ?? "") ?? [],
           tasks: openTasks
             .filter((k) => k.trackId === t.id || (k.fileId !== null && files.has(k.fileId)))

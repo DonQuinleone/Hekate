@@ -1,4 +1,3 @@
-import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Avatar, AvatarRow } from "~/components/avatar";
 import { Icon } from "~/components/icons";
@@ -7,9 +6,9 @@ import { PermissionsDialog } from "~/components/permissions";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
-import { Input, Select } from "~/components/ui/input";
+import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
-import { groups, guests, type Project, personById, reviews } from "~/data";
+import { groups, guests, initials, type Project, personById, reviews } from "~/data";
 import { formatDate } from "~/lib/format";
 import { useViewer } from "~/viewer/context";
 
@@ -22,9 +21,13 @@ export function People({ project }: { project: Project }) {
   const manage = viewer.can(project.id, "manage_roles");
   const manageReviewers = viewer.can(project.id, "manage_reviewers");
   const projectGroups = groups.filter((g) => g.projectId === project.id);
-  const [dialog, setDialog] = useState<"member" | "group" | null>(null);
-  const navigate = useNavigate();
+  const [dialog, setDialog] = useState<"member" | "group" | "reviewer" | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
+  // A reviewer invited from here (#502): a guest of the project, asked into reviews later.
+  const [invited, setInvited] = useState<
+    { name: string; email: string; label: string; note: string; groupId: string }[]
+  >([]);
+  const [invite, setInvite] = useState({ name: "", email: "", label: "", note: "", groupId: "" });
   const [permissionsFor, setPermissionsFor] = useState<{ id: string; guest: boolean } | null>(null);
   const memberIds = new Set(project.members.map((m) => m.personId));
   const projectGuests = guests.filter((g) => !memberIds.has(g.personId) || g.personId === "p-mira");
@@ -103,12 +106,8 @@ export function People({ project }: { project: Project }) {
           hint="guests, who reach a review by link"
           action={
             manageReviewers && (
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={() => navigate({ to: "/reviews/new", search: { project: project.id } })}
-              >
-                <Icon name="mail" size={14} />
+              <Button variant="secondary" size="md" onClick={() => setDialog("reviewer")}>
+                <Icon name="userPlus" size={14} />
                 Invite a reviewer
               </Button>
             )
@@ -163,9 +162,55 @@ export function People({ project }: { project: Project }) {
                 </li>
               );
             })}
-            {projectGuests.length === 0 && (
+            {invited.map((g) => (
+              <li
+                key={g.email}
+                className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-4 py-2.5 last:border-b-0 @3xl/app:grid-cols-[auto_minmax(0,1fr)_170px_170px_auto]"
+              >
+                <span
+                  aria-hidden="true"
+                  className="flex size-[30px] shrink-0 items-center justify-center rounded-full bg-raised text-[11px] font-medium text-ink-2"
+                >
+                  {initials(g.name)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[14px] text-ink">
+                    {g.name}
+                    {g.label && <span className="text-ink-3"> · {g.label}</span>}
+                  </span>
+                  <span className="block truncate text-[13px] text-ink-3">
+                    {g.email}
+                    {g.note && ` · ${g.note}`}
+                  </span>
+                </span>
+                <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
+                  <Dot state="waiting" />
+                  Not sent a link
+                </span>
+                <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
+                  {g.groupId
+                    ? `In ${projectGroups.find((x) => x.id === g.groupId)?.name ?? "a group"}`
+                    : "Not asked yet"}
+                </span>
+                <span className="flex items-center gap-1">
+                  {manageReviewers && (
+                    <ActionMenu
+                      always
+                      label={g.name}
+                      actions={[
+                        { label: "Review permissions…", onSelect: () => {} },
+                        { label: "Change label…", onSelect: () => {} },
+                        "divider",
+                        { label: "Remove from the project", danger: true, onSelect: () => {} },
+                      ]}
+                    />
+                  )}
+                </span>
+              </li>
+            ))}
+            {projectGuests.length === 0 && invited.length === 0 && (
               <li className="px-4 py-4 text-[13px] text-ink-3">
-                No guests yet. Reviewers are invited when a review is requested.
+                No reviewers yet. Invite one here, or ask someone by email in a review.
               </li>
             )}
           </ul>
@@ -273,6 +318,90 @@ export function People({ project }: { project: Project }) {
           <p className="mt-3 text-[12px] text-ink-3">
             Someone not in the workspace yet is invited from Members first.
           </p>
+        </Dialog>
+      )}
+      {dialog === "reviewer" && (
+        <Dialog
+          title="Invite a reviewer"
+          description="A guest of this project, reached by link when a review asks them. Nothing is sent until then."
+          onClose={() => setDialog(null)}
+          width="sm"
+          footer={
+            <>
+              <Button variant="ghost" onClick={() => setDialog(null)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                disabled={!invite.name.trim() || !invite.email.includes("@")}
+                onClick={() => {
+                  setInvited([...invited, invite]);
+                  setInvite({ name: "", email: "", label: "", note: "", groupId: "" });
+                  setDialog(null);
+                }}
+              >
+                Add reviewer
+              </Button>
+            </>
+          }
+        >
+          <form
+            aria-label="Invite a reviewer"
+            className="flex flex-col gap-3"
+            onSubmit={(e) => e.preventDefault()}
+          >
+            <div className="grid gap-3 @md:grid-cols-2">
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Name
+                <Input
+                  value={invite.name}
+                  onChange={(e) => setInvite({ ...invite, name: e.target.value })}
+                  autoComplete="off"
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Email
+                <Input
+                  type="email"
+                  value={invite.email}
+                  onChange={(e) => setInvite({ ...invite, email: e.target.value })}
+                  autoComplete="off"
+                />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              Role, as shown beside their name
+              <Input
+                value={invite.label}
+                onChange={(e) => setInvite({ ...invite, label: e.target.value })}
+                placeholder="Conductor, Composer, Label (optional)"
+                autoComplete="off"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              Group
+              <Select
+                value={invite.groupId}
+                onChange={(e) => setInvite({ ...invite, groupId: e.target.value })}
+              >
+                <option value="">None</option>
+                {projectGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              Note
+              <Textarea
+                rows={2}
+                value={invite.note}
+                onChange={(e) => setInvite({ ...invite, note: e.target.value })}
+                placeholder="Who they are to the project; kept here, for the team (optional)"
+              />
+            </label>
+          </form>
         </Dialog>
       )}
       {dialog === "group" && (

@@ -12327,6 +12327,39 @@ describe.runIf(url)("api", () => {
             projectId: s.projectId,
             tokenHash: "f".repeat(64),
           });
+          // A meeting the owner and a reviewer are expected at (#505), and a reviewer invited
+          // from the People page without a review (#502).
+          const [meeting] = await db
+            .insert(schema.calendarEntries)
+            .values({
+              organisationId: s.organisationId,
+              projectId: s.projectId,
+              kind: "meeting",
+              title: "Listening meeting",
+              startsAt: new Date("2026-11-04T00:00:00Z"),
+            })
+            .returning();
+          await db.insert(schema.calendarAttendees).values(
+            [s.ids.owner, s.ids.composer].map((userId) => ({
+              organisationId: s.organisationId,
+              entryId: meeting?.id ?? "",
+              userId,
+            })),
+          );
+          const [invited] = await db
+            .insert(schema.guests)
+            .values({
+              organisationId: s.organisationId,
+              name: "Ines Arlow",
+              email: "ines.moved@example.test",
+            })
+            .returning();
+          await db.insert(schema.projectGuests).values({
+            organisationId: s.organisationId,
+            projectId: s.projectId,
+            guestId: invited?.id ?? "",
+            note: "Sleeve notes",
+          });
           // What the People page says for two of its people (#55).
           await db.insert(schema.projectReviewerGrants).values(
             [s.ids.engineer, s.ids.composer].map((userId) => ({
@@ -12446,6 +12479,39 @@ describe.runIf(url)("api", () => {
               .from(schema.calendarFeeds)
               .where(eq(schema.calendarFeeds.projectId, s.projectId)),
           ).toEqual([{ n: 0 }]);
+          // The meeting came, with those who came along; the invited reviewer came as a guest
+          // of the gaining workspace.
+          expect(
+            await db
+              .select({ organisationId: schema.calendarEntries.organisationId })
+              .from(schema.calendarEntries)
+              .where(eq(schema.calendarEntries.id, meeting?.id ?? "")),
+          ).toEqual([{ organisationId: to }]);
+          expect(
+            await db
+              .select({
+                userId: schema.calendarAttendees.userId,
+                organisationId: schema.calendarAttendees.organisationId,
+              })
+              .from(schema.calendarAttendees)
+              .where(eq(schema.calendarAttendees.entryId, meeting?.id ?? "")),
+          ).toEqual([{ userId: s.ids.owner, organisationId: to }]);
+          const [kept] = await db
+            .select({
+              organisationId: schema.projectGuests.organisationId,
+              guestOrganisation: schema.guests.organisationId,
+              email: schema.guests.email,
+              note: schema.projectGuests.note,
+            })
+            .from(schema.projectGuests)
+            .innerJoin(schema.guests, eq(schema.guests.id, schema.projectGuests.guestId))
+            .where(eq(schema.projectGuests.projectId, s.projectId));
+          expect(kept).toEqual({
+            organisationId: to,
+            guestOrganisation: to,
+            email: "ines.moved@example.test",
+            note: "Sleeve notes",
+          });
           // The comment is still there, still the owner's.
           const [thread] = await db
             .select({ body: schema.comments.body, organisationId: schema.comments.organisationId })
@@ -18519,6 +18585,164 @@ describe.runIf(url)("api", () => {
         expect(mailer.sent.some((m) => m.to === "follower@example.test")).toBe(true);
       });
 
+      it("names the steps of a sequence, and tells the next step's reviewers which step has begun (#500)", async () => {
+        const s = await studio();
+        type Named = ReviewBody & { stepNames: (string | null)[] | null };
+        const conductor = { name: "Mira Solberg", email: "conductor@example.test" };
+        const named = await request(s.owner, s.projectId, {
+          kind: "approval",
+          order: "sequence",
+          items: [{ trackId: s.trackId }],
+          reviewers: [
+            { name: " Label ", reviewers: [s.ids.composer] },
+            { reviewers: [s.ids.accompanist] },
+            { name: "Soloists", reviewers: [conductor] },
+          ],
+        });
+        expect(named.status).toBe(201);
+        const review = (await reviewOf(named)) as Named;
+        // Trimmed, by position; a step without a name is named by its place.
+        expect(review.stepNames).toEqual(["Label", null, "Soloists"]);
+        expect(review.reviewers.map((r) => r.state)).toEqual(["invited", "waiting", "waiting"]);
+        // A parallel review keeps no names, whatever the request said; nor does one unnamed.
+        const parallel = (await reviewOf(
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            items: [{ trackId: s.trackId }],
+            reviewers: [{ name: "Label", reviewers: [s.ids.composer] }],
+          }),
+        )) as Named;
+        expect(parallel.stepNames).toBeNull();
+        const plain = (await reviewOf(
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            order: "sequence",
+            items: [{ trackId: s.trackId }],
+            reviewers: [s.ids.composer, s.ids.accompanist],
+          }),
+        )) as Named;
+        expect(plain.stepNames).toBeNull();
+        // The second step has no name, so its reviewer is told only that it is their turn;
+        // the third is named, and its reviewer is told the step the review has reached.
+        const path = `/api/reviews/${review.id}/decisions`;
+        expect(
+          (await app.request(path, json({ decision: "approved" }, s.composer))).status,
+        ).toBe(200);
+        expect(
+          (await app.request(path, json({ decision: "approved" }, s.accompanist))).status,
+        ).toBe(200);
+        const told = await db
+          .select({ userId: schema.notifications.userId, detail: schema.notifications.detail })
+          .from(schema.notifications)
+          .where(
+            and(
+              eq(schema.notifications.reviewId, review.id),
+              eq(schema.notifications.kind, "review_requested"),
+            ),
+          );
+        const detailFor = (userId: string) => told.find((n) => n.userId === userId)?.detail ?? "";
+        expect(detailFor(s.ids.accompanist)).toBe("Those before you have responded; it is your turn.");
+        const lastMailTo = (to: string) => mailer.sent.filter((m) => m.to === to).at(-1)?.text ?? "";
+        expect(lastMailTo("accompanist@example.test")).toContain("it is your turn");
+        expect(lastMailTo("accompanist@example.test")).not.toContain("step");
+        // The mail wraps its lines, so the sentence is matched across them.
+        expect(lastMailTo("conductor@example.test")).toMatch(
+          /the review is at its Soloists step,\s+and it is your turn/,
+        );
+      });
+
+      it("invites a reviewer from the project's People page, before any review asks them (#502)", async () => {
+        const s = await studio();
+        const invite = (cookie: string, projectId: string, body: Record<string, unknown>) =>
+          app.request(`/api/projects/${projectId}/guests`, json(body, cookie));
+        type Known = { guests: { id: string; email: string; note: string | null; reviews: number }[] };
+        const known = async (cookie: string) =>
+          ((await (await getAs(`/api/projects/${s.projectId}/guests`, cookie)).json()) as Known)
+            .guests;
+        const group = (await (
+          await app.request(
+            `/api/projects/${s.projectId}/groups`,
+            json({ name: "Soloists", members: [s.ids.composer] }, s.owner),
+          )
+        ).json()) as { group: { id: string } };
+        // Whoever manages reviewers invites; a role that only decides cannot.
+        const body = {
+          name: "Mira Solberg",
+          email: "Conductor@Example.test",
+          label: "Conductor",
+          note: "Conducts the spring programme.",
+          groupId: group.group.id,
+        };
+        expect((await invite(s.composer, s.projectId, body)).status).toBe(403);
+        const made = await invite(s.owner, s.projectId, body);
+        expect(made.status).toBe(201);
+        const { guest } = (await made.json()) as { guest: Known["guests"][number] & { label: string } };
+        expect(guest).toMatchObject({
+          email: "conductor@example.test",
+          label: "Conductor",
+          note: "Conducts the spring programme.",
+          reviews: 0,
+        });
+        // Listed among the project's reviewers at once, and in the group they joined.
+        expect(await known(s.owner)).toEqual([expect.objectContaining({ id: guest.id })]);
+        const groups = (await (
+          await getAs(`/api/projects/${s.projectId}/groups`, s.owner)
+        ).json()) as { groups: { members: { guestId: string | null }[] }[] };
+        expect(groups.groups[0]?.members.map((m) => m.guestId)).toEqual([null, guest.id]);
+        // Their label can be changed from the People page, as any of the project's guests'.
+        expect(
+          (
+            await app.request(`/api/projects/${s.projectId}/guests/${guest.id}`, {
+              ...json({ label: "Maestra" }, s.owner),
+              method: "PATCH",
+            })
+          ).status,
+        ).toBe(204);
+        // Invited again, their note is brought up to date and nothing is doubled.
+        expect(
+          (await invite(s.owner, s.projectId, { ...body, note: "Now also the label's A&R." }))
+            .status,
+        ).toBe(201);
+        expect((await known(s.owner)).map((g) => g.note)).toEqual(["Now also the label's A&R."]);
+        // A group of another project is refused; another workspace's project is not found.
+        const elsewhere = await app.request(
+          "/api/projects",
+          json({ name: "Elsewhere", profile: "music" }, s.owner),
+        );
+        const other = ((await elsewhere.json()) as { project: { id: string } }).project.id;
+        expect(
+          (
+            await invite(s.owner, other, {
+              name: "Tomas Varga",
+              email: "tomas@example.test",
+              groupId: group.group.id,
+            })
+          ).status,
+        ).toBe(422);
+        const [foreign] = await db
+          .insert(schema.organisations)
+          .values({ name: "Foreign", slug: "foreign-invites" })
+          .returning();
+        const [theirs] = await db
+          .insert(schema.projects)
+          .values({ organisationId: foreign?.id ?? "", name: "Theirs", profile: "music" })
+          .returning();
+        expect((await invite(s.owner, theirs?.id ?? "", body)).status).toBe(404);
+        // The guest is asked into a review by address, as the project already knows them.
+        const asked = await request(s.owner, s.projectId, {
+          kind: "feedback",
+          items: [{ trackId: s.trackId }],
+          reviewers: [{ name: "Mira Solberg", email: "conductor@example.test" }],
+        });
+        expect(asked.status).toBe(201);
+        expect((await known(s.owner)).map((g) => g.reviews)).toEqual([1]);
+        // Audited, with the project.
+        const log = (await (
+          await getAs("/api/organisation/audit?action=project.guest_invite", s.owner)
+        ).json()) as { events: { projectId: string | null }[] };
+        expect(log.events.map((e) => e.projectId)).toEqual([s.projectId, s.projectId]);
+      });
+
       it("starts each person on what the project's People page says for them (#55)", async () => {
         const s = await studio();
         const put = (path: string, body: unknown, cookie = s.owner) =>
@@ -18847,6 +19071,212 @@ describe.runIf(url)("api", () => {
           expect(res.status).toBe(201);
           return { ...s, review, token, cookie: cookieOf(res) };
         };
+
+        describe("what a review covers (#501)", () => {
+          /** A file put straight into a project's folder, as an upload would leave it. */
+          const fileIn = async (
+            organisationId: string,
+            projectId: string,
+            name: string,
+            folderId: string | null,
+          ) => {
+            const blob = await storage.put(organisationId, Buffer.from(name));
+            const [row] = await db
+              .insert(schema.files)
+              .values({
+                organisationId,
+                projectId,
+                folderId,
+                name,
+                kind: "audio",
+                blobId: blob.id,
+                contentType: "audio/wav",
+                byteSize: blob.byteSize,
+                mediaInfo: {
+                  duration: 60,
+                  audio: { codec: "pcm_s24le", channels: 2, sampleRate: 48000 },
+                },
+              })
+              .returning();
+            return row?.id ?? "";
+          };
+          const folderIn = async (cookie: string, projectId: string, body: object) => {
+            const res = await app.request(`/api/projects/${projectId}/folders`, json(body, cookie));
+            expect(res.status).toBe(201);
+            return ((await res.json()) as { folder: { id: string } }).folder.id;
+          };
+          type Scoped = {
+            id: string;
+            kind: string;
+            name: string;
+            covers: { fileId: string; projectName: string; track: { name: string } | null }[];
+          };
+          const coversOf = (review: ReviewBody) =>
+            (review.items[0] as unknown as Scoped).covers.map((c) => c.fileId).sort();
+          const scopeOf = async (cookie: string) =>
+            (await (await getAs("/api/reviews/scope", cookie)).json()) as {
+              workspace: { allowed: boolean; projects: number };
+            };
+
+          it("covers a folder as it is when opened: a file added to it later is part of the review, for members and the guest", async () => {
+            const s = await studio();
+            // Mixes holds the track and, in Stems beneath it, the artwork; a file stays outside.
+            const mixes = await folderIn(s.owner, s.projectId, { name: "Mixes" });
+            const stems = await folderIn(s.owner, s.projectId, { name: "Stems", parentId: mixes });
+            await db
+              .update(schema.tracks)
+              .set({ folderId: mixes })
+              .where(eq(schema.tracks.id, s.trackId));
+            await db
+              .update(schema.files)
+              .set({ folderId: stems })
+              .where(eq(schema.files.id, s.artwork));
+            const outside = await fileIn(s.organisationId, s.projectId, "Notes.wav", null);
+            // Another project's folder is not one of this project's items.
+            const elsewhere = (
+              (await (
+                await app.request("/api/projects", json({ name: "Film", profile: "video" }, s.owner))
+              ).json()) as { project: { id: string } }
+            ).project.id;
+            const theirs = await folderIn(s.owner, elsewhere, { name: "Reels" });
+            const refused = await request(s.owner, s.projectId, {
+              kind: "feedback",
+              items: [{ folderId: theirs }],
+              reviewers: [s.ids.composer],
+            });
+            expect(refused.status).toBe(422);
+
+            mailer.sent.length = 0;
+            const review = await reviewOf(
+              await request(s.owner, s.projectId, {
+                kind: "feedback",
+                items: [{ folderId: mixes }],
+                reviewers: [s.ids.composer, guest],
+              }),
+            );
+            expect(review.items).toHaveLength(1);
+            const item = review.items[0] as unknown as Scoped;
+            expect(item).toMatchObject({ kind: "folder", name: "Mixes" });
+            expect(coversOf(review)).toEqual([s.mix, s.artwork].sort());
+            expect(item.covers.find((c) => c.fileId === s.mix)?.track?.name).toBe(
+              "Maple Leaf Rag",
+            );
+            // A review named after its folder; the invitation says the folder is covered as it grows.
+            const mail = [...mailer.sent].reverse().find((m) => m.to === "conductor@example.test");
+            expect(mail?.text.replace(/\s+/g, " ")).toContain(
+              "files added to them later are part of it too",
+            );
+
+            // A file added to Stems afterwards is covered; one outside the folder never is.
+            const later = await fileIn(s.organisationId, s.projectId, "Mix v2.wav", stems);
+            const seen = await reviewOf(await getAs(`/api/reviews/${review.id}`, s.composer));
+            expect(coversOf(seen)).toEqual([s.mix, s.artwork, later].sort());
+            const cookie = cookieOf(await signIn(linkFor("conductor@example.test")));
+            expect((await getAs(`/api/files/${later}`, cookie)).status).toBe(200);
+            expect((await getAs(`/api/files/${s.mix}`, cookie)).status).toBe(200);
+            expect((await getAs(`/api/files/${outside}`, cookie)).status).toBe(404);
+            // Opening a covered file counts as opening the folder.
+            expect((await getAs(`/api/reviews/${review.id}`, cookie)).status).toBe(200);
+            const opened = await db
+              .select({ itemId: schema.reviewItemOpens.itemId })
+              .from(schema.reviewItemOpens)
+              .where(eq(schema.reviewItemOpens.itemId, item.id));
+            expect(opened).toHaveLength(1);
+          }, 30_000);
+
+          it("covers everything in the workspace for an admin or whoever manages reviews in every project, within the workspace alone", async () => {
+            const s = await studio();
+            // A second project, with a file of its own, that the composer is not in.
+            const film = (
+              (await (
+                await app.request("/api/projects", json({ name: "Film", profile: "video" }, s.owner))
+              ).json()) as { project: { id: string } }
+            ).project.id;
+            const reel = await fileIn(s.organisationId, film, "Reel 1.wav", null);
+            // Another workspace's project and file.
+            const [other] = await db
+              .insert(schema.organisations)
+              .values({ name: "Elsewhere", slug: "elsewhere-scope" })
+              .returning({ id: schema.organisations.id });
+            const [foreign] = await db
+              .insert(schema.projects)
+              .values({ organisationId: other?.id ?? "", name: "Not yours", profile: "music" })
+              .returning({ id: schema.projects.id });
+            const foreignFile = await fileIn(other?.id ?? "", foreign?.id ?? "", "Theirs.wav", null);
+
+            // Who may: the owner; not a producer of one project, until they produce both.
+            const body = {
+              kind: "feedback",
+              items: [{ workspace: true }],
+              reviewers: [s.ids.composer, guest],
+            };
+            expect(await scopeOf(s.owner)).toEqual({ workspace: { allowed: true, projects: 2 } });
+            expect((await scopeOf(s.composer)).workspace.allowed).toBe(false);
+            const producer = await joinAs(s.owner, "producer-scope@example.test");
+            await grantRole(s.owner, s.projectId, producer, "Producer");
+            expect((await scopeOf(producer)).workspace).toEqual({ allowed: false, projects: 2 });
+            const refused = await request(producer, s.projectId, body);
+            expect(refused.status).toBe(403);
+            expect(((await refused.json()) as { error: { message: string } }).error.message).toContain(
+              "every project",
+            );
+            await grantRole(s.owner, film, producer, "Producer");
+            expect((await scopeOf(producer)).workspace).toEqual({ allowed: true, projects: 2 });
+            // Nothing else may stand beside it.
+            expect(
+              (
+                await request(producer, s.projectId, {
+                  ...body,
+                  items: [{ workspace: true }, { fileId: s.artwork }],
+                })
+              ).status,
+            ).toBe(400);
+            mailer.sent.length = 0;
+            const review = await reviewOf(await request(producer, s.projectId, body));
+            const item = review.items[0] as unknown as Scoped;
+            expect(item).toMatchObject({ kind: "workspace", name: "Everything in this workspace" });
+            expect(coversOf(review)).toEqual([s.mix, s.artwork, reel].sort());
+            expect(item.covers.find((c) => c.fileId === reel)?.projectName).toBe("Film");
+            const mail = [...mailer.sent].reverse().find((m) => m.to === "conductor@example.test");
+            expect(mail?.text.replace(/\s+/g, " ")).toContain(
+              "every project, those made later included",
+            );
+
+            // A member sees what they may: the composer is not in Film.
+            const composerSees = await reviewOf(
+              await getAs(`/api/reviews/${review.id}`, s.composer),
+            );
+            expect(coversOf(composerSees)).toEqual([s.mix, s.artwork].sort());
+            // A project made later is covered too, and an archived one no longer.
+            const concert = (
+              (await (
+                await app.request(
+                  "/api/projects",
+                  json({ name: "Concert", profile: "music" }, s.owner),
+                )
+              ).json()) as { project: { id: string } }
+            ).project.id;
+            const encore = await fileIn(s.organisationId, concert, "Encore.wav", null);
+            expect(coversOf(await reviewOf(await getAs(`/api/reviews/${review.id}`, s.owner)))).toEqual(
+              [s.mix, s.artwork, reel, encore].sort(),
+            );
+            await db
+              .update(schema.projects)
+              .set({ archivedAt: new Date() })
+              .where(eq(schema.projects.id, film));
+            expect(coversOf(await reviewOf(await getAs(`/api/reviews/${review.id}`, s.owner)))).toEqual(
+              [s.mix, s.artwork, encore].sort(),
+            );
+            // The guest reaches every covered file, and never another workspace's.
+            const cookie = cookieOf(await signIn(linkFor("conductor@example.test")));
+            expect((await getAs(`/api/files/${encore}`, cookie)).status).toBe(200);
+            expect((await getAs(`/api/files/${s.mix}`, cookie)).status).toBe(200);
+            expect((await getAs(`/api/files/${foreignFile}`, cookie)).status).toBe(404);
+            expect((await getAs(`/api/files/${foreignFile}`, s.owner)).status).toBe(404);
+            // A guest has no workspace to ask about.
+            expect((await getAs("/api/reviews/scope", cookie)).status).toBe(403);
+          }, 30_000);
+        });
 
         it("shares without asking anything, until it ends and only so many plays (#138)", async () => {
           const s = await studio();

@@ -494,6 +494,7 @@ function Components() {
         >
           <Checkbox aria-label="Unchecked" />
           <Checkbox aria-label="Checked" defaultChecked />
+          <Checkbox aria-label="Partly" indeterminate />
           <Checkbox aria-label="Disabled" disabled />
           <Radio aria-label="Off" name="reference-radio" />
           <Radio aria-label="On" name="reference-radio" defaultChecked />
@@ -898,6 +899,23 @@ function Components() {
         >
           <span className="rounded-panel bg-overlay px-4 py-2 text-[13px] text-ink shadow-4">
             Copied.
+          </span>
+        </Spec>
+        <Spec
+          name="Undo line"
+          rule="After a change made by a gesture (a bar dragged on the timeline): what was done, Undo, and Dismiss; gone by itself after a while."
+        >
+          <span
+            role="status"
+            className="flex items-center gap-1 rounded-control border border-line bg-overlay py-0.5 pr-0.5 pl-3 text-[13px] text-ink-2 shadow-2"
+          >
+            <span>Maple Leaf Rag due 21 Oct</span>
+            <Button variant="ghost" size="sm">
+              Undo
+            </Button>
+            <Button variant="quiet" size="iconSm" aria-label="Dismiss">
+              <Icon name="close" size={13} />
+            </Button>
           </span>
         </Spec>
         <Spec name="Problem" rule="Inline, next to what is wrong, with the fix in the sentence.">

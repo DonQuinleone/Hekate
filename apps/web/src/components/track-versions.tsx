@@ -39,6 +39,7 @@ import { kindIcon, mediaSummary } from "./files";
 import { Icon } from "./icons";
 import { Card } from "./page";
 import { ShareDialog } from "./share";
+import { TrackDeadline } from "./track-deadline";
 import { Button } from "./ui/button";
 import { Chip } from "./ui/chip";
 import { Radio } from "./ui/choice";
@@ -881,7 +882,7 @@ export function TrackHeading({ track, aside }: { track: Track; aside?: ReactNode
   const { words, versionLabel } = useItemWords(track.projectId);
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 basis-60">
         <h1 className="text-[22px] font-medium tracking-tight text-ink">{track.name}</h1>
         <p className="mt-1 text-[13px] text-ink-3">
           {count} {count === 1 ? words.version : words.versions}
@@ -899,6 +900,8 @@ export function TrackHeading({ track, aside }: { track: Track; aside?: ReactNode
           )}
         </p>
       </div>
+      {/* Its deadline (#505), set here, goes on the calendar, the timeline and the board. */}
+      <TrackDeadline track={track} />
       {aside}
     </div>
   );

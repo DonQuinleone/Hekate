@@ -623,6 +623,11 @@ export const apiOperations: Record<string, ApiOperation> = {
     summary: "List your reviews",
     description: "The reviews the token's member is asked to take part in, open ones first.",
   },
+  "GET /reviews/scope": {
+    summary: "Whether you may ask a review of everything in the workspace",
+    description:
+      "True for an owner or admin, or a member whose role has the Reviews: Manage level in every project not archived; with how many projects that covers.",
+  },
   "GET /reviews/{id}": {
     summary: "Read a review",
     description: "What it asks about, its reviewers in their order, and each decision recorded.",
@@ -694,6 +699,11 @@ export const apiOperations: Record<string, ApiOperation> = {
     summary: "List a project's guests",
     description:
       "The guests its reviews and groups have asked, and whether a link still works for each.",
+  },
+  "POST /projects/{id}/guests": {
+    summary: "Invite a reviewer to a project",
+    description:
+      "A guest of the project before any review asks them (#502): by name and email, with a note kept for the team and, if wanted, a group they join. Nothing is sent until a review asks them.",
   },
   "PATCH /projects/{id}/guests/{guestId}": {
     summary: "Change how a guest appears",
@@ -946,7 +956,18 @@ export const apiOperations: Record<string, ApiOperation> = {
   },
   "GET /projects/{id}/calendar": {
     summary: "Read a project's calendar",
-    description: "A month of its sessions, schedule, reviews and tasks.",
+    description:
+      "A month (or a range of days) of its sessions, schedule, entries, and the reviews, tracks and tasks due.",
+  },
+  "POST /projects/{id}/calendar/entries": {
+    summary: "Add an entry to a project's calendar",
+    description:
+      "A session, a delivery, a meeting or anything else dated. A session entry books a recording session as well. For those who edit the schedule.",
+  },
+  "PATCH /calendar-entries/{id}": { summary: "Change a calendar entry" },
+  "DELETE /calendar-entries/{id}": {
+    summary: "Remove a calendar entry",
+    description: "A session it booked stays.",
   },
 
   // Tags and categories.

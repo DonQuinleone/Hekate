@@ -52,7 +52,7 @@ const lives: Life[] = [7, 14, 30, null];
 const lifeWords = (life: Life) =>
   life === null ? "Link works until withdrawn" : `Link works for ${life} days`;
 
-interface Person {
+export interface Person {
   key: string;
   name: string;
   hint?: string;
@@ -67,14 +67,18 @@ const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * offered as you type, floated under it as a menu is; an address no one answers to is
  * offered as a new guest.
  */
-function PeopleField({
+export function PeopleField({
   people,
   chosen,
   onChange,
+  placeholder = "Names, groups or email addresses",
+  label = "Who",
 }: {
   people: Person[];
   chosen: Person[];
   onChange: (next: Person[]) => void;
+  placeholder?: string;
+  label?: string;
 }) {
   const listId = useId();
   const box = useRef<HTMLDivElement>(null);
@@ -173,7 +177,7 @@ function PeopleField({
         <Input
           ref={input}
           role="combobox"
-          aria-label="Who"
+          aria-label={label}
           aria-expanded={open}
           aria-controls={open ? listId : undefined}
           aria-activedescendant={open ? `${listId}-${current}` : undefined}
@@ -192,7 +196,7 @@ function PeopleField({
           }}
           onClick={() => setAsked(true)}
           onKeyDown={onKeyDown}
-          placeholder={chosen.length === 0 ? "Names, groups or email addresses" : undefined}
+          placeholder={chosen.length === 0 ? placeholder : undefined}
           className="h-7 w-auto min-w-32 flex-1 border-0 bg-transparent px-1.5 shadow-none"
         />
       </div>
@@ -202,7 +206,7 @@ function PeopleField({
           align="stretch"
           id={listId}
           role="listbox"
-          aria-label="Who"
+          aria-label={label}
           data-e2e-overlap
           className="rise-in flex flex-col gap-0.5 rounded-panel bg-overlay p-1 shadow-3"
         >
