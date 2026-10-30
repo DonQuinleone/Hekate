@@ -109,7 +109,8 @@ const sections = [
     id: "roles",
     label: "Roles and access",
     group: "Project",
-    intro: "Who may do what: the roles, and how far each one reaches.",
+    intro:
+      "Who may do what, one role at a time: a level in each area, each including the ones before it, and the tools it is given.",
   },
   {
     id: "workflow",

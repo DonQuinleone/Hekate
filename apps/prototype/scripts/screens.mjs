@@ -105,10 +105,11 @@ const screens = [
   },
   { name: "tasks", route: "/projects/proj-joplin/tasks" },
   { name: "people", route: "/projects/proj-joplin/people" },
+  { name: "roles", route: "/projects/proj-joplin/settings?section=roles" },
   {
-    name: "roles",
+    name: "roles-copy",
     route: "/projects/proj-joplin/settings?section=roles",
-    steps: [{ scroll: "Access permissions" }],
+    steps: [{ click: 'role=button[name="New role"]' }, { click: 'role=menuitem[name="Engineer"]' }],
   },
   { name: "qa-rules", route: "/projects/proj-joplin/settings?section=qa" },
   {

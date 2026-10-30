@@ -47,6 +47,14 @@ export interface MenuAction {
   onSelect: () => void;
 }
 
+/** A quiet heading over the items after it, such as "Copy from" over a list of roles. */
+export interface MenuHeading {
+  heading: string;
+}
+
+/** What a menu holds: actions, a line between groups of them, and headings over a group. */
+export type MenuItem = MenuAction | MenuHeading | "divider";
+
 /** The arrows move between a menu's items, as they do in every native menu; Home and End jump. */
 function menuKeys(event: ReactKeyboardEvent<HTMLElement>) {
   const { key } = event;
@@ -82,7 +90,7 @@ export function MenuList({
   label,
   autoFocus = false,
 }: {
-  actions: (MenuAction | "divider")[];
+  actions: MenuItem[];
   onClose: () => void;
   anchor?: RefObject<HTMLElement | null> | Point;
   /** Its right edge on the anchor's, its left edge on the anchor's, or as wide as the anchor. */
@@ -104,10 +112,18 @@ export function MenuList({
     const frame = requestAnimationFrame(() => first.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, [autoFocus]);
-  const firstItem = actions.findIndex((a) => a !== "divider");
+  const firstItem = actions.findIndex((a) => a !== "divider" && !("heading" in a));
   const items = actions.map((a, i) =>
     a === "divider" ? (
       <div key={`d-${String(i)}`} className="mx-2 my-1 h-px bg-line" />
+    ) : "heading" in a ? (
+      <div
+        key={`h-${String(i)}`}
+        role="presentation"
+        className="px-2.5 pt-1.5 pb-1 text-[12px] whitespace-nowrap text-ink-3"
+      >
+        {a.heading}
+      </div>
     ) : (
       <button
         key={a.label}
@@ -178,7 +194,7 @@ export function ContextMenu({
   onClose,
 }: {
   at: Point | RefObject<HTMLElement | null>;
-  actions: (MenuAction | "divider")[];
+  actions: MenuItem[];
   label: string;
   onClose: () => void;
 }) {
@@ -238,7 +254,7 @@ export function ActionMenu({
   always = false,
 }: {
   label: string;
-  actions: (MenuAction | "divider")[];
+  actions: MenuItem[];
   always?: boolean;
 }) {
   const [open, setOpen, box] = usePopover();
@@ -279,7 +295,7 @@ export function Dropdown({
   className,
 }: {
   value: ReactNode;
-  actions: (MenuAction | "divider")[];
+  actions: MenuItem[];
   align?: "left" | "right";
   size?: "sm" | "md";
   /** Opens upward by preference; either way it opens where there is room. */

@@ -15,7 +15,7 @@ import { Checkbox, Choice, ChoiceCard, Radio } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { ColourInput, InlineInput, Input, Select, Textarea } from "~/components/ui/input";
-import { ActionMenu, Dropdown } from "~/components/ui/menu";
+import { ActionMenu, Dropdown, MenuList } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { Slider } from "~/components/ui/slider";
 import {
@@ -382,6 +382,22 @@ function Components() {
             ]}
           />
           <ActionMenu always label="this file" actions={[{ label: "Details", onSelect: noop }]} />
+        </Spec>
+        <Spec
+          name="Menu with a heading"
+          rule="A quiet heading names a group of items where the group says what they do, such as New role's Copy from over the roles; never over a single item."
+        >
+          <MenuList
+            label="New role"
+            onClose={noop}
+            actions={[
+              { label: "Blank role…", hint: "Sees files, reads comments", onSelect: noop },
+              "divider",
+              { heading: "Copy from" },
+              { label: "Producer", onSelect: noop },
+              { label: "Engineer", onSelect: noop },
+            ]}
+          />
         </Spec>
         <Spec
           name="Dropdown field"

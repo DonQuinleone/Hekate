@@ -1002,6 +1002,108 @@ test("project-settings-exception", async ({ page }) => {
   await checkScreen(page);
 });
 
+/** The music project's roles' ids, so a screen that adds roles can take them away again. */
+async function musicRoleIds(page: Page): Promise<string[]> {
+  const projectId = seeded().musicProjectId;
+  const { roles } = (await (await page.request.get(`/api/projects/${projectId}/roles`)).json()) as {
+    roles: { id: string }[];
+  };
+  return roles.map((r) => r.id);
+}
+async function removeRolesExcept(page: Page, keep: readonly string[]) {
+  const projectId = seeded().musicProjectId;
+  for (const id of await musicRoleIds(page))
+    if (!keep.includes(id)) await page.request.delete(`/api/projects/${projectId}/roles/${id}`);
+}
+
+// Roles one at a time (#506): a new role copied from Engineer in two clicks (New role, then
+// Engineer under Copy from), a whole area set at once from its header, and Copy from… in the
+// role's menu.
+test("project-settings-roles-copy", async ({ page }) => {
+  const before = await musicRoleIds(page);
+  await page.goto(`/projects/${seeded().musicProjectId}/settings?section=roles`);
+  await settle(page, "main select[aria-label='Files for Producer']");
+  try {
+    await page.getByRole("button", { name: "New role" }).click();
+    await page.getByRole("menuitem", { name: "Engineer", exact: true }).click();
+    await settle(page, "main select[aria-label='Files for Engineer copy']");
+    await expect(page.getByRole("heading", { name: "Engineer copy" })).toBeVisible();
+    // Every level and tool came with it.
+    await expect(page.getByLabel("Files for Engineer copy")).toHaveValue("organise");
+    await expect(page.getByLabel("Downloads for Engineer copy")).toHaveValue("original");
+    await expect(page.getByRole("switch", { name: "Spectrogram" })).toBeChecked();
+    await saveScreen(page, "project-settings-roles-copy");
+    await checkScreen(page);
+
+    // The whole Comments area at once: every row in it goes off.
+    await page.getByLabel("Comments for Engineer copy").selectOption("none");
+    await expect(page.getByRole("switch", { name: "Read comments" })).not.toBeChecked();
+    await expect(
+      page.getByRole("switch", { name: "Triage feedback (resolve, assign)" }),
+    ).not.toBeChecked();
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByLabel("Comments for Engineer copy")).toHaveValue("none");
+    await saveScreen(page, "project-settings-roles-area");
+    await checkScreen(page);
+
+    await page.getByRole("button", { name: "Actions for Engineer copy" }).click();
+    await page.getByRole("menuitem", { name: "Copy from…" }).click();
+    await settle(page, "[role=dialog] >> text=Its name and its people stay");
+    await saveScreen(page, "project-settings-roles-copy-from");
+    await checkScreen(page);
+  } finally {
+    await removeRolesExcept(page, before);
+  }
+});
+
+// Twelve roles (#506): they wrap across the top rather than widen the page, and Compare shows
+// them all at once, a row each.
+test("project-settings-roles-twelve", async ({ page }) => {
+  const projectId = seeded().musicProjectId;
+  const levels = {
+    files: "view",
+    comments: "write",
+    reviews: "respond",
+    downloads: "proxy",
+    takes: "view",
+    production: "none",
+    workflow: "view",
+    people: "view",
+    project: "none",
+  };
+  const before = await musicRoleIds(page);
+  try {
+    for (const name of [
+      "Mixing engineer",
+      "Mastering engineer",
+      "Assistant engineer",
+      "Picture editor",
+      "Colourist",
+      "Conductor",
+      "Label A&R",
+      "Composer",
+      "Stage manager",
+    ].slice(0, 12 - before.length)) {
+      const made = await page.request.post(`/api/projects/${projectId}/roles`, {
+        data: { name, levels },
+      });
+      expect(made.ok()).toBe(true);
+    }
+    await page.goto(`/projects/${projectId}/settings?section=roles`);
+    await settle(page, "main button[aria-pressed]:has-text('Mastering engineer')");
+    await expect(page.locator("main button[aria-pressed]")).toHaveCount(12);
+    await saveScreen(page, "project-settings-roles-twelve");
+    await checkScreen(page);
+
+    await page.getByRole("button", { name: "Compare" }).click();
+    await settle(page, "[role=dialog] >> text=Mastering engineer");
+    await saveScreen(page, "project-settings-roles-compare");
+    await checkScreen(page);
+  } finally {
+    await removeRolesExcept(page, before);
+  }
+});
+
 // A workspace's own delivery profile (#144), with what it asks of a picture (#42).
 test("settings-delivery-profile", async ({ page }) => {
   await page.goto("/settings/delivery");
