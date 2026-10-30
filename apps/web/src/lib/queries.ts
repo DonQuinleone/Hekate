@@ -96,7 +96,6 @@ import {
   type NotificationPreferences,
   narrowed,
   type OperatorRow,
-  type OrganisationRole,
   type OverviewSection,
   type PatchedChannel,
   type PatchRowChange,
@@ -112,6 +111,7 @@ import {
   type ProfileSource,
   type ProjectDeletion,
   type ProjectGuestInput,
+  type ProjectMember,
   type ProjectPermission,
   type ProjectProfile,
   type ProjectStatus,
@@ -559,14 +559,8 @@ export interface ProjectRole {
   members: number;
 }
 
-export interface ProjectMember {
-  userId: string;
-  name: string;
-  email: string;
-  roleId: string;
-  /** Their role in the workspace: an owner or admin keeps every tool, whatever the project says. */
-  workspaceRole: OrganisationRole | null;
-}
+/** Someone with a place in a project: its owners (decision 285), marked, and its members. */
+export type { ProjectMember } from "@hekate/shared";
 
 export const projectRolesQuery = (projectId: string) =>
   queryOptions({
@@ -671,6 +665,36 @@ export function useProjectAccessMutations(projectId: string) {
           }),
         ),
       onSuccess: refresh,
+    }),
+    // Owners (decision 285): made from members, made members again while another remains.
+    makeOwner: useMutation({
+      mutationFn: async (userId: string) =>
+        ok(
+          await api.projects[":id"].owners[":userId"].$put({
+            param: { id: projectId, userId },
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+    makeMember: useMutation({
+      mutationFn: async (userId: string) =>
+        ok(
+          await api.projects[":id"].owners[":userId"].$delete({
+            param: { id: projectId, userId },
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+    // Leaving: the last owner names who takes over. Everything the project showed may go.
+    leave: useMutation({
+      mutationFn: async (successorId?: string) =>
+        ok(
+          await api.projects[":id"].leave.$post({
+            param: { id: projectId },
+            json: successorId ? { successorId } : {},
+          }),
+        ),
+      onSuccess: () => client.invalidateQueries(),
     }),
   };
 }

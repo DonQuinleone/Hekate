@@ -61,6 +61,22 @@ describe("PeoplePicker (#489)", () => {
     expect((field as HTMLInputElement).value).toBe("");
   });
 
+  it("offers no new guest where only members count", () => {
+    const view = render(
+      <PeoplePicker
+        label="Who takes over"
+        people={people.filter((p) => p.kind === "member")}
+        chosen={[]}
+        onChange={() => undefined}
+        newGuests={false}
+      />,
+    );
+    const field = view.getByRole("combobox", { name: "Who takes over" });
+    fireEvent.focus(field);
+    fireEvent.change(field, { target: { value: "new.one@example.com" } });
+    expect(view.queryAllByRole("option")).toHaveLength(0);
+  });
+
   it("opens on ArrowDown, moves with the arrows and lets the last one go with Backspace", () => {
     const keys: string[][] = [];
     const view = render(<Harness onChange={(k) => keys.push(k)} />);

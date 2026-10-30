@@ -388,7 +388,10 @@ function ReviewForm({
   const memberRefusal = (userId: string) => {
     const m = memberById.get(userId);
     if (!m) return "Cannot see this project";
-    return kind === "approval" && !deciders.has(m.roleId) ? "Their role cannot decide" : null;
+    // An owner decides whatever their role says (decision 285).
+    return kind === "approval" && !m.ownerSince && !deciders.has(m.roleId ?? "")
+      ? "Their role cannot decide"
+      : null;
   };
   const groupRefusal = (group: ProjectGroup) => {
     if (group.members.length === 0) return "No one in it";
@@ -414,7 +417,7 @@ function ReviewForm({
   const offered: Person[] = [
     ...members.map((m): Person => {
       const why = memberRefusal(m.userId);
-      const role = roles.find((r) => r.id === m.roleId)?.name ?? "";
+      const role = m.ownerSince ? "Owner" : (roles.find((r) => r.id === m.roleId)?.name ?? "");
       return {
         key: `member:${m.userId}`,
         name: m.name,
@@ -456,7 +459,7 @@ function ReviewForm({
     const [type, id = ""] = key.split(/:(.*)/s) as [string, string];
     if (type === "member") {
       const m = memberById.get(id);
-      const role = roles.find((r) => r.id === m?.roleId)?.name ?? "";
+      const role = m?.ownerSince ? "Owner" : (roles.find((r) => r.id === m?.roleId)?.name ?? "");
       return { name: m?.name ?? "Someone", hint: role, avatar: id };
     }
     if (type === "group") {

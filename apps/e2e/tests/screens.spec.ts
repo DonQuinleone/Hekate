@@ -1509,6 +1509,73 @@ test("project-people-invite", async ({ page }) => {
   await checkScreen(page);
 });
 
+/**
+ * The project's people as the page has them answered (decision 285), with what it lists amended
+ * in this page alone so no other capture sees it: `owner` is whether Tomas Varga owns the project
+ * beside Alex Rivera, as its Engineer either way; the workspace lists him too.
+ */
+async function withTomas(page: Page, projectId: string, owner: boolean) {
+  const tomas = { userId: "e2e-tomas", name: "Tomas Varga", email: "tomas@endlesshall.example" };
+  await page.route(`**/api/projects/${projectId}/members`, async (route) => {
+    const roles = (await (await page.request.get(`/api/projects/${projectId}/roles`)).json()) as {
+      roles: { id: string; name: string }[];
+    };
+    const response = await route.fetch();
+    const body = (await response.json()) as { members: Record<string, unknown>[] };
+    body.members.push({
+      ...tomas,
+      roleId: roles.roles.find((r) => r.name === "Engineer")?.id ?? null,
+      workspaceRole: "member",
+      ownerSince: owner ? "2026-10-02T09:00:00Z" : null,
+    });
+    await route.fulfill({ response, json: body });
+  });
+  await page.route("**/api/organisation/members", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { members: Record<string, unknown>[] };
+    body.members.push({
+      id: "e2e-tomas-membership",
+      ...tomas,
+      role: "member",
+      joinedAt: "2026-10-01T09:00:00Z",
+    });
+    await route.fulfill({ response, json: body });
+  });
+}
+
+// Two owners (#507): either can be made a member, as long as the other remains. Looked at only.
+test("project-people-owners", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await withTomas(page, seeded().musicProjectId, true);
+  await page.goto(`/projects/${seeded().musicProjectId}/people`);
+  await settle(page, "main >> text=Tomas Varga");
+  await page
+    .getByRole("region", { name: "Owners" })
+    .getByRole("button", { name: "Actions for Tomas Varga" })
+    .click();
+  await expect(page.getByRole("menuitem", { name: /Make a member/ })).toBeVisible();
+  await saveScreen(page, "project-people-owners");
+  await checkScreen(page);
+});
+
+// The last owner leaving (#507): asked who takes over, here a member of the project. Looked at
+// only: nobody leaves.
+test("project-people-leave", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await withTomas(page, seeded().musicProjectId, false);
+  await page.goto(`/projects/${seeded().musicProjectId}/people`);
+  await settle(page, "main >> text=Tomas Varga");
+  await page.getByRole("button", { name: "Actions for Alex Rivera" }).click();
+  await page.getByRole("menuitem", { name: "Leave project…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Leave Joplin Rags?" });
+  const field = dialog.getByRole("combobox", { name: "Who takes over" });
+  await field.click();
+  await page.getByRole("option", { name: /Tomas Varga/ }).click();
+  await expect(dialog.getByRole("button", { name: "Hand over and leave" })).toBeEnabled();
+  await saveScreen(page, "project-people-leave");
+  await checkScreen(page);
+});
+
 // What a guest may do in every review of a project (#55), from its People page. Looked at only.
 test("project-people-permissions", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
