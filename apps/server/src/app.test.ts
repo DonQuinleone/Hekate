@@ -6343,7 +6343,7 @@ describe.runIf(url)("api", () => {
         expect(await backends.get("local").head(blob.key)).toEqual({ size: encryptedSize(9) });
       });
 
-      it("shows the owner what the instance is doing for the workspace, and no one else (#165)", async () => {
+      it("shows the owner the workspace's encryption, and no one else (#165)", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);
         const read = (cookie: string) =>
@@ -6359,40 +6359,30 @@ describe.runIf(url)("api", () => {
         expect(before.encryption).toEqual({ keyVersion: null, keySince: null, behind: 0 });
         await keyring.current(organisationId);
         const ops = (await (await read(owner)).json()) as WorkspaceOperations;
-        expect(ops.version).toMatch(/^\d+\.\d+\.\d+/);
-        expect(ops.build).toBe("dev");
         expect(ops.encryption).toMatchObject({ keyVersion: 1, behind: 0 });
         expect(ops.encryption.keySince).not.toBeNull();
-        // No worker runs here; the queue is read, and empty for this workspace.
-        expect(["stale", "failed"]).toContain(ops.worker);
-        expect(ops.queue).toEqual({ waiting: 0, running: 0, failed: 0 });
-        // When the process was last read is the process's: another test here scrapes it.
-        expect(ops.metrics.on).toBe(false);
-        // Or another replica's, whichever was read last (#188).
-        const readElsewhere = new Date(Date.now() + 60_000);
-        await db.insert(schema.healthSamples).values({
-          replica: uuidv7(),
-          at: new Date(Math.floor(Date.now() / 60_000) * 60_000),
-          requests: 0,
-          errors: 0,
-          jobsWaiting: 0,
-          lanes: 0,
-          lanesBusy: 0,
-          uploadBytes: 0,
-          cpu: 0,
-          cores: 1,
-          memoryUsed: 0,
-          memoryTotal: 1,
-          metricsReadAt: readElsewhere,
-        });
-        expect(((await (await read(owner)).json()) as WorkspaceOperations).metrics.lastReadAt).toBe(
-          readElsewhere.toISOString(),
-        );
-        await db.delete(schema.healthSamples);
-        expect(ops.release).toEqual({ checkOn: false, newer: null });
         // Owners only: an admin is refused.
         const admin = await joinAs(owner, "admin@example.test", "admin");
         expect((await read(admin)).status).toBe(403);
+      });
+
+      it("tells an owner who is not an operator nothing of the queues, metrics or release (decision 288)", async () => {
+        const operator = cookieOf(await setup());
+        const owner = await joinAs(operator, "label-owner@example.test", "owner");
+        const me = (await (await app.request("/api/me", { headers: { cookie: owner } })).json()) as {
+          operator?: boolean;
+        };
+        expect(me.operator).toBeFalsy();
+        const res = await app.request("/api/organisation/operations", { headers: { cookie: owner } });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Record<string, unknown>;
+        // Only the encryption: no release, build, worker, queue or metrics, under any name.
+        expect(Object.keys(body)).toEqual(["encryption"]);
+        expect(JSON.stringify(body)).not.toMatch(/"version"|build|worker|queue|metrics|release/);
+        // And the instance's own pages, which have them, refuse a workspace owner.
+        for (const path of ["/api/instance/operations", "/api/instance/queues", "/api/instance/system"]) {
+          expect((await app.request(path, { headers: { cookie: owner } })).status).toBe(403);
+        }
       });
 
       it("shows a workspace's storage by backend and project, and reconciles it alone", async () => {

@@ -1134,6 +1134,8 @@ The recorder's numbers and timecode wait for the session tools; local-first writ
 - **Metrics** say whether Prometheus may read `/metrics`, and when this process was last read.
 - **Backups and upgrades** are the operator's: the page links to the docs, and names the newer release when release checks are on. The prototype's "Connected" went: the page loading says as much. So did its backup time and size, which Hekate does not know: backups are taken outside it.
 
+Since decision 288 the page shows only what an owner acts on: the release, the worker, the queue and the metrics went to the operators alone.
+
 ## 184. Instance settings: defaults, a mail test, modules
 
 #160, second part.
@@ -2270,3 +2272,12 @@ The calendar showed what the board and the schedule already knew and offered not
 
 **Expanding only:** one nullable column and two new tables; an older release reads none of them (decision 198). The prototype's board, timeline and calendar show the same.
 
+
+## 288. A workspace's Operations page shows only what its owners act on
+
+#510. Operations (decision 183) showed a workspace's owners the instance's release and build, the worker, the workspace's jobs in the queue, whether Prometheus reads `/metrics`, and the newer release with its upgrade notes. An owner can do nothing with any of them, and on a hosted instance should not learn them: they are the operators', who see all of it under Instance, Operations, Queues and System, unchanged.
+
+- **What stays is what an owner acts on.** The encryption, in words ("Encrypted, on a key from 2 Oct 2026"; "moving to a new key: 41 to go"; nothing stored yet), never as a key's version (`encryptionWords` in `packages/shared`); the storage used against the plan's quota, the same row and meter as Storage; who runs the instance, who keep its backups, upgrades and workers, with where to ask them as the instance answers support (Support in the app, their own desk, an address, or nobody, when support is off).
+- **Export and deletion moved here from General**, as the owners' acts on the workspace's data, so Operations holds everything an owner does to it rather than naming it twice. General keeps the workspace's name and settings; a deletion's notice to the other owners links here, and the docs' Exporting and deleting page says so.
+- **Not sent, not only not shown.** `/api/organisation/operations` answers the encryption alone: the release, build, worker, queue and metrics are no longer read for it. A test proves that an owner who is not an operator gets nothing about queues, metrics or versions from it, and is refused the instance's own pages. Still owners only.
+- The prototype's Operations shows the same, and its export capture moved with it.

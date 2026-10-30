@@ -593,7 +593,7 @@ const screens: Screen[] = [
   {
     name: "settings-operations",
     path: () => "/settings/operations",
-    ready: "main >> text=How backups work",
+    ready: "main >> text=Run by this instance's operators",
   },
 ];
 
@@ -2342,7 +2342,7 @@ test("settings-export", async ({ page }) => {
       },
     });
   });
-  await page.goto("/settings/general");
+  await page.goto("/settings/operations");
   await settle(page, "main >> text=until 2026-10-27");
   await saveScreen(page, "settings-export");
   await checkScreen(page);
@@ -2374,7 +2374,7 @@ test("settings-workspace-deletion", async ({ page }) => {
       },
     });
   });
-  await page.goto("/settings/general");
+  await page.goto("/settings/operations");
   await settle(page, "main >> text=Deletion asked for");
   await saveScreen(page, "settings-workspace-deletion");
   await checkScreen(page);

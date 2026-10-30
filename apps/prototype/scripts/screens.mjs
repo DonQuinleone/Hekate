@@ -222,7 +222,7 @@ const screens = [
 
   // 3.11 Workspace, settings and operations
   { name: "org-general", route: "/settings/general" },
-  { name: "org-export", route: "/settings/general", steps: [{ scroll: "Export" }] },
+  { name: "org-export", route: "/settings/operations", steps: [{ scroll: "Export" }] },
   { name: "org-branding", route: "/settings/branding" },
   { name: "design-system", route: "/settings/brand" },
   {

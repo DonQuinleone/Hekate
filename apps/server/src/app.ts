@@ -574,17 +574,7 @@ export function createApi(given: AppDeps) {
           },
         }),
       )
-      .route(
-        "/organisation/operations",
-        operationsRoutes({
-          db: deps.db,
-          checks,
-          settings,
-          build: deps.build ?? "dev",
-          updateCheck: deps.updateCheck ?? false,
-          metricsOn: Boolean(deps.metricsToken),
-        }),
-      )
+      .route("/organisation/operations", operationsRoutes({ db: deps.db }))
       .route(
         "/organisation/storage",
         storageSettingsRoutes({
