@@ -1,5 +1,4 @@
 import {
-  type AccessArea,
   type AccessLevels,
   accessAreas,
   levelsOf,
@@ -8,7 +7,7 @@ import {
   type ToolException,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { type CSSProperties, type FormEvent, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { cn } from "~/lib/cn";
 import {
   type ProjectRole,
@@ -21,14 +20,28 @@ import {
   useProjectCan,
   useToolExceptionMutations,
 } from "~/lib/queries";
+import {
+  compareRows,
+  copiedInto,
+  copyOf,
+  levelIndex,
+  lowestLevel,
+  permissionGroups,
+  rowOn,
+  setAreaLevel,
+  setRow,
+  withTool,
+} from "~/lib/role-editor";
 import { Icon } from "./icons";
 import { PlayerToolsTable, type ToolColumn, toolWords } from "./player-tools";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
+import { ToggleChip } from "./ui/chip";
 import { Checkbox } from "./ui/choice";
 import { Dialog } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
-import { ActionMenu } from "./ui/menu";
+import { ActionMenu, MenuList, usePopover } from "./ui/menu";
+import { Switch } from "./ui/toggle";
 
 /** A role's name: a new role's, or one renamed. */
 function RoleDialog({
@@ -220,116 +233,273 @@ function ExceptionDialog({
   );
 }
 
-/** A name not yet taken among the roles, for a copy of one. */
-const copyName = (name: string, taken: string[]) => {
-  let candidate = `${name} copy`;
-  for (let n = 2; taken.includes(candidate); n++) candidate = `${name} copy ${n}`;
-  return candidate;
-};
+/** "New role": a blank one, named first, or a copy of any role, made at once (two clicks). */
+function NewRoleMenu({
+  roles,
+  onBlank,
+  onCopy,
+}: {
+  roles: ProjectRole[];
+  onBlank: () => void;
+  onCopy: (role: ProjectRole) => void;
+}) {
+  const [open, setOpen, box] = usePopover();
+  return (
+    <div ref={box} className="relative">
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <Icon name="plus" size={14} />
+        New role
+      </Button>
+      {open && (
+        <MenuList
+          anchor={box}
+          align="left"
+          label="New role"
+          onClose={() => setOpen(false)}
+          actions={[
+            { label: "Blank role…", hint: "Sees files, reads comments", onSelect: onBlank },
+            "divider",
+            { heading: "Copy from" },
+            ...roles.map((role) => ({ label: role.name, onSelect: () => onCopy(role) })),
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+/** "Copy from…" in a role's menu: another role's every level and tool, in place of its own. */
+function CopyFromDialog({
+  role,
+  roles,
+  pending,
+  error,
+  onCopy,
+  onClose,
+}: {
+  role: ProjectRole;
+  roles: ProjectRole[];
+  pending: boolean;
+  error: Error | null;
+  onCopy: (source: ProjectRole) => void;
+  onClose: () => void;
+}) {
+  const others = roles.filter((r) => r.id !== role.id);
+  const [chosen, setChosen] = useState(others[0]?.id ?? "");
+  const source = others.find((r) => r.id === chosen);
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (source) onCopy(source);
+  };
+  return (
+    <Dialog
+      title={`Copy into ${role.name}`}
+      description={`Every level and every tool of the role you choose replaces ${role.name}'s. Its name and its people stay.`}
+      onClose={onClose}
+      width="sm"
+    >
+      <form onSubmit={submit} className="flex flex-col gap-3">
+        <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Copy from
+          <Select value={chosen} onChange={(event) => setChosen(event.target.value)}>
+            {others.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </Select>
+        </label>
+        {error && <p className="m-0 text-[13px] text-signal">{error.message}</p>}
+        <div className="mt-1 flex justify-end gap-2">
+          <Button type="button" variant="ghost" size="md" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" size="md" disabled={pending || !source}>
+            Copy
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
+/** Every role's level in each area at once, read-only: rows are roles, so more roles never widen it. */
+function CompareDialog({ roles, onClose }: { roles: ProjectRole[]; onClose: () => void }) {
+  return (
+    <Dialog
+      title="Compare roles"
+      description="Every role's level in each area, and how many player tools it has."
+      onClose={onClose}
+      width="xl"
+    >
+      {/* Scrolled from the keyboard too, where a phone is narrower than its nine areas. */}
+      <section
+        aria-label="Every role's levels"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: a region that scrolls must take focus to scroll from the keyboard.
+        tabIndex={0}
+        className="scroll-quiet overflow-x-auto rounded-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-3"
+      >
+        <table className="w-full border-collapse text-[13px]">
+          <thead>
+            <tr>
+              <th className="label px-2 py-2 text-left font-normal">Role</th>
+              {accessAreas.map((area) => (
+                <th key={area.id} className="label px-2 py-2 text-left font-normal">
+                  {area.label}
+                </th>
+              ))}
+              <th className="label px-2 py-2 text-right font-normal">Tools</th>
+            </tr>
+          </thead>
+          <tbody>
+            {compareRows(roles).map((row) => (
+              <tr key={row.id} className="border-t border-line">
+                <th
+                  scope="row"
+                  className="px-2 py-2 text-left font-normal whitespace-nowrap text-ink"
+                >
+                  {row.name}
+                </th>
+                {row.levels.map((cell) => (
+                  <td
+                    key={cell.area}
+                    className={cn("px-2 py-2", cell.none ? "text-ink-3" : "text-ink-2")}
+                  >
+                    {cell.label}
+                  </td>
+                ))}
+                <td className="tabular px-2 py-2 text-right text-ink-2">{row.tools}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    </Dialog>
+  );
+}
 
 /**
- * The project's roles, then every role against every area at one level each (#142); a level
- * includes those before it. Those who manage roles change them here.
+ * Roles and access, one role at a time (#506), as XenForo edits its user groups: the roles
+ * across the top, then the chosen role's permissions by area, a level picker in each area's
+ * header setting every row in it at once, then its player tools, then the exceptions to the
+ * tools (decision 258). Twelve roles wrap rather than widen the page. Those who manage roles
+ * change them here.
  */
 function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
   const { data: roles } = useQuery(projectRolesQuery(projectId));
   const { createRole, updateRole, deleteRole } = useProjectAccessMutations(projectId);
   const { data: exceptions = [] } = useQuery(projectToolExceptionsQuery(projectId));
   const excepting = useToolExceptionMutations(projectId);
-  const [dialog, setDialog] = useState<ProjectRole | "new" | "exception" | null>(null);
-  // The player tools on a phone: one column at a time, a role's or an exception's.
-  const [toolShown, setToolShown] = useState<string | null>(null);
-  // On a phone one role is shown at a time, chosen above the table; a wide screen shows them all.
+  const [dialog, setDialog] = useState<"new" | "rename" | "copy" | "compare" | "exception" | null>(
+    null,
+  );
   const [shown, setShown] = useState<string | null>(null);
+  // The exceptions on a phone: one column at a time.
+  const [exceptionShown, setExceptionShown] = useState<string | null>(null);
+  if (!roles) return <p className="m-0 text-[13px] text-ink-3">Loading</p>;
+  const role = roles.find((r) => r.id === shown) ?? roles[0];
+  if (!role) return <p className="m-0 text-[13px] text-ink-3">This project has no roles.</p>;
   const error = updateRole.error ?? deleteRole.error ?? createRole.error;
   const exceptionError = excepting.update.error ?? excepting.remove.error;
-  if (!roles) return <p className="m-0 text-[13px] text-ink-3">Loading</p>;
-  const focus = roles.find((r) => r.id === shown)?.id ?? roles[0]?.id;
-  const column = (roleId: string) => (roleId === focus ? "" : "hidden @3xl/app:table-cell");
-  const toolColumns: ToolColumn[] = [
-    ...roles,
-    ...exceptions.map((e) => ({
-      id: e.id,
-      name: e.name,
-      tools: e.tools,
-      caption: kindWords[e.kind],
-      actions: manage ? (
-        <ActionMenu
-          label={e.name}
-          always
-          actions={[
-            {
-              label: "Remove exception",
-              hint: "They have their role's tools again",
-              danger: true,
-              onSelect: () => excepting.remove.mutate(e.id),
-            },
-          ]}
-        />
-      ) : undefined,
-    })),
-  ];
-  const toolFocus = toolColumns.find((c) => c.id === toolShown)?.id ?? toolColumns[0]?.id;
-
-  const setLevel = (role: ProjectRole, area: AccessArea, level: string) =>
-    updateRole.mutate({
-      id: role.id,
-      name: role.name,
-      levels: { ...role.levels, [area]: level } as AccessLevels,
-    });
-  const setTool = (role: ProjectRole, tool: PlayerTool, on: boolean) =>
-    updateRole.mutate({
-      id: role.id,
-      name: role.name,
-      levels: role.levels,
-      tools: on
-        ? playerTools.filter((t) => t === tool || role.tools.includes(t))
-        : role.tools.filter((t) => t !== tool),
-    });
-  // The one role left that manages people keeps that level, so the project is never left
-  // without someone to run it.
-  const managers = roles.filter((r) => r.levels.people === "manage");
   const close = () => setDialog(null);
+  const save = (levels: AccessLevels, tools?: PlayerTool[]) =>
+    updateRole.mutate({ id: role.id, name: role.name, levels, tools });
+  const create = (input: { name: string; levels: AccessLevels; tools?: PlayerTool[] }) =>
+    createRole.mutate(input, {
+      onSuccess: (data) => {
+        setShown(data.role.id);
+        close();
+      },
+    });
+
+  const exceptionColumns: ToolColumn[] = exceptions.map((e) => ({
+    id: e.id,
+    name: e.name,
+    tools: e.tools,
+    caption: kindWords[e.kind],
+    actions: manage ? (
+      <ActionMenu
+        label={e.name}
+        always
+        actions={[
+          {
+            label: "Remove exception",
+            hint: "They have their role's tools again",
+            danger: true,
+            onSelect: () => excepting.remove.mutate(e.id),
+          },
+        ]}
+      />
+    ) : undefined,
+  }));
+  const exceptionFocus =
+    exceptionColumns.find((c) => c.id === exceptionShown)?.id ?? exceptionColumns[0]?.id;
 
   return (
     <>
-      <Section
-        title="Roles"
-        intro="Every project starts with Producer, Engineer, Editor, Reviewer and Viewer. Rename them or add your own."
-        action={
-          manage ? (
-            <Button variant="secondary" size="md" onClick={() => setDialog("new")}>
-              <Icon name="plus" size={14} />
-              Role
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-1.5 border-0 p-0">
+            <legend className="sr-only">Role</legend>
+            {roles.map((r) => (
+              <ToggleChip
+                key={r.id}
+                pressed={r.id === role.id}
+                onClick={() => setShown(r.id)}
+                className="max-w-[200px]"
+                title={r.name}
+              >
+                <span className="truncate">{r.name}</span>
+              </ToggleChip>
+            ))}
+          </fieldset>
+          {manage && (
+            <NewRoleMenu
+              roles={roles}
+              onBlank={() => setDialog("new")}
+              onCopy={(source) => create(copyOf(source, roles))}
+            />
+          )}
+          {roles.length > 1 && (
+            <Button
+              variant="quiet"
+              size="sm"
+              className="ml-auto"
+              onClick={() => setDialog("compare")}
+            >
+              <Icon name="columns" size={14} />
+              Compare
             </Button>
-          ) : undefined
-        }
-      >
-        {roles.map((role) => (
-          <Row
-            key={role.id}
-            name={role.name}
-            inline
-            hint={role.members === 1 ? "1 person" : `${role.members} people`}
-          >
+          )}
+        </div>
+
+        <section aria-label={role.name} className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <h2 className="truncate text-[16px] font-medium text-ink">{role.name}</h2>
+              <p className="mt-0.5 text-[13px] text-ink-3">
+                {role.members === 0
+                  ? "No one has this role yet"
+                  : role.members === 1
+                    ? "1 person"
+                    : `${role.members} people`}
+              </p>
+            </div>
             {manage && (
               <ActionMenu
                 always
                 label={role.name}
                 actions={[
-                  { label: "Rename…", onSelect: () => setDialog(role) },
-                  {
-                    label: "Duplicate",
-                    onSelect: () =>
-                      createRole.mutate({
-                        name: copyName(
-                          role.name,
-                          roles.map((r) => r.name),
-                        ),
-                        levels: role.levels,
-                        tools: [...role.tools],
-                      }),
-                  },
+                  { label: "Rename…", onSelect: () => setDialog("rename") },
+                  ...(roles.length > 1
+                    ? [{ label: "Copy from…", onSelect: () => setDialog("copy") }]
+                    : []),
                   "divider",
                   role.members > 0
                     ? {
@@ -337,128 +507,125 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
                         hint: "Give its people another role first",
                         onSelect: () => {},
                       }
-                    : { label: "Delete", danger: true, onSelect: () => deleteRole.mutate(role.id) },
+                    : {
+                        label: "Delete",
+                        danger: true,
+                        onSelect: () =>
+                          deleteRole.mutate(role.id, { onSuccess: () => setShown(null) }),
+                      },
                 ]}
               />
             )}
+          </div>
+          {error && !dialog && <p className="m-0 text-[13px] text-signal">{error.message}</p>}
+          <div className="flex flex-col overflow-hidden rounded-panel-lg border border-line bg-raised/25 shadow-1">
+            {permissionGroups().map((area, i) => {
+              const level = role.levels[area.id];
+              const floor = levelIndex(area.id, lowestLevel(role, roles, area.id));
+              const label = area.levels.find((l) => l.id === level)?.label ?? level;
+              return (
+                <div key={area.id} className={cn(i > 0 && "border-t border-line")}>
+                  <div className="flex items-center gap-3 bg-raised/40 px-4 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="m-0 text-[14px] font-medium text-ink">{area.label}</h3>
+                      <p className="m-0 text-[12px] text-ink-3">{area.hint}</p>
+                    </div>
+                    {manage ? (
+                      <Select
+                        size="sm"
+                        value={level}
+                        aria-label={`${area.label} for ${role.name}`}
+                        title={floor > 0 ? "Another role must manage people first" : undefined}
+                        onChange={(event) =>
+                          save(setAreaLevel(role.levels, area.id, event.target.value))
+                        }
+                        className={cn("w-32 shrink-0", level === "none" && "text-ink-3")}
+                      >
+                        {area.levels.map((l, at) => (
+                          <option key={l.id} value={l.id} disabled={at < floor}>
+                            {l.label}
+                          </option>
+                        ))}
+                      </Select>
+                    ) : (
+                      <span
+                        className={cn(
+                          "shrink-0 text-[13px]",
+                          level === "none" ? "text-ink-3" : "text-ink",
+                        )}
+                      >
+                        {label}
+                      </span>
+                    )}
+                  </div>
+                  {area.rows.map((row) => {
+                    const on = rowOn(role.levels, area.id, row.level);
+                    return (
+                      <div
+                        key={row.permission}
+                        className="flex items-center gap-3 border-t border-line py-2 pr-4 pl-6"
+                      >
+                        <span
+                          className={cn(
+                            "min-w-0 flex-1 text-[13px]",
+                            on ? "text-ink-2" : "text-ink-3",
+                          )}
+                        >
+                          {row.label}
+                        </span>
+                        <Switch
+                          label={row.label}
+                          checked={on}
+                          disabled={!manage || levelIndex(area.id, row.level) <= floor}
+                          onChange={(next) => save(setRow(role.levels, area.id, row.level, next))}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+
+      <Section
+        title="Player tools"
+        intro={`Which tools ${role.name} sees on the recording page. QA, meters and the spectrogram are refused by the server too. Workspace owners and admins have them all.`}
+      >
+        {playerTools.map((tool) => (
+          <Row key={tool} name={toolWords[tool].label} hint={toolWords[tool].hint} inline>
+            <Switch
+              label={toolWords[tool].label}
+              checked={role.tools.includes(tool)}
+              disabled={!manage}
+              onChange={(on) => save(role.levels, withTool(role.tools, tool, on))}
+            />
           </Row>
         ))}
       </Section>
-      {error && !dialog && <p className="-mt-6 text-[13px] text-signal">{error.message}</p>}
-      <section aria-label="Access permissions" className="flex flex-col gap-3">
+
+      <section aria-label="Exceptions" className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <h2 className="text-[16px] font-medium text-ink">Access permissions</h2>
+            <h2 className="text-[16px] font-medium text-ink">Exceptions</h2>
             <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">
-              How far each role reaches in each area. A level includes the ones before it.
+              {exceptions.length === 0
+                ? "None: everyone has their role's tools, and a guest their review's."
+                : "An exception's tools replace the role's for that person or group; a guest's stay within their review's."}
             </p>
           </div>
-          {roles.length > 1 && (
+          {exceptionColumns.length > 1 && (
             <div className="flex items-center gap-2 text-[13px] text-ink-3 @3xl/app:hidden">
-              <label htmlFor="role-shown">Role</label>
+              <label htmlFor="exception-shown">Shown</label>
               <Select
-                id="role-shown"
+                id="exception-shown"
                 size="sm"
-                value={focus}
-                onChange={(event) => setShown(event.target.value)}
+                value={exceptionFocus}
+                onChange={(event) => setExceptionShown(event.target.value)}
                 className="w-auto"
               >
-                {roles.map((role) => (
-                  <option key={role.id} value={role.id}>
-                    {role.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
-        </div>
-        <div className="rounded-panel-lg border border-line bg-raised/25 shadow-1 @3xl/app:overflow-x-auto">
-          <table
-            className="w-full border-collapse text-[13px] @3xl/app:min-w-[var(--roles-width)]"
-            style={{ "--roles-width": `${220 + roles.length * 120}px` } as CSSProperties}
-          >
-            <thead>
-              <tr>
-                <th className="label px-4 py-2 text-left font-normal">Area</th>
-                {roles.map((role) => (
-                  <th
-                    key={role.id}
-                    className={cn(
-                      "w-[120px] px-1 py-2 text-left font-normal last:pr-4",
-                      column(role.id),
-                    )}
-                  >
-                    <span className="label block truncate px-2">{role.name}</span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {accessAreas.map((area) => (
-                <tr key={area.id} className="border-t border-line">
-                  <td className="px-4 py-2">
-                    <div className="text-ink">{area.label}</div>
-                    <div className="text-[12px] text-ink-3">{area.hint}</div>
-                  </td>
-                  {roles.map((role) => {
-                    const level = role.levels[area.id];
-                    const label = area.levels.find((l) => l.id === level)?.label ?? level;
-                    const locked =
-                      area.id === "people" && level === "manage" && managers.length === 1;
-                    return (
-                      <td key={role.id} className={cn("px-1 py-1.5 last:pr-4", column(role.id))}>
-                        {manage ? (
-                          <Select
-                            size="sm"
-                            value={level}
-                            aria-label={`${area.label} for ${role.name}`}
-                            disabled={locked}
-                            title={locked ? "Another role must manage people first" : undefined}
-                            onChange={(event) => setLevel(role, area.id, event.target.value)}
-                            className={cn(level === "none" && "text-ink-3")}
-                          >
-                            {area.levels.map((l) => (
-                              <option key={l.id} value={l.id}>
-                                {l.label}
-                              </option>
-                            ))}
-                          </Select>
-                        ) : (
-                          <span
-                            className={cn("px-2", level === "none" ? "text-ink-3" : "text-ink")}
-                          >
-                            {label}
-                          </span>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      <section aria-label="Player tools" className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-[16px] font-medium text-ink">Player tools</h2>
-            <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">
-              Which tools each role sees on the recording page. QA, meters and the spectrogram are
-              refused by the server too. Workspace owners and admins have them all.
-            </p>
-          </div>
-          {toolColumns.length > 1 && (
-            <div className="flex items-center gap-2 text-[13px] text-ink-3 @3xl/app:hidden">
-              <label htmlFor="tools-shown">Shown</label>
-              <Select
-                id="tools-shown"
-                size="sm"
-                value={toolFocus}
-                onChange={(event) => setToolShown(event.target.value)}
-                className="w-auto"
-              >
-                {toolColumns.map((c) => (
+                {exceptionColumns.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.caption ? `${c.name} (${c.caption.toLowerCase()})` : c.name}
                   </option>
@@ -466,44 +633,40 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
               </Select>
             </div>
           )}
+          {manage && (
+            <Button variant="secondary" size="md" onClick={() => setDialog("exception")}>
+              Add an exception
+            </Button>
+          )}
         </div>
-        <PlayerToolsTable
-          roles={toolColumns}
-          manage={manage}
-          column={(id) => (id === toolFocus ? "" : "hidden @3xl/app:table-cell")}
-          onToggle={(id, tool, on) => {
-            const role = roles.find((r) => r.id === id);
-            if (role) return setTool(role, tool, on);
-            const exception = exceptions.find((e) => e.id === id);
-            if (exception)
-              excepting.update.mutate({
-                id,
-                tools: on
-                  ? playerTools.filter((t) => t === tool || exception.tools.includes(t))
-                  : exception.tools.filter((t) => t !== tool),
-              });
-          }}
-        />
-        <div className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25">
-          <Row
-            name="Exceptions"
-            hint={
-              exceptions.length === 0
-                ? "None: everyone has their role's tools, and a guest their review's."
-                : "An exception's tools replace the role's for that person or group; a guest's stay within their review's."
-            }
-          >
-            {manage && (
-              <Button variant="ghost" size="md" onClick={() => setDialog("exception")}>
-                Add an exception
-              </Button>
-            )}
-          </Row>
-        </div>
+        {exceptionColumns.length > 0 && (
+          <PlayerToolsTable
+            roles={exceptionColumns}
+            manage={manage}
+            column={(id) => (id === exceptionFocus ? "" : "hidden @3xl/app:table-cell")}
+            onToggle={(id, tool, on) => {
+              const exception = exceptions.find((e) => e.id === id);
+              if (exception)
+                excepting.update.mutate({ id, tools: withTool(exception.tools, tool, on) });
+            }}
+          />
+        )}
         {exceptionError && <p className="m-0 text-[13px] text-signal">{exceptionError.message}</p>}
       </section>
+
       {dialog === "exception" && (
         <ExceptionDialog projectId={projectId} roles={roles} taken={exceptions} onClose={close} />
+      )}
+      {dialog === "compare" && <CompareDialog roles={roles} onClose={close} />}
+      {dialog === "copy" && (
+        <CopyFromDialog
+          role={role}
+          roles={roles}
+          pending={updateRole.isPending}
+          error={updateRole.error}
+          onCopy={(source) => updateRole.mutate(copiedInto(role, source), { onSuccess: close })}
+          onClose={close}
+        />
       )}
       {dialog === "new" && (
         <RoleDialog
@@ -513,24 +676,19 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
           pending={createRole.isPending}
           error={createRole.error}
           // A new role starts by looking: it sees the files and reads the comments.
-          onSubmit={(name) =>
-            createRole.mutate(
-              { name, levels: levelsOf(["view", "read_comments"]) },
-              { onSuccess: close },
-            )
-          }
+          onSubmit={(name) => create({ name, levels: levelsOf(["view", "read_comments"]) })}
           onClose={close}
         />
       )}
-      {dialog && dialog !== "new" && dialog !== "exception" && (
+      {dialog === "rename" && (
         <RoleDialog
-          title={`Rename ${dialog.name}`}
-          initial={dialog.name}
+          title={`Rename ${role.name}`}
+          initial={role.name}
           submitLabel="Rename"
           pending={updateRole.isPending}
           error={updateRole.error}
           onSubmit={(name) =>
-            updateRole.mutate({ id: dialog.id, name, levels: dialog.levels }, { onSuccess: close })
+            updateRole.mutate({ id: role.id, name, levels: role.levels }, { onSuccess: close })
           }
           onClose={close}
         />

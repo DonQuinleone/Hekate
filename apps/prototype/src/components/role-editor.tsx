@@ -541,7 +541,7 @@ export function RolesAndAccess({ project, canRoles }: { project: Project; canRol
               <tbody>
                 {roles.map((r) => (
                   <tr key={r.id} className="border-t border-line">
-                    <td className="px-2 py-2 text-ink">{r.name}</td>
+                    <td className="px-2 py-2 whitespace-nowrap text-ink">{r.name}</td>
                     {accessAreas.map((a) => (
                       <td
                         key={a.id}
