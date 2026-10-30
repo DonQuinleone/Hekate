@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { createDb, runMigrations, schema, withAuditPurge } from "@hekate/db";
 import { defaultProjectRoles } from "@hekate/shared";
 import { createBackends, storageConfigFromEnv } from "@hekate/storage";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "./app.ts";
 import { createAudit } from "./audit.ts";
@@ -330,6 +330,33 @@ describe.runIf(url)("calendar entries and deadlines", () => {
       name: "Day 4, moved",
       recordedOn: "2026-10-28",
     });
+    // The session keeps a track it took up since (as recording a take of it does); only the
+    // entry's own link moves, and only when the entry's track changes.
+    const later = await app.request(
+      `/api/projects/${s.projectId}/tracks`,
+      json({ name: "Gladiolus Rag" }, s.owner),
+    );
+    const laterTrack = ((await later.json()) as { track: { id: string } }).track.id;
+    await db.insert(schema.sessionTracks).values({
+      organisationId: s.organisationId,
+      sessionId: session.sessionId,
+      trackId: laterTrack,
+    });
+    const tracksOfSession = async () =>
+      (
+        await db
+          .select({ trackId: schema.sessionTracks.trackId })
+          .from(schema.sessionTracks)
+          .where(eq(schema.sessionTracks.sessionId, session.sessionId))
+      )
+        .map((r) => r.trackId)
+        .sort();
+    await change(session.id, { title: "Day 4, renamed" });
+    expect(await tracksOfSession()).toEqual([s.trackId, laterTrack].sort());
+    await change(session.id, { trackId: null });
+    expect(await tracksOfSession()).toEqual([laterTrack]);
+    await change(session.id, { trackId: s.trackId, title: "Day 4, moved" });
+    expect(await tracksOfSession()).toEqual([s.trackId, laterTrack].sort());
     // Someone who edits the schedule but not sessions may not book one.
     const planner = await joinAs(s.owner, "planner@example.test");
     const role = await app.request(
@@ -364,6 +391,9 @@ describe.runIf(url)("calendar entries and deadlines", () => {
       (await add({ kind: "delivery", title: "Masters", startsOn: "2026-10-29" }, planner)).status,
     ).toBe(201);
     expect((await change(entry.id, { kind: "session" }, planner)).status).toBe(403);
+    // Nor change one booked already, since the session follows its entry.
+    expect((await change(session.id, { title: "Day 4, theirs" }, planner)).status).toBe(403);
+    expect((await sessionsOf()).find((x) => x.id === session.sessionId)?.name).toBe("Day 4, moved");
 
     // The feed carries the entries' days.
     const feed = (await (

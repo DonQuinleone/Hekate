@@ -45,6 +45,7 @@ const {
   scheduleDays,
   sessions,
   sessionTracks,
+  takes,
   tasks,
   tracks,
   users,
@@ -444,7 +445,11 @@ async function setAttendees(tx: Tx, organisationId: string, entryId: string, use
       .values(userIds.map((userId) => ({ organisationId, entryId, userId })));
 }
 
-/** The session a session entry booked follows the entry's title, day and track. */
+/**
+ * The session a session entry booked follows the entry's title, day and track. Only the link
+ * the entry made is moved: tracks the session took up since, by recording takes of them, stay.
+ * `previousTrackId` is the track the entry linked before, null for a session just booked.
+ */
 async function followEntry(
   tx: Tx,
   organisationId: string,
@@ -455,19 +460,43 @@ async function followEntry(
     startsAt: Date;
     trackId: string | null;
   },
+  previousTrackId: string | null,
 ) {
-  if (!entry.sessionId) return;
+  const sessionId = entry.sessionId;
+  if (!sessionId) return;
   await tx
     .update(sessions)
     .set({ name: entry.title, recordedOn: dayOf(entry.startsAt), updatedAt: new Date() })
-    .where(inOrg(sessions, organisationId, eq(sessions.id, entry.sessionId)));
-  await tx
-    .delete(sessionTracks)
-    .where(inOrg(sessionTracks, organisationId, eq(sessionTracks.sessionId, entry.sessionId)));
+    .where(inOrg(sessions, organisationId, eq(sessions.id, sessionId)));
+  if (previousTrackId === entry.trackId) return;
+  if (previousTrackId)
+    // The old track leaves the session only if nothing was recorded of it there.
+    await tx.delete(sessionTracks).where(
+      inOrg(
+        sessionTracks,
+        organisationId,
+        and(
+          eq(sessionTracks.sessionId, sessionId),
+          eq(sessionTracks.trackId, previousTrackId),
+          notExists(
+            tx
+              .select({ id: takes.id })
+              .from(takes)
+              .where(
+                inOrg(
+                  takes,
+                  organisationId,
+                  and(eq(takes.sessionId, sessionId), eq(takes.trackId, previousTrackId)),
+                ),
+              ),
+          ),
+        ),
+      ),
+    );
   if (entry.trackId)
     await tx
       .insert(sessionTracks)
-      .values({ organisationId, sessionId: entry.sessionId, trackId: entry.trackId })
+      .values({ organisationId, sessionId, trackId: entry.trackId })
       .onConflictDoNothing();
 }
 
@@ -649,11 +678,12 @@ export const calendarEntryRoutes = (db: Database) => {
       const { id } = c.req.valid("param");
       const input = c.req.valid("json");
       const entry = await entryOf(organisationId, id);
-      // Making an entry a session books one, so it takes the sessions' permission too.
+      // A session entry's changes reach the session it booked, and making an entry a session
+      // books one, so either takes the sessions' permission too.
       await seen(
         c.var,
         entry.projectId,
-        input.kind === "session" && !entry.sessionId ? "session" : undefined,
+        entry.sessionId || input.kind === "session" ? "session" : undefined,
       );
       const known = await checkLinks(db, organisationId, entry.projectId, input);
       const attendees = input.attendees !== undefined ? known : null;
@@ -691,7 +721,13 @@ export const calendarEntryRoutes = (db: Database) => {
           .set({ ...next, updatedAt: new Date() })
           .where(inOrg(calendarEntries, organisationId, eq(calendarEntries.id, id)));
         if (attendees) await setAttendees(tx, organisationId, id, attendees);
-        await followEntry(tx, organisationId, { projectId: entry.projectId, ...next });
+        await followEntry(
+          tx,
+          organisationId,
+          { projectId: entry.projectId, ...next },
+          // A session booked by this change has no track yet; one booked before had the entry's.
+          entry.sessionId ? entry.trackId : null,
+        );
       });
       const [changed] = await entriesOf(db, organisationId, entry.projectId, null, [id]);
       return c.json({ entry: changed });
