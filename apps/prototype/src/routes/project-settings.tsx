@@ -1,9 +1,9 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon } from "~/components/icons";
-import { Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
-import { Danger, Matrix, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
+import { RolesAndAccess } from "~/components/role-editor";
+import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
@@ -17,7 +17,6 @@ import {
   measures,
   type Project,
   type ProjectPermission,
-  type ProjectRole,
   personById,
   projectById,
   projectPacks,
@@ -25,14 +24,14 @@ import {
   type QaRuleKind,
   qaRules,
   rulePacks,
-  type Tool,
   tracks,
   workflows,
 } from "~/data";
 import { cn } from "~/lib/cn";
-import { plural } from "~/lib/format";
 import { useViewer } from "~/viewer/context";
 import { Refused } from "~/viewer/state-gate";
+
+export { accessAreas, accessOf, toolCopy } from "~/components/role-editor";
 
 const sections = [
   { id: "general", label: "General", group: "Project" },
@@ -48,111 +47,14 @@ const sections = [
 const intros: Record<string, string> = {
   general: "The project's name, what it is for, and what new projects copy from it.",
   comments: "How comments are anchored, categorised and carried between versions.",
-  roles: "Who may do what: the roles, how far each one reaches, and the tools it is given.",
+  roles:
+    "Who may do what, one role at a time: a level in each area, each including the ones before it, and the tools it is given.",
   workflow: "The stages a track goes through, the statuses they set, and who is told.",
   security: "How originals are protected on their way to a browser.",
   storage: "Where this project's files live and how much they take.",
   delivery: "The numbers the checks measure against: loudness, peaks, formats and lengths.",
   qa: "Every check that runs on a file, by category: plain errors always on, delivery checks and your own rules as you choose.",
 };
-
-/** Access permissions: each area has levels, and a role holds one level per area. */
-export const accessAreas: { id: string; label: string; hint: string; levels: string[] }[] = [
-  {
-    id: "files",
-    label: "Files",
-    hint: "Folders, tracks, versions and variants",
-    levels: ["None", "View", "Upload", "Organise", "Delete"],
-  },
-  {
-    id: "comments",
-    label: "Comments",
-    hint: "Reading, writing, and triaging anyone's",
-    levels: ["None", "Read", "Write", "Triage"],
-  },
-  {
-    id: "reviews",
-    label: "Reviews",
-    hint: "Responding, requesting, inviting and revoking reviewers",
-    levels: ["None", "Respond", "Request", "Manage"],
-  },
-  {
-    id: "downloads",
-    label: "Downloads",
-    hint: "The proxy, or the original watermarked and logged",
-    levels: ["None", "Proxy", "Original"],
-  },
-  {
-    id: "takes",
-    label: "Sessions and takes",
-    hint: "Seeing the take manager, or editing it",
-    levels: ["None", "View", "Edit"],
-  },
-  {
-    id: "production",
-    label: "Production tools",
-    hint: "Schedule, take log, score marking, stage plan",
-    levels: ["None", "View", "Edit"],
-  },
-  {
-    id: "workflow",
-    label: "Workflow",
-    hint: "Stages, statuses, events and upload checks",
-    levels: ["None", "View", "Edit"],
-  },
-  {
-    id: "people",
-    label: "Roles and people",
-    hint: "Who is in the project and what they may do",
-    levels: ["None", "View", "Manage"],
-  },
-  {
-    id: "project",
-    label: "Project",
-    hint: "Settings, archiving and deletion",
-    levels: ["None", "Edit", "Delete"],
-  },
-];
-
-/** The level a role starts at in each area, read off its permissions. */
-export function accessOf(role: ProjectRole): Record<string, string> {
-  const has = (p: ProjectPermission) => role.permissions.includes(p);
-  const tool = (t: Tool) => role.tools.includes(t);
-  return {
-    files: has("delete")
-      ? "Delete"
-      : has("organise")
-        ? "Organise"
-        : has("upload")
-          ? "Upload"
-          : "View",
-    comments: has("triage") ? "Triage" : has("comment") ? "Write" : "Read",
-    reviews: has("manage_reviewers")
-      ? "Manage"
-      : has("request_reviews")
-        ? "Request"
-        : has("decide")
-          ? "Respond"
-          : "None",
-    downloads: tool("download") ? "Original" : "Proxy",
-    takes: tool("takes") ? "Edit" : "View",
-    production: tool("production") ? "Edit" : "None",
-    workflow: has("edit_workflows") ? "Edit" : "View",
-    people: has("manage_roles") ? "Manage" : "View",
-    project: has("delete") ? "Delete" : has("manage_roles") ? "Edit" : "None",
-  };
-}
-
-/** The player's tools are on or off per role; downloads, takes and production are access levels. */
-const playerTools: Tool[] = [
-  "qa",
-  "meters",
-  "spectrogram",
-  "score",
-  "compare",
-  "loops",
-  "normalise",
-];
 
 const kindCopy: Record<QaRuleKind, { label: string; hint: string }> = {
   audio: { label: "Audio", hint: "Levels, format and content of stereo files" },
@@ -178,19 +80,6 @@ export const permissionCopy: Record<ProjectPermission, { label: string; hint: st
   edit_workflows: { label: "Edit workflows", hint: "Stages, statuses and upload rules" },
   manage_roles: { label: "Manage roles", hint: "Roles, their permissions and who has them" },
   delete: { label: "Delete", hint: "Files, versions and the project" },
-};
-
-export const toolCopy: Record<Tool, { label: string; hint: string }> = {
-  qa: { label: "QA", hint: "Findings, loudness, format and metadata" },
-  meters: { label: "Meters", hint: "Peak, RMS, mid, side, correlation" },
-  spectrogram: { label: "Spectrogram", hint: "Below, behind or instead of the waveform" },
-  score: { label: "Score", hint: "The linked score beside the recording" },
-  takes: { label: "Takes", hint: "Sessions, takes and the other options for a bar" },
-  compare: { label: "Compare", hint: "Versions and variants on keys 1 to 4" },
-  loops: { label: "Loops", hint: "Drag, nudge, pre and post roll" },
-  normalise: { label: "Normalise", hint: "Level-matched playback, where the project allows it" },
-  download: { label: "Download", hint: "The proxy or the original, watermarked and logged" },
-  production: { label: "Production", hint: "Schedule, take log, score marking, stage plan" },
 };
 
 const severityLabel: Record<QaRule["severity"], string> = {
@@ -357,8 +246,6 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
   const [ruleOpen, setRuleOpen] = useState(false);
   const [packsOn, setPacksOn] = useState<Set<string>>(new Set(projectPacks[project.id] ?? []));
   const [confirm, setConfirm] = useState<"archive" | "delete" | "move" | null>(null);
-  const [roles, setRoles] = useState(project.roles);
-  const [adding, setAdding] = useState(false);
   const canRoles = viewer.can(project.id, "manage_roles");
   const canWorkflows = viewer.can(project.id, "edit_workflows");
   const workflow = workflows.find((w) => w.id === project.workflowId);
@@ -368,55 +255,6 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
   });
   const sec =
     section === "tools" ? "roles" : sections.some((s) => s.id === section) ? section : "general";
-  const [access, setAccess] = useState<Record<string, Record<string, string>>>(() =>
-    Object.fromEntries(project.roles.map((r) => [r.id, accessOf(r)])),
-  );
-  const setLevel = (roleId: string, area: string, level: string) =>
-    setAccess((a) => ({ ...a, [roleId]: { ...a[roleId], [area]: level } }));
-  const _permissionOf = (role: string, p: string) =>
-    roles.find((r) => r.id === role)?.permissions.includes(p as ProjectPermission) ?? false;
-  const toolOf = (role: string, t: string) =>
-    roles.find((r) => r.id === role)?.tools.includes(t as Tool) ?? false;
-  const toggle = (kind: "permissions" | "tools") => (row: string, column: string) =>
-    setRoles((list) =>
-      list.map((r) => {
-        if (r.id !== column) return r;
-        const have = (r[kind] as string[]).includes(row);
-        return {
-          ...r,
-          [kind]: have
-            ? (r[kind] as string[]).filter((x) => x !== row)
-            : [...(r[kind] as string[]), row],
-        };
-      }),
-    );
-  const lastManager = roles.filter((r) => r.permissions.includes("manage_roles")).length === 1;
-  // Exceptions to the player tools (decision 258): a person's or a group's own, in the matrix.
-  const [exceptions, setExceptions] = useState<{ id: string; label: string; tools: Tool[] }[]>([
-    { id: "x-mira", label: "Mira Solberg (guest)", tools: ["score", "loops"] },
-    {
-      id: "x-soloists",
-      label: "Soloists (group)",
-      tools: ["qa", "meters", "score", "compare", "loops", "normalise"],
-    },
-  ]);
-  const toolOrException = (column: string, t: string) =>
-    exceptions.find((x) => x.id === column)?.tools.includes(t as Tool) ?? toolOf(column, t);
-  const toggleTool = (row: string, column: string) => {
-    if (!exceptions.some((x) => x.id === column)) return toggle("tools")(row, column);
-    setExceptions((list) =>
-      list.map((x) =>
-        x.id !== column
-          ? x
-          : {
-              ...x,
-              tools: x.tools.includes(row as Tool)
-                ? x.tools.filter((t) => t !== row)
-                : [...x.tools, row as Tool],
-            },
-      ),
-    );
-  };
   return (
     <SettingsLayout
       title={sections.find((x) => x.id === sec)?.label ?? "Settings"}
@@ -702,137 +540,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
           </Section>
         </>
       )}
-      {sec === "roles" && (
-        <>
-          <Section
-            title="Roles"
-            intro="Every project starts with Producer, Engineer, Editor, Reviewer and Viewer. Rename them or add your own; a person can be given more or less than their role, and a review can lower it for its reviewers but never raise it."
-            action={
-              canRoles ? (
-                <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
-                  <Icon name="plus" size={14} />
-                  Role
-                </Button>
-              ) : undefined
-            }
-          >
-            {roles.map((r) => (
-              <Row
-                key={r.id}
-                name={r.name}
-                hint={plural(
-                  project.members.filter((m) => m.roleId === r.id).length,
-                  "person",
-                  "people",
-                )}
-              >
-                {canRoles && (
-                  <ActionMenu
-                    always
-                    label={r.name}
-                    actions={[
-                      { label: "Rename", onSelect: () => {} },
-                      { label: "Duplicate", onSelect: () => {} },
-                      "divider",
-                      {
-                        label: project.members.some((m) => m.roleId === r.id)
-                          ? "In use: cannot delete"
-                          : "Delete",
-                        danger: true,
-                        onSelect: () => {},
-                      },
-                    ]}
-                  />
-                )}
-              </Row>
-            ))}
-          </Section>
-          <Section
-            title="Access permissions"
-            intro="How far each role reaches in each area. A level includes the ones before it."
-          >
-            <div className="scroll-quiet overflow-x-auto">
-              <table className="w-full border-collapse text-[13px]">
-                <thead>
-                  <tr>
-                    <th className="w-[34%] px-4 py-2 text-left">
-                      <Label>Area</Label>
-                    </th>
-                    {roles.map((r) => (
-                      <th key={r.id} className="px-2 py-2 text-left">
-                        <Label>{r.name}</Label>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {accessAreas.map((area) => (
-                    <tr key={area.id} className="border-t border-line">
-                      <td className="px-4 py-2">
-                        <div className="text-ink">{area.label}</div>
-                        <div className="text-[12px] text-ink-3">{area.hint}</div>
-                      </td>
-                      {roles.map((r) => {
-                        const level = access[r.id]?.[area.id] ?? "None";
-                        const locked =
-                          !canRoles ||
-                          (area.id === "people" && lastManager && level === "Manage") ||
-                          (area.id === "production" && project.profile !== "music");
-                        return (
-                          <td key={r.id} className="px-2 py-1.5">
-                            <Select
-                              value={level}
-                              aria-label={`${area.label} for ${r.name}`}
-                              disabled={locked}
-                              onChange={(e) => setLevel(r.id, area.id, e.target.value)}
-                              className={cn(
-                                "h-7 w-full min-w-[112px] text-[12px]",
-                                level === "None" && "text-ink-3",
-                              )}
-                            >
-                              {area.levels.map((l) => (
-                                <option key={l}>{l}</option>
-                              ))}
-                            </Select>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Section>
-          <Section
-            title="Player tools"
-            intro="Which tools each role sees on the recording page. Downloads, takes and the production tools are levels above."
-          >
-            <Matrix
-              heading="Tool"
-              columns={[
-                ...roles.map((r) => ({ id: r.id, label: r.name })),
-                ...exceptions.map((x) => ({ id: x.id, label: x.label })),
-              ]}
-              rows={playerTools.map((t) => ({
-                id: t,
-                label: toolCopy[t].label,
-                hint: toolCopy[t].hint,
-              }))}
-              value={(row, col) => toolOrException(col, row)}
-              onToggle={canRoles ? toggleTool : undefined}
-              locked={() => (!canRoles ? "Managed by whoever manages roles" : null)}
-            />
-            <Row
-              name="Exceptions"
-              hint="An exception's tools replace the role's for that person or group; a guest's stay within their review's."
-            >
-              <Button variant="ghost" size="md">
-                Add an exception
-              </Button>
-            </Row>
-          </Section>
-        </>
-      )}
+      {sec === "roles" && <RolesAndAccess project={project} canRoles={canRoles} />}
       {sec === "workflow" && (
         <>
           <Section
@@ -1162,52 +870,6 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
         </Section>
       )}
       {profileOpen && <ProfileEditor onClose={() => setProfileOpen(false)} />}
-      {adding && (
-        <Dialog
-          title="New role"
-          onClose={() => setAdding(false)}
-          width="sm"
-          footer={
-            <>
-              <Button variant="ghost" onClick={() => setAdding(false)}>
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => {
-                  setRoles((l) => [
-                    ...l,
-                    {
-                      id: `r-new-${l.length}`,
-                      name: "Conductor",
-                      permissions: ["view", "comment"],
-                      tools: ["score", "loops"],
-                    },
-                  ]);
-                  setAdding(false);
-                }}
-              >
-                Add role
-              </Button>
-            </>
-          }
-        >
-          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-            Name
-            <Input defaultValue="Conductor" />
-          </label>
-          <label className="mt-4 flex flex-col gap-1.5 text-[13px] text-ink-2">
-            Start from
-            <Select defaultValue="r-reviewer">
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-        </Dialog>
-      )}
       {confirm === "move" && (
         <Dialog
           title={`Move ${project.name} to another workspace?`}
