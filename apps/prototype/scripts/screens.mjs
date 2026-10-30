@@ -105,6 +105,18 @@ const screens = [
   },
   { name: "tasks", route: "/projects/proj-joplin/tasks" },
   { name: "people", route: "/projects/proj-joplin/people" },
+  // Its only owner leaving (decision 285): asked who takes over.
+  {
+    name: "people-leave",
+    route: "/projects/proj-titles/people",
+    persona: "producer",
+    steps: [
+      { click: 'role=button[name="Actions for Mira Solberg"]' },
+      { click: 'role=menuitem[name="Leave project…"]' },
+      { click: 'role=combobox[name="Who takes over"]' },
+      { click: 'role=option[name=/Tomas Varga/]' },
+    ],
+  },
   {
     name: "roles",
     route: "/projects/proj-joplin/settings?section=roles",
