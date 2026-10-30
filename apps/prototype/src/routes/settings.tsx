@@ -1213,6 +1213,24 @@ export function SettingsPage({
       )}
       {sec === "notifications" && (
         <>
+          {state === "processing" && (
+            <div
+              role="status"
+              className="flex items-start gap-2.5 rounded-panel border border-signal/30 bg-signal/[0.06] px-3.5 py-2.5 text-[13px] text-ink"
+            >
+              <Icon name="warning" size={14} className="mt-0.5 shrink-0 text-signal" />
+              <span>
+                This instance writes email to its log; nothing is sent. Set up mail under{" "}
+                <a
+                  href="/instance/settings"
+                  className="text-ink underline decoration-edge underline-offset-2 hover:decoration-ink-3"
+                >
+                  Instance, Settings
+                </a>
+                .
+              </span>
+            </div>
+          )}
           <Section
             title="Channels"
             intro="Where events go. Each channel has its own fields and a test; a channel that keeps failing pauses itself."
@@ -1275,12 +1293,6 @@ export function SettingsPage({
                 />
               </Row>
             ))}
-            {state === "processing" && (
-              <Row
-                name="Log only"
-                hint="No mail is sent: the instance writes everything to its log, as in development. Give the workspace its own mail, or ask the operator to set the instance's."
-              />
-            )}
           </Section>
           <Section title="Events" intro="Which events each channel carries.">
             <Matrix
