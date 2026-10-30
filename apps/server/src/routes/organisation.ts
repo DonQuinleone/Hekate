@@ -35,6 +35,7 @@ import { type LinkRoots, linkBase } from "../hosts.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { zValidator } from "../openapi/validator.ts";
+import { dropOwnerships } from "../project-owners.ts";
 import type { Storage } from "../storage.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 import { assertMemberRoom } from "../usage.ts";
@@ -418,6 +419,9 @@ export const organisationRoutes = (
             ),
           );
         await tx.delete(members).where(inOrg(members, c.var.organisationId, eq(members.id, id)));
+        // So does their ownership of them, each project handed to its earliest member, or the
+        // workspace's earliest owner, should they have been its last (decision 285).
+        await dropOwnerships(tx, c.var.organisationId, member.userId);
         // Their API tokens here stop working with them (#198).
         await revokeMemberTokens(tx, c.var.organisationId, member.userId, c.var.userId);
       });

@@ -1,11 +1,17 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  leaveRefusal,
   levelsOf,
   listeningTools,
+  managesOwners,
+  type OrganisationRole,
   type PlayerTool,
+  type ProjectMember,
   playerTools,
+  projectLeaveInput,
   projectMemberInput,
   roleInput,
+  stepDownRefusal,
   type ToolException,
   toolExceptionInput,
   toolExceptionUpdate,
@@ -15,13 +21,21 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, can } from "../access.ts";
-import { NotFound } from "../errors.ts";
+import { CodedException, NotFound } from "../errors.ts";
 import { zValidator } from "../openapi/validator.ts";
+import {
+  addOwner,
+  lockOwners,
+  lockWorkspaceMember,
+  ownersOf,
+  ownersRole,
+} from "../project-owners.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
 const {
   projectRoles,
   projectMembers,
+  projectOwners,
   projectToolExceptions,
   members,
   users,
@@ -54,6 +68,31 @@ const choosesPeople = ["view_people", "request_reviews", "triage"] as const;
 
 /** Who may read the project's roles: as above, and those who build its workflows (#26). */
 const choosesRoles = [...choosesPeople, "edit_workflows"] as const;
+
+/**
+ * The project as someone who makes and unmakes its owners sees it (decision 285): one of its
+ * owners, or an owner or admin of the workspace; not while it is archived, as no role changes.
+ */
+async function forOwners(
+  db: Database,
+  vars: { userId: string; organisationId: string; organisationRole: OrganisationRole },
+  id: string,
+) {
+  const access = await can(db, actorOf(vars), "view", id);
+  if (!managesOwners(vars.organisationRole, access.owner))
+    throw new HTTPException(403, {
+      message: "Only the project's owners, and the workspace's owners and admins, can do that",
+    });
+  if (access.archived) throw new HTTPException(409, { message: "This project is archived" });
+  return access;
+}
+
+const lastOwner = () =>
+  new CodedException(
+    409,
+    "last_owner",
+    "A project always has an owner: make someone else one before this one steps down",
+  );
 
 const nameTaken = () =>
   new HTTPException(409, { message: "This project already has a role with that name" });
@@ -400,31 +439,151 @@ export const projectAccessRoutes = (db: Database) =>
       if (!removed) throw new NotFound("Exception");
       return c.body(null, 204);
     })
+    // Who has a place in the project: its owners (decision 285), marked, and its members.
     .get("/:id/members", idParam, async (c) => {
       const organisationId = c.var.organisationId;
       const { projectId } = await can(db, actorOf(c.var), choosesPeople, c.req.valid("param").id);
-      const rows = await db
-        .select({
-          userId: projectMembers.userId,
-          name: users.name,
-          email: users.email,
-          roleId: projectMembers.roleId,
-          // Their role in the workspace: owners and admins keep every tool whatever an
-          // exception says (decision 258), so the web app offers none for them.
-          workspaceRole: members.role,
-        })
-        .from(projectMembers)
-        .innerJoin(users, eq(users.id, projectMembers.userId))
-        .leftJoin(
-          members,
-          and(
-            eq(members.userId, projectMembers.userId),
-            eq(members.organisationId, organisationId),
-          ),
-        )
-        .where(inOrg(projectMembers, organisationId, eq(projectMembers.projectId, projectId)))
-        .orderBy(asc(users.name));
-      return c.json({ members: rows });
+      const inWorkspace = (userId: typeof projectMembers.userId | typeof projectOwners.userId) =>
+        and(eq(members.userId, userId), eq(members.organisationId, organisationId));
+      const [holders, owners] = await Promise.all([
+        db
+          .select({
+            userId: projectMembers.userId,
+            name: users.name,
+            email: users.email,
+            roleId: projectMembers.roleId,
+            // Their role in the workspace: owners and admins keep every tool whatever an
+            // exception says (decision 258), so the web app offers none for them.
+            workspaceRole: members.role,
+          })
+          .from(projectMembers)
+          .innerJoin(users, eq(users.id, projectMembers.userId))
+          .leftJoin(members, inWorkspace(projectMembers.userId))
+          .where(inOrg(projectMembers, organisationId, eq(projectMembers.projectId, projectId))),
+        db
+          .select({
+            userId: projectOwners.userId,
+            name: users.name,
+            email: users.email,
+            since: projectOwners.since,
+            workspaceRole: members.role,
+          })
+          .from(projectOwners)
+          .innerJoin(users, eq(users.id, projectOwners.userId))
+          .leftJoin(members, inWorkspace(projectOwners.userId))
+          .where(inOrg(projectOwners, organisationId, eq(projectOwners.projectId, projectId))),
+      ]);
+      const since = new Map(owners.map((o) => [o.userId, o.since.toISOString()]));
+      const listed: ProjectMember[] = [
+        ...holders.map((h) => ({ ...h, ownerSince: since.get(h.userId) ?? null })),
+        // An owner who holds no role is listed all the same.
+        ...owners
+          .filter((o) => !holders.some((h) => h.userId === o.userId))
+          .map(({ since: at, ...o }) => ({ ...o, roleId: null, ownerSince: at.toISOString() })),
+      ].sort((a, b) => a.name.localeCompare(b.name) || a.userId.localeCompare(b.userId));
+      return c.json({ members: listed });
+    })
+    // Make someone in the workspace an owner of the project (decision 285).
+    .put("/:id/owners/:userId", memberParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const { id, userId } = c.req.valid("param");
+      const { projectId } = await forOwners(db, c.var, id);
+      await db.transaction(async (tx) => {
+        await lockWorkspaceMember(tx, organisationId, userId);
+        await lockOwners(tx, projectId);
+        await addOwner(tx, organisationId, projectId, userId);
+      });
+      return c.body(null, 204);
+    })
+    // Make an owner a member again, back to their role (or the creator's, holding none); never
+    // the last owner. Counted under the owners' lock, so two stepping down at once cannot each
+    // leave the project to the other.
+    .delete("/:id/owners/:userId", memberParam, async (c) => {
+      const organisationId = c.var.organisationId;
+      const { id, userId } = c.req.valid("param");
+      const { projectId } = await forOwners(db, c.var, id);
+      await db.transaction(async (tx) => {
+        await lockOwners(tx, projectId);
+        const refusal = stepDownRefusal(await ownersOf(tx, organisationId, projectId), userId);
+        if (refusal === "not_owner") throw new NotFound("Owner");
+        if (refusal === "last_owner") throw lastOwner();
+        await tx
+          .delete(projectOwners)
+          .where(
+            inOrg(
+              projectOwners,
+              organisationId,
+              eq(projectOwners.projectId, projectId),
+              eq(projectOwners.userId, userId),
+            ),
+          );
+        await tx
+          .insert(projectMembers)
+          .values({
+            organisationId,
+            projectId,
+            userId,
+            roleId: await ownersRole(tx, organisationId, projectId),
+          })
+          .onConflictDoNothing({
+            target: [
+              projectMembers.organisationId,
+              projectMembers.projectId,
+              projectMembers.userId,
+            ],
+          });
+      });
+      return c.body(null, 204);
+    })
+    // Leave the project: your role and your ownership go. Its last owner names who takes over,
+    // a member of the workspace, who becomes an owner as they go (decision 285).
+    .post("/:id/leave", idParam, zValidator("json", projectLeaveInput), async (c) => {
+      const { organisationId, userId } = c.var;
+      const { projectId } = await can(db, actorOf(c.var), "view", c.req.valid("param").id);
+      const { successorId } = c.req.valid("json");
+      await db.transaction(async (tx) => {
+        await lockOwners(tx, projectId);
+        const owners = await ownersOf(tx, organisationId, projectId);
+        const refusal = leaveRefusal(owners, userId, successorId);
+        if (refusal === "successor_needed")
+          throw new CodedException(
+            409,
+            "successor_needed",
+            "You are its last owner: choose who takes over before you leave",
+          );
+        if (refusal === "successor_is_you")
+          throw new CodedException(422, "successor_is_you", "Choose someone other than yourself");
+        if (successorId && owners.length === 1 && owners[0] === userId) {
+          await lockWorkspaceMember(tx, organisationId, successorId);
+          await addOwner(tx, organisationId, projectId, successorId);
+        }
+        const [owned] = await tx
+          .delete(projectOwners)
+          .where(
+            inOrg(
+              projectOwners,
+              organisationId,
+              eq(projectOwners.projectId, projectId),
+              eq(projectOwners.userId, userId),
+            ),
+          )
+          .returning({ id: projectOwners.id });
+        const [held] = await tx
+          .delete(projectMembers)
+          .where(
+            inOrg(
+              projectMembers,
+              organisationId,
+              eq(projectMembers.projectId, projectId),
+              eq(projectMembers.userId, userId),
+            ),
+          )
+          .returning({ id: projectMembers.id });
+        // A workspace owner or admin sees every project without a place in it: none to leave.
+        if (!owned && !held)
+          throw new HTTPException(409, { message: "You have no place in this project to leave" });
+      });
+      return c.body(null, 204);
     })
     // Give someone in the organisation a role in this project, or change it.
     .put("/:id/members/:userId", memberParam, zValidator("json", projectMemberInput), async (c) => {
@@ -471,17 +630,29 @@ export const projectAccessRoutes = (db: Database) =>
       const organisationId = c.var.organisationId;
       const { id, userId } = c.req.valid("param");
       const { projectId } = await can(db, actorOf(c.var), "manage_roles", id);
-      const [removed] = await db
-        .delete(projectMembers)
-        .where(
-          inOrg(
-            projectMembers,
-            organisationId,
-            eq(projectMembers.projectId, projectId),
-            eq(projectMembers.userId, userId),
-          ),
-        )
-        .returning({ id: projectMembers.id });
+      const removed = await db.transaction(async (tx) => {
+        // An owner is made a member first, by those who manage owners (decision 285): managing
+        // people does not reach above the roles.
+        await lockOwners(tx, projectId);
+        if ((await ownersOf(tx, organisationId, projectId)).includes(userId))
+          throw new CodedException(
+            409,
+            "owner",
+            "An owner is made a member before they are removed from the project",
+          );
+        const [row] = await tx
+          .delete(projectMembers)
+          .where(
+            inOrg(
+              projectMembers,
+              organisationId,
+              eq(projectMembers.projectId, projectId),
+              eq(projectMembers.userId, userId),
+            ),
+          )
+          .returning({ id: projectMembers.id });
+        return row;
+      });
       if (!removed) throw new NotFound("Member");
       return c.body(null, 204);
     });

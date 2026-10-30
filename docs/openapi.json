@@ -1983,6 +1983,200 @@
         }
       }
     },
+    "/projects/{id}/owners/{userId}": {
+      "put": {
+        "operationId": "putProjectsIdOwnersUserId",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "PUT /projects/{id}/owners/{userId}",
+        "description": "Needs the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done; nothing to answer."
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteProjectsIdOwnersUserId",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "DELETE /projects/{id}/owners/{userId}",
+        "description": "Needs the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done; nothing to answer."
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/projects/{id}/leave": {
+      "post": {
+        "operationId": "postProjectsIdLeave",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "POST /projects/{id}/leave",
+        "description": "Needs the `files:write` scope.",
+        "security": [
+          {
+            "token": [
+              "files:write"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:write",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "successorId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                }
+              },
+              "example": {
+                "successorId": "Masters"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Done; nothing to answer."
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
     "/projects/{id}/reviews": {
       "get": {
         "operationId": "getProjectsIdReviews",

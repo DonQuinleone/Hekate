@@ -11,6 +11,7 @@ import type { Audit, RequestInfo } from "./audit.ts";
 import type { Auth } from "./auth.ts";
 import { directoryConfig, verifyPassword } from "./directory.ts";
 import type { Keyring } from "./keyring.ts";
+import { dropOwnerships } from "./project-owners.ts";
 import { recordInstanceEvent } from "./routes/instance.ts";
 
 const {
@@ -280,6 +281,11 @@ export async function deleteAccount(
       await audit.record(organisationId, former, { action: "account.deleted" }, request, tx);
     }
     for (const organisationId of workspaces) {
+      // Their ownership of the workspace's projects goes, each handed to its earliest member,
+      // or the workspace's earliest owner, should they have been its last (decision 285). The
+      // workspace is left first, so they are not the owner it falls to.
+      await tx.delete(members).where(inOrg(members, organisationId, eq(members.userId, userId)));
+      await dropOwnerships(tx, organisationId, userId);
       for (const table of [
         projectMembers,
         groupMembers,
