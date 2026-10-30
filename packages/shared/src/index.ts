@@ -52,6 +52,7 @@ export * from "./notifications.ts";
 export * from "./oauth.ts";
 export * from "./organisation.ts";
 export * from "./overview.ts";
+export * from "./owners.ts";
 export * from "./patch.ts";
 export * from "./peaks.ts";
 export * from "./personnel.ts";

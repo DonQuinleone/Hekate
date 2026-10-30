@@ -303,12 +303,17 @@ export const defaultProjectRoles: {
   tools: defaultTools[r.name] ?? [...playerTools],
 }));
 
-/** The tools someone has in a project: every one for owners and admins, else their role's. */
+/**
+ * The tools someone has in a project: every one for the workspace's owners and admins, and for
+ * the project's own owners (decision 285); else their role's.
+ */
 export function toolsFor(
   organisationRole: OrganisationRole,
   roleTools: readonly string[] | null,
+  projectOwner = false,
 ): Set<PlayerTool> {
-  if (organisationRole === "owner" || organisationRole === "admin") return new Set(playerTools);
+  if (projectOwner || organisationRole === "owner" || organisationRole === "admin")
+    return new Set(playerTools);
   return new Set(
     (roleTools ?? []).filter((t): t is PlayerTool =>
       (playerTools as readonly string[]).includes(t),
@@ -321,15 +326,17 @@ export const creatorRole = "Producer";
 
 /**
  * What someone may do in a project. Organisation owners and admins may do everything in
- * every project; anyone else, what their project role allows, and nothing (not even see
+ * every project, and a project's owners everything in theirs, whatever their role says
+ * (decision 285); anyone else, what their project role allows, and nothing (not even see
  * the project) without one. A role without `view` grants nothing either: seeing a project
  * comes first.
  */
 export function permissionsFor(
   organisationRole: OrganisationRole,
   projectRolePermissions: readonly string[] | null,
+  projectOwner = false,
 ): Set<ProjectPermission> {
-  if (organisationRole === "owner" || organisationRole === "admin") {
+  if (projectOwner || organisationRole === "owner" || organisationRole === "admin") {
     return new Set(projectPermissions);
   }
   const granted = new Set(
