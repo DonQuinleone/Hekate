@@ -15,6 +15,7 @@ export const staleClaim = (now = Date.now()) => new Date(now - COMPLETION_LEASE_
 
 export function sessionOf(row: UploadRow): UploadSession {
   return {
+    organisationId: row.organisationId,
     blobId: row.blobId,
     backend: row.backend,
     key: row.key,
@@ -62,7 +63,7 @@ export async function expireUploads(
           .from(blobs)
           .where(inOrg(blobs, row.organisationId, eq(blobs.id, row.blobId)));
         if (blob) continue;
-        await storage.backends.get(row.backend).delete(row.key);
+        await (await storage.backendOf(row.organisationId, row.backend)).delete(row.key);
       }
     } catch (error) {
       console.error(`Could not discard the parts of expired upload ${row.id}; will retry`, error);

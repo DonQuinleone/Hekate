@@ -592,6 +592,8 @@ export function createApi(given: AppDeps) {
           storage: deps.storage,
           audit: deps.audit,
           removing: (deps.storageReconcile ?? "remove") === "remove",
+          billing: (deps.modules?.billing ?? "off") !== "off",
+          trustProxy: deps.trustProxy ?? false,
         }),
       )
       .route("/organisation/categories", workspaceCategoryRoutes(deps.db))
@@ -603,7 +605,6 @@ export function createApi(given: AppDeps) {
           deps.db,
           deps.mailer,
           links,
-          deps.storage,
           deps.audit,
           deps.trustProxy ?? false,
         ),
@@ -727,6 +728,7 @@ export function createApi(given: AppDeps) {
           auth: deps.auth,
           keyring: deps.keyring,
           backends: deps.storage.backends,
+          places: deps.storage,
           jobs: deps.jobs,
           audit: deps.audit,
           mailer: deps.mailer,

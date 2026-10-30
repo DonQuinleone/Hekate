@@ -56,7 +56,9 @@ const keyring = createKeyring(db, {
   current: config.MASTER_KEY,
   previous: config.MASTER_KEYS_PREVIOUS,
 });
-const storage = createStorage(db, createBackends(storageConfig), keyring);
+const storage = createStorage(db, createBackends(storageConfig), keyring, {
+  trusted: config.WEBHOOK_TRUSTED_ORIGINS,
+});
 try {
   const report = await verifyBackup({ db, storage, keyring }, { sample });
   console.log(describeReport(report));

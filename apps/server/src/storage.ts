@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Readable, Transform } from "node:stream";
 import { buffer } from "node:stream/consumers";
 import { type Database, inOrg, schema, uuidv7 } from "@hekate/db";
+import { bucketIdOf } from "@hekate/shared";
 import {
   type Backends,
   type ByteRange,
@@ -14,6 +15,7 @@ import {
   newNoncePrefix,
   objectKey,
   planRead,
+  type StorageBackend,
   StorageConfigError,
   StorageError,
   unwrapKey,
@@ -22,6 +24,11 @@ import {
 import { eq } from "drizzle-orm";
 import { NotFound } from "./errors.ts";
 import type { Keyring } from "./keyring.ts";
+import {
+  type BucketFactory,
+  type WorkspaceBuckets,
+  workspaceBuckets,
+} from "./workspace-buckets.ts";
 
 const { blobs, organisations, projects } = schema;
 
@@ -34,8 +41,12 @@ export type Blob = typeof blobs.$inferSelect;
  */
 export interface Storage {
   readonly backends: Backends;
+  /** Workspaces' own buckets (#508), named `bucket:<id>` where an instance backend's name would be. */
+  readonly buckets: WorkspaceBuckets;
   /** The backend new objects for this organisation, or one of its projects, go to. */
   backendFor(organisationId: string, projectId?: string): Promise<string>;
+  /** The backend a name stands for in an organisation: one of the instance's, or its own bucket. */
+  backendOf(organisationId: string, name: string): Promise<StorageBackend>;
   /** Store bytes for an organisation and record the blob, in the project's backend if given. */
   put(
     organisationId: string,
@@ -73,6 +84,7 @@ export interface Storage {
 
 /** Everything needed to continue an upload, stored on its row between requests. */
 export interface UploadSession {
+  organisationId: string;
   blobId: string;
   backend: string;
   key: string;
@@ -89,7 +101,27 @@ export interface UploadSession {
 const blobAad = (blobId: string) => Buffer.from(`blob:${blobId}`);
 export const dataKeyContext = (blobId: string) => `blob:${blobId}`;
 
-export function createStorage(db: Database, backends: Backends, keyring: Keyring): Storage {
+export function createStorage(
+  db: Database,
+  backends: Backends,
+  keyring: Keyring,
+  options: {
+    /** Origins on a private network a workspace's own bucket may be (WEBHOOK_TRUSTED_ORIGINS). */
+    trusted?: string[];
+    /** For tests: how a workspace's bucket becomes a backend. */
+    createBucket?: BucketFactory;
+  } = {},
+): Storage {
+  const buckets = workspaceBuckets({
+    db,
+    keyring,
+    ...(options.trusted ? { trusted: options.trusted } : {}),
+    ...(options.createBucket ? { create: options.createBucket } : {}),
+  });
+  const backendOf = async (organisationId: string, name: string) => {
+    const bucketId = bucketIdOf(name);
+    return bucketId ? buckets.backend(organisationId, bucketId) : backends.get(name);
+  };
   const blobIn = async (organisationId: string, blobId: string) => {
     const [blob] = await db
       .select()
@@ -104,6 +136,10 @@ export function createStorage(db: Database, backends: Backends, keyring: Keyring
       .select({ storageBackend: organisations.storageBackend })
       .from(organisations)
       .where(eq(organisations.id, organisationId));
+    // A workspace that keeps its files in its own bucket (#508) keeps every new one there:
+    // a project's choice is among the instance's backends, which it has left.
+    if (organisation?.storageBackend && bucketIdOf(organisation.storageBackend))
+      return organisation.storageBackend;
     // A project's own choice comes first (#240), then the workspace's, then the instance's.
     const [project] = projectId
       ? await db
@@ -123,11 +159,13 @@ export function createStorage(db: Database, backends: Backends, keyring: Keyring
 
   return {
     backends,
+    buckets,
     backendFor,
+    backendOf,
 
     async put(organisationId, body, options) {
       const name = await backendFor(organisationId, options?.projectId);
-      const backend = backends.get(name);
+      const backend = await backendOf(organisationId, name);
       const id = uuidv7();
       const key = objectKey(organisationId, id);
 
@@ -199,7 +237,7 @@ export function createStorage(db: Database, backends: Backends, keyring: Keyring
     async open(organisationId, blobId, range) {
       const blob = await blobIn(organisationId, blobId);
       const plan = planRead(blob.byteSize, range);
-      const backend = backends.get(blob.backend);
+      const backend = await backendOf(organisationId, blob.backend);
       const organisationKey = await keyring.version(organisationId, blob.keyVersion);
       const dataKey = unwrapKey(organisationKey, blob.wrappedKey, dataKeyContext(blob.id));
       // A read from the middle needs the header's nonce prefix: one small extra request.
@@ -228,8 +266,10 @@ export function createStorage(db: Database, backends: Backends, keyring: Keyring
       const dataKey = generateKey();
       try {
         const wrappedKey = wrapKey(organisationKey.key, dataKey, dataKeyContext(blobId));
-        const backendUploadId = await backends.get(name).createMultipart(key, { contentType });
+        const backend = await backendOf(organisationId, name);
+        const backendUploadId = await backend.createMultipart(key, { contentType });
         return {
+          organisationId,
           blobId,
           backend: name,
           key,
@@ -261,9 +301,8 @@ export function createStorage(db: Database, backends: Backends, keyring: Keyring
           index,
           plain,
         });
-        return await backends
-          .get(session.backend)
-          .putPart(session.key, session.backendUploadId, index + 1, sealed);
+        const backend = await backendOf(organisationId, session.backend);
+        return await backend.putPart(session.key, session.backendUploadId, index + 1, sealed);
       } finally {
         dataKey.fill(0);
       }
@@ -276,7 +315,7 @@ export function createStorage(db: Database, backends: Backends, keyring: Keyring
         .from(blobs)
         .where(inOrg(blobs, organisationId, eq(blobs.id, session.blobId)));
       if (recorded) return recorded;
-      const backend = backends.get(session.backend);
+      const backend = await backendOf(organisationId, session.backend);
       const expected = encryptedSize(session.byteSize);
       const present = await backend.head(session.key);
       const size =
@@ -316,17 +355,19 @@ export function createStorage(db: Database, backends: Backends, keyring: Keyring
     },
 
     async abortUpload(session) {
-      await backends.get(session.backend).abortMultipart(session.key, session.backendUploadId);
+      const backend = await backendOf(session.organisationId, session.backend);
+      await backend.abortMultipart(session.key, session.backendUploadId);
     },
 
     async remove(organisationId, blobId) {
       const blob = await blobIn(organisationId, blobId);
+      const backend = await backendOf(organisationId, blob.backend);
       // The row goes first, inside a transaction: a file still using the blob
       // fails the delete before any bytes are touched, and if removing the
       // bytes fails the row is restored, so the removal can be retried.
       await db.transaction(async (tx) => {
         await tx.delete(blobs).where(inOrg(blobs, organisationId, eq(blobs.id, blob.id)));
-        await backends.get(blob.backend).delete(blob.key);
+        await backend.delete(blob.key);
       });
     },
   };

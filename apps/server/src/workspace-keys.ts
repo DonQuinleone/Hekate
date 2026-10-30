@@ -6,9 +6,11 @@ import { sealContext as channelContext } from "./events.ts";
 import type { Keyring } from "./keyring.ts";
 import { openSecret, sealSecret } from "./secrets.ts";
 import { dataKeyContext } from "./storage.ts";
+import { bucketSealContext } from "./workspace-buckets.ts";
 import { mailSealContext } from "./workspace-mail.ts";
 
-const { blobs, channels, directories, renditions, uploads, workspaceMail } = schema;
+const { blobs, channels, directories, renditions, uploads, workspaceBuckets, workspaceMail } =
+  schema;
 
 /** A table whose rows hold a key wrapped by a version of the organisation's key. */
 type Wrapped = typeof blobs | typeof uploads | typeof renditions;
@@ -71,7 +73,11 @@ export async function pendingRewrap(db: Database, organisationId: string, curren
     .select({ n: count() })
     .from(workspaceMail)
     .where(inOrg(workspaceMail, organisationId, lt(workspaceMail.keyVersion, current)));
-  return pending + (directory?.n ?? 0) + (channel?.n ?? 0) + (mail?.n ?? 0);
+  const [bucket] = await db
+    .select({ n: count() })
+    .from(workspaceBuckets)
+    .where(inOrg(workspaceBuckets, organisationId, lt(workspaceBuckets.keyVersion, current)));
+  return pending + (directory?.n ?? 0) + (channel?.n ?? 0) + (mail?.n ?? 0) + (bucket?.n ?? 0);
 }
 
 /**
@@ -193,6 +199,29 @@ export async function rewrapOrganisation(db: Database, keyring: Keyring, organis
         ),
       )
       .returning({ id: workspaceMail.id });
+    rewrapped += updated.length;
+  }
+  // The workspace's own buckets' credentials (#508), each the same way.
+  const buckets = await db
+    .select()
+    .from(workspaceBuckets)
+    .where(inOrg(workspaceBuckets, organisationId, lt(workspaceBuckets.keyVersion, current)));
+  for (const bucket of buckets) {
+    const context = bucketSealContext(organisationId, bucket.id);
+    const older = await keyring.version(organisationId, bucket.keyVersion);
+    const secret = openSecret(older, bucket.credentialsSealed, context);
+    const updated = await db
+      .update(workspaceBuckets)
+      .set({ credentialsSealed: sealSecret(key, secret, context), keyVersion: current })
+      .where(
+        inOrg(
+          workspaceBuckets,
+          organisationId,
+          eq(workspaceBuckets.id, bucket.id),
+          eq(workspaceBuckets.keyVersion, bucket.keyVersion),
+        ),
+      )
+      .returning({ id: workspaceBuckets.id });
     rewrapped += updated.length;
   }
   return rewrapped;

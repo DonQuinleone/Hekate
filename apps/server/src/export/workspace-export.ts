@@ -73,6 +73,7 @@ export const columnsLeftOut = new Set([
   "password_hash",
   "code_hash",
   "config_sealed",
+  "credentials_sealed",
   "bind_password_sealed",
   "bind_password_key_version",
   "nonce_prefix",
