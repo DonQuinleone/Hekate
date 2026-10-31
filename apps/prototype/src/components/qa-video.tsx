@@ -1,5 +1,5 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { QaReportDialog } from "~/components/exports";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { Card } from "~/components/page";
@@ -168,7 +168,9 @@ export function VideoQaView({
   const advisories = findings.filter((f) => f.severity === "info");
   const passed = findings.filter((f) => f.severity === "pass");
   const [showPassed, setShowPassed] = useState(false);
-  const [report, setReport] = useState(false);
+  const navigate = useNavigate();
+  const openReport = () =>
+    void navigate({ to: "/files/$fileId/qa-report", params: { fileId: file.id } });
   const l = loudnessOf[file.id];
   const profile = deliveryProfiles.find((p) => p.id === "broadcast");
   const m = file.media;
@@ -241,7 +243,7 @@ export function VideoQaView({
               <ActionMenu
                 label="report"
                 actions={[
-                  { label: "Report…", onSelect: () => setReport(true) },
+                  { label: "QA report", onSelect: openReport },
                   { label: "Run the checks again", onSelect: () => {} },
                 ]}
               />
@@ -401,18 +403,12 @@ export function VideoQaView({
               ))}
             </dl>
           </Card>
-          <Button
-            variant="secondary"
-            size="sm"
-            className="self-start"
-            onClick={() => setReport(true)}
-          >
-            <Icon name="download" size={14} />
+          <Button variant="secondary" size="sm" className="self-start" onClick={openReport}>
+            <Icon name="text" size={14} />
             QA report
           </Button>
         </div>
       </div>
-      {report && <QaReportDialog file={file} onClose={() => setReport(false)} />}
     </div>
   );
 }

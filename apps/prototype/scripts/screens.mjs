@@ -167,6 +167,8 @@ const screens = [
     ],
   },
   { name: "recording-qa", route: "/files/file-maple-v2-dry?view=qa" },
+  { name: "recording-qa-report", route: "/files/file-maple-v2-dry/qa-report" },
+  { name: "phone-recording-qa-report", route: "/files/file-maple-v2-dry/qa-report", width: "phone" },
   {
     name: "recording-add-variant",
     route: "/files/file-maple-v2-dry",
