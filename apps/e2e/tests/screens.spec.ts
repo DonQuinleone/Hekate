@@ -292,10 +292,12 @@ const screens: Screen[] = [
   },
   // The project's workflows (#26), opened from its settings: drawn on the canvas, and each as a
   // list of steps.
+  // The delivery below the album review has a sign-off that names nobody, a warning on a step
+  // with three named outputs, and a path labelled in thirty characters (#513).
   {
     name: "workflows",
     path: (s) => `/projects/${s.musicProjectId}/workflow`,
-    ready: "main [data-node]:has-text('Label approval')",
+    ready: "main [data-node]:has-text('Label sign-off')",
   },
   {
     name: "workflows-basic",
@@ -1533,6 +1535,78 @@ test("workflows-inspector", async ({ page }) => {
   await page.keyboard.press("Enter");
   await settle(page, "aside[aria-label=Inspector] >> text=When all approved");
   await saveScreen(page, "workflows-inspector");
+  await checkScreen(page);
+});
+
+// A step's Then list (#512): each step offered with its kind's icon and colour, and its kind
+// beside its name, so an approval review never reads as a status of Approved.
+test("workflows-then", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await settle(page, "main [data-node]:has-text('Label approval')");
+  await page.getByRole("button", { name: /^Label approval/ }).focus();
+  await page.keyboard.press("Enter");
+  await settle(page, "aside[aria-label=Inspector] >> text=When all approved");
+  await page.getByRole("button", { name: "Add after all approved" }).click();
+  await expect(page.getByRole("menuitem", { name: /Approved.*Finish: Approved/ })).toBeVisible();
+  await saveScreen(page, "workflows-then");
+  await checkScreen(page);
+});
+
+// Adding a node (#511): the families first, in the order a workflow reads, then a family's kinds.
+test("workflows-picker", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await settle(page, "main [data-node]:has-text('Label approval')");
+  await page.getByRole("button", { name: "Node", exact: true }).click();
+  const panel = page.locator("aside[aria-label=Inspector]");
+  await settle(page, "aside[aria-label=Inspector] >> text=Add a node");
+  // Once a workflow has its start, a start begins a new workflow, offered last (#514).
+  await expect(panel.getByRole("button", { name: /^New workflow/ })).toBeVisible();
+  await expect(panel.getByRole("button", { name: /^Start\b/ })).toHaveCount(0);
+  await saveScreen(page, "workflows-picker");
+  await checkScreen(page);
+  await panel.getByRole("button", { name: /^Review/ }).click();
+  await settle(page, "aside[aria-label=Inspector] >> text=Approval review");
+  await saveScreen(page, "workflows-picker-review");
+  await checkScreen(page);
+});
+
+// A QA check dragged from the palette onto a step's output (#511): one gesture, the output lit
+// while it is over it, and the node wired from it once let go. Nothing is saved: the change is
+// refused on its way, so no other capture sees it.
+test("workflows-drag", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "The palette is for a wide screen");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.route("**/api/workflows/*", (route) =>
+    route.request().method() === "PATCH" ? route.abort() : route.fallback(),
+  );
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await settle(page, "main [data-node]:has-text('Label approval')");
+  const tile = page.getByRole("button", { name: /^QA check: drag onto the canvas/ });
+  const port = page.locator("main [data-node=edit] [data-port=done]");
+  const from = await tile.boundingBox();
+  const to = await port.boundingBox();
+  if (!from || !to) throw new Error("The palette or the port is not on the screen");
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
+  await expect(page.locator("main [data-node=edit] [data-port=done].bg-signal")).toBeVisible();
+  await saveScreen(page, "workflows-drag");
+  await checkScreen(page);
+  await page.mouse.up();
+  await expect(page.locator("main [data-node^='n-']:has-text('QA check')")).toBeVisible();
+});
+
+// A workflow's one start (#514): what else starts it is set on it, and the panel says so.
+test("workflows-start", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await settle(page, "main [data-node]:has-text('Label approval')");
+  await page.locator("main [data-node=start] button").first().focus();
+  await page.keyboard.press("Enter");
+  await settle(page, "aside[aria-label=Inspector] >> text=Starts when");
+  await saveScreen(page, "workflows-start");
   await checkScreen(page);
 });
 

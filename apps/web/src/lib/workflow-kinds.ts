@@ -1,4 +1,5 @@
 import { type NodeType, nodeTypes } from "@hekate/shared";
+import type { IconName } from "~/components/icons";
 
 /**
  * The kinds of workflow node as people meet them (#512, decision 290): each in a family with a
@@ -19,6 +20,8 @@ export type KindGroup =
 
 export interface GroupLook {
   label: string;
+  /** Its icon, where the family itself is offered (the picker's first list). */
+  icon: IconName;
   /** What the family is for, in a line. */
   hint: string;
   /** The colour token its kinds are drawn in. */
@@ -40,6 +43,7 @@ const slanted = "rounded-panel [clip-path:polygon(10px_0,100%_0,calc(100%-10px)_
 export const groups: Record<KindGroup, GroupLook> = {
   start: {
     label: "Start",
+    icon: "bolt",
     hint: "What begins the workflow",
     colour: "node-event",
     tile: "bg-node-event/15 text-node-event",
@@ -49,6 +53,7 @@ export const groups: Record<KindGroup, GroupLook> = {
   },
   qa: {
     label: "QA",
+    icon: "shield",
     hint: "Check the version against the project's QA rules",
     colour: "node-qa",
     tile: "bg-node-qa/15 text-node-qa",
@@ -58,7 +63,8 @@ export const groups: Record<KindGroup, GroupLook> = {
   },
   review: {
     label: "Review",
-    hint: "Ask people to approve, or for their comments",
+    icon: "review",
+    hint: "Ask people to approve, or to comment",
     colour: "node-review",
     tile: "bg-node-review/15 text-node-review",
     fill: "fill-node-review/70",
@@ -67,6 +73,7 @@ export const groups: Record<KindGroup, GroupLook> = {
   },
   task: {
     label: "Task",
+    icon: "task",
     hint: "Someone does a piece of work",
     colour: "node-work",
     tile: "bg-node-work/15 text-node-work",
@@ -76,7 +83,8 @@ export const groups: Record<KindGroup, GroupLook> = {
   },
   wait: {
     label: "Wait",
-    hint: "Pause, or wait for something to happen",
+    icon: "clock",
+    hint: "Pause, or wait for something",
     colour: "node-wait",
     tile: "bg-node-wait/15 text-node-wait",
     fill: "fill-node-wait/70",
@@ -85,7 +93,8 @@ export const groups: Record<KindGroup, GroupLook> = {
   },
   status: {
     label: "Status",
-    hint: "Change where the item stands, or where it is filed",
+    icon: "flag",
+    hint: "Set a status, or file the item",
     colour: "node-flow",
     tile: "bg-node-flow/15 text-node-flow",
     fill: "fill-node-flow/70",
@@ -94,7 +103,8 @@ export const groups: Record<KindGroup, GroupLook> = {
   },
   notify: {
     label: "Notify",
-    hint: "Tell people, or send them a link",
+    icon: "bell",
+    hint: "Tell people, or send a link",
     colour: "node-comm",
     tile: "bg-node-comm/15 text-node-comm",
     fill: "fill-node-comm/70",
@@ -103,6 +113,7 @@ export const groups: Record<KindGroup, GroupLook> = {
   },
   finish: {
     label: "Finish",
+    icon: "stop",
     hint: "End the workflow, with a final status",
     colour: "ink",
     tile: "bg-ink text-ground",

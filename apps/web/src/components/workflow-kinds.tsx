@@ -1,7 +1,7 @@
 import { type NodeType, nodeTypes } from "@hekate/shared";
 import { Icon } from "~/components/icons";
 import { cn } from "~/lib/cn";
-import { GROUP_ORDER, groupOf, groups, kindsByGroup } from "~/lib/workflow-kinds";
+import { GROUP_ORDER, groupOf, groups, type KindGroup, kindsByGroup } from "~/lib/workflow-kinds";
 import { nodeLooks } from "~/lib/workflow-nodes";
 
 /** A kind's icon in its family's colour: on a node, in the picker, wherever kinds are offered. */
@@ -16,6 +16,21 @@ export function KindTile({ type, size = "md" }: { type: NodeType; size?: "sm" | 
       )}
     >
       <Icon name={nodeLooks[type].icon} size={size === "lg" ? 16 : size === "md" ? 14 : 12} />
+    </span>
+  );
+}
+
+/** A family's icon in its colour, where the family itself is offered. */
+export function GroupTile({ group }: { group: KindGroup }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "flex size-7 shrink-0 items-center justify-center rounded-control",
+        groups[group].tile,
+      )}
+    >
+      <Icon name={groups[group].icon} size={14} />
     </span>
   );
 }

@@ -26,7 +26,7 @@ import { Choice } from "~/components/ui/choice";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Committed, StepField } from "~/components/workflow-fields";
-import { GroupLegend, KindTile } from "~/components/workflow-kinds";
+import { GroupLegend, GroupTile, KindTile } from "~/components/workflow-kinds";
 import { StatusesPanel } from "~/components/workflow-statuses";
 import { cn } from "~/lib/cn";
 import { useShortcuts } from "~/lib/shortcuts";
@@ -56,6 +56,7 @@ import {
   depthBelow,
   LANE_FIRST,
   LANE_STEP,
+  pathLabel,
   routing,
   tidied,
 } from "~/lib/workflow-layout";
@@ -402,9 +403,11 @@ export function WorkflowCanvas({
     const rect = canvas.current?.getBoundingClientRect();
     if (!b || !rect) return;
     const z = rect.width < 640 ? 0.6 : 0.8;
+    // Clear of the palette, where there is one at the canvas's edge.
+    const left = editing && rect.width >= 720 ? 88 : 56;
     setView({
       zoom: z,
-      pan: { x: 56 - b.bounds.minX * z, y: 120 - (b.bounds.minY + b.offsetY) * z },
+      pan: { x: left - b.bounds.minX * z, y: 120 - (b.bounds.minY + b.offsetY) * z },
     });
   };
   const zoomBy = useCallback(
@@ -600,6 +603,7 @@ export function WorkflowCanvas({
         setSelection(null);
         setWalk(null);
         setStatusesOpen(false);
+        setNotice(null);
       },
     },
     {
@@ -979,7 +983,7 @@ export function WorkflowCanvas({
                 const floorBase = b.bounds.maxY + b.offsetY + LANE_FIRST;
                 const { loops } = flowShape(flow);
                 const at = new Map(flow.nodes.map((n) => [n.id, n]));
-                const { below, lanes, fit } = routes.get(b.flow.id) ?? routing(flow);
+                const { below, lanes } = routes.get(b.flow.id) ?? routing(flow);
                 return flow.connectors.map((c) => {
                   const from = at.get(c.from);
                   const to = at.get(c.to);
@@ -990,7 +994,7 @@ export function WorkflowCanvas({
                   const d = connectorPath(a, z, {
                     loop: below.has(c.id),
                     floor: floorBase + (lanes.lane.get(c.id) ?? 0) * LANE_STEP,
-                    lead: fit.get(c.from)?.lead,
+                    lead: (routes.get(b.flow.id) ?? routing(flow)).fit.get(c.from)?.lead,
                     out: lanes.out.get(c.id),
                     into: lanes.into.get(c.id),
                   });
@@ -999,9 +1003,6 @@ export function WorkflowCanvas({
                     selection.flowId === b.flow.id &&
                     selection.id === c.id;
                   const taken = (walked(b.flow.id)?.run?.taken[c.id] ?? 0) > 0;
-                  const chip = connectorChip(flow, c);
-                  // Where steps sit too close for a chip to say anything, its port says it.
-                  const chipRoom = chipShown(flow, { below, lanes, fit }, c);
                   return (
                     <g key={c.id}>
                       {/* The wide, unseen line under each connector is what a pointer picks it by; its
@@ -1044,27 +1045,6 @@ export function WorkflowCanvas({
                         r={3}
                         className={selected ? "fill-signal" : "fill-ink-3"}
                       />
-                      {/* What it is, at its start: beside its port, where chips never meet. */}
-                      {chip && chipRoom >= 32 && (
-                        <foreignObject
-                          x={a.x + CHIP_GAP}
-                          y={a.y - CHIP_H / 2}
-                          width={chipRoom}
-                          height={CHIP_H}
-                        >
-                          <div className="flex h-full items-center">
-                            <span
-                              title={chip}
-                              className={cn(
-                                "max-w-full truncate rounded-chip border bg-overlay px-1.5 text-[11px] leading-[14px]",
-                                selected ? "border-signal/60 text-ink" : "border-line text-ink-2",
-                              )}
-                            >
-                              {chip}
-                            </span>
-                          </div>
-                        </foreignObject>
-                      )}
                     </g>
                   );
                 });
@@ -1088,6 +1068,58 @@ export function WorkflowCanvas({
                   );
                 })()}
             </svg>
+
+            {/* What each path is, at its start (#513): beside its port, where labels never
+                meet; whole up to about 32 characters, then cut short, the rest on hover and
+                in the step's panel; on a quiet ground, so it reads over the paths it crosses. */}
+            {bands.map((b) => {
+              const flow = b.flow.definition;
+              const route = routes.get(b.flow.id) ?? routing(flow);
+              const at = new Map(flow.nodes.map((n) => [n.id, n]));
+              return flow.connectors.map((c) => {
+                const from = at.get(c.from);
+                const chip = connectorChip(flow, c);
+                // Where steps sit too close for a label to say anything, its port says it.
+                const room = chipShown(flow, route, c);
+                if (!from || !at.has(c.to) || !chip || room === 0) return null;
+                const a = outPort(placed(b.flow.id, from), c.outcome);
+                const selected =
+                  selection?.kind === "connector" &&
+                  selection.flowId === b.flow.id &&
+                  selection.id === c.id;
+                return (
+                  <div
+                    key={`${b.flow.id}-${c.id}`}
+                    className="absolute flex items-center"
+                    style={{
+                      left: a.x + CHIP_GAP,
+                      top: a.y - CHIP_H / 2,
+                      width: room,
+                      height: CHIP_H,
+                    }}
+                  >
+                    {/* biome-ignore lint/a11y/noStaticElementInteractions: picks its path, as the path's own wide line does; the keyboard reaches it from the step's panel. */}
+                    <span
+                      title={chip}
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        setSelection({ kind: "connector", id: c.id, flowId: b.flow.id });
+                        setPicking(null);
+                      }}
+                      onContextMenu={(e) =>
+                        openMenu(e, { kind: "connector", id: c.id, flowId: b.flow.id })
+                      }
+                      className={cn(
+                        "max-w-full cursor-pointer truncate rounded-chip bg-pane px-1.5 text-[11px] leading-[16px]",
+                        selected ? "text-ink ring-1 ring-signal/60" : "text-ink-2",
+                      )}
+                    >
+                      {pathLabel(chip)}
+                    </span>
+                  </div>
+                );
+              });
+            })}
 
             {/* Nodes */}
             {bands.map((b) =>
@@ -1355,7 +1387,15 @@ export function WorkflowCanvas({
         >
           <KindTile type={kindDrag.type} />
           {nodeTypes[kindDrag.type].label}
-          {kindDrag.over?.from && <span className="text-ink-3">· wired on</span>}
+          {kindDrag.over?.from && (
+            <span className="text-ink-3">
+              after “
+              {flowById(kindDrag.over.flowId)?.definition.nodes.find(
+                (n) => n.id === kindDrag.over?.from,
+              )?.name ?? ""}
+              ”
+            </span>
+          )}
         </div>
       )}
       {inspectorOpen && (
@@ -1541,48 +1581,56 @@ function CanvasNode({
     <div
       data-node={node.id}
       data-flow={flowId}
-      data-e2e-overlap
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
       className={cn(
-        "absolute flex touch-none items-center border bg-overlay px-3 shadow-3 transition-[box-shadow,border-color] select-none",
+        "group absolute touch-none select-none",
         editing ? "cursor-grab" : "cursor-pointer",
-        shapeOf(node.type),
-        selected
-          ? "border-signal shadow-[0_0_0_3px_var(--hk-signal-line),var(--hk-shadow-3)]"
-          : walked
-            ? "border-ink-3"
-            : "border-line hover:border-line-strong",
-        current && "ring-2 ring-signal/60",
       )}
       style={{ left: node.x, top: node.y, width: NODE_W, height: NODE_H }}
     >
-      <button
-        type="button"
-        aria-pressed={selected}
-        // From the keyboard; a pointer selects on letting go without dragging.
-        onClick={(e) => {
-          if (e.detail === 0) onSelect();
-        }}
-        className="flex min-w-0 flex-1 cursor-[inherit] items-center gap-3 rounded-control text-left"
+      {/* The node's shape, apart from its ports and its mark: a thick edge or a slant never
+          moves them off the node's middle, nor clips them (#513). */}
+      <div
+        className={cn(
+          "absolute inset-0 flex items-center border bg-overlay px-3 shadow-3 transition-[box-shadow,border-color]",
+          shapeOf(node.type),
+          selected
+            ? "border-signal shadow-[0_0_0_3px_var(--hk-signal-line),var(--hk-shadow-3)]"
+            : walked
+              ? "border-ink-3"
+              : "border-line group-hover:border-line-strong",
+          current && "ring-2 ring-signal/60",
+        )}
       >
-        <KindTile type={node.type} size="lg" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[13px] font-medium text-ink">{node.name}</span>
-          <span className="block truncate text-[11px] text-ink-3">{subtitle}</span>
-        </span>
-        {/* Named by what it shows, then, for a screen reader, the kind of step where its line
+        <button
+          type="button"
+          aria-pressed={selected}
+          // From the keyboard; a pointer selects on letting go without dragging.
+          onClick={(e) => {
+            if (e.detail === 0) onSelect();
+          }}
+          className="flex min-w-0 flex-1 cursor-[inherit] items-center gap-3 rounded-control text-left"
+        >
+          <KindTile type={node.type} size="lg" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13px] font-medium text-ink">{node.name}</span>
+            <span className="block truncate text-[11px] text-ink-3">{subtitle}</span>
+          </span>
+          {/* Named by what it shows, then, for a screen reader, the kind of step where its line
             does not say, and what is wrong with it. */}
-        <span className="sr-only">
-          {subtitle.includes(info.label) ? "" : `, ${info.label}`}
-          {problem ? `: ${problem.text}` : ""}
-        </span>
-      </button>
+          <span className="sr-only">
+            {subtitle.includes(info.label) ? "" : `, ${info.label}`}
+            {problem ? `: ${problem.text}` : ""}
+          </span>
+        </button>
+      </div>
       {problem && (
         <span
           title={problem.text}
           className={cn(
-            "absolute -top-2 -right-2 flex size-5 items-center justify-center rounded-full border border-ground text-[11px]",
+            // At the top-left corner, clear of the outputs down the right edge (#513).
+            "absolute -top-2 -left-2 flex size-5 items-center justify-center rounded-full border border-ground text-[11px]",
             problem.level === "error" ? "bg-signal text-ground" : "bg-raised text-ink-2",
           )}
         >
@@ -1793,7 +1841,6 @@ function Picker({
   const typeRow = (type: PickerType) => {
     const [only] = type.kinds;
     if (type.kinds.length === 1 && only) return kindRow(only, type);
-    const lead = type.key === "new" ? "upload" : (type.kinds[0] ?? "upload");
     return (
       <button
         key={type.key}
@@ -1806,7 +1853,7 @@ function Picker({
             <Icon name="plus" size={14} />
           </span>
         ) : (
-          <KindTile type={lead} />
+          <GroupTile group={type.key} />
         )}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] text-ink">{type.label}</span>
@@ -2221,12 +2268,16 @@ function NodeInspector({
                                   className="text-ink-3"
                                 />
                                 {to && <KindTile type={to.type} size="sm" />}
-                                <span className="min-w-0 flex-1 truncate">{to?.name}</span>
-                                {text && (
-                                  <span className="max-w-[45%] truncate text-[11px] text-ink-3">
-                                    {text}
-                                  </span>
-                                )}
+                                {/* The path's label in full here, however short the canvas
+                                    cuts it (#513). */}
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate">{to?.name}</span>
+                                  {text && (
+                                    <span className="block text-[11px] break-words text-ink-3">
+                                      {text}
+                                    </span>
+                                  )}
+                                </span>
                               </button>
                             </li>
                           );

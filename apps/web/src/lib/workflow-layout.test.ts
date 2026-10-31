@@ -4,17 +4,20 @@ import { workflowTemplates } from "./workflow-code";
 import {
   CHIP_H,
   chipShown,
+  chipWidth,
   connectorChip,
   depthBelow,
   fits,
+  LABEL_CHARS,
   LANE_FIRST,
   LANE_STEP,
   leadOf,
   loopLanes,
+  pathLabel,
   routing,
   tidied,
 } from "./workflow-layout";
-import { boundsOf, NODE_H, NODE_W, outPort } from "./workflow-nodes";
+import { boundsOf, NODE_H, NODE_W, outPort, portTop } from "./workflow-nodes";
 
 const step = (
   id: string,
@@ -259,5 +262,56 @@ describe("loops beneath a workflow", () => {
     expect(lanes.lane.get("c10")).toBe(0);
     expect(lanes.lane.get("c7")).toBe(1);
     expect(lanes.into.get("c10")).toBe(0);
+  });
+});
+
+describe("a node's outputs and its paths' labels (#513)", () => {
+  it("spaces outputs evenly about the node's middle", () => {
+    for (const type of ["checks", "approval", "feedback", "notify"] as const) {
+      const tops = outcomesOf(type).map((_, i) => portTop(type, i));
+      const middle = tops.reduce((a, b) => a + b, 0) / tops.length;
+      expect(middle).toBe(NODE_H / 2);
+      const gaps = tops.slice(1).map((t, i) => t - (tops[i] ?? 0));
+      expect(new Set(gaps).size).toBeLessThanOrEqual(1);
+      // Each port, with its own room, inside the node.
+      for (const t of tops) expect(t - 7 >= 0 && t + 7 <= NODE_H).toBe(true);
+    }
+  });
+
+  it("shows a label whole up to about 32 characters, then cuts it with an ellipsis", () => {
+    const thirty = "warnings · if tagged Reference";
+    expect(thirty).toHaveLength(30);
+    expect(pathLabel(thirty)).toBe(thirty);
+    expect(pathLabel("x".repeat(LABEL_CHARS))).toHaveLength(LABEL_CHARS);
+    const long = "changes requested · unless tagged Rough mix for the label";
+    const cut = pathLabel(long);
+    expect(cut.endsWith("…")).toBe(true);
+    expect(cut.length).toBeLessThanOrEqual(LABEL_CHARS);
+    // At a word where one is near, never mid-word when it need not be.
+    expect(cut).toBe("changes requested · unless…");
+  });
+
+  it("gives a label of 30 characters room enough to show whole, where the steps allow", () => {
+    const flow: WorkflowDefinition = {
+      groups: [],
+      nodes: [step("qa", "checks", "QA check", 0), step("ok", "approval", "Sign-off", 600, 120)],
+      connectors: [
+        {
+          id: "w",
+          from: "qa",
+          outcome: "warnings",
+          to: "ok",
+          condition: { test: "tag", is: "Reference" },
+        },
+      ],
+    };
+    const chip = connectorChip(
+      flow,
+      flow.connectors[0] as WorkflowDefinition["connectors"][number],
+    );
+    expect(chip).toBe("warnings · if tagged Reference");
+    const width = chipShown(flow, routing(flow), flow.connectors[0] as never);
+    expect(width).toBe(chipWidth(chip ?? ""));
+    expect(width).toBeGreaterThanOrEqual(30 * 6.6);
   });
 });

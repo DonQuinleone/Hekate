@@ -392,6 +392,13 @@ export function workflowProblems(flow: WorkflowDefinition): WorkflowProblem[] {
         level: "warning",
         text: `${name(n.id)} leads nowhere: the item would stop here without a finish.`,
       });
+    // A review that names nobody cannot ask anyone (#513): it would wait to be ended by hand.
+    if ((n.type === "approval" || n.type === "feedback") && namedPeople(n.config.who).length === 0)
+      out.push({
+        nodeId: n.id,
+        level: "warning",
+        text: `${name(n.id)} asks nobody: choose who reviews, or it waits to be ended by hand.`,
+      });
     if (info.outcomes.length === 0 && outgoing(n.id).length > 0)
       out.push({
         nodeId: n.id,

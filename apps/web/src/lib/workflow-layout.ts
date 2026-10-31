@@ -15,9 +15,22 @@ import { boundsOf, conditionText, NODE_H, NODE_W } from "~/lib/workflow-nodes";
  */
 
 export const CHIP_H = 16;
-const CHIP_MAX = 200;
 /** About the width of a character of the chip's 11 px type, to size a chip before drawing it. */
 const CHAR_W = 6.6;
+/**
+ * How much of a path's label is shown before an ellipsis (#513, decision 291): a generous
+ * line, about 32 characters; the rest is on hover and in the step's panel.
+ */
+export const LABEL_CHARS = 32;
+const CHIP_MAX = Math.ceil(LABEL_CHARS * CHAR_W) + 16;
+
+/** A path's label as drawn: whole up to `LABEL_CHARS`, else cut at a word where one is near. */
+export function pathLabel(text: string, max = LABEL_CHARS): string {
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${(space >= max - 9 ? cut.slice(0, space) : cut).trimEnd()}…`;
+}
 
 /** What a connector's chip says: the outcome it leaves by, where there are several, and its own condition. */
 export function connectorChip(flow: WorkflowDefinition, c: WorkflowConnector): string | null {
@@ -28,7 +41,8 @@ export function connectorChip(flow: WorkflowDefinition, c: WorkflowConnector): s
   return words || null;
 }
 
-export const chipWidth = (text: string) => Math.min(CHIP_MAX, Math.ceil(text.length * CHAR_W) + 16);
+export const chipWidth = (text: string) =>
+  Math.min(CHIP_MAX, Math.ceil(pathLabel(text).length * CHAR_W) + 16);
 
 /** Where a chip starts, past its port. */
 export const CHIP_GAP = 10;

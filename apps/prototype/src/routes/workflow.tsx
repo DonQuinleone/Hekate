@@ -314,28 +314,35 @@ function Node({
       data-node={node.id}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
-      className={cn(
-        "absolute flex cursor-grab touch-none items-center gap-3 border bg-overlay px-3 shadow-3 transition-[box-shadow,border-color] select-none",
-        shapeOf(node.type),
-        selected
-          ? "border-signal shadow-[0_0_0_3px_var(--hk-signal-line),var(--hk-shadow-3)]"
-          : walked
-            ? "border-ink-3"
-            : "border-line hover:border-line-strong",
-        current && "ring-2 ring-signal/60",
-      )}
+      className="group absolute cursor-grab touch-none select-none"
       style={{ left: node.x, top: node.y, width: NODE_W, height: NODE_H }}
     >
-      <KindTile type={node.type} size="lg" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-ink">{node.name}</span>
-        <span className="block truncate text-[11px] text-ink-3">{subtitle}</span>
-      </span>
+      {/* The shape apart from its ports and its mark (#513): a thick edge or a slant never
+          moves them off the middle, nor clips them. */}
+      <div
+        className={cn(
+          "absolute inset-0 flex items-center gap-3 border bg-overlay px-3 shadow-3 transition-[box-shadow,border-color]",
+          shapeOf(node.type),
+          selected
+            ? "border-signal shadow-[0_0_0_3px_var(--hk-signal-line),var(--hk-shadow-3)]"
+            : walked
+              ? "border-ink-3"
+              : "border-line group-hover:border-line-strong",
+          current && "ring-2 ring-signal/60",
+        )}
+      >
+        <KindTile type={node.type} size="lg" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-medium text-ink">{node.name}</span>
+          <span className="block truncate text-[11px] text-ink-3">{subtitle}</span>
+        </span>
+      </div>
       {problem && (
         <span
           title={problem.text}
           className={cn(
-            "absolute -top-2 -right-2 flex size-5 items-center justify-center rounded-full border border-ground text-[11px]",
+            // Top-left, clear of the outputs down the right edge (#513).
+            "absolute -top-2 -left-2 flex size-5 items-center justify-center rounded-full border border-ground text-[11px]",
             problem.level === "error" ? "bg-signal text-ground" : "bg-raised text-ink-2",
           )}
         >
@@ -1298,11 +1305,16 @@ export function WorkflowPage({ project }: { project: Project }) {
                             r={3}
                             className={selected ? "fill-signal" : "fill-ink-3"}
                           />
+                          {/* A path's label (#513): whole up to about 32 characters, then an
+                              ellipsis, the full text on hover; on a quiet ground over the paths. */}
                           {label && (
-                            <foreignObject x={lp.x - 90} y={lp.y - 11} width={180} height={22}>
+                            <foreignObject x={lp.x - 120} y={lp.y - 11} width={240} height={22}>
                               <div className="flex justify-center">
-                                <span className="max-w-full truncate rounded-chip border border-line bg-overlay px-1.5 text-[11px] leading-5 text-ink-2">
-                                  {label}
+                                <span
+                                  title={label}
+                                  className="max-w-full truncate rounded-chip bg-pane px-1.5 text-[11px] leading-5 text-ink-2"
+                                >
+                                  {label.length > 32 ? `${label.slice(0, 31).trimEnd()}…` : label}
                                 </span>
                               </div>
                             </foreignObject>

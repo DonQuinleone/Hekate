@@ -16651,17 +16651,18 @@ describe.runIf(url)("api", () => {
             version: number;
             problems: { level: string; text: string }[];
           };
-          const at = (id: string, type: string, name: string, x: number) => ({
+          const at = (id: string, type: string, name: string, x: number, config = {}) => ({
             id,
             type,
             name,
             x,
             y: 0,
+            config,
           });
           const review = {
             nodes: [
               at("start", "upload", "A version is uploaded", 0),
-              at("fb", "feedback", "Conductor", 320),
+              at("fb", "feedback", "Conductor", 320, { who: "Conductor" }),
               at("done", "finish", "Done", 640),
             ],
             connectors: [

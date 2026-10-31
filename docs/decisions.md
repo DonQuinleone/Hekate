@@ -2353,6 +2353,17 @@ Some organisations must keep their material in storage they own, and a workspace
 - **The stored kind stays `checks`.** Only the labels changed: the workflow files, the API and every stored definition go on saying `checks`, and nothing an older release reads changed (expanding only, decision 198). The docs' workflow files page says `checks` is the QA check.
 - The prototype's builder went first: its families, tiles, names and Then list are the same.
 
+## 291. On the workflow canvas, the warning mark clears the paths, outputs leave from the middle, and labels say their words
+
+#513. On a step with a warning and several outputs, the exclamation mark sat on the top output's path, and paths left a step a little off its middle; a path's label was cut after a few characters.
+
+- **The mark at the top-left corner**, outside the column of outputs down the right edge, so it never meets a path or a port.
+- **Outputs evenly about the middle.** A step's outputs are spaced evenly about its vertical middle (`portTop`, tested). The node is now its shape and, apart from it, its ports and mark: a family's thicker edge (a review's left edge, a QA check's top) moved the ports and the in-port by its width, and a status's slant clipped them; drawn outside the shape, neither does.
+- **Labels say their words.** A path's label shows whole up to about 32 characters, then an ellipsis (`pathLabel`, cut at a word where one is near, tested), with the full text on hover and in the step's panel, where a path's condition now wraps rather than being cut. It is drawn in HTML over the paths, on the panel's quiet ground without a border, so it reads over the paths it crosses, and picks its path as the path's own wide line does. Where the next step sits too close, the label is still cut to the room there is, rather than run into it; Tidy up, and the demo's album review, leave room for whole labels.
+- **A review that names nobody is a warning.** An approval or feedback review whose *Who* names no one could only wait to be ended by hand, as the runner's notice says; the builder now says so on the step (a warning, so nothing that runs stops). The demo's draft Delivery has such a sign-off, with three named outputs, and a path labelled in thirty characters.
+- **Checked on the canvas.** The visual suite's builder capture shows that step and that label, and its overlap checks now run over the canvas: steps are no longer exempt, and labels are text the checks read.
+- The prototype's builder went first.
+
 ## 292. A workflow has one start, and a new start begins a new workflow
 
 #514. Adding a start node on the canvas put it inside the workflow being edited, a second entry point beside the first. A start is what begins a workflow, so the owner decided that a new one makes a new workflow.
