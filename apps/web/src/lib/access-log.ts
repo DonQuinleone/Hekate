@@ -29,6 +29,8 @@ const actionWords = {
   "variation.replace": "File replaced",
   "comment.takes_share": "Takes shared",
   "comment.takes_unshare": "Takes unshared",
+  "comment.files_link": "Files linked",
+  "comment.files_unlink": "File unlinked",
   "file.captions_add": "Captions added",
   "file.captions_remove": "Captions removed",
   "file.captions_update": "Captions renamed",

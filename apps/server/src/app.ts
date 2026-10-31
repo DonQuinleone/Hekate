@@ -60,6 +60,7 @@ import {
   workspaceCategoryRoutes,
 } from "./routes/categories.ts";
 import { channelRoutes } from "./routes/channels.ts";
+import { commentFileRoutes } from "./routes/comment-files.ts";
 import { carryRoutes, commentRoutes, fileCommentRoutes } from "./routes/comments.ts";
 import { CROOM_PATH, projectCroomRoutes } from "./routes/croom.ts";
 import { directoryRoutes } from "./routes/directory.ts";
@@ -809,6 +810,7 @@ export function createApi(given: AppDeps) {
       .use("/comments/*", ...member)
       .route("/comments", commentRoutes(deps.db, { mailer: deps.mailer, ...links }))
       .route("/comments", sharedTakeRoutes(downloads))
+      .route("/comments", commentFileRoutes(downloads))
       .use("/templates", ...member)
       .use("/templates/*", ...member)
       .route("/templates", templateRoutes(deps.db))

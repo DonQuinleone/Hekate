@@ -5,6 +5,7 @@ import {
   cappedDownload,
   type DownloadLevel,
   exceptedTools,
+  linkedFileGrant,
   lookingPermissions,
   mergeGrants,
   narrowedByPolicy,
@@ -15,10 +16,12 @@ import {
   type ReviewerPermissions,
   type ReviewerTool,
   readGrant,
+  seesComment,
   toolsFor,
   withinWindow,
 } from "@hekate/shared";
 import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { HTTPException } from "hono/http-exception";
 import { NotFound } from "./errors.ts";
 import { type CoveredFile, coveredBy } from "./review-scope.ts";
@@ -26,6 +29,7 @@ import { type CoveredFile, coveredBy } from "./review-scope.ts";
 const {
   comments,
   commentCarries,
+  commentFiles,
   commentTakes,
   projects,
   projectMembers,
@@ -84,7 +88,8 @@ const guestPermissions = (grant: { comment: boolean; decide?: boolean }): Set<Pr
 
 /**
  * How a guest reaches a file: the review that gives it them, with its grant; `shared` when only
- * because a take is shared on a thread they can see (#133), to listen and nothing more.
+ * because a take is shared on (#133), or a file linked to (#527), a comment they can see: to
+ * look and listen, and nothing more of the file than that grant says.
  */
 export interface Reach {
   reviewId: string;
@@ -252,9 +257,15 @@ export async function guestReach(
       if (track?.scoreFileId) add(track.scoreFileId, item);
     }
   }
-  // Takes shared on a thread they can see (#133), to hear and nothing more: no comment of
-  // their own, no download, and none of the take's own comments.
-  for (const [fileId, item] of await sharedTakeReach(db, guest, ids)) add(fileId, item);
+  // What comments they can see carry, worked out from what their reviews give them directly,
+  // never from what a comment carries in turn. Takes shared on a thread (#133), to hear and
+  // nothing more: no comment of their own, no download, and none of the take's own comments.
+  // Files linked to a comment (#527, decision 294), to look at as the review showing them the
+  // comment allows, a download only where it gives one, and none of the file's own comments.
+  const direct = new Map(ids);
+  const carried = await sharedTakeReach(db, guest, direct);
+  const linked = await linkedFileReach(db, guest, direct);
+  for (const [fileId, item] of [...carried, ...linked]) add(fileId, item);
   return ids;
 }
 
@@ -377,17 +388,7 @@ async function sharedTakeReach(
   const reached = [...reach.keys()];
   if (reached.length === 0) return [];
   const org = guest.organisationId;
-  const carried = await db
-    .select({ commentId: commentCarries.commentId, fileId: commentCarries.fileId })
-    .from(commentCarries)
-    .where(
-      inOrg(
-        commentCarries,
-        org,
-        inArray(commentCarries.fileId, reached),
-        eq(commentCarries.visible, true),
-      ),
-    );
+  const carried = await threadsShownOn(db, org, reached);
   const shares = await db
     .select({
       commentId: commentTakes.commentId,
@@ -439,6 +440,104 @@ async function sharedTakeReach(
               download: "none",
               items: null,
             },
+            shared: true,
+          },
+        ]);
+      }
+  }
+  return found;
+}
+
+/** The threads carried to the files a guest reaches, where they show there. */
+function threadsShownOn(db: Pick<Database, "select">, organisationId: string, reached: string[]) {
+  return db
+    .select({ commentId: commentCarries.commentId, fileId: commentCarries.fileId })
+    .from(commentCarries)
+    .where(
+      inOrg(
+        commentCarries,
+        organisationId,
+        inArray(commentCarries.fileId, reached),
+        eq(commentCarries.visible, true),
+      ),
+    );
+}
+
+/**
+ * The files linked to comments a guest sees (#527, decision 294): a comment on a thread on a
+ * file they reach (or carried to one, where it shows), within the comment scope of the review
+ * that gives that file. Each is reached through that review, to look at with its tools and its
+ * download, and nothing more (`linkedFileGrant`); a file they reach in their own right keeps
+ * what that gives them besides.
+ */
+async function linkedFileReach(
+  db: Pick<Database, "select">,
+  guest: GuestActor,
+  reach: Map<string, Reach[]>,
+): Promise<[string, Reach][]> {
+  const reached = [...reach.keys()];
+  if (reached.length === 0) return [];
+  const org = guest.organisationId;
+  const carried = await threadsShownOn(db, org, reached);
+  const thread = alias(comments, "thread");
+  const links = await db
+    .select({
+      linkedFileId: commentFiles.fileId,
+      threadId: thread.id,
+      threadFileId: thread.fileId,
+      threadAuthor: thread.guestAuthorId,
+      parentId: comments.parentId,
+      author: comments.guestAuthorId,
+    })
+    .from(commentFiles)
+    .innerJoin(
+      comments,
+      and(eq(comments.id, commentFiles.commentId), eq(comments.organisationId, org)),
+    )
+    // The thread the comment is in: itself, or the one it replies to.
+    .innerJoin(
+      thread,
+      and(
+        eq(thread.id, sql`coalesce(${comments.parentId}, ${comments.id})`),
+        eq(thread.organisationId, org),
+      ),
+    )
+    .where(
+      inOrg(
+        commentFiles,
+        org,
+        or(
+          inArray(thread.fileId, reached),
+          carried.length > 0
+            ? inArray(
+                thread.id,
+                carried.map((k) => k.commentId),
+              )
+            : undefined,
+        ),
+      ),
+    );
+  const found: [string, Reach][] = [];
+  for (const link of links) {
+    const on = [
+      link.threadFileId,
+      ...carried.filter((k) => k.commentId === link.threadId).map((k) => k.fileId),
+    ];
+    for (const fileId of on)
+      for (const item of reach.get(fileId) ?? []) {
+        // A comment they cannot see links nothing for them.
+        const seen = seesComment(
+          item.permissions.comments,
+          guest.guestId,
+          { parentId: link.parentId, author: link.author },
+          link.threadAuthor,
+        );
+        if (!seen) continue;
+        found.push([
+          link.linkedFileId,
+          {
+            reviewId: item.reviewId,
+            permissions: linkedFileGrant(item.permissions),
             shared: true,
           },
         ]);
@@ -570,8 +669,9 @@ export async function fileAccess(db: Pick<Database, "select">, actor: Actor, fil
     const through = (await guestReach(db, actor)).get(fileId) ?? [];
     const grant = mergeGrants(through.map((t) => t.permissions));
     if (!grant) return null;
-    // A take they reach only as shared on a thread is theirs to hear, and nothing more: none
-    // of its comments, their own from an earlier review included.
+    // A take they reach only as shared on a thread, or a file only as linked to a comment, is
+    // theirs to hear or look at and nothing more: none of its comments, their own from an
+    // earlier review included, and a download only where the review that shows it gives one.
     const listenOnly = through.every((t) => t.shared);
     return {
       projectId: file.projectId,

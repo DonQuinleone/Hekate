@@ -3,8 +3,10 @@ import {
   defaultReviewerPermissions as all,
   applyPermissions,
   invitedGrant,
+  linkedFileGrant,
   mergeGrants,
   readGrant,
+  seesComment,
   standingGrant,
   visibleComments,
   withinWindow,
@@ -75,6 +77,46 @@ describe("reviewer permissions", () => {
     expect(ids("all")).toEqual(["a", "a1", "b", "b1", "c"]);
     expect(ids("own_and_replies")).toEqual(["a", "a1", "b1"]);
     expect(ids("own")).toEqual(["a", "b1"]);
+  });
+
+  it("decides one comment as the list does (#527)", () => {
+    const comments = [
+      { id: "a", parentId: null, author: "me" },
+      { id: "a1", parentId: "a", author: "them" },
+      { id: "b", parentId: null, author: "them" },
+      { id: "b1", parentId: "b", author: "me" },
+      { id: "b2", parentId: "b", author: "them" },
+      { id: "c", parentId: null, author: null },
+    ];
+    const threadAuthor = (c: { id: string; parentId: string | null; author: string | null }) =>
+      comments.find((t) => t.id === (c.parentId ?? c.id))?.author ?? null;
+    for (const scope of ["all", "own_and_replies", "own"] as const)
+      expect(
+        comments.filter((c) => seesComment(scope, "me", c, threadAuthor(c))).map((c) => c.id),
+      ).toEqual(visibleComments(comments, scope, "me").map((c) => c.id));
+  });
+
+  it("lets a guest look at a linked file as their review allows, and do nothing else (#527)", () => {
+    const grant = linkedFileGrant({
+      ...all,
+      invite: true,
+      download: "proxy",
+      maxPlays: 3,
+      items: ["01890000-0000-7000-8000-000000000000"],
+      tools: ["loops"],
+    });
+    expect(grant).toMatchObject({
+      comment: false,
+      decide: false,
+      invite: false,
+      comments: "own",
+      items: null,
+      // What the review gives them to look and download with stays theirs.
+      download: "proxy",
+      maxPlays: 3,
+      tools: ["loops"],
+    });
+    expect(linkedFileGrant(all).download).toBe("none");
   });
 
   it("gives those a reviewer invites what the reviewer has, but no decision or inviting", () => {

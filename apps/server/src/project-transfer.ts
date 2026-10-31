@@ -71,6 +71,7 @@ export const transferTables = {
     "comments",
     "comment_attachments",
     "comment_takes",
+    "comment_files",
     "comment_carries",
     "alignments",
     "qa_findings",
@@ -659,6 +660,8 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
     ],
     ["comment_attachments", sql`comment_id in ${comments}`],
     ["comment_takes", sql`comment_id in ${comments}`],
+    // A linked file is the thread's own project's (#527), so it moves with it too.
+    ["comment_files", sql`comment_id in ${comments}`],
     ["comment_carries", sql`comment_id in ${comments}`],
     ["variants", sql`version_id in ${versions}`],
     ["variations", sql`version_id in ${versions}`],

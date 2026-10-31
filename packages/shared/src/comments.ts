@@ -113,6 +113,31 @@ export interface CommentAttachment {
   byteSize: number;
 }
 
+/** How many files one link request carries; a longer pick goes in batches of this. */
+export const LINK_FILES_MAX = 50;
+/**
+ * Files already in the project linked to a comment by its author (#527): the thread's own
+ * project's files, opened in the viewer by whoever reads the comment, never downloaded from it.
+ */
+export const linkFilesInput = z.object({
+  fileIds: z.array(z.uuid()).min(1).max(LINK_FILES_MAX),
+});
+export type LinkFilesInput = z.infer<typeof linkFilesInput>;
+
+/**
+ * A project file linked to a comment, as the thread shows it: what it is and where it opens.
+ * Its bytes never come with it; it opens in the viewer, through the delivery path.
+ */
+export interface LinkedFile {
+  id: string;
+  name: string;
+  kind: FileKind;
+  /** A recording's length in seconds, or null. */
+  duration: number | null;
+  /** A document's pages, or null. */
+  pageCount: number | null;
+}
+
 /** Someone a comment mentions, named as they were when it was written. */
 export interface CommentMention {
   id: string;
