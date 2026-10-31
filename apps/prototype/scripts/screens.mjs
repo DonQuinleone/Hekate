@@ -116,7 +116,7 @@ const screens = [
       { click: 'role=button[name="Actions for Mira Solberg"]' },
       { click: 'role=menuitem[name="Leave project…"]' },
       { click: 'role=combobox[name="Who takes over"]' },
-      { click: 'role=option[name=/Tomas Varga/]' },
+      { click: "role=option[name=/Tomas Varga/]" },
     ],
   },
   {

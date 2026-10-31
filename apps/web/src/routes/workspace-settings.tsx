@@ -2,7 +2,6 @@ import {
   accessWindowDays,
   bucketIdOf,
   bucketLine,
-  type CheckState,
   type CommentScope,
   type CustomProfile,
   type DateFormat,
