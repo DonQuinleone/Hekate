@@ -318,6 +318,32 @@ describe("the appendices", () => {
     expect(by("Off")).toBeUndefined();
   });
 
+  it("judges each format ask on its own, so a row fails only for its own reason", () => {
+    // Stereo 48 kHz at 16-bit, against a profile asking 48 kHz, 24-bit, stereo: only the
+    // bit depth misses, though the one format check fails for it.
+    const master = {
+      ...streaming,
+      sampleRates: { rates: [48_000], atLeast: false },
+      bitDepthMin: 24 as const,
+      channels: 2,
+    };
+    const info = {
+      duration: 40,
+      audio: { codec: "pcm_s16le", channels: 2, sampleRate: 48_000, bitDepth: 16 },
+    };
+    const lines = rulesChecked(
+      master,
+      [],
+      [finding({ check: "format", severity: "fail", start: null, end: null })],
+      info,
+      "ready",
+    );
+    const result = (label: string) => lines.find((l) => l.label === label)?.result;
+    expect(result("Bit depth")).toBe("fail");
+    expect(result("Sample rate")).toBe("pass");
+    expect(result("Channels")).toBe("pass");
+  });
+
   it("gives the format and metadata in full", () => {
     expect(
       formatDump({

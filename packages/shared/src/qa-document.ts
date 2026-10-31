@@ -7,6 +7,7 @@ import { combineChannels, type PeakLevel } from "./peaks.ts";
 import {
   channelName,
   type DeliveryProfile,
+  formatMeets,
   frameRateName,
   type QaCheck,
   type QaFinding,
@@ -613,21 +614,26 @@ export function rulesChecked(
   );
   if (audio) {
     const { rates, atLeast } = profile.sampleRates;
+    // One format check covers all three asks; each row is judged on its own measure, so a
+    // row passes when its ask is met whatever the others do (an unrun check stays unknown).
+    const format = of("format", false);
+    const meets = formatMeets(profile, audio);
+    const formatRow = (met: boolean) => (format === null ? null : met ? "pass" : format);
     add(
       "profile",
       "Sample rate",
       atLeast ? `${kHz(rates[0] ?? 0)} or higher` : rates.map(kHz).join(" or "),
-      of("format", false),
+      formatRow(meets.sampleRate),
     );
     if (profile.bitDepthMin)
       add(
         "profile",
         "Bit depth",
         profile.bitDepthExact ? `${profile.bitDepthMin}-bit` : `${profile.bitDepthMin}-bit or more`,
-        of("format", false),
+        formatRow(meets.bitDepth),
       );
     if (profile.channels !== null)
-      add("profile", "Channels", String(profile.channels), of("format", false));
+      add("profile", "Channels", String(profile.channels), formatRow(meets.channels));
     if (profile.layout) add("profile", "Layout", layoutLabel(profile.layout), of("layout", false));
     if (profile.atmos) add("profile", "ADM BWF", "bed and objects described", of("atmos", false));
   }
