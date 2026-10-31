@@ -6809,6 +6809,31 @@ describe.runIf(url)("api", () => {
           );
           expect(elsewhere.status).toBe(422);
           expect(await elsewhere.text()).toContain("again for a new endpoint");
+          // Going back to a place used before takes up its identity again, never a second one,
+          // so reconciliation never counts one identity's files as another's orphans.
+          const again = await send(
+            "PUT",
+            "/bucket",
+            { ...bucket, accessKeyId: "", secretAccessKey: "" },
+            owner,
+          );
+          expect(((await again.json()) as View).bucket?.id).toBe(view.bucket?.id);
+          expect((await storage.put(organisationId, Buffer.from("x"))).backend).toBe(
+            `bucket:${view.bucket?.id}`,
+          );
+          const archive = await send(
+            "PUT",
+            "/bucket",
+            { ...bucket, bucket: "endless-hall-archive", accessKeyId: "", secretAccessKey: "" },
+            owner,
+          );
+          expect(((await archive.json()) as View).bucket?.id).toBe(second);
+          expect(
+            await db
+              .select({ id: schema.workspaceBuckets.id })
+              .from(schema.workspaceBuckets)
+              .where(eq(schema.workspaceBuckets.organisationId, organisationId)),
+          ).toHaveLength(2);
 
           // Back to the instance's storage: new files go there, the bucket's still read.
           const back = await send("PUT", "", { backend: null }, owner);
@@ -6843,7 +6868,7 @@ describe.runIf(url)("api", () => {
             {
               workspace: "Studio",
               bucket: "endless-hall-archive/hekate at s3.example.test",
-              objects: 4,
+              objects: 5,
             },
           ]);
           expect(describeReport(report)).toContain(

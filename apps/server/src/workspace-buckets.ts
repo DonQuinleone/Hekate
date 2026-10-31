@@ -219,8 +219,15 @@ export function workspaceBuckets(deps: {
       if (!probe.ok) throw new BucketRefused(probe.message);
       const { version, key } = await keyring.current(organisationId);
       const write = async (t: Tx) => {
-        // The same place: its details and credentials change, and its files stay with it.
-        const place = saved && samePlace(saved, fields) ? saved : null;
+        // The same place, current or used before: its details and credentials change, and its
+        // files stay with it. A place gets one identity only, so reconciliation never sees one
+        // identity's files as another's orphans in the same bucket.
+        const known = await t
+          .select()
+          .from(buckets)
+          .where(inOrg(buckets, organisationId))
+          .orderBy(asc(buckets.createdAt));
+        const place = known.find((row) => samePlace(row, fields)) ?? null;
         const id = place?.id ?? uuidv7();
         const values = {
           endpoint: fields.endpoint,
@@ -237,9 +244,15 @@ export function workspaceBuckets(deps: {
           updatedAt: new Date(),
         };
         if (place) {
+          // Taken up again: the one in use until now is kept for its files, and takes no more.
+          if (place.replacedAt)
+            await t
+              .update(buckets)
+              .set({ replacedAt: new Date() })
+              .where(inOrg(buckets, organisationId, isNull(buckets.replacedAt)));
           const [row] = await t
             .update(buckets)
-            .set(values)
+            .set({ ...values, replacedAt: null })
             .where(inOrg(buckets, organisationId, eq(buckets.id, place.id)))
             .returning();
           if (!row) throw new BucketRefused("The bucket changed meanwhile; try again.");
