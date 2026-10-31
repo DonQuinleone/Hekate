@@ -14,6 +14,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { cn } from "~/lib/cn";
+import { useViewer } from "~/lib/viewer";
 import { SeverityDot } from "./qa";
 
 /**
@@ -297,10 +298,11 @@ function Counts({ counts }: { counts: QaDocument["summary"]["counts"] }) {
 }
 
 function Finding({ doc, f }: { doc: QaDocument; f: ReportFinding }) {
+  const { guest } = useViewer();
   const at =
     f.start !== null ? (
       <Link
-        to="/files/$fileId"
+        to={guest ? "/g/files/$fileId" : "/files/$fileId"}
         params={{ fileId: doc.file.id }}
         search={{ view: "qa", t: f.start }}
         aria-label={`Open the file at ${f.at}`}

@@ -8,6 +8,7 @@ import { QaReportDocument } from "~/components/qa-report";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
 import { fileQuery, projectQuery, qaDocumentQuery } from "~/lib/queries";
+import { useViewer } from "~/lib/viewer";
 
 /** Takes a report away in a format: the server marks the PDF for whoever asked and logs it. */
 const download = (fileId: string, format: "pdf" | "csv" | "json") =>
@@ -18,13 +19,30 @@ const download = (fileId: string, format: "pdf" | "csv" | "json") =>
  * about, with the PDF to download and the CSV and JSON beside it.
  */
 export function QaReportPage({ fileId }: { fileId: string }) {
+  const { guest } = useViewer();
   const { data: doc, error } = useQuery(qaDocumentQuery(fileId));
   const { data: file } = useQuery(fileQuery(fileId));
   const { data: project } = useQuery({
     ...projectQuery(file?.projectId ?? ""),
-    enabled: Boolean(file),
+    enabled: Boolean(file) && !guest,
   });
-  const crumbs = [
+  // A guest reaches it from a review's file, so the way back is their reviews and that file.
+  const guestCrumbs = [
+    { key: "reviews", link: <Link to="/g">Reviews</Link> },
+    ...(file
+      ? [
+          {
+            key: "file",
+            link: (
+              <Link to="/g/files/$fileId" params={{ fileId }} search={{ view: "qa" }}>
+                {file.name}
+              </Link>
+            ),
+          },
+        ]
+      : []),
+  ];
+  const memberCrumbs = [
     { key: "projects", link: <Link to="/projects">Projects</Link> },
     ...(file && project
       ? [
@@ -50,7 +68,7 @@ export function QaReportPage({ fileId }: { fileId: string }) {
   return (
     <>
       <PageHeader
-        crumbs={crumbs}
+        crumbs={guest ? guestCrumbs : memberCrumbs}
         title="QA report"
         actions={
           doc && (

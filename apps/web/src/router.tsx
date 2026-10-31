@@ -397,6 +397,16 @@ const guestFile = createRoute({
   },
 });
 
+/** A file's QA report for a guest whose review grants the QA tool (#515). */
+const guestQaReport = createRoute({
+  getParentRoute: () => guestApp,
+  path: "/g/files/$fileId/qa-report",
+  component: function GuestQaReportRoute() {
+    const { fileId } = guestQaReport.useParams();
+    return <QaReportPage fileId={fileId} />;
+  },
+});
+
 /** A member who owes a second factor adds one here before anything else. */
 const secondFactor = createRoute({
   getParentRoute: () => root,
@@ -1074,7 +1084,7 @@ export const router = createRouter({
     status,
     guestLink,
     guestSignedOut,
-    guestApp.addChildren([guestHome, guestReview, guestFile]),
+    guestApp.addChildren([guestHome, guestReview, guestFile, guestQaReport]),
     ...reference,
     app.addChildren([
       home,

@@ -23,6 +23,7 @@ import {
   qaQuery,
   useFileDeliveryProfile,
 } from "~/lib/queries";
+import { useViewer } from "~/lib/viewer";
 import { ProfileOptions } from "./delivery-profiles";
 import { Icon } from "./icons";
 import { buttonVariants } from "./ui/button";
@@ -296,6 +297,7 @@ export function QualityChecks({
   /** Write a comment about a finding, for those who may comment (#43). */
   onComment?: (finding: QaFinding) => void;
 }) {
+  const { guest } = useViewer();
   const { data } = useQuery(qaQuery(fileId));
   const choose = useFileDeliveryProfile(fileId);
   const { data: customs = [] } = useQuery({ ...customProfilesQuery, enabled: canChoose });
@@ -460,9 +462,10 @@ export function QualityChecks({
       {changes?.previous && changes.measured && (
         <SincePrevious changes={changes} previous={changes.previous} />
       )}
-      {/* The report as a document (#515): read here, taken away as PDF, CSV or JSON. */}
+      {/* The report as a document (#515): read here, taken away as PDF, CSV or JSON, in the
+          area the viewer is in, so a guest whose review grants QA reads it too. */}
       <Link
-        to="/files/$fileId/qa-report"
+        to={guest ? "/g/files/$fileId/qa-report" : "/files/$fileId/qa-report"}
         params={{ fileId }}
         className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "self-start")}
       >
