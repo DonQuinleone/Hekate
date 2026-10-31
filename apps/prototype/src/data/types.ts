@@ -247,6 +247,8 @@ export interface Comment {
   todo?: { done: boolean };
   /** Takes shared with this thread for the reviewers to hear. */
   sharedTakeIds?: string[];
+  /** Files already in the project linked to it by its author (#527), opened in the viewer. */
+  linkedFileIds?: string[];
   /** The versions this thread travelled through. */
   carries?: Carry[];
   /** The review it was written through, if a guest wrote it. */

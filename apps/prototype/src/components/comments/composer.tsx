@@ -4,10 +4,12 @@ import { Kbd } from "~/components/label";
 import { Button } from "~/components/ui/button";
 import { Dropdown, MenuList, usePopover } from "~/components/ui/menu";
 import { type ChosenFile, UploadDialog } from "~/components/ui/upload-dialog";
-import { categories, takeById } from "~/data";
+import { categories, fileById, takeById } from "~/data";
 import { cn } from "~/lib/cn";
+import { kindIcon } from "~/lib/files";
 import { formatClock, formatTimecode } from "~/lib/format";
 import type { Playback } from "../player/playback.ts";
+import { FilePickerDialog } from "./file-picker.tsx";
 import { TakePickerDialog } from "./takes.tsx";
 
 export type Target = "playhead" | "range" | "whole" | "region" | "page";
@@ -30,6 +32,7 @@ export function Composer({
   references,
   canCategorise,
   takesFrom = null,
+  filesFrom = null,
   channels = [],
   page,
   onPost,
@@ -43,6 +46,11 @@ export function Composer({
   canCategorise: boolean;
   /** The track whose takes can go on the comment (#497), for those who triage and see takes. */
   takesFrom?: string | null;
+  /**
+   * The project and the file being commented on, whose other files can go on the comment
+   * (#527), for members who may comment; never a guest, who sees no project.
+   */
+  filesFrom?: { projectId: string; fileId: string } | null;
   /** A recording's speakers: a comment can be about one of them (#74). */
   channels?: readonly string[];
   page?: number;
@@ -53,11 +61,13 @@ export function Composer({
   const [body, setBody] = useState("");
   const [focused, setFocused] = useState(false);
   // What goes with the comment: files (#133), chosen in the upload dialog (#477), and the
-  // track's takes (#497), picked from a list. Attach opens a menu in place; it never moves.
+  // track's takes (#497) and files already in the project (#527), each picked from a list.
+  // Attach opens a menu in place; it never moves.
   const [attachMenu, setAttachMenu, attachBox] = usePopover();
-  const [attaching, setAttaching] = useState<"upload" | "takes" | null>(null);
+  const [attaching, setAttaching] = useState<"upload" | "takes" | "files" | null>(null);
   const [attached, setAttached] = useState<ChosenFile[]>([]);
   const [attachedTakes, setAttachedTakes] = useState<string[]>([]);
+  const [linked, setLinked] = useState<string[]>([]);
   const fmt = (t: number) => (video ? formatTimecode(t, fps) : formatClock(t));
   if (disabledReason) {
     return (
@@ -166,6 +176,31 @@ export function Composer({
           })}
         </ul>
       )}
+      {linked.length > 0 && (
+        <ul className="flex list-none flex-wrap gap-1.5 p-0" aria-label="Files to link">
+          {linked.map((id) => {
+            const file = fileById(id);
+            if (!file) return null;
+            return (
+              <li
+                key={id}
+                className="flex h-6 min-w-0 max-w-full items-center gap-1.5 rounded-chip border border-line px-1.5 text-[12px] text-ink-2"
+              >
+                <Icon name={kindIcon[file.kind]} size={11} className="shrink-0 text-ink-3" />
+                <span className="max-w-48 truncate">{file.name}</span>
+                <button
+                  type="button"
+                  aria-label={`Leave out ${file.name}`}
+                  onClick={() => setLinked((a) => a.filter((x) => x !== id))}
+                  className="-mr-0.5 flex size-5 shrink-0 items-center justify-center rounded-chip text-ink-3 hover:text-ink"
+                >
+                  <Icon name="close" size={11} />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {open && (
         <div className="rise-in flex flex-wrap items-center gap-2 px-0.5 text-[12px] text-ink-3">
           {anyRef && (
@@ -224,8 +259,10 @@ export function Composer({
               )}
             >
               <Icon name="link" size={12} /> Attach
-              {attached.length + attachedTakes.length > 0 && (
-                <span className="text-ink">{attached.length + attachedTakes.length}</span>
+              {attached.length + attachedTakes.length + linked.length > 0 && (
+                <span className="text-ink">
+                  {attached.length + attachedTakes.length + linked.length}
+                </span>
               )}
             </button>
             {attachMenu && (
@@ -245,6 +282,15 @@ export function Composer({
                         },
                       ]
                     : []),
+                  ...(filesFrom
+                    ? [
+                        {
+                          label: "Files from this project",
+                          icon: <Icon name="folder" size={14} />,
+                          onSelect: () => setAttaching("files"),
+                        },
+                      ]
+                    : []),
                   {
                     label: "Upload",
                     icon: <Icon name="upload" size={14} />,
@@ -259,6 +305,15 @@ export function Composer({
               trackId={takesFrom}
               chosen={attachedTakes}
               onPick={setAttachedTakes}
+              onClose={() => setAttaching(null)}
+            />
+          )}
+          {attaching === "files" && filesFrom && (
+            <FilePickerDialog
+              projectId={filesFrom.projectId}
+              exclude={filesFrom.fileId}
+              chosen={linked}
+              onPick={setLinked}
               onClose={() => setAttaching(null)}
             />
           )}

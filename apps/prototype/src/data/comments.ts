@@ -41,6 +41,7 @@ export const comments: Comment[] = [
     body: "Yes, it is in the score. Leaving it.",
     createdAt: "2026-10-14T19:25:00Z",
     anchor: { kind: "whole" },
+    linkedFileIds: ["file-score-maple"],
   },
   {
     id: "c-3",
