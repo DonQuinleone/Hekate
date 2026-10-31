@@ -214,7 +214,7 @@ export function workspaceBuckets(deps: {
     },
 
     async save(organisationId, fields) {
-      const { credentials, saved } = await merged(organisationId, fields);
+      const { credentials } = await merged(organisationId, fields);
       const probe = await probeBackend(backendOf("test", fields, credentials));
       if (!probe.ok) throw new BucketRefused(probe.message);
       const { version, key } = await keyring.current(organisationId);
