@@ -2273,6 +2273,16 @@ The calendar showed what the board and the schedule already knew and offered not
 **Expanding only:** one nullable column and two new tables; an older release reads none of them (decision 198). The prototype's board, timeline and calendar show the same.
 
 
+## 287. Asset security: audio first, then video and documents, each sized to the project
+
+#509. The project's Asset security page was mostly the visible watermark, which marks video, pictures and documents; in a music project with no video, the inaudible mark on recordings' downloads (decision 239) sat below it with no word of how a leak is traced.
+
+- **A section for each kind of file, in the profile's order.** Music: Audio, Pictures and documents, Video. Video: Video, Audio, Pictures and documents. General, whose first tool is pages: Pictures and documents, Audio, Video. Then Downloads and deletion, which concern every kind. The order, which sections open, and where the watermark is set are pure functions in `packages/shared` (`assetSecurityLayout`, `watermarkHome`, `watermarkSummary`), tested.
+- **Sized to the project, nothing hidden.** Video opens in a video project or one that holds a video; Pictures and documents in a general project or one that holds a document or picture; otherwise each folds to one line, its heading and how it stands ("Visible watermark · Guests only · Tiled · 30%"), with Show, and opens on a click. Audio always opens: it is the page's lead and one row. The project's read tells whoever opens its settings which kinds of file it holds (`fileKinds`, its own files only).
+- **Audio** says what the mark is (an inaudible mark, made for each person, in every download of a recording) and, in its switch's hint, how a leak is traced (a workspace owner, under Leak tracing, to whoever received it). Stream marking (#451) has not landed, so nothing speaks of streams, in the product or the prototype; its switch joins this section when it does. Hekate has no audible identification, so there is none to offer.
+- **One visible watermark, set once.** It covers video, pictures and documents alike, so whom it marks, where and how strongly sit on one row in the first of the two sections that is open; the other, when open, says how it is set and where. Video keeps the preview on a frame. A music project's page fits one screen at desktop height, which the visual suite checks.
+- The prototype's Asset security shows the same, for a music and a video project.
+
 ## 288. A workspace's Operations page shows only what its owners act on
 
 #510. Operations (decision 183) showed a workspace's owners the instance's release and build, the worker, the workspace's jobs in the queue, whether Prometheus reads `/metrics`, and the newer release with its upgrade notes. An owner can do nothing with any of them, and on a hosted instance should not learn them: they are the operators', who see all of it under Instance, Operations, Queues and System, unchanged.

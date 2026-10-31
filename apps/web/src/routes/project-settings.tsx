@@ -1,5 +1,7 @@
 import {
   type AssetPolicy,
+  type AssetSection,
+  assetSecurityLayout,
   capital,
   customRef,
   type DeletionPolicy,
@@ -33,10 +35,12 @@ import {
   type WatermarkSettings,
   type WorkflowNotices,
   type WorkflowSummary,
+  watermarkHome,
   watermarkPositions,
   watermarkPositionWords,
   watermarkScopes,
   watermarkScopeWords,
+  watermarkSummary,
   watermarkText,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -58,7 +62,14 @@ import { VideoMark } from "~/components/player";
 import { ProjectRoles } from "~/components/project-access";
 import { TransferProject } from "~/components/project-transfer";
 import { QaRules } from "~/components/qa-rules";
-import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
+import {
+  Danger,
+  FoldingSection,
+  Row,
+  Section,
+  SettingsLayout,
+  SwitchRow,
+} from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
@@ -122,7 +133,7 @@ const sections = [
     label: "Asset security",
     group: "Protection",
     intro:
-      "How what people see carries their name, so a capture says whose it was, and who may take files away or delete them. Downloads are always marked for the person who asked.",
+      "How each kind of file names whoever has it, and who may take files away or delete them.",
   },
   {
     id: "storage",
@@ -646,14 +657,18 @@ function ProjectStorageSection({ project }: { project: Project }) {
 }
 
 /**
- * The visible watermark (#31): whom it marks, where and how strongly, with a preview in the
- * viewer's own name. Burned into pages and pictures, laid over video. Then the inaudible mark
- * in recordings' downloads, and who may download and delete (decision 257).
+ * Asset security (decision 287): a section for each kind of file, in the order the profile puts
+ * first, each open where the project has that kind of file and folded to its summary where it
+ * has none. Audio carries the inaudible mark in downloads (decision 239); video, pictures and
+ * documents the visible watermark (#31), one setting for both, edited where it shows first.
+ * Then who may download and delete (decision 257), whatever the kind.
  */
 function AssetSecurity({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
   const { data: me } = useQuery(meQuery);
+  // The sections opened or folded by hand, against how the page first lays them out.
+  const [flipped, setFlipped] = useState<ReadonlySet<AssetSection>>(new Set());
   const settings = project.watermark ?? defaultWatermark;
   // One change at a time: each sends the whole setting, so a second waits for the first.
   const edit = can("edit_project") && !update.isPending;
@@ -665,56 +680,87 @@ function AssetSecurity({ project }: { project: Project }) {
     workspace,
     new Date(),
   );
-  return (
-    <>
-      <Section
-        title="Visible watermark"
-        intro="Burned into pages and pictures, and laid over video, for guests, and for members when you choose."
+  const layout = assetSecurityLayout(project.profile, project.fileKinds).map((s) => ({
+    ...s,
+    open: flipped.has(s.section) ? !s.open : s.open,
+  }));
+  const home = watermarkHome(layout);
+  const flip = (section: AssetSection) =>
+    setFlipped((was) => {
+      const next = new Set(was);
+      if (!next.delete(section)) next.add(section);
+      return next;
+    });
+  const summary =
+    settings.scope === "off"
+      ? watermarkSummary(settings)
+      : `Visible watermark · ${watermarkSummary(settings)}`;
+  // Whom, where and how strongly, on one row: the page leads with audio and fits one screen.
+  const watermarkRows = (
+    <Row
+      name="Visible watermark"
+      hint="Whom it marks, where, and how strongly (10 to 80 per cent)."
+    >
+      <span className="flex w-full flex-wrap gap-2 @3xl/app:w-auto @3xl/app:flex-nowrap">
+        <Select
+          value={settings.scope}
+          aria-label="Visible watermark"
+          disabled={!edit}
+          onChange={(e) => change({ scope: e.target.value as WatermarkScope })}
+          className="w-full @3xl/app:w-36"
+        >
+          {watermarkScopes.map((scope) => (
+            <option key={scope} value={scope}>
+              {watermarkScopeWords[scope]}
+            </option>
+          ))}
+        </Select>
+        <Select
+          value={settings.position}
+          aria-label="Position"
+          disabled={!edit || settings.scope === "off"}
+          onChange={(e) => change({ position: e.target.value as WatermarkPosition })}
+          className="min-w-0 flex-1 @3xl/app:w-36 @3xl/app:flex-none"
+        >
+          {watermarkPositions.map((position) => (
+            <option key={position} value={position}>
+              {watermarkPositionWords[position]}
+            </option>
+          ))}
+        </Select>
+        <SavedInput
+          key={settings.opacity}
+          value={`${settings.opacity}%`}
+          label="Opacity"
+          disabled={!edit || settings.scope === "off"}
+          onSave={(typed) => {
+            const opacity = Number.parseInt(typed, 10);
+            if (Number.isInteger(opacity)) change({ opacity: Math.min(80, Math.max(10, opacity)) });
+          }}
+          className="tabular w-20 shrink-0"
+        />
+      </span>
+    </Row>
+  );
+  // The other open section says how the one mark is set, where it is set.
+  const setAbove = (where: string) => (
+    <Row name="Visible watermark" hint={`The same mark, set under ${where} above.`} inline>
+      <span className="text-[13px] text-ink-2">{watermarkSummary(settings)}</span>
+    </Row>
+  );
+  const sections: Record<AssetSection, ReactNode> = {
+    audio: <AudioMarking key="audio" project={project} />,
+    video: (
+      <FoldingSection
+        key="video"
+        id="asset-security-video"
+        title="Video"
+        intro="The visible watermark, laid over the player and burned into each download."
+        summary={summary}
+        open={layout.some((s) => s.section === "video" && s.open)}
+        onToggle={() => flip("video")}
       >
-        <Row name="Scope">
-          <Select
-            value={settings.scope}
-            aria-label="Scope"
-            disabled={!edit}
-            onChange={(e) => change({ scope: e.target.value as WatermarkScope })}
-            className="w-full @3xl/app:w-56"
-          >
-            {watermarkScopes.map((scope) => (
-              <option key={scope} value={scope}>
-                {watermarkScopeWords[scope]}
-              </option>
-            ))}
-          </Select>
-        </Row>
-        <Row name="Position and opacity" hint="Opacity from 10 to 80 per cent.">
-          <span className="flex gap-2">
-            <Select
-              value={settings.position}
-              aria-label="Position"
-              disabled={!edit || settings.scope === "off"}
-              onChange={(e) => change({ position: e.target.value as WatermarkPosition })}
-              className="w-40"
-            >
-              {watermarkPositions.map((position) => (
-                <option key={position} value={position}>
-                  {watermarkPositionWords[position]}
-                </option>
-              ))}
-            </Select>
-            <SavedInput
-              key={settings.opacity}
-              value={`${settings.opacity}%`}
-              label="Opacity"
-              disabled={!edit || settings.scope === "off"}
-              onSave={(typed) => {
-                const opacity = Number.parseInt(typed, 10);
-                if (Number.isInteger(opacity))
-                  change({ opacity: Math.min(80, Math.max(10, opacity)) });
-              }}
-              className="tabular w-20"
-            />
-          </span>
-        </Row>
+        {home === "video" ? watermarkRows : setAbove("Pictures and documents")}
         {settings.scope !== "off" && (
           <Row name="Preview" stacked>
             {/* A frame stands in for the picture: dark in either theme, as a video is. */}
@@ -731,54 +777,90 @@ function AssetSecurity({ project }: { project: Project }) {
             </div>
           </Row>
         )}
-      </Section>
-      <Downloads project={project} />
+      </FoldingSection>
+    ),
+    documents: (
+      <FoldingSection
+        key="documents"
+        id="asset-security-documents"
+        title="Pictures and documents"
+        intro="The visible watermark, burned into each page and picture as it is shown and downloaded."
+        summary={summary}
+        open={layout.some((s) => s.section === "documents" && s.open)}
+        onToggle={() => flip("documents")}
+      >
+        {home === "documents" ? watermarkRows : setAbove("Video")}
+      </FoldingSection>
+    ),
+  };
+  return (
+    <>
+      {layout.map((s) => sections[s.section])}
       {update.error && <p className="-mt-6 text-[13px] text-signal">{update.error.message}</p>}
+      <Downloads project={project} />
     </>
   );
 }
 
 /**
- * Forensic marking and downloads and deletion (decision 257). Each narrows what the roles and
- * reviews allow; the server applies it wherever they are checked.
+ * The inaudible mark in recordings' downloads (decision 239), which this project may only
+ * narrow (decision 257). Streams are not marked yet (#451), so nothing here speaks of them.
  */
-function Downloads({ project }: { project: Project }) {
+function AudioMarking({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
   const { data: me } = useQuery(meQuery);
   const owner = me?.organisations.find((o) => o.id === me.activeOrganisationId)?.role === "owner";
   const policy = project.assetPolicy ?? defaultAssetPolicy;
-  // One change at a time: each sends the whole policy, so a second waits for the first.
   const edit = can("edit_project") && !update.isPending;
-  const change = (next: Partial<AssetPolicy>) =>
-    update.mutate({ assetPolicy: { ...policy, ...next } });
   const workspaceMarks = project.workspaceMarks ?? false;
   const marking = workspaceMarks && policy.forensicDownloads;
   return (
     <>
       <Section
-        title="Forensic marking"
-        intro="An inaudible mark made for each recipient in a recording's download, so a leak can be traced to the person who received it."
+        title="Audio"
+        intro="An inaudible mark, made for each person, in every download of a recording."
       >
         <SwitchRow
-          name="Downloads"
+          name="Forensic mark on downloads"
           hint={
             !workspaceMarks
               ? "Off for the workspace: its owners turn it on under Leak tracing."
               : !marking
                 ? "This project's recordings download as they were uploaded, unmarked."
                 : owner
-                  ? "Each recording's download carries a mark made for whoever asked."
-                  : "Only the workspace's owners can stop marking a project's downloads."
+                  ? "If a copy leaks, a workspace owner traces it under Leak tracing to whoever received it."
+                  : "If a copy leaks, an owner traces it to whoever received it. Only owners can stop marking."
           }
           checked={marking}
           disabled={!edit || !workspaceMarks || (marking && !owner)}
-          onChange={(forensicDownloads) => change({ forensicDownloads })}
+          onChange={(forensicDownloads) =>
+            update.mutate({ assetPolicy: { ...policy, forensicDownloads } })
+          }
         />
       </Section>
+      {update.error && <p className="-mt-6 text-[13px] text-signal">{update.error.message}</p>}
+    </>
+  );
+}
+
+/**
+ * Downloads and deletion (decision 257). Each narrows what the roles and reviews allow; the
+ * server applies it wherever they are checked.
+ */
+function Downloads({ project }: { project: Project }) {
+  const can = useProjectCan(project.id);
+  const update = useUpdateProject(project.id);
+  const policy = project.assetPolicy ?? defaultAssetPolicy;
+  // One change at a time: each sends the whole policy, so a second waits for the first.
+  const edit = can("edit_project") && !update.isPending;
+  const change = (next: Partial<AssetPolicy>) =>
+    update.mutate({ assetPolicy: { ...policy, ...next } });
+  return (
+    <>
       <Section
         title="Downloads and deletion"
-        intro="Each narrows what the roles and reviews allow. A download is still made for the person who asked, marked and logged."
+        intro="Each narrows what the roles and reviews allow; a download is still marked and logged."
       >
         <Row name="Who may download">
           <Select

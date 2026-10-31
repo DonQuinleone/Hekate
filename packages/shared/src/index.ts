@@ -4,6 +4,7 @@ export * from "./alignment.ts";
 export * from "./anchor.ts";
 export * from "./api-tokens.ts";
 export * from "./asset-policy.ts";
+export * from "./asset-security.ts";
 export * from "./audit.ts";
 export * from "./billing.ts";
 export * from "./board.ts";

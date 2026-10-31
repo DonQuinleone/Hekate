@@ -111,6 +111,8 @@ const screens = [
     steps: [{ scroll: "Access permissions" }],
   },
   { name: "qa-rules", route: "/projects/proj-joplin/settings?section=qa" },
+  { name: "project-security", route: "/projects/proj-joplin/settings?section=security" },
+  { name: "project-security-video", route: "/projects/proj-titles/settings?section=security" },
   {
     name: "workflow-basic",
     route: "/projects/proj-joplin/workflow",
