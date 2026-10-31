@@ -601,13 +601,7 @@ export function createApi(given: AppDeps) {
       .route("/organisation/deletion", workspaceDeletionRoutes(lifecycle))
       .route(
         "/organisation",
-        organisationRoutes(
-          deps.db,
-          deps.mailer,
-          links,
-          deps.audit,
-          deps.trustProxy ?? false,
-        ),
+        organisationRoutes(deps.db, deps.mailer, links, deps.audit, deps.trustProxy ?? false),
       )
       .use("/notifications/*", ...member)
       .use("/notifications", ...member)
