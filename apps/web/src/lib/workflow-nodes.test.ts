@@ -1,6 +1,14 @@
-import { completeNode, startRun, type WorkflowDefinition } from "@hekate/shared";
+import {
+  ACTION_TYPES,
+  completeNode,
+  EVENT_TYPES,
+  startRun,
+  triggersOf,
+  type WorkflowDefinition,
+} from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import {
+  addRefusal,
   basicSteps,
   conditionText,
   connectorPath,
@@ -10,6 +18,7 @@ import {
   newWorkflowDefinition,
   outcomeWords,
   outPort,
+  startOf,
   walkLine,
   walkQuestions,
   withConfig,
@@ -19,6 +28,7 @@ import {
   withNode,
   withoutConnector,
   withoutNode,
+  withStartTrigger,
 } from "./workflow-nodes";
 
 const at = (id: string, type: WorkflowDefinition["nodes"][number]["type"], name: string) => ({
@@ -105,6 +115,46 @@ describe("the canvas", () => {
     expect(added.connectors.at(-1)).toMatchObject({ from: "ok", outcome: "mixed", to: "tell" });
     const loose = withNode(album, "wait", { x: 0, y: 0 }, undefined, "rest");
     expect(loose.connectors).toHaveLength(album.connectors.length);
+  });
+
+  it("never leaves a workflow with two starts (#514)", () => {
+    // A start kind with nothing before it is refused while the workflow has its start.
+    expect(addRefusal(album, "manual")).toMatch(/starts at “A version is uploaded”/);
+    expect(withNode(album, "manual", { x: 0, y: 300 })).toBe(album);
+    expect(withNode(album, "upload", { x: 0, y: 300 })).toBe(album);
+    // An event waited for follows a step, so it needs one to follow.
+    expect(addRefusal(album, "comment")).toMatch(/follows a step/);
+    expect(withNode(album, "comment", { x: 0, y: 0 }, "ok", "heard").nodes.at(-1)?.id).toBe(
+      "heard",
+    );
+    // A workflow with no start yet takes one, and only one.
+    const empty: WorkflowDefinition = { groups: [], nodes: [], connectors: [] };
+    const started = withNode(empty, "upload", { x: 0, y: 0 }, undefined, "s");
+    expect(triggersOf(started).map((n) => n.id)).toEqual(["s"]);
+    expect(triggersOf(withNode(started, "manual", { x: 0, y: 200 }))).toHaveLength(1);
+    // Every kind added anywhere leaves at most one start.
+    for (const type of [...EVENT_TYPES, ...ACTION_TYPES])
+      expect(triggersOf(withNode(album, type, { x: 900, y: 400 })).length).toBeLessThanOrEqual(1);
+  });
+
+  it("names what else starts a workflow on its one start, and a new one by its start", () => {
+    const both = withStartTrigger(album, "start", "manual", true);
+    expect(both.nodes.find((n) => n.id === "start")?.config).toEqual({ triggers: "manual" });
+    const three = withStartTrigger(both, "start", "recorded", true);
+    expect(three.nodes.find((n) => n.id === "start")?.config.triggers).toBe("manual, recorded");
+    expect(withStartTrigger(three, "start", "upload", true)).toEqual(three);
+    const back = withStartTrigger(
+      withStartTrigger(three, "start", "manual", false),
+      "start",
+      "recorded",
+      false,
+    );
+    expect(back.nodes.find((n) => n.id === "start")?.config).toEqual({});
+    expect(newWorkflowDefinition("manual").nodes[0]).toMatchObject({
+      type: "manual",
+      name: "Start by hand",
+    });
+    expect(startOf(newWorkflowDefinition())?.type).toBe("upload");
   });
 
   it("links an outcome to a node once, and never a node to itself", () => {

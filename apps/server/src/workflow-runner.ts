@@ -7,10 +7,10 @@ import {
   restartPoints,
   sameStatus,
   stageClock,
+  startFor,
   startRun,
   startRunAt,
   stopRun,
-  triggersOf,
   type WorkflowContext,
   type WorkflowDefinition,
   type WorkflowEffect,
@@ -760,7 +760,8 @@ async function happened(
         // Locked, so two events (or a restart) arriving at once start it once.
         await lockWorkflow(tx, at.organisationId, flow.id);
         if (await runningOf(tx, at.organisationId, flow.id, at.trackId)) return [];
-        const trigger = triggersOf(flow.definition).find((t) => t.type === type);
+        // The start this event begins it at: its own kind, or one its triggers name (#514).
+        const trigger = startFor(flow.definition, type);
         if (!trigger) return [];
         return (await begin(tx, deps, flow, { ...at, triggerId: trigger.id })).after;
       });
@@ -780,7 +781,7 @@ export async function startByHand(
   at: { organisationId: string; projectId: string; trackId: string; userId: string },
   workflow: { id: string; name: string; version: number; definition: WorkflowDefinition },
 ): Promise<RunRow> {
-  const trigger = triggersOf(workflow.definition).find((t) => t.type === "manual");
+  const trigger = startFor(workflow.definition, "manual");
   if (!trigger) throw new HTTPException(422, { message: "This workflow is not started by hand" });
   const { row, after } = await deps.db.transaction(async (tx) => {
     // An archived project is read-only, even if it was archived a moment ago.

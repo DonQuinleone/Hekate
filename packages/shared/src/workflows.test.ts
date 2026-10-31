@@ -9,8 +9,10 @@ import {
   restartPoints,
   simulateWorkflow,
   stageClock,
+  startFor,
   startRun,
   startRunAt,
+  startsOn,
   stopRun,
   type WorkflowConnector,
   type WorkflowContext,
@@ -132,6 +134,56 @@ describe("a workflow's rules (#25, decision 040)", () => {
     expect(workflowProblems({ groups: [], nodes: [], connectors: [] })[0]?.text).toBe(
       "Nothing starts this workflow: add an event with nothing before it.",
     );
+  });
+});
+
+describe("one start per workflow (#514, decision 292)", () => {
+  const twoStarts: WorkflowDefinition = {
+    groups: [],
+    nodes: [
+      node("up", "upload", "Version uploaded", 0),
+      node("hand", "manual", "Start by hand", 0),
+      node("ok", "approval", "Approval", 1),
+      node("end", "finish", "Approved", 2),
+    ],
+    connectors: [
+      wire("1", "up", "happened", "ok"),
+      wire("2", "hand", "happened", "ok"),
+      wire("3", "ok", "approved", "end"),
+      wire("4", "ok", "changes", "end"),
+      wire("5", "ok", "mixed", "end"),
+    ],
+  };
+
+  it("says a second start is one too many, without stopping a workflow made before the rule", () => {
+    const problems = workflowProblems(twoStarts);
+    expect(problems.filter((p) => p.text.includes("second start"))).toEqual([
+      expect.objectContaining({ nodeId: "hand", level: "warning" }),
+    ]);
+    expect(problems.some((p) => p.level === "error")).toBe(false);
+    expect(workflowProblems(album).some((p) => p.text.includes("second start"))).toBe(false);
+  });
+
+  it("starts one start node on each thing its triggers name", () => {
+    const one: WorkflowDefinition = {
+      ...twoStarts,
+      nodes: [
+        node("up", "upload", "Version uploaded", 0, {
+          triggers: "manual, recorded, nonsense, manual",
+        }),
+        ...twoStarts.nodes.slice(2),
+      ],
+      connectors: twoStarts.connectors.filter((c) => c.from !== "hand"),
+    };
+    expect(workflowProblems(one)).toEqual([]);
+    expect(startsOn(one.nodes[0] as WorkflowNode)).toEqual(["upload", "manual", "recorded"]);
+    expect(startFor(one, "manual")?.id).toBe("up");
+    expect(startFor(one, "upload")?.id).toBe("up");
+    expect(startFor(one, "comment")).toBeUndefined();
+    // Started by hand, the run goes on from the one start as from a version arriving.
+    const ctx = { item: { kind: "audio" as const, tags: [] } };
+    const byHand = startRun(one, startFor(one, "manual")?.id ?? "", ctx);
+    expect(byHand.run.active).toEqual(["ok"]);
   });
 });
 

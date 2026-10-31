@@ -230,11 +230,36 @@ const kindOf = (type: NodeType) => nodeTypes[type].kind;
 
 /* ---------- Reading the graph ---------- */
 
-/** The events with nothing before them: where the workflow starts. */
+/**
+ * The events with nothing before them: where the workflow starts. A workflow has one (#514,
+ * decision 292); a second is a warning, not an error, so a workflow made before that rule
+ * keeps running.
+ */
 export const triggersOf = (flow: WorkflowDefinition) =>
   flow.nodes.filter(
     (n) => kindOf(n.type) === "event" && !flow.connectors.some((c) => c.to === n.id),
   );
+
+/** The start node's setting that names what else starts the workflow, as event kinds. */
+export const START_TRIGGERS = "triggers";
+
+/**
+ * What starts a workflow at a start node (#514): its own event, and any other its `triggers`
+ * setting names, separated by commas ("manual, recorded"). A start that several things begin
+ * stays one node, not one per entry point. Unknown names are left out, as are repeats.
+ */
+export function startsOn(node: Pick<WorkflowNode, "type" | "config">): EventType[] {
+  const named = (node.config[START_TRIGGERS] ?? "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t): t is EventType => (EVENT_TYPES as readonly string[]).includes(t));
+  const own = kindOf(node.type) === "event" ? [node.type as EventType] : [];
+  return [...new Set([...own, ...named])];
+}
+
+/** The start an event of a kind begins the workflow at, if any does. */
+export const startFor = (flow: WorkflowDefinition, type: EventType): WorkflowNode | undefined =>
+  triggersOf(flow).find((t) => startsOn(t).includes(type));
 
 /**
  * The nodes in the order the workflow reaches them from its triggers, and the connectors that
@@ -329,10 +354,19 @@ export function workflowProblems(flow: WorkflowDefinition): WorkflowProblem[] {
     wires.add(c.id);
   }
   const groups = new Set(flow.groups.map((g) => g.id));
-  if (triggersOf(flow).length === 0)
+  const starts = triggersOf(flow);
+  if (starts.length === 0)
     out.push({
       level: "error",
       text: "Nothing starts this workflow: add an event with nothing before it.",
+    });
+  // One start per workflow (#514): anything else that should start it is a trigger of that
+  // start, and a different path is a workflow of its own.
+  for (const extra of starts.slice(1))
+    out.push({
+      nodeId: extra.id,
+      level: "warning",
+      text: `${name(extra.id)} is a second start. A workflow has one: name what else starts it on “${starts[0]?.name ?? ""}”, connect something before this, or make it a workflow of its own.`,
     });
   const incoming = (id: string) => flow.connectors.filter((c) => c.to === id);
   const outgoing = (id: string) => flow.connectors.filter((c) => c.from === id);

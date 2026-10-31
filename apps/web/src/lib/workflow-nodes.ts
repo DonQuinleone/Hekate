@@ -1,8 +1,11 @@
 import {
+  type EventType,
   flowShape,
   type NodeType,
   nodeTypes,
   outcomesOf,
+  START_TRIGGERS,
+  startsOn,
   triggersOf,
   type WorkflowConnector,
   type WorkflowDefinition,
@@ -10,6 +13,7 @@ import {
   type WorkflowNode,
 } from "@hekate/shared";
 import type { IconName } from "~/components/icons";
+import { groupOf } from "~/lib/workflow-kinds";
 
 /**
  * A setting a node's inspector and the basic view show (#26), as the prototype has them: its
@@ -146,15 +150,56 @@ export function basicSteps(flow: WorkflowDefinition): {
   };
 }
 
-/** A new workflow, as the prototype starts one: a version arriving, and a finish to wire it to. */
-export const newWorkflowDefinition = (): WorkflowDefinition => ({
+/**
+ * A new workflow, as the prototype starts one: its start (a version arriving, unless another is
+ * chosen, #514) and a finish to wire it to.
+ */
+export const newWorkflowDefinition = (start: NodeType = "upload"): WorkflowDefinition => ({
   nodes: [
-    { id: "start", type: "upload", name: "A version is uploaded", x: 0, y: 0, config: {} },
+    {
+      id: "start",
+      type: nodeTypes[start].kind === "event" ? start : "upload",
+      name: nodeTypes[nodeTypes[start].kind === "event" ? start : "upload"].label,
+      x: 0,
+      y: 0,
+      config: {},
+    },
     { id: "end", type: "finish", name: "Finish", x: 640, y: 0, config: {} },
   ],
   connectors: [],
   groups: [],
 });
+
+/** The workflow's start, if it has one: the event with nothing before it (#514). */
+export const startOf = (flow: WorkflowDefinition): WorkflowNode | undefined => triggersOf(flow)[0];
+
+/**
+ * Why a node of a kind cannot be added where asked, or null when it can (#514, decision 292).
+ * An event with nothing before it would be a second start: one that starts workflows belongs
+ * among the start's triggers, or begins a new workflow; one waited for follows a step.
+ */
+export function addRefusal(flow: WorkflowDefinition, type: NodeType, from?: string): string | null {
+  if (nodeTypes[type].kind !== "event" || from) return null;
+  const start = startOf(flow);
+  if (!start) return null;
+  return groupOf(type) === "start"
+    ? `This workflow starts at “${start.name}”: name it among what starts it there, or begin a new workflow.`
+    : "A wait follows a step: drop it on a step's output, or add it after one.";
+}
+
+/** A start's triggers changed: what else, besides its own event, starts the workflow there. */
+export function withStartTrigger(
+  flow: WorkflowDefinition,
+  nodeId: string,
+  type: EventType,
+  on: boolean,
+): WorkflowDefinition {
+  const node = flow.nodes.find((n) => n.id === nodeId);
+  if (!node) return flow;
+  const others = startsOn(node).filter((t) => t !== node.type && t !== type);
+  const next = on && type !== node.type ? [...others, type] : others;
+  return withConfig(flow, nodeId, { [START_TRIGGERS]: next.join(", ") });
+}
 
 /** A node's settings changed: the rest of the workflow as it was. */
 export const withConfig = (
@@ -294,6 +339,8 @@ export function withNode(
   from?: string,
   id = freshId("n"),
 ): WorkflowDefinition {
+  // Never a second start (#514): such a node is refused, the workflow left as it was.
+  if (addRefusal(flow, type, from)) return flow;
   const node: WorkflowNode = {
     id,
     type,

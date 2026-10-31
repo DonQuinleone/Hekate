@@ -17288,6 +17288,64 @@ describe.runIf(url)("api", () => {
           expect((await runs()).map((r) => r.state)).toEqual(["finished"]);
         });
 
+        it("starts a workflow by hand at its one start, where its triggers say so (#514)", async () => {
+          const s = await studio();
+          const at = (id: string, type: string, name: string, x: number, config = {}) => ({
+            id,
+            type,
+            name,
+            x,
+            y: 0,
+            config,
+          });
+          const definition = (triggers?: string) => ({
+            nodes: [
+              at("start", "upload", "Version uploaded", 0, triggers ? { triggers } : {}),
+              at("status", "status", "Mastering", 1, { status: "Mastering" }),
+              at("done", "finish", "Done", 2),
+            ],
+            connectors: [
+              { id: "1", from: "start", outcome: "happened", to: "status" },
+              { id: "2", from: "status", outcome: "set", to: "done" },
+            ],
+          });
+          const send = (url: string, body: unknown, method = "POST", who = s.owner) =>
+            app.request(url, { ...json(body, who), method });
+          const made = (await (
+            await send(`/api/projects/${s.projectId}/workflows`, {
+              name: "Mastering",
+              definition: definition(),
+            })
+          ).json()) as { workflow: { id: string } };
+          await send(`/api/workflows/${made.workflow.id}`, { active: true }, "PATCH");
+          const byHand = () =>
+            send(`/api/tracks/${s.trackId}/workflow-runs`, { workflowId: made.workflow.id });
+          // A start on a version alone is not started by hand.
+          expect((await byHand()).status).toBe(422);
+          // Named among its start's triggers, it is, from that one start: no second start node.
+          await send(
+            `/api/workflows/${made.workflow.id}`,
+            { definition: definition("manual") },
+            "PATCH",
+          );
+          const started = await byHand();
+          expect(started.status).toBe(201);
+          const { run } = (await started.json()) as { run: { state: string } };
+          expect(run.state).toBe("finished");
+          // Not by someone outside the project, nor someone of another workspace.
+          const newcomer = await joinAs(s.owner, "newcomer-start@example.test");
+          expect(
+            (
+              await send(
+                `/api/tracks/${s.trackId}/workflow-runs`,
+                { workflowId: made.workflow.id },
+                "POST",
+                newcomer,
+              )
+            ).status,
+          ).toBe(404);
+        });
+
         it("asks for a stage's review, and its outcome moves the run on (#25)", async () => {
           const s = await studio();
           const at = (id: string, type: string, name: string, x: number, config = {}) => ({

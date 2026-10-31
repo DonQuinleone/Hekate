@@ -252,18 +252,6 @@ const kindLine = (n: FlowNode) =>
     ? `${typeMeta(n.type).label}: ${n.config.status}`
     : typeMeta(n.type).label;
 
-/* ---------- The picker ---------- */
-
-const picker: { group: string; items: { type: NodeType; label: string; hint: string }[] }[] =
-  familyOrder.map((f) => ({
-    group: families[f].label,
-    items: familyKinds[f].map((t) => ({
-      type: t,
-      label: typeMeta(t).label,
-      hint: typeMeta(t).hint,
-    })),
-  }));
-
 /* ---------- Pieces ---------- */
 
 type Selection = { kind: "node"; id: string } | { kind: "connector"; id: string } | null;
@@ -462,32 +450,38 @@ export function WorkflowPage({ project }: { project: Project }) {
     ],
     title: "Workflows",
     actions: (
-      <div
-        role="tablist"
-        aria-label="View"
-        className="flex h-8 items-center rounded-control border border-line bg-raised/40 p-0.5"
-      >
-        {(
-          [
-            ["basic", "Basic"],
-            ["advanced", "Advanced"],
-            ["code", "Code"],
-          ] as [Mode, string][]
-        ).map(([m, label]) => (
-          <button
-            key={m}
-            type="button"
-            role="tab"
-            aria-selected={mode === m}
-            onClick={() => setMode(m)}
-            className={cn(
-              "h-7 rounded-[7px] px-2.5 text-[13px] transition-colors",
-              mode === m ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
-            )}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex items-center gap-2">
+        <div
+          role="tablist"
+          aria-label="View"
+          className="flex h-8 items-center rounded-control border border-line bg-raised/40 p-0.5"
+        >
+          {(
+            [
+              ["basic", "Basic"],
+              ["advanced", "Advanced"],
+              ["code", "Code"],
+            ] as [Mode, string][]
+          ).map(([m, label]) => (
+            <button
+              key={m}
+              type="button"
+              role="tab"
+              aria-selected={mode === m}
+              onClick={() => setMode(m)}
+              className={cn(
+                "h-7 rounded-[7px] px-2.5 text-[13px] transition-colors",
+                mode === m ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => newFlow()}>
+          <Icon name="plus" size={13} />
+          <span className="hidden @3xl/app:inline">New workflow</span>
+        </Button>
       </div>
     ),
     revision: mode,
@@ -541,6 +535,17 @@ export function WorkflowPage({ project }: { project: Project }) {
 
   const addNode = (flowId: string, type: NodeType, at: Pt, from?: Selection) => {
     const meta = typeMeta(type);
+    // Never a second start (#514): an event with nothing before it, where the workflow has its
+    // start, is refused and said.
+    const target = flows.find((f) => f.id === flowId);
+    if (meta.kind === "event" && from?.kind !== "node" && target && triggersOf(target).length) {
+      setToast(
+        familyOf(type) === "start"
+          ? "This workflow has its start: switch it on there, or begin a new workflow."
+          : "A wait follows a step: drop it on a step's output, or add it after one.",
+      );
+      return;
+    }
     const band = bandOf(flowId);
     const id = `n-${uid()}`;
     const node: FlowNode = {
@@ -609,8 +614,10 @@ export function WorkflowPage({ project }: { project: Project }) {
     setSelection({ kind: "node", id: copy.id });
   };
 
-  const newFlow = () => {
+  /** A new workflow (#514), begun at the start chosen for it, placed and selected. */
+  const newFlow = (start: NodeType = "upload") => {
     const id = `wf-${uid()}`;
+    const kind = typeMeta(start).kind === "event" ? start : "upload";
     const flow: Flow = {
       id,
       projectId: project.id,
@@ -621,8 +628,8 @@ export function WorkflowPage({ project }: { project: Project }) {
         {
           id: `${id}-start`,
           kind: "event",
-          type: "upload",
-          name: "A version is uploaded",
+          type: kind,
+          name: typeMeta(kind).label,
           x: 0,
           y: 0,
           config: {},
@@ -641,6 +648,8 @@ export function WorkflowPage({ project }: { project: Project }) {
     };
     setFlows((list) => [...list, flow]);
     setSelection({ kind: "node", id: `${id}-start` });
+    setPanel(null);
+    setAddAt(null);
     setToast("New workflow added below; wire its start to what should happen.");
     requestAnimationFrame(() => jumpTo(id));
   };
@@ -862,7 +871,7 @@ export function WorkflowPage({ project }: { project: Project }) {
         { label: "Zoom to 100%", onSelect: () => setZoom(1) },
         "divider",
         { label: "Walk an item through", onSelect: () => startWalk(t.flowId) },
-        { label: "New workflow", onSelect: newFlow },
+        { label: "New workflow", onSelect: () => newFlow() },
       ];
     }
     if (m.target.kind === "node") {
@@ -930,7 +939,7 @@ export function WorkflowPage({ project }: { project: Project }) {
             setMode("advanced");
             requestAnimationFrame(() => jumpTo(id));
           }}
-          onNew={newFlow}
+          onNew={() => newFlow()}
         />
       )}
       {mode === "code" && <CodeView flows={flows} onToast={setToast} />}
@@ -956,10 +965,6 @@ export function WorkflowPage({ project }: { project: Project }) {
                     )}
                   </button>
                 ))}
-                <Button variant="ghost" size="sm" onClick={newFlow} className="shrink-0">
-                  <Icon name="plus" size={13} />
-                  <span className="hidden @3xl/app:inline">Workflow</span>
-                </Button>
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 <Button
@@ -1344,6 +1349,12 @@ export function WorkflowPage({ project }: { project: Project }) {
             <aside className="absolute inset-y-0 right-0 z-20 flex w-full flex-col border-l border-line bg-pane shadow-4 @3xl/app:static @3xl/app:w-[340px] @3xl/app:shadow-none">
               {panel === "picker" && (
                 <Picker
+                  hasStart={(() => {
+                    const f = flows.find((x) => x.id === (addAt?.flowId ?? flows[0]?.id));
+                    return f ? triggersOf(f).length > 0 : false;
+                  })()}
+                  from={addAt?.from?.id}
+                  onNew={newFlow}
                   onPick={(type) => {
                     const target = addAt ?? { flowId: flows[0]?.id ?? "", world: { x: 0, y: 0 } };
                     addNode(target.flowId, type, target.world, target.from);
@@ -1541,16 +1552,29 @@ function Minimap({
 
 /* ---------- Panels ---------- */
 
-function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: () => void }) {
+function Picker({
+  hasStart,
+  from,
+  onPick,
+  onNew,
+  onClose,
+}: {
+  /** Whether the workflow has its start: a start kind then begins a new workflow (#514). */
+  hasStart: boolean;
+  from?: string;
+  onPick: (t: NodeType) => void;
+  onNew: (start: NodeType) => void;
+  onClose: () => void;
+}) {
   const [q, setQ] = useState("");
   const hit = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase());
   return (
     <>
       <PanelHead
         title="What happens next?"
-        hint="Pick a node; it is wired from the selected one."
+        hint={from ? "Pick a node; it is wired from the selected one." : "Pick a node to add."}
         onClose={onClose}
-      />{" "}
+      />
       <div className="flex flex-col gap-3 px-3 pt-3">
         <Input
           value={q}
@@ -1561,24 +1585,41 @@ function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: (
         <Legend compact />
       </div>
       <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto p-2">
-        {picker.map((g) => {
-          const items = g.items.filter((i) => hit(i.label) || hit(i.hint));
+        {familyOrder.map((g) => {
+          const items = familyKinds[g].filter(
+            (t) => hit(typeMeta(t).label) || hit(typeMeta(t).hint),
+          );
           if (items.length === 0) return null;
+          const begins = g === "start" && hasStart;
           return (
-            <div key={g.group} className="mb-2">
-              <Label className="block px-2 pt-2 pb-1">{g.group}</Label>
-              {items.map((i) => {
+            <div key={g} className="mb-2">
+              <Label className="block px-2 pt-2 pb-1">
+                {begins ? "New workflow" : families[g].label}
+              </Label>
+              {begins && (
+                <div className="px-2 pb-1 text-[12px] text-ink-3">
+                  This workflow has its start; one of these begins another.
+                </div>
+              )}
+              {items.map((t) => {
+                const waits = !from && hasStart && g === "wait" && t in eventTypes;
                 return (
                   <button
-                    key={i.type}
+                    key={t}
                     type="button"
-                    onClick={() => onPick(i.type)}
-                    className="flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors hover:bg-raised"
+                    disabled={waits}
+                    title={waits ? "Follows a step: select one first" : undefined}
+                    onClick={() => (begins ? onNew(t) : onPick(t))}
+                    className="flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors enabled:hover:bg-raised disabled:opacity-50"
                   >
-                    <KindTile type={i.type} />
+                    <KindTile type={t} />
                     <span className="min-w-0">
-                      <span className="block truncate text-[13px] text-ink">{i.label}</span>
-                      <span className="block truncate text-[12px] text-ink-3">{i.hint}</span>
+                      <span className="block truncate text-[13px] text-ink">
+                        {typeMeta(t).label}
+                      </span>
+                      <span className="block truncate text-[12px] text-ink-3">
+                        {typeMeta(t).hint}
+                      </span>
                     </span>
                   </button>
                 );
@@ -1758,6 +1799,8 @@ function NodeInspector({
   const meta = typeMeta(node.type);
   const outs = outcomesOf(node);
   const isTrigger = node.kind === "event" && !flow?.connectors.some((c) => c.to === node.id);
+  // The one start (#514): what else starts the workflow is set on it.
+  const isStart = flow ? triggersOf(flow)[0]?.id === node.id : false;
   const uploadRules = useMemo(
     () =>
       [
@@ -1802,6 +1845,49 @@ function NodeInspector({
         <Field label="Name">
           <Input value={node.name} onChange={(e) => onChange({ name: e.target.value })} />
         </Field>
+        {isStart && (
+          <div className="flex flex-col gap-2">
+            <Label>Starts when</Label>
+            {familyKinds.start.map((t) => {
+              const own = t === node.type;
+              const on =
+                own ||
+                (node.config.triggers ?? "")
+                  .split(",")
+                  .map((x) => x.trim())
+                  .includes(t);
+              return (
+                <div key={t} className="flex items-center justify-between gap-3 text-[13px]">
+                  <span className="flex min-w-0 items-center gap-2 text-ink">
+                    <KindTile type={t} size="sm" />
+                    <span className="truncate">{typeMeta(t).label}</span>
+                  </span>
+                  <Switch
+                    label={typeMeta(t).label}
+                    checked={on}
+                    disabled={own}
+                    onChange={(next) => {
+                      const rest = (node.config.triggers ?? "")
+                        .split(",")
+                        .map((x) => x.trim())
+                        .filter((x) => x && x !== t);
+                      onChange({
+                        config: {
+                          ...node.config,
+                          triggers: [...rest, ...(next ? [t] : [])].join(", "),
+                        },
+                      });
+                    }}
+                  />
+                </div>
+              );
+            })}
+            <div className="text-[12px] text-ink-3">
+              A workflow has one start. Switch on anything else that should start it here; a
+              different path is a workflow of its own (New workflow, in the page header).
+            </div>
+          </div>
+        )}
         {meta.fields.map((f) => (
           <Field key={f.id} label={f.label}>
             {f.id === "status" && statuses.length ? (

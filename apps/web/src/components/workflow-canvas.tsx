@@ -1,10 +1,12 @@
 import {
   completeNode,
+  type EventType,
   flowShape,
   type NodeType,
   nodeTypes,
   outcomesOf,
   startRun,
+  startsOn,
   triggersOf,
   type WorkflowCondition,
   type WorkflowConnector,
@@ -48,6 +50,7 @@ import {
   tidied,
 } from "~/lib/workflow-layout";
 import {
+  addRefusal,
   BAND_GAP,
   type Bounds,
   boundsOf,
@@ -61,6 +64,7 @@ import {
   outPort,
   type Pt,
   portTop,
+  startOf,
   walkLine,
   walkQuestions,
   withConfig,
@@ -70,6 +74,7 @@ import {
   withNodeChange,
   withoutConnector,
   withoutNode,
+  withStartTrigger,
 } from "~/lib/workflow-nodes";
 
 const eyebrow = "text-[11px] font-medium tracking-wide text-ink-3 uppercase";
@@ -147,7 +152,8 @@ export function WorkflowCanvas({
   /** A workflow to land on, once it is there (a new one, say). */
   focus?: string | null;
   onEdit: (id: string, change: (flow: WorkflowDefinition) => WorkflowDefinition) => void;
-  onNew: () => void;
+  /** A new workflow, begun at the start chosen for it (a version arriving, unless said). */
+  onNew: (start?: NodeType) => void;
 }) {
   const [selection, setSelection] = useState<Selection>(null);
   const [picking, setPicking] = useState<AddAt | null>(null);
@@ -216,9 +222,17 @@ export function WorkflowCanvas({
   const edit = (flowId: string, change: (flow: WorkflowDefinition) => WorkflowDefinition) => {
     if (editing && flowById(flowId)) onEdit(flowId, change);
   };
+  const [notice, setNotice] = useState<string | null>(null);
   const addNode = (type: NodeType) => {
     const target = picking ?? { flowId: workflows[0]?.id ?? "", at: { x: 0, y: 0 } };
     if (!editing || !target.flowId) return;
+    // Never a second start (#514): said, and nothing added.
+    const flow = flowById(target.flowId)?.definition;
+    const refused = flow ? addRefusal(flow, type, target.from) : null;
+    if (refused) {
+      setNotice(refused);
+      return;
+    }
     const id = `n-${Math.random().toString(36).slice(2, 8)}`;
     edit(target.flowId, (f) => withNode(f, type, target.at, target.from, id));
     setSelection({ kind: "node", id, flowId: target.flowId });
@@ -466,7 +480,9 @@ export function WorkflowCanvas({
           : []),
         "divider" as const,
         { label: "Walk an item through", onSelect: () => startWalk(t.flowId) },
-        ...(editing ? ["divider" as const, { label: "New workflow", onSelect: onNew }] : []),
+        ...(editing
+          ? ["divider" as const, { label: "New workflow", onSelect: () => onNew() }]
+          : []),
       ];
     }
     if (m.target.kind === "node") {
@@ -629,13 +645,6 @@ export function WorkflowCanvas({
                 )}
               </button>
             ))}
-            {editing && (
-              <Button variant="ghost" size="sm" onClick={onNew} className="shrink-0">
-                <Icon name="plus" size={13} />
-                <span className="hidden @3xl/app:inline">Workflow</span>
-                <span className="sr-only @3xl/app:hidden">New workflow</span>
-              </Button>
-            )}
           </div>
           <Button
             variant={statusesOpen && !walk ? "secondary" : "ghost"}
@@ -971,7 +980,25 @@ export function WorkflowCanvas({
               </>
             )}
           </div>
-          {untidy && (
+          {notice && (
+            <div
+              role="status"
+              data-e2e-layer
+              className="absolute top-3 left-1/2 z-10 flex max-w-[min(520px,calc(100%-24px))] -translate-x-1/2 items-center gap-2 rounded-control border border-line bg-overlay py-1 pr-1 pl-3 text-[13px] text-ink-2 shadow-2"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <span className="min-w-0">{notice}</span>
+              <Button
+                variant="quiet"
+                size="iconSm"
+                aria-label="Dismiss"
+                onClick={() => setNotice(null)}
+              >
+                <Icon name="close" size={13} />
+              </Button>
+            </div>
+          )}
+          {untidy && !notice && (
             <div
               role="status"
               className="absolute top-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-control border border-line bg-overlay py-1 pr-1 pl-3 text-[13px] text-ink-2 shadow-2"
@@ -1071,7 +1098,22 @@ export function WorkflowCanvas({
           data-e2e-layer
           className="absolute inset-y-0 right-0 z-20 flex w-full flex-col border-l border-line bg-pane shadow-4 @3xl/app:static @3xl/app:w-[340px] @3xl/app:shadow-none"
         >
-          {picking && <Picker onPick={addNode} onClose={() => setPicking(null)} />}
+          {picking && (
+            <Picker
+              hasStart={Boolean(
+                startOf(
+                  flowById(picking.flowId)?.definition ?? { nodes: [], connectors: [], groups: [] },
+                ),
+              )}
+              from={picking.from}
+              onPick={addNode}
+              onNew={(start) => {
+                setPicking(null);
+                onNew(start);
+              }}
+              onClose={() => setPicking(null)}
+            />
+          )}
           {!picking && !selection && walk && (
             <WalkPanel
               walk={walk}
@@ -1103,6 +1145,9 @@ export function WorkflowCanvas({
               }
               onConfig={(config) =>
                 edit(selection.flowId, (f) => withConfig(f, selectedNode.id, config))
+              }
+              onStartTrigger={(type, on) =>
+                edit(selection.flowId, (f) => withStartTrigger(f, selectedNode.id, type, on))
               }
               onAddAfter={(outcome) =>
                 setPicking({
@@ -1207,7 +1252,9 @@ function CanvasNode({
   const subtitle =
     info.kind === "event"
       ? trigger
-        ? "Starts here"
+        ? startsOn(node).length > 1
+          ? `Starts here, or on ${startsOn(node).length - 1} more`
+          : "Starts here"
         : "Waits for it"
       : [node.config.who ?? node.config.to, node.config.due ? `${node.config.due} d` : null]
           .filter(Boolean)
@@ -1401,14 +1448,28 @@ function PanelHead({
   );
 }
 
-function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: () => void }) {
+function Picker({
+  hasStart,
+  from,
+  onPick,
+  onNew,
+  onClose,
+}: {
+  /** Whether the workflow has its start: then a start kind begins a new workflow instead. */
+  hasStart: boolean;
+  /** The step it follows, if any: an event waited for needs one. */
+  from?: string;
+  onPick: (t: NodeType) => void;
+  onNew: (start: NodeType) => void;
+  onClose: () => void;
+}) {
   const [q, setQ] = useState("");
   const hit = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase());
   return (
     <>
       <PanelHead
         title="What happens next?"
-        hint="Pick a node; it is wired from the selected one."
+        hint={from ? "Pick a node; it is wired from the selected one." : "Pick a node to add."}
         onClose={onClose}
       />
       <div className="flex flex-col gap-3 px-3 pt-3">
@@ -1427,27 +1488,41 @@ function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: (
             (t) => hit(nodeTypes[t].label) || hit(nodeLooks[t].hint),
           );
           if (types.length === 0) return null;
+          // Once a workflow has its start, a start kind begins another workflow (#514).
+          const begins = g === "start" && hasStart;
           return (
             <div key={g} className="mb-2">
-              <div className={cn("px-2 pt-2 pb-1", eyebrow)}>{groups[g].label}</div>
-              {types.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => onPick(t)}
-                  className="flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors hover:bg-raised"
-                >
-                  <KindTile type={t} />
-                  <span className="min-w-0">
-                    <span className="block truncate text-[13px] text-ink">
-                      {nodeTypes[t].label}
+              <div className={cn("px-2 pt-2 pb-1", eyebrow)}>
+                {begins ? "New workflow" : groups[g].label}
+              </div>
+              {begins && (
+                <p className="m-0 px-2 pb-1 text-[12px] text-ink-3">
+                  This workflow has its start; one of these begins another.
+                </p>
+              )}
+              {types.map((t) => {
+                const waits = !from && hasStart && g === "wait" && nodeTypes[t].kind === "event";
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    disabled={waits}
+                    title={waits ? "Follows a step: select one first" : undefined}
+                    onClick={() => (begins ? onNew(t) : onPick(t))}
+                    className="flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors enabled:hover:bg-raised disabled:opacity-50"
+                  >
+                    <KindTile type={t} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-[13px] text-ink">
+                        {nodeTypes[t].label}
+                      </span>
+                      <span className="block truncate text-[12px] text-ink-3">
+                        {nodeLooks[t].hint}
+                      </span>
                     </span>
-                    <span className="block truncate text-[12px] text-ink-3">
-                      {nodeLooks[t].hint}
-                    </span>
-                  </span>
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           );
         })}
@@ -1581,6 +1656,7 @@ function NodeInspector({
   editing,
   onChange,
   onConfig,
+  onStartTrigger,
   onAddAfter,
   onConnect,
   onSelectConnector,
@@ -1593,6 +1669,7 @@ function NodeInspector({
   editing: boolean;
   onChange: (change: Partial<Pick<WorkflowNode, "name" | "groupId" | "assign">>) => void;
   onConfig: (config: Record<string, string>) => void;
+  onStartTrigger: (type: EventType, on: boolean) => void;
   onAddAfter: (outcome: string) => void;
   onConnect: (outcome: string, to: string) => void;
   onSelectConnector: (id: string) => void;
@@ -1605,6 +1682,8 @@ function NodeInspector({
   const isStage = info.kind === "action" && !info.immediate && node.type !== "finish";
   const definition = flow?.definition;
   const isTrigger = definition ? triggersOf(definition).some((t) => t.id === node.id) : false;
+  // The one start (#514): what else starts the workflow is set on it.
+  const isStart = definition ? startOf(definition)?.id === node.id : false;
   const loops = definition ? flowShape(definition).loops : new Set<string>();
   const problems = flow?.problems.filter((p) => p.nodeId === node.id) ?? [];
   return (
@@ -1650,6 +1729,31 @@ function NodeInspector({
             onCommit={(name) => name && onChange({ name })}
           />
         </div>
+        {isStart && (
+          <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
+            <legend className="mb-2 p-0 text-[12px] text-ink-3">Starts when</legend>
+            <div className="flex flex-col gap-1.5">
+              {kindsByGroup.start.map((t) => {
+                const own = t === node.type;
+                return (
+                  <Choice
+                    key={t}
+                    className="text-[13px]"
+                    checked={own || startsOn(node).includes(t as EventType)}
+                    disabled={own || !editing}
+                    onChange={(e) => onStartTrigger(t as EventType, e.target.checked)}
+                  >
+                    {nodeTypes[t].label}
+                  </Choice>
+                );
+              })}
+            </div>
+            <p className="m-0 text-[12px] text-ink-3">
+              A workflow has one start. Tick anything else that should start it here; a different
+              path is a workflow of its own (New workflow, in the page header).
+            </p>
+          </fieldset>
+        )}
         {nodeLooks[node.type].fields.map((f) => (
           <StepField
             key={f.id}
