@@ -12689,6 +12689,17 @@ describe.runIf(url)("api", () => {
             await purgeDueProjects(db, storage, audit, new Date(Date.now() + 8 * 86400e3)),
           ).toBe(0);
 
+          // A file linked to a comment (#527) goes with them.
+          const [said] = await db
+            .insert(schema.comments)
+            .values({ organisationId: s.organisationId, fileId: s.mix, body: "As in the cover" })
+            .returning();
+          await db.insert(schema.commentFiles).values({
+            organisationId: s.organisationId,
+            commentId: said?.id ?? "",
+            fileId: s.artwork,
+          });
+
           // Asked and confirmed again, it goes for good once the week is over, and not before.
           expect((await deletion(s.owner)).status).toBe(200);
           expect((await deletion(s.engineer, "/confirm")).status).toBe(200);
@@ -12702,6 +12713,12 @@ describe.runIf(url)("api", () => {
             .from(schema.files)
             .where(eq(schema.files.projectId, s.projectId));
           expect(left).toEqual([]);
+          expect(
+            await db
+              .select({ id: schema.commentFiles.id })
+              .from(schema.commentFiles)
+              .where(eq(schema.commentFiles.organisationId, s.organisationId)),
+          ).toEqual([]);
           // The access log keeps every step, and the deletion with the project's name.
           const logged = await db
             .select({ action: schema.accessEvents.action, details: schema.accessEvents.details })
@@ -12860,6 +12877,16 @@ describe.runIf(url)("api", () => {
               grant: { invite: true },
             })),
           );
+          // A file of the project linked to a comment (#527).
+          const [said] = await db
+            .insert(schema.comments)
+            .values({ organisationId: s.organisationId, fileId: s.mix, body: "As in the cover" })
+            .returning();
+          await db.insert(schema.commentFiles).values({
+            organisationId: s.organisationId,
+            commentId: said?.id ?? "",
+            fileId: s.artwork,
+          });
 
           const deps = { db, keyring, backends, jobs };
           const move = { projectId: s.projectId, from: s.organisationId, to };
@@ -12927,7 +12954,13 @@ describe.runIf(url)("api", () => {
           );
 
           // Every row went: none of the project is left in the losing workspace.
-          for (const table of [schema.projects, schema.tracks, schema.files, schema.reviews])
+          for (const table of [
+            schema.projects,
+            schema.tracks,
+            schema.files,
+            schema.reviews,
+            schema.commentFiles,
+          ])
             expect(
               await db
                 .select({ n: count() })
@@ -20353,6 +20386,219 @@ describe.runIf(url)("api", () => {
               )
             ).status,
           ).toBe(404);
+        });
+
+        it("links files of the project to a comment, which a guest who sees it may open as their review allows (#527)", async () => {
+          const s = await invited();
+          const org = s.organisationId;
+          // The project's floor plan: a document of one page that no review covers. The project
+          // marks no one, so its page is sent as stored.
+          const fileIn = async (projectId: string, name: string, organisationId = org) => {
+            const blob = await storage.put(organisationId, Buffer.from(name));
+            const [row] = await db
+              .insert(schema.files)
+              .values({
+                organisationId,
+                projectId,
+                name,
+                kind: "document",
+                blobId: blob.id,
+                contentType: "application/pdf",
+                byteSize: blob.byteSize,
+                streamStatus: "ready",
+                pageCount: 1,
+              })
+              .returning();
+            return row?.id ?? "";
+          };
+          const plan = await fileIn(s.projectId, "Floor plan.pdf");
+          const page = await storage.put(org, Buffer.from("RIFF0000WEBPVP8 the plan"));
+          await db.insert(schema.filePages).values({
+            organisationId: org,
+            fileId: plan,
+            page: 1,
+            width: 1414,
+            height: 2000,
+            blobId: page.id,
+            thumbBlobId: page.id,
+          });
+          await db
+            .update(schema.projects)
+            .set({ watermark: { scope: "off", position: "tiled", opacity: 30 } })
+            .where(eq(schema.projects.id, s.projectId));
+          const say = async (body: object, cookie: string) =>
+            (
+              (await (
+                await app.request(`/api/files/${s.mix}/comments`, json(body, cookie))
+              ).json()) as { comment: { id: string } }
+            ).comment.id;
+          const link = (commentId: string, fileIds: string[], cookie: string) =>
+            app.request(`/api/comments/${commentId}/files`, json({ fileIds }, cookie));
+          const unlink = (commentId: string, fileId: string, cookie: string) =>
+            app.request(`/api/comments/${commentId}/files/${fileId}`, {
+              method: "DELETE",
+              headers: { cookie, origin: "http://localhost:3000" },
+            });
+          const owners = await say({ body: "Seating as in the floor plan" }, s.owner);
+
+          // Before any link the guest cannot open the plan.
+          expect((await getAs(`/api/files/${plan}`, s.cookie)).status).toBe(404);
+          // Only the comment's author links to it, and a guest never reaches the route.
+          expect((await link(owners, [plan], s.engineer)).status).toBe(403);
+          expect((await link(owners, [plan], s.cookie)).status).toBe(401);
+          const linked = await link(owners, [plan], s.owner);
+          expect(linked.status).toBe(201);
+          expect(((await linked.json()) as { files: unknown[] }).files).toEqual([
+            { id: plan, name: "Floor plan.pdf", kind: "document", duration: null, pageCount: 1 },
+          ]);
+          // Linked again, nothing changes and nothing more is logged.
+          expect((await link(owners, [plan], s.owner)).status).toBe(201);
+
+          // Never another project's file, a take's, or another workspace's.
+          const elite = (
+            (await (
+              await app.request("/api/projects", json({ name: "Elite", profile: "music" }, s.owner))
+            ).json()) as { project: { id: string } }
+          ).project.id;
+          expect((await link(owners, [await fileIn(elite, "Elite score.pdf")], s.owner)).status).toBe(
+            404,
+          );
+          const take = await fileIn(s.projectId, "Take 1.wav");
+          await db
+            .update(schema.files)
+            .set({ kind: "audio", contentType: "audio/wav", mediaInfo: { duration: 41 } as never })
+            .where(eq(schema.files.id, take));
+          expect(
+            (await app.request(`/api/tracks/${s.trackId}/takes`, json({ fileIds: [take] }, s.engineer)))
+              .status,
+          ).toBe(201);
+          expect((await link(owners, [take], s.owner)).status).toBe(404);
+          const [elsewhere] = await db
+            .insert(schema.organisations)
+            .values({ name: "Elsewhere", slug: "elsewhere-linked-files" })
+            .returning();
+          const theirOrg = elsewhere?.id ?? "";
+          const [theirProject] = await db
+            .insert(schema.projects)
+            .values({ organisationId: theirOrg, name: "Theirs", profile: "music" })
+            .returning();
+          const theirFile = await fileIn(theirProject?.id ?? "", "Theirs.pdf", theirOrg);
+          const [theirComment] = await db
+            .insert(schema.comments)
+            .values({ organisationId: theirOrg, fileId: theirFile, body: "Theirs" })
+            .returning();
+          expect((await link(owners, [theirFile], s.owner)).status).toBe(404);
+          expect((await link(theirComment?.id ?? "", [plan], s.owner)).status).toBe(404);
+          expect((await unlink(theirComment?.id ?? "", theirFile, s.owner)).status).toBe(404);
+
+          // A lesser role: the composer links to their own comment while they may comment, and
+          // not once they may only read; nor do they take one off then. Whoever triages may.
+          const composers = await say({ body: "The page turn is here" }, s.composer);
+          expect((await link(composers, [plan], s.composer)).status).toBe(201);
+          await grantRole(s.owner, s.projectId, s.composer, "Viewer");
+          expect((await link(composers, [s.artwork], s.composer)).status).toBe(403);
+          expect((await unlink(composers, plan, s.composer)).status).toBe(403);
+          expect((await unlink(composers, plan, s.engineer)).status).toBe(204);
+          expect((await unlink(composers, plan, s.engineer)).status).toBe(404);
+
+          // The thread lists the plan for the guest, who may now open it, and only to look at.
+          type Listed = { comments: { id: string; files: { id: string }[] }[] };
+          const seen = (await (
+            await getAs(`/api/files/${s.mix}/comments`, s.cookie)
+          ).json()) as Listed;
+          expect(seen.comments.find((c) => c.id === owners)?.files.map((f) => f.id)).toEqual([
+            plan,
+          ]);
+          expect((await getAs(`/api/files/${plan}`, s.cookie)).status).toBe(200);
+          expect((await getAs(`/api/files/${plan}/comments`, s.cookie)).status).toBe(403);
+          expect(
+            (
+              await app.request(
+                `/api/files/${plan}/comments`,
+                json({ body: "Row three?" }, s.cookie),
+              )
+            ).status,
+          ).toBe(403);
+          // No download while their review gives none; then as far as it gives, and no further.
+          const downloads = `/api/files/${plan}/downloads`;
+          expect((await app.request(downloads, json({ kind: "proxy" }, s.cookie))).status).toBe(
+            403,
+          );
+          const reviewer = s.review.reviewers.find((r) => r.guest);
+          await app.request(`/api/reviews/${s.review.id}/reviewers/${reviewer?.id}`, {
+            ...json({ permissions: { download: "proxy" } }, s.owner),
+            method: "PATCH",
+          });
+          expect((await app.request(downloads, json({ kind: "original" }, s.cookie))).status).toBe(
+            403,
+          );
+          expect((await app.request(downloads, json({ kind: "proxy" }, s.cookie))).status).toBe(
+            201,
+          );
+
+          // Opened in the viewer, through the delivery path: the page is in the access log, as
+          // the guest's, through the review that shows them the comment.
+          const opened = await app.request(`/api/files/${plan}/view`, json({}, s.cookie));
+          expect(opened.status).toBe(201);
+          const { pages } = (await opened.json()) as { pages: { url: string }[] };
+          expect((await getAs(pages[0]?.url ?? "", s.cookie)).status).toBe(200);
+          const renders = await db
+            .select({
+              guestId: schema.accessEvents.guestId,
+              reviewId: schema.accessEvents.reviewId,
+            })
+            .from(schema.accessEvents)
+            .where(
+              and(
+                eq(schema.accessEvents.organisationId, org),
+                eq(schema.accessEvents.action, "page.render"),
+                eq(schema.accessEvents.fileId, plan),
+              ),
+            );
+          expect(renders).toHaveLength(1);
+          expect(renders[0]?.guestId).not.toBeNull();
+          expect(renders[0]?.reviewId).toBe(s.review.id);
+
+          // Their review narrowed to their own threads: the owner's comment, and its plan, are
+          // gone for them. A reply in a thread of theirs links it again once replies show.
+          const [mine] = await db
+            .select({
+              id: schema.reviewReviewers.id,
+              permissions: schema.reviewReviewers.permissions,
+            })
+            .from(schema.reviewReviewers)
+            .where(eq(schema.reviewReviewers.id, reviewer?.id ?? ""));
+          const scope = (comments: string) =>
+            db
+              .update(schema.reviewReviewers)
+              .set({ permissions: { ...(mine?.permissions as object), comments } as never })
+              .where(eq(schema.reviewReviewers.id, mine?.id ?? ""));
+          await scope("own");
+          expect((await getAs(`/api/files/${plan}`, s.cookie)).status).toBe(404);
+          const theirs = await say({ body: "Where do the violins sit?" }, s.cookie);
+          const reply = await say({ body: "As drawn here", parentId: theirs }, s.owner);
+          expect((await link(reply, [plan], s.owner)).status).toBe(201);
+          expect((await getAs(`/api/files/${plan}`, s.cookie)).status).toBe(404);
+          await scope("own_and_replies");
+          expect((await getAs(`/api/files/${plan}`, s.cookie)).status).toBe(200);
+
+          // Every link and unlink is in the access log.
+          const logged = await db
+            .select({ action: schema.accessEvents.action })
+            .from(schema.accessEvents)
+            .where(
+              and(
+                eq(schema.accessEvents.organisationId, org),
+                sql`${schema.accessEvents.action} in ('comment.files_link', 'comment.files_unlink')`,
+              ),
+            )
+            .orderBy(schema.accessEvents.occurredAt);
+          expect(logged.map((e) => e.action)).toEqual([
+            "comment.files_link",
+            "comment.files_link",
+            "comment.files_unlink",
+            "comment.files_link",
+          ]);
         });
 
         it("lets a guest mention nobody, and keeps tasks from them (#133)", async () => {

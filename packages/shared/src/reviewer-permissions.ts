@@ -180,6 +180,39 @@ export function visibleComments<
 }
 
 /**
+ * Whether a reviewer sees one comment, by scope, as `visibleComments` decides it for a list:
+ * their own; with "own_and_replies", every reply in a thread they started; with "all", any.
+ * `threadAuthor` is the author of the thread a reply is in (its own author for a thread).
+ */
+export function seesComment(
+  scope: CommentScope,
+  me: string,
+  comment: { parentId: string | null; author: string | null },
+  threadAuthor: string | null,
+): boolean {
+  if (scope === "all" || comment.author === me) return true;
+  return scope === "own_and_replies" && comment.parentId !== null && threadAuthor === me;
+}
+
+/**
+ * What a guest may do with a file linked to a comment they can see (#527, decision 294): look
+ * at it, with the tools and within the window and play limit of the review that shows them the
+ * comment, and download it only as far as that review lets them. No comment of their own on it,
+ * no decision, none of its threads, no comparing it with anything (compare is taken out of the
+ * tools), and nothing else of the review's items. A review that gives the file directly keeps
+ * what it gives besides.
+ */
+export const linkedFileGrant = <P extends ReviewerPermissions>(review: P): P => ({
+  ...review,
+  tools: review.tools.filter((tool) => tool !== "compare"),
+  comment: false,
+  decide: false,
+  invite: false,
+  comments: "own",
+  items: null,
+});
+
+/**
  * What someone invited by a reviewer may do (#55): what the one inviting may, but with no
  * decision of their own (an approval's outcome stays with those the requester asked) and no
  * inviting in turn.

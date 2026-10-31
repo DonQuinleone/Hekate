@@ -250,6 +250,8 @@ export function CommentsColumn({
         canCategorise={access.triage}
         // Takes go on a comment from the track's own (#497), by those who triage and see takes.
         takesFrom={access.triage && access.tools.has("takes") ? trackId : null}
+        // Files already in the project (#527), by members who may comment.
+        filesFrom={!isGuest && access.comment ? { projectId: project.id, fileId: file.id } : null}
         channels={
           kind === "media" && file.kind === "audio" && (file.media.channels ?? 0) >= 2
             ? channelNames(file.media.channels ?? 0)

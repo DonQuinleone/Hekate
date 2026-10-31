@@ -4,6 +4,7 @@ import { Avatar, AvatarRow } from "~/components/avatar";
 import { Lockup, Mark, Wordmark } from "~/components/brand";
 import { DrawingMarks, DrawToolbar } from "~/components/drawings";
 import { Empty } from "~/components/empty";
+import { LinkedFiles } from "~/components/file-picker";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Card, Page, SectionHead } from "~/components/page";
@@ -830,6 +831,31 @@ function Components() {
             mix
           </Chip>
           <Count>2</Count>
+        </Spec>
+        <Spec
+          name="Linked file"
+          rule="A file of the project on a comment: its kind, its name and its length or pages; it opens in the viewer, never as a download."
+        >
+          <LinkedFiles
+            guest={false}
+            files={[
+              {
+                id: "01890000-0000-7000-8000-000000000001",
+                name: "Maple Leaf Rag - Score.pdf",
+                kind: "document",
+                duration: null,
+                pageCount: 3,
+              },
+              {
+                id: "01890000-0000-7000-8000-000000000002",
+                name: "Reference mix.wav",
+                kind: "audio",
+                duration: 214,
+                pageCount: null,
+              },
+            ]}
+            onUnlink={() => {}}
+          />
         </Spec>
         <Spec
           name="Toggle chip"

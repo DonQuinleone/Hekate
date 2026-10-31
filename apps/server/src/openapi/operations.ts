@@ -605,6 +605,15 @@ export const apiOperations: Record<string, ApiOperation> = {
       "Takes of the same project, which everyone who sees the thread may then hear. Each share is logged.",
   },
   "DELETE /comments/{id}/takes/{takeId}": { summary: "Stop sharing a take on a thread" },
+  "POST /comments/{id}/files": {
+    summary: "Link files of the project to a comment",
+    description:
+      "By the comment's author, from files of its thread's project they can see; never a take's. Whoever sees the comment opens each in the viewer as their own access allows, never as a download from here. Each link is logged.",
+  },
+  "DELETE /comments/{id}/files/{fileId}": {
+    summary: "Unlink a file from a comment",
+    description: "By the comment's author, or whoever triages its thread's file. Logged.",
+  },
   "PATCH /comment-carries/{id}": {
     summary: "Triage a thread carried to a later version",
     description:

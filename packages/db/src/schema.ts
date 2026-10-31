@@ -1779,6 +1779,32 @@ export const commentTakes = pgTable(
 );
 
 /**
+ * Files already in the project linked to a comment by its author (#527): a reference mix, a
+ * photo of the score page. Each opens in the viewer for whoever sees the comment, as their own
+ * access allows (a guest only through a thread their review shows them, and never as a download
+ * their review does not give); nothing here is a copy or a way around the delivery path.
+ */
+export const commentFiles = pgTable(
+  "comment_files",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    commentId: uuid("comment_id")
+      .notNull()
+      .references(() => comments.id, { onDelete: "cascade" }),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => files.id, { onDelete: "cascade" }),
+    linkedById: text("linked_by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("comment_files_pair_idx").on(t.commentId, t.fileId),
+    index("comment_files_file_idx").on(t.organisationId, t.fileId),
+  ],
+);
+
+/**
  * A comment thread carried to a later version (docs/domain.md, Comments across versions):
  * where it points on that version's file, whether it shows there, and its status there.
  * The thread itself stays on the file it was raised on; replies join it from any version.

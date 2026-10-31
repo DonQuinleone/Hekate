@@ -56,6 +56,7 @@ import {
   tellAssigned,
 } from "../tasks.ts";
 import type { TenantVariables } from "../tenancy.ts";
+import { linkedFilesOf } from "./comment-files.ts";
 import { sharedTakesOf } from "./takes.ts";
 
 const {
@@ -306,6 +307,13 @@ export async function threadsOn(
     organisationId,
     rows.filter((r) => !r.parentId).map((r) => r.id),
   );
+  // Files of the project linked to each comment (#527): opened in the viewer by whoever sees
+  // the comment, as their own access allows; never a download from here.
+  const linked = await linkedFilesOf(
+    db,
+    organisationId,
+    rows.map((r) => r.id),
+  );
   // Who is to act on a thread, and whether it is a task, is the team's business, not a guest
   // reviewer's.
   const shown =
@@ -323,10 +331,12 @@ export async function threadsOn(
       : rows;
   return shown.map((row) => {
     const attachments = attachmentsOf(row.id);
+    const files = linked.get(row.id) ?? [];
     if (row.parentId)
       return {
         ...publicComment(row, actor),
         attachments,
+        files,
         takes: [],
         carry: null,
         history: null,
@@ -344,11 +354,13 @@ export async function threadsOn(
           moved: h.anchorPlaced,
         })),
     };
-    if (!carry) return { ...publicComment(row, actor), attachments, takes, carry: null, history };
+    if (!carry)
+      return { ...publicComment(row, actor), attachments, files, takes, carry: null, history };
     // On this version the thread points where it was mapped; where it began stays known.
     return {
       ...publicComment(row, actor),
       attachments,
+      files,
       takes,
       anchor: carry.anchor,
       channel: carriedChannel(row.channel, channelsOf.get(row.fileId), file.mediaInfo?.audio),

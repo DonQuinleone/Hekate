@@ -83,6 +83,7 @@ import {
   isDefaultAnalysis,
   itemWords,
   type LinkablePerson,
+  type LinkedFile,
   type LogKind,
   type LogPage,
   type LogRange,
@@ -1917,6 +1918,8 @@ export interface Comment {
   takes: SharedTake[];
   /** Files attached to it (#133): names and sizes; the bytes only by a download. */
   attachments: CommentAttachment[];
+  /** Files of the project linked to it (#527), each opened in the viewer, never downloaded. */
+  files: LinkedFile[];
   /** A thread made a task (#133, #140): the project's task, and when and by whom it was done. */
   todo: boolean;
   taskId: string | null;
@@ -2179,6 +2182,23 @@ export function useCommentMutations(fileId: string) {
         json(
           await api.comments[":id"].takes.$post({ param: { id: commentId }, json: { takeIds } }),
         ),
+      onSuccess: refresh,
+    }),
+    /** Linking files of the project to a comment of your own (#527). */
+    linkFiles: useMutation({
+      mutationFn: async ({ commentId, fileIds }: { commentId: string; fileIds: string[] }) =>
+        json(
+          await api.comments[":id"].files.$post({ param: { id: commentId }, json: { fileIds } }),
+        ),
+      onSuccess: refresh,
+    }),
+    unlinkFile: useMutation({
+      mutationFn: async ({ commentId, fileId }: { commentId: string; fileId: string }) => {
+        const res = await api.comments[":id"].files[":fileId"].$delete({
+          param: { id: commentId, fileId },
+        });
+        if (!res.ok) await json(res);
+      },
       onSuccess: refresh,
     }),
     unshareTake: useMutation({

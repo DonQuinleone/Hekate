@@ -20961,6 +20961,153 @@
         }
       }
     },
+    "/comments/{id}/files": {
+      "post": {
+        "operationId": "postCommentsIdFiles",
+        "tags": [
+          "Comments"
+        ],
+        "summary": "Link files of the project to a comment",
+        "description": "By the comment's author, from files of its thread's project they can see; never a take's. Whoever sees the comment opens each in the viewer as their own access allows, never as a download from here. Each link is logged.\n\nNeeds the `comments` scope.",
+        "security": [
+          {
+            "token": [
+              "comments"
+            ]
+          }
+        ],
+        "x-hekate-scope": "comments",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "fileIds": {
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  }
+                },
+                "required": [
+                  "fileIds"
+                ]
+              },
+              "example": {
+                "fileIds": [
+                  "01929b8e-5c1a-7d3e-9f40-2b6c8d1e4a57"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Made.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
+    "/comments/{id}/files/{fileId}": {
+      "delete": {
+        "operationId": "deleteCommentsIdFilesFileId",
+        "tags": [
+          "Comments"
+        ],
+        "summary": "Unlink a file from a comment",
+        "description": "By the comment's author, or whoever triages its thread's file. Logged.\n\nNeeds the `comments` scope.",
+        "security": [
+          {
+            "token": [
+              "comments"
+            ]
+          }
+        ],
+        "x-hekate-scope": "comments",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "fileId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Done; nothing to answer."
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
     "/categories/{id}": {
       "patch": {
         "operationId": "patchCategoriesId",

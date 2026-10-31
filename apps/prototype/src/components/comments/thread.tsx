@@ -10,6 +10,7 @@ import { ago, formatAnchor, formatClock, formatReference } from "~/lib/format";
 import type { FileAccess } from "~/viewer/context";
 import type { Playback } from "../player/playback.ts";
 import { DeferDialog } from "./defer-dialog.tsx";
+import { LinkedFiles } from "./file-picker.tsx";
 import { OtherTakes, SharedTakes } from "./takes.tsx";
 
 const carryCopy = { open: "Open", fixed: "Fixed", not_fixed: "Not fixed", wont_fix: "Won't fix" };
@@ -194,6 +195,7 @@ export function Thread({
         )}
       </div>
       <p className="text-[14px] leading-[21px] text-ink">{comment.body}</p>
+      {comment.linkedFileIds && <LinkedFiles ids={comment.linkedFileIds} />}
       {comment.sharedTakeIds && <SharedTakes ids={comment.sharedTakeIds} bar={bar} />}
       {carry && canTriage && versionNumber !== null && (
         <div className="flex flex-wrap items-center gap-2 text-[12px] text-ink-3">
@@ -272,6 +274,7 @@ export function Thread({
             <span className="text-[13px] font-medium text-ink">{personById(r.authorId).name}</span>
             <span className="tabular ml-1.5 text-[12px] text-ink-3">{ago(r.createdAt)}</span>
             <p className="text-[14px] leading-[21px] text-ink">{r.body}</p>
+            {r.linkedFileIds && <LinkedFiles ids={r.linkedFileIds} />}
           </div>
         </div>
       ))}

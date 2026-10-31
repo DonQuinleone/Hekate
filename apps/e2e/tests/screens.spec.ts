@@ -3615,6 +3615,75 @@ test("file-comment-attach-takes", async ({ page }, info) => {
   await expect(thread.getByRole("button", { name: /^Play bar 12 · /i })).toBeVisible();
 });
 
+// Linking files already in the project to a comment (#527): Attach's third item opens a picker
+// of the project's files with a search, its folders and the files' kinds; two are ticked, and
+// the comment carries them as chips that open in the viewer, never as downloads. On the wet mix,
+// as the takes are, so the dry mix's threads stay as every other screen expects; on a phone
+// from the composer's sheet.
+test("file-comment-link-files", async ({ page }, info) => {
+  const phone = info.project.name === "phone";
+  const { track } = (await (await page.request.get(`/api/tracks/${seeded().trackId}`)).json()) as {
+    track: { versions: { variants: { fileId: string; name: string; fileName: string }[] }[] };
+  };
+  const wet = track.versions.flatMap((v) => v.variants).find((v) => v.name === "Wet");
+  if (!wet) throw new Error("The seed has no wet mix");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${wet.fileId}`);
+  await settle(page, "section[aria-label=Comments]");
+  const words = phone ? "The page turn, as in the score" : "Seating as in the floor plan";
+  let form = page.locator("section[aria-label=Comments] form");
+  if (phone) {
+    await page.getByRole("button", { name: "Comment at the playhead" }).click();
+    form = page.getByRole("dialog", { name: "Comment at the playhead" }).locator("form");
+  }
+  await form.getByRole("textbox", { name: "Comment at the playhead" }).fill(words);
+  await form.getByRole("button", { name: "Attach", exact: true }).click();
+  const menu = page.getByRole("menu", { name: "Attach" });
+  await expect(menu.getByRole("menuitem")).toHaveText([
+    "Takes from this track",
+    "Files from this project",
+    "Upload",
+  ]);
+  await menu.getByRole("menuitem", { name: "Files from this project" }).click();
+  const dialog = page.getByRole("dialog", { name: "Files from this project" });
+  const plan = dialog.getByRole("checkbox", { name: "Attach Endless Hall - Floor plan.pdf" });
+  await expect(plan).toBeVisible();
+  // The file being commented on is the comment's already, and a take's file is its track's.
+  await expect(dialog.getByRole("checkbox", { name: `Attach ${wet.fileName}` })).toHaveCount(0);
+  await expect(dialog.getByRole("checkbox", { name: /T1\.wav$/ })).toHaveCount(0);
+  await expect(dialog).toContainText("Maple Leaf Rag · V2 · Dry");
+  await plan.check();
+  await dialog.getByRole("checkbox", { name: "Attach Maple Leaf Rag - Score.pdf" }).check();
+  await saveScreen(page, "file-comment-link-files-choose");
+  await checkScreen(page);
+  // Narrowed to the documents in Venue, by its words.
+  await dialog.getByLabel("Kind").selectOption("document");
+  await dialog.getByRole("searchbox", { name: "Search files" }).fill("plan");
+  await expect(dialog.getByRole("checkbox")).toHaveCount(1);
+  await dialog.getByRole("searchbox", { name: "Search files" }).fill("no such file");
+  await expect(dialog).toContainText("No file matches.");
+  await dialog.getByRole("button", { name: "Show every file" }).click();
+  await dialog.getByRole("button", { name: "Attach 2" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(form.locator("ul[aria-label='Files to link'] li")).toHaveCount(2);
+  await form.getByRole("button", { name: "Comment", exact: true }).click();
+  const thread = page.locator("section[aria-label=Comments] li[data-thread]").filter({
+    hasText: words,
+  });
+  const linked = thread.getByRole("list", { name: "Linked files" });
+  await expect(linked.getByRole("link")).toHaveCount(2);
+  await thread.scrollIntoViewIfNeeded();
+  await settle(page, "section[aria-label=Comments] ul[aria-label='Linked files'] a");
+  await saveScreen(page, "file-comment-link-files");
+  await checkScreen(page);
+  // A linked file opens in the viewer, through the delivery path; never a download.
+  await linked.getByRole("link", { name: /Endless Hall - Floor plan\.pdf/ }).click();
+  await expect(page).toHaveURL(/\/files\/[0-9a-f-]{36}/);
+  await expect(
+    page.getByRole("region", { name: "Pages of Endless Hall - Floor plan.pdf" }),
+  ).toBeVisible();
+});
+
 // The player's keys, the "?" map listing exactly them, and nothing firing while typing.
 test("shortcuts", async ({ page }, info) => {
   test.skip(info.project.name === "phone", "Keys belong to a keyboard");

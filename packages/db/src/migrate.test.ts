@@ -139,6 +139,7 @@ describe("contracting statements (#421)", () => {
       "0154_workspace_storage",
       "0155_project_owners",
       "0156_qa_report_audit",
+      "0157_comment_files",
     ]) {
       const text = readFileSync(join(migrationsFolder, `${name}.sql`), "utf8");
       expect(contractingStatements(text)).toEqual([]);
