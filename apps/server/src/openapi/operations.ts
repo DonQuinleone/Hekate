@@ -340,9 +340,15 @@ export const apiOperations: Record<string, ApiOperation> = {
     description:
       "Against the previous version of the same track, with its times carried across by the alignment.",
   },
+  "GET /files/{id}/qa/document": {
+    summary: "Read a file's quality report as a document",
+    description:
+      "The report as the PDF sets it: the verdict, the loudness against the delivery profile, the findings by severity then time with a crop of the waveform and what to do about each, and the appendices.",
+  },
   "GET /files/{id}/qa/report": {
     summary: "Download a file's quality report",
-    description: "PDF to read, CSV for a spreadsheet, or JSON for a program, as `format` says.",
+    description:
+      "PDF to read, CSV for a spreadsheet, or JSON for a program, as `format` says. The PDF carries the workspace's brand and the mark of whoever asked for it; each report taken is in the access log.",
     produces: ["application/pdf", "text/csv", "application/json"],
   },
   "PUT /files/{id}/tags": { summary: "Set a file's tags" },

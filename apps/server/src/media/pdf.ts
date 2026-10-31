@@ -154,12 +154,34 @@ export function jpegSize(jpeg: Buffer): { width: number; height: number } {
 }
 
 /**
+ * A picture a page of text can draw (a workspace's logo on a report, #515): eight-bit RGB
+ * samples, deflated, with an alpha channel likewise where it has one. A page draws it as
+ * `/<name> Do` within a transformation that sizes it.
+ */
+export interface PdfImage {
+  width: number;
+  height: number;
+  /** Deflated: `width × height × 3` bytes, row by row. */
+  rgb: Buffer;
+  /** Deflated: `width × height` bytes of opacity, or null where it is opaque. */
+  alpha: Buffer | null;
+}
+
+export interface TextPdfOptions {
+  /** Pictures every page may draw, by the name it draws them with. */
+  images?: Record<string, PdfImage>;
+  /** Fill opacities every page may set, `/<name> gs`, by name: 0 to 1. */
+  opacities?: Record<string, number>;
+}
+
+/**
  * A PDF of text, a page for each drawing given (PDF operators in points, ASCII only, setting text
  * in /H, /HO or /HB, or the embedded Unicode fonts): how a list such as the patch list leaves as
- * a PDF (#54).
+ * a PDF (#54). It may also draw pictures and set opacities given in `options`.
  */
 export function textPdfOf(
   pages: { points: { width: number; height: number }; content: string }[],
+  options: TextPdfOptions = {},
 ): Buffer {
   if (pages.length === 0) throw new Error("A PDF needs at least one page");
   const objects: string[] = [];
@@ -167,7 +189,7 @@ export function textPdfOf(
   add(`<< /Type /Catalog /Pages 2 0 R >>`);
   const kids = pages.map((_, i) => `${4 + i * 2} 0 R`).join(" ");
   add(`<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`);
-  // The embedded fonts follow the pages.
+  // The embedded fonts follow the pages, then the pictures.
   const used = fontsUsed(pages.map((p) => p.content));
   const fontAt = new Map<string, number>();
   let next = 4 + pages.length * 2;
@@ -175,17 +197,45 @@ export function textPdfOf(
     fontAt.set(key, next);
     next += FONT_OBJECTS;
   }
+  const images = Object.entries(options.images ?? {});
+  const imageAt = new Map<string, number>();
+  for (const [name, image] of images) {
+    imageAt.set(name, next);
+    next += image.alpha ? 2 : 1;
+  }
   add(textFonts(fontEntries(fontAt)));
+  const xobjects =
+    images.length > 0
+      ? ` /XObject << ${images.map(([name]) => `/${name} ${imageAt.get(name)} 0 R`).join(" ")} >>`
+      : "";
+  const opacities = Object.entries(options.opacities ?? {});
+  const states =
+    opacities.length > 0
+      ? ` /ExtGState << ${opacities.map(([name, a]) => `/${name} << /Type /ExtGState /ca ${num(a)} /CA ${num(a)} >>`).join(" ")} >>`
+      : "";
   for (const page of pages) {
     const { width, height } = page.points;
     add(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${num(width)} ${num(height)}]` +
-        ` /Resources << /Font 3 0 R >> /Contents ${objects.length + 2} 0 R >>`,
+        ` /Resources << /Font 3 0 R${xobjects}${states} >> /Contents ${objects.length + 2} 0 R >>`,
     );
     add(`<< /Length ${page.content.length} >>\nstream\n${page.content}\nendstream`);
   }
   for (const [key, at] of fontAt) {
     for (const body of fontObjects(key, used.get(key) ?? new Set(), at)) add(body);
+  }
+  for (const [name, image] of images) {
+    const at = imageAt.get(name) as number;
+    const stream = (dictionary: string, bytes: Buffer) =>
+      `<< ${dictionary} /BitsPerComponent 8 /Filter /FlateDecode /Length ${bytes.length} >>\nstream\n${bytes.toString("latin1")}\nendstream`;
+    const size = `/Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height}`;
+    add(
+      stream(
+        `${size} /ColorSpace /DeviceRGB${image.alpha ? ` /SMask ${at + 1} 0 R` : ""}`,
+        image.rgb,
+      ),
+    );
+    if (image.alpha) add(stream(`${size} /ColorSpace /DeviceGray`, image.alpha));
   }
   let out = "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n";
   const offsets: number[] = [];

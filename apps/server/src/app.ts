@@ -765,7 +765,16 @@ export function createApi(given: AppDeps) {
         }),
       )
       .route("/files", fileManageRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
-      .route("/files", fileQaRoutes(deps.db))
+      .route(
+        "/files",
+        fileQaRoutes({
+          db: deps.db,
+          storage: deps.storage,
+          audit: deps.audit,
+          trustProxy: deps.trustProxy ?? false,
+          links,
+        }),
+      )
       .route("/files", fileMetadataRoutes(deps.db, deps.audit, deps.trustProxy ?? false))
       .route("/files", fileTagRoutes(deps.db))
       .route("/files", fileRetryRoutes(deps.db, deps.jobs))
