@@ -1,6 +1,6 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import { creatorRole } from "@hekate/shared";
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq, ne, sql } from "drizzle-orm";
 import { NotFound } from "./errors.ts";
 
 /**
@@ -81,14 +81,27 @@ export async function ownersRole(tx: Tx, organisationId: string, projectId: stri
  * one, its earliest member still there, else the workspace's earliest owner, so a project with
  * no owner never exists.
  */
-export async function keepAnOwner(tx: Tx, organisationId: string, projectIds: string[]) {
+export async function keepAnOwner(
+  tx: Tx,
+  organisationId: string,
+  projectIds: string[],
+  /** Someone leaving, never chosen to take over, whatever rows of theirs are still there. */
+  excluding?: string,
+) {
   for (const projectId of [...new Set(projectIds)]) {
     await lockOwners(tx, projectId);
     if ((await ownersOf(tx, organisationId, projectId)).length > 0) continue;
     const [member] = await tx
       .select({ userId: projectMembers.userId })
       .from(projectMembers)
-      .where(inOrg(projectMembers, organisationId, eq(projectMembers.projectId, projectId)))
+      .where(
+        inOrg(
+          projectMembers,
+          organisationId,
+          eq(projectMembers.projectId, projectId),
+          excluding ? ne(projectMembers.userId, excluding) : undefined,
+        ),
+      )
       .orderBy(asc(projectMembers.createdAt), asc(projectMembers.id))
       .limit(1);
     const [owner] = member
@@ -96,7 +109,14 @@ export async function keepAnOwner(tx: Tx, organisationId: string, projectIds: st
       : await tx
           .select({ userId: members.userId })
           .from(members)
-          .where(inOrg(members, organisationId, eq(members.role, "owner")))
+          .where(
+            inOrg(
+              members,
+              organisationId,
+              eq(members.role, "owner"),
+              excluding ? ne(members.userId, excluding) : undefined,
+            ),
+          )
           .orderBy(asc(members.createdAt), asc(members.id))
           .limit(1);
     if (owner) await addOwner(tx, organisationId, projectId, owner.userId);
@@ -113,5 +133,6 @@ export async function dropOwnerships(tx: Tx, organisationId: string, userId: str
     tx,
     organisationId,
     owned.map((o) => o.projectId),
+    userId,
   );
 }

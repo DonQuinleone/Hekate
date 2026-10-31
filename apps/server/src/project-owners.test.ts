@@ -13,6 +13,7 @@ import { createAuth } from "./auth.ts";
 import { createKeyring } from "./keyring.ts";
 import { memoryMailer } from "./mail.ts";
 import { playbackSecret } from "./playback.ts";
+import { dropOwnerships } from "./project-owners.ts";
 import { createStorage } from "./storage.ts";
 
 const url = process.env.DATABASE_URL;
@@ -361,6 +362,18 @@ describe.runIf(url)("project owners", () => {
     ).toBe(204);
     // Its earliest member still there takes it on.
     expect(await ownersIn(s.projectId, s.owner)).toEqual([s.reviewerId]);
+  });
+
+  it("never hands a project back to the person leaving, whatever of theirs is left", async () => {
+    // Account deletion drops ownerships while the leaver's project role is still there: the
+    // earliest member is then the leaver, who must be passed over.
+    const s = await studio();
+    const organisationId = (
+      (await (await getAs("/api/me", s.owner)).json()) as { activeOrganisationId: string }
+    ).activeOrganisationId;
+    expect(await ownersIn(s.projectId, s.owner)).toEqual([s.ownerId]);
+    await db.transaction((tx) => dropOwnerships(tx, organisationId, s.ownerId));
+    expect(await ownersIn(s.projectId, s.owner)).toEqual([s.engineerId]);
   });
 
   it("goes with the project when it is deleted", async () => {
