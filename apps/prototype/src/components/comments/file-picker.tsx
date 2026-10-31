@@ -109,7 +109,7 @@ export function FilePickerDialog({
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search files"
             aria-label="Search files"
-            className="min-w-0 basis-full @3xl/app:flex-1 @3xl/app:basis-auto"
+            className="min-w-0 basis-full @3xl/app:flex-1 @3xl/app:basis-0"
           />
           <Select
             aria-label="Folder"
@@ -151,17 +151,24 @@ export function FilePickerDialog({
             {shown.map((f) => (
               <li
                 key={f.id}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2",
-                  ticked.has(f.id) && "bg-raised/40",
-                )}
+                className={cn("flex items-center gap-1 pr-3", ticked.has(f.id) && "bg-raised/40")}
               >
-                <input
-                  type="checkbox"
-                  checked={ticked.has(f.id)}
-                  onChange={() => toggle(f.id)}
-                  aria-label={`Attach ${f.name}`}
-                />
+                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 self-stretch py-2 pl-3">
+                  <input
+                    type="checkbox"
+                    checked={ticked.has(f.id)}
+                    onChange={() => toggle(f.id)}
+                    aria-label={`Attach ${f.name}`}
+                  />
+                  <Icon name={kindIcon[f.kind]} size={15} className="shrink-0 text-ink-3" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[14px] text-ink">{f.name}</span>
+                    <span className="block truncate text-[13px] text-ink-3">{fileWhere(f)}</span>
+                  </span>
+                  {measure(f) && (
+                    <span className="tabular shrink-0 text-[13px] text-ink-3">{measure(f)}</span>
+                  )}
+                </label>
                 <Link
                   to="/files/$fileId"
                   params={{ fileId: f.id }}
@@ -169,17 +176,10 @@ export function FilePickerDialog({
                   rel="noopener"
                   aria-label={`Open ${f.name} in a new tab`}
                   title="Open it in a new tab"
-                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-raised text-ink-2 hover:bg-edge hover:text-ink"
+                  className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
                 >
-                  <Icon name={kindIcon[f.kind]} size={13} />
+                  <Icon name="external" size={13} />
                 </Link>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] text-ink">{f.name}</span>
-                  <span className="block truncate text-[13px] text-ink-3">{fileWhere(f)}</span>
-                </span>
-                {measure(f) && (
-                  <span className="tabular shrink-0 text-[13px] text-ink-3">{measure(f)}</span>
-                )}
               </li>
             ))}
           </ul>
@@ -211,7 +211,8 @@ export function LinkedFiles({ ids }: { ids: string[] }) {
             className="flex h-7 max-w-full items-center gap-1.5 rounded-chip border border-line bg-raised/40 px-2.5 text-[12px] text-ink-2 transition-colors hover:border-edge hover:text-ink"
           >
             <Icon name={kindIcon[f.kind]} size={12} className="shrink-0 text-ink-3" />
-            <span className="truncate">{f.name}</span>
+            <span className="max-w-48 truncate">{f.name}</span>
+            {measure(f) && <span className="tabular shrink-0 text-ink-3">{measure(f)}</span>}
           </Link>
         </li>
       ))}

@@ -12,6 +12,7 @@ import {
   drawingBounds,
   formatAnchor,
   formatBytes,
+  LINK_FILES_MAX,
   mentionAt,
   mentionedIn,
   mentionRanges,
@@ -67,6 +68,7 @@ import {
   fileQuery,
   mentionableQuery,
   meQuery,
+  type ProjectFile,
   projectMembersQuery,
   useCommentMutations,
   usePreferences,
@@ -79,6 +81,8 @@ import { CommentAssignee } from "./comment-assignee";
 import { DeferDialog } from "./defer-dialog";
 import type { RegionMarker } from "./document-viewer";
 import type { FrameDraft, FrameDrawing } from "./drawings";
+import { FilePicker, LinkedFiles } from "./file-picker";
+import { kindIcon } from "./files";
 import { Icon } from "./icons";
 import type { TimelineMarker } from "./player";
 import { OtherTakes, SharedTakes, TakePicker } from "./takes";
@@ -166,11 +170,13 @@ function Composer({
   initialMentions = [],
   attachable = false,
   takesFrom,
+  filesFrom,
   submitLabel,
   pending,
   onSubmit,
   onAttach,
   onShareTakes,
+  onLinkFiles,
   onSaved,
   onCancel,
   children,
@@ -182,6 +188,11 @@ function Composer({
   attachable?: boolean;
   /** The track whose takes may go with it too (#497), for those who may share them. */
   takesFrom?: { trackId: string; projectId: string } | undefined;
+  /**
+   * The project whose files may be linked to it too (#527), and the file being commented on,
+   * which is the comment's already: for members who may comment, never a guest.
+   */
+  filesFrom?: { projectId: string; fileId: string } | undefined;
   submitLabel: string;
   pending: boolean;
   /**
@@ -193,6 +204,8 @@ function Composer({
   onAttach?: (commentId: string, file: File) => Promise<unknown>;
   /** Shares the takes picked on the thread saved. */
   onShareTakes?: (commentId: string, takeIds: string[]) => Promise<unknown>;
+  /** Links the project's files picked to the comment saved. */
+  onLinkFiles?: (commentId: string, fileIds: string[]) => Promise<unknown>;
   /** Once the comment and all its files are saved. */
   onSaved?: () => void;
   onCancel?: () => void;
@@ -205,14 +218,16 @@ function Composer({
   const [files, setFiles] = useState<File[]>([]);
   /** The track's takes picked to go with it (#497). */
   const [takes, setTakes] = useState<TakeRow[]>([]);
+  /** The project's files picked to go with it (#527). */
+  const [linked, setLinked] = useState<ProjectFile[]>([]);
   // Busy from saving the comment until its last file is attached.
   const [sending, setSending] = useState(false);
   // A comment saved whose files did not all attach: trying again attaches the rest to it.
   const [saved, setSaved] = useState<string | null>(null);
-  // Attach opens a menu in place (#497): the track's takes, or files to upload. The upload
-  // dialog says what a comment may carry.
+  // Attach opens a menu in place (#497): the track's takes, the project's files (#527), or
+  // files to upload. The upload dialog says what a comment may carry.
   const [attachMenu, setAttachMenu, attachBox] = usePopover();
-  const [attaching, setAttaching] = useState<"upload" | "takes" | null>(null);
+  const [attaching, setAttaching] = useState<"upload" | "takes" | "files" | null>(null);
   /** Why a file cannot go with a comment, if it cannot: the dialog says so by the file. */
   const refuse = (f: File) =>
     f.size === 0
@@ -294,6 +309,17 @@ function Composer({
             batch.map((t) => t.id),
           );
           setTakes((list) => list.filter((t) => !batch.includes(t)));
+        }
+      }
+      if (id && onLinkFiles && linked.length > 0) {
+        setSaved(id);
+        // In batches as takes are, each let go of once it is linked.
+        for (const batch of batchesOf(linked, LINK_FILES_MAX)) {
+          await onLinkFiles(
+            id,
+            batch.map((f) => f.id),
+          );
+          setLinked((list) => list.filter((f) => !batch.includes(f)));
         }
       }
       setBody("");
@@ -430,6 +456,27 @@ function Composer({
           ))}
         </ul>
       )}
+      {linked.length > 0 && (
+        <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Files to link">
+          {linked.map((f) => (
+            <li key={f.id} className="min-w-0 max-w-full">
+              <Chip className="h-6 max-w-full gap-1 text-[12px] text-ink-2">
+                <Icon name={kindIcon[f.kind]} size={11} className="shrink-0 text-ink-3" />
+                <span className="max-w-48 truncate">{f.name}</span>
+                <Button
+                  size="iconSm"
+                  variant="quiet"
+                  className="-mr-1 size-5"
+                  aria-label={`Leave out ${f.name}`}
+                  onClick={() => setLinked(linked.filter((x) => x.id !== f.id))}
+                >
+                  <Icon name="close" size={11} />
+                </Button>
+              </Chip>
+            </li>
+          ))}
+        </ul>
+      )}
       {error && <p className="m-0 text-xs text-signal">{error}</p>}
       <div className="flex flex-wrap items-center gap-2">
         {children}
@@ -463,6 +510,15 @@ function Composer({
                         },
                       ]
                     : []),
+                  ...(filesFrom
+                    ? [
+                        {
+                          label: "Files from this project",
+                          icon: <Icon name="folder" size={14} />,
+                          onSelect: () => setAttaching("files"),
+                        },
+                      ]
+                    : []),
                   {
                     label: "Upload",
                     icon: <Icon name="upload" size={14} />,
@@ -484,6 +540,18 @@ function Composer({
             chosen={takes.map((t) => t.id)}
             onPick={(picked) => {
               setTakes(picked);
+              setError(null);
+            }}
+            onClose={() => setAttaching(null)}
+          />
+        )}
+        {attaching === "files" && filesFrom && (
+          <FilePicker
+            projectId={filesFrom.projectId}
+            exclude={filesFrom.fileId}
+            chosen={linked.map((f) => f.id)}
+            onPick={(picked) => {
+              setLinked(picked);
               setError(null);
             }}
             onClose={() => setAttaching(null)}
@@ -564,6 +632,8 @@ function Words({ comment }: { comment: Comment }) {
 function CommentBody({
   comment,
   own,
+  guest,
+  onUnlink,
   editing,
   onEditing,
   onEdit,
@@ -575,6 +645,10 @@ function CommentBody({
   comment: Comment;
   /** Written by the viewer, member or guest: they may take their own files off it. */
   own: boolean;
+  /** A guest reviewer is reading: a linked file opens in their own viewer. */
+  guest: boolean;
+  /** Taking a linked file off it (#527): its author, or whoever triages. */
+  onUnlink?: (fileId: string) => void;
   /** Its words are being changed, from the thread's or the reply's menu. */
   editing: boolean;
   onEditing: (on: boolean) => void;
@@ -635,7 +709,7 @@ function CommentBody({
       ) : (
         <Words comment={comment} />
       )}
-      {(comment.attachments.length > 0 || attached) && (
+      {(comment.attachments.length > 0 || comment.files.length > 0 || attached) && (
         <div className="flex flex-wrap items-center gap-1.5">
           {comment.attachments.length > 0 && (
             <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0" aria-label="Attached files">
@@ -666,6 +740,9 @@ function CommentBody({
               ))}
             </ul>
           )}
+          {comment.files.length > 0 && (
+            <LinkedFiles files={comment.files} guest={guest} onUnlink={onUnlink} />
+          )}
           {attached}
         </div>
       )}
@@ -677,6 +754,8 @@ function CommentBody({
 function Reply({
   comment,
   own,
+  guest,
+  onUnlink,
   editable,
   onEdit,
   onDownload,
@@ -684,6 +763,8 @@ function Reply({
 }: {
   comment: Comment;
   own: boolean;
+  guest: boolean;
+  onUnlink?: (fileId: string) => void;
   editable: boolean;
   onEdit: (id: string, body: string, mentions: string[]) => Promise<unknown>;
   onDownload: (attachmentId: string) => void;
@@ -694,6 +775,8 @@ function Reply({
     <CommentBody
       comment={comment}
       own={own}
+      guest={guest}
+      onUnlink={onUnlink}
       editing={editing}
       onEditing={setEditing}
       onEdit={onEdit}
@@ -843,6 +926,14 @@ function ThreadView({
     mutations.edit.mutateAsync({ id, body, mentions });
   const download = (attachmentId: string) => mutations.download.mutate(attachmentId);
   const remove = (attachmentId: string) => mutations.detach.mutate(attachmentId);
+  /** Taking a linked file off a comment (#527): its author while they may comment, or triage. */
+  const unlinkOf = (c: Comment) =>
+    !guest && ((canComment && c.mine) || canTriage)
+      ? (linkedFileId: string) =>
+          mutations.unlinkFile.mutate({ commentId: c.id, fileId: linkedFileId })
+      : undefined;
+  /** The project's files a comment of one's own may link to (#527): members only. */
+  const filesFrom = !guest && canComment && projectId ? { projectId, fileId } : undefined;
   const picked = pages?.focus.selected === comment.id || focused;
   const row = useRef<HTMLLIElement>(null);
   // Picked on the page, the thread comes into view here.
@@ -1027,6 +1118,8 @@ function ThreadView({
       <CommentBody
         comment={comment}
         own={canComment && comment.mine}
+        guest={guest}
+        onUnlink={unlinkOf(comment)}
         editing={editing}
         onEditing={setEditing}
         onEdit={edit}
@@ -1089,6 +1182,8 @@ function ThreadView({
               <Reply
                 comment={reply}
                 own={canComment && reply.mine}
+                guest={guest}
+                onUnlink={unlinkOf(reply)}
                 editable={canComment && reply.mine && !guest}
                 onEdit={edit}
                 onDownload={download}
@@ -1123,6 +1218,10 @@ function ThreadView({
           submitLabel="Reply"
           pending={mutations.create.isPending}
           attachable
+          filesFrom={filesFrom}
+          onLinkFiles={(commentId, fileIds) =>
+            mutations.linkFiles.mutateAsync({ commentId, fileIds })
+          }
           onSubmit={async (body, mentions) => {
             const { comment: made } = await mutations.create.mutateAsync({
               body,
@@ -1512,6 +1611,9 @@ export function Comments({
       onShareTakes={(commentId, takeIds) =>
         mutations.shareTakes.mutateAsync({ commentId, takeIds })
       }
+      // The project's files (#527), by members who may comment.
+      filesFrom={!guest && canComment ? { projectId, fileId } : undefined}
+      onLinkFiles={(commentId, fileIds) => mutations.linkFiles.mutateAsync({ commentId, fileIds })}
       onSubmit={async (body, mentions) => {
         const { comment: made } = await mutations.create.mutateAsync({
           body,

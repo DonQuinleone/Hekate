@@ -72,8 +72,9 @@ export async function layoutProblems(page: Page): Promise<LayoutProblem[]> {
     }
 
     // A modal shuts off the whole working area: its backdrop (the element it sits in) covers
-    // every corner of the main area, rather than the box of whatever it was opened inside.
-    const modal = document.querySelector("[aria-modal=true]");
+    // every corner of the main area, rather than the box of whatever it was opened inside. A
+    // dialog opened from another (a picker from the composer's sheet) is the one on top.
+    const modal = [...document.querySelectorAll("[aria-modal=true]")].at(-1);
     const backdrop = modal?.parentElement;
     if (backdrop) {
       for (const main of document.querySelectorAll("main")) {
