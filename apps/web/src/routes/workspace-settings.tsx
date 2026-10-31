@@ -1,5 +1,7 @@
 import {
   accessWindowDays,
+  bucketIdOf,
+  bucketLine,
   type CheckState,
   type CommentScope,
   type CustomProfile,
@@ -75,6 +77,7 @@ import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
 import { StatusDot } from "~/components/ui/status";
 import { UsageRows } from "~/components/usage";
 import { DeleteWorkspace, WorkspaceExports } from "~/components/workspace-lifecycle";
+import { WhereFilesGo } from "~/components/workspace-storage";
 import {
   actionCopy,
   exportUrl,
@@ -113,7 +116,6 @@ import {
   useRevokeGuest,
   useSaveWorkspaceSettings,
   useWorkspaceCategoryMutations,
-  useWorkspaceStorage,
   workspaceCategoriesQuery,
   workspaceGuestsQuery,
   workspaceOperationsQuery,
@@ -1345,12 +1347,16 @@ function Operations() {
 function Storage({ role }: { role: Role }) {
   const { data } = useQuery(workspaceStorageQuery);
   const { data: usage } = useQuery(storageUsageQuery);
-  const choose = useWorkspaceStorage();
   if (!data) return null;
-  const receiving = data.backend ?? data.defaultBackend;
+  const receiving = data.usesBucket ? null : (data.backend ?? data.defaultBackend);
   const usedIn = (name: string) => usage?.backends.find((b) => b.name === name);
+  // A workspace's own buckets, however many places it has had, are one row: its bucket.
+  const inBuckets = (usage?.backends ?? []).filter((b) => bucketIdOf(b.name));
+  const bucketBytes = inBuckets.reduce((sum, b) => sum + b.bytes, 0);
+  const bucketObjects = inBuckets.reduce((sum, b) => sum + b.objects, 0);
   const limited =
     usage && (usage.usage.limits.storageQuota !== null || usage.usage.limits.memberLimit !== null);
+  const objects = (n: number) => `${n} ${n === 1 ? "object" : "objects"}`;
   return (
     <>
       {usage && (
@@ -1365,36 +1371,12 @@ function Storage({ role }: { role: Role }) {
           <UsageRows usage={usage.usage} />
         </Section>
       )}
-      <Section
-        title="Backends"
-        intro="Existing files stay where they are; the choice applies to new ones."
-      >
-        <Row
-          name="New files go to"
-          hint={
-            role === "owner"
-              ? "The instance default unless you choose another backend."
-              : "Only an owner can change it."
-          }
-        >
-          {role === "owner" ? (
-            <Select
-              aria-label="Backend for new files"
-              value={data.backend ?? ""}
-              onChange={(e) => choose.mutate(e.target.value || null)}
-              className="w-56"
-            >
-              <option value="">The default ({data.defaultBackend})</option>
-              {data.available.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </Select>
-          ) : (
-            <span className="text-[14px] text-ink-2">{receiving}</span>
-          )}
-        </Row>
+      <WhereFilesGo
+        key={`${data.usesBucket}:${data.bucket?.savedAt}`}
+        data={data}
+        owner={role === "owner"}
+      />
+      <Section title="Backends" intro="What this workspace keeps in each.">
         {data.available.map((b) => {
           const used = usedIn(b);
           return (
@@ -1405,7 +1387,7 @@ function Storage({ role }: { role: Role }) {
                 [
                   b === receiving ? "Receives new files" : null,
                   b === data.defaultBackend && b !== receiving ? "The instance default" : null,
-                  used ? `${used.objects} ${used.objects === 1 ? "object" : "objects"}` : null,
+                  used ? objects(used.objects) : null,
                 ]
                   .filter(Boolean)
                   .join(" · ") || undefined
@@ -1417,8 +1399,19 @@ function Storage({ role }: { role: Role }) {
             </Row>
           );
         })}
-        {choose.error && (
-          <p className="px-4 py-2 text-[13px] text-signal">{choose.error.message}</p>
+        {(data.bucket || inBuckets.length > 0) && (
+          <Row
+            name="Your bucket"
+            hint={[
+              data.usesBucket ? "Receives new files" : null,
+              data.bucket ? bucketLine(data.bucket) : null,
+              objects(bucketObjects),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          >
+            <span className="tabular text-[13px] text-ink-2">{formatBytes(bucketBytes)}</span>
+          </Row>
         )}
       </Section>
       {usage && <StorageUsageSections usage={usage} />}

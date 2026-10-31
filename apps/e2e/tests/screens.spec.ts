@@ -544,10 +544,11 @@ const screens: Screen[] = [
     path: () => "/settings/email",
     ready: "main iframe[title*='light mail client']",
   },
+  // Its own bucket shown, disabled, with the plan's name: Studio leaves it out (#508).
   {
     name: "settings-storage",
     path: () => "/settings/storage",
-    ready: "main >> text=Usage by project",
+    ready: "main >> text=Your own storage is not on the Studio plan.",
   },
   {
     name: "settings-notifications",
@@ -2419,6 +2420,53 @@ for (const [name, viewport] of [
     await checkScreen(page);
   });
 }
+
+// A workspace's own bucket (#508), on a plan that includes it: the seeded workspace's plan does
+// not, so the answer is amended in the page alone, with a bucket saved and taking new files;
+// then a test that failed, said in words. The seeded page itself is the disabled state.
+test("settings-storage-own-bucket", async ({ page }) => {
+  await page.route("**/api/organisation/storage", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({
+      response,
+      json: {
+        ...body,
+        usesBucket: true,
+        bucket: {
+          id: "01a15000-0000-7000-8000-0000000000b1",
+          endpoint: "https://s3.eu-central-1.amazonaws.com",
+          region: "eu-central-1",
+          bucket: "endless-hall-masters",
+          prefix: "hekate",
+          pathStyle: false,
+          credentialsSet: true,
+          savedAt: "2026-10-14T09:30:00Z",
+        },
+        ownStorage: { entitled: true, plan: "Label" },
+      },
+    });
+  });
+  await page.route("**/api/organisation/storage/bucket/test", (route) =>
+    route.fulfill({
+      json: {
+        ok: false,
+        step: "write",
+        message: "Could not write to the bucket: the access key may not do this in the bucket.",
+      },
+    }),
+  );
+  await page.goto("/settings/storage");
+  await settle(page, "main >> text=Usage by project");
+  await settle(page, "main >> text=Taking new files: endless-hall-masters/hekate");
+  await saveScreen(page, "settings-storage-own-bucket");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Test connection" }).click();
+  await settle(page, "main [role=alert] >> text=the access key may not do this");
+  await saveScreen(page, "settings-storage-bucket-failed");
+  await checkScreen(page);
+});
 
 // Moving a project to another workspace (#240). The answers are amended in the page alone, so
 // nothing ever moves: one waiting on this person's approval, then the asking, with a

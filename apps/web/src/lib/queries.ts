@@ -11,6 +11,7 @@ import {
   type BillingReports,
   type Board,
   type BoardDisplay,
+  type BucketTestResult,
   type CalendarEntry,
   type CalendarEntryChange,
   type CalendarEntryInput,
@@ -204,6 +205,7 @@ import {
   type WorkflowSummary,
   type WorkInput,
   type WorkspaceBilling,
+  type WorkspaceBucketInput,
   type WorkspaceLimits,
   type WorkspaceMail,
   type WorkspaceMailInput,
@@ -212,6 +214,7 @@ import {
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
   type WorkspaceState,
+  type WorkspaceStorage,
   type WorkspaceUsage,
 } from "@hekate/shared";
 import {
@@ -1362,13 +1365,6 @@ export function useSendTestEmail() {
   });
 }
 
-export interface WorkspaceStorage {
-  /** The workspace's choice; null follows the instance default. */
-  backend: string | null;
-  defaultBackend: string;
-  available: string[];
-}
-
 /** What the instance is doing for this workspace (#165), for its owner; read every 15 s. */
 export const workspaceOperationsQuery = queryOptions({
   queryKey: ["organisation", "operations"],
@@ -1385,8 +1381,29 @@ export function useWorkspaceStorage() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async (backend: string | null) =>
-      json(await api.organisation.storage.$put({ json: { backend } })),
-    onSuccess: () => client.invalidateQueries({ queryKey: workspaceStorageQuery.queryKey }),
+      json<WorkspaceStorage>(await api.organisation.storage.$put({ json: { backend } })),
+    onSuccess: (storage) => client.setQueryData(workspaceStorageQuery.queryKey, storage),
+  });
+}
+
+/** Save the workspace's own bucket (#508): tested first, then it takes the new files. */
+export function useSaveBucket() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: WorkspaceBucketInput) =>
+      json<WorkspaceStorage>(await api.organisation.storage.bucket.$put({ json: input })),
+    onSuccess: (storage) => {
+      client.setQueryData(workspaceStorageQuery.queryKey, storage);
+      void client.invalidateQueries({ queryKey: storageUsageQuery.queryKey });
+    },
+  });
+}
+
+/** Write and delete a probe object with a bucket's details, saving nothing. */
+export function useTestBucket() {
+  return useMutation({
+    mutationFn: async (input: WorkspaceBucketInput) =>
+      json<BucketTestResult>(await api.organisation.storage.bucket.test.$post({ json: input })),
   });
 }
 
