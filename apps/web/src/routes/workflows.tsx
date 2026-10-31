@@ -1,4 +1,5 @@
 import {
+  type NodeType,
   nodeTypes,
   outcomesOf,
   type WorkflowDefinition,
@@ -20,6 +21,7 @@ import { WorkflowCanvas } from "~/components/workflow-canvas";
 import { WorkflowCode } from "~/components/workflow-code";
 import { CopyWorkflowDialog } from "~/components/workflow-copy";
 import { Committed, StepField } from "~/components/workflow-fields";
+import { KindTile } from "~/components/workflow-kinds";
 import { cn } from "~/lib/cn";
 import {
   ApiError,
@@ -31,8 +33,6 @@ import {
 import { workflowTemplates } from "~/lib/workflow-code";
 import {
   basicSteps,
-  familyOf,
-  familyTiles,
   newWorkflowDefinition,
   nodeLooks,
   withConfig,
@@ -148,10 +148,16 @@ export function WorkflowsPage({
   const { create } = useWorkflowMutations(projectId);
   const [focus, setFocus] = useState<string | null>(null);
   const drafts = useDrafts(projectId, workflows);
-  const newWorkflow = () =>
+  /** A new workflow (#514), begun at the start chosen for it, and opened at it. */
+  const newWorkflow = (start?: NodeType) =>
     create.mutate(
-      { name: "New workflow", definition: newWorkflowDefinition() },
-      { onSuccess: (made) => setFocus(made.id) },
+      { name: "New workflow", definition: newWorkflowDefinition(start) },
+      {
+        onSuccess: (made) => {
+          setFocus(made.id);
+          if (view === "code") setView("advanced", made.id);
+        },
+      },
     );
   const [copying, setCopying] = useState(false);
   const copy = (name: string, definition: WorkflowDefinition) =>
@@ -196,16 +202,30 @@ export function WorkflowsPage({
       )}
       actions={
         mayView && workflows && workflows.length > 0 ? (
-          <Segmented
-            label="View"
-            value={view}
-            options={[
-              { value: "basic", label: "Basic" },
-              { value: "advanced", label: "Advanced" },
-              { value: "code", label: "Code" },
-            ]}
-            onChange={(next) => setView(next)}
-          />
+          <>
+            <Segmented
+              label="View"
+              value={view}
+              options={[
+                { value: "basic", label: "Basic" },
+                { value: "advanced", label: "Advanced" },
+                { value: "code", label: "Code" },
+              ]}
+              onChange={(next) => setView(next)}
+            />
+            {mayEdit && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => newWorkflow()}
+                disabled={create.isPending}
+              >
+                <Icon name="plus" size={13} />
+                <span className="hidden @3xl/app:inline">New workflow</span>
+                <span className="sr-only @3xl/app:hidden">New workflow</span>
+              </Button>
+            )}
+          </>
         ) : undefined
       }
     >
@@ -268,7 +288,11 @@ export function WorkflowsPage({
                   action={
                     editing ? (
                       <div className="flex flex-wrap items-center justify-center gap-2">
-                        <Button variant="primary" onClick={newWorkflow} disabled={create.isPending}>
+                        <Button
+                          variant="primary"
+                          onClick={() => newWorkflow()}
+                          disabled={create.isPending}
+                        >
                           New workflow
                         </Button>
                         <Dropdown
@@ -306,10 +330,6 @@ export function WorkflowsPage({
                   ))}
                   {editing && (
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button variant="secondary" onClick={newWorkflow} disabled={create.isPending}>
-                        <Icon name="plus" size={14} />
-                        New workflow
-                      </Button>
                       <Button
                         variant="ghost"
                         onClick={() => setCopying(true)}
@@ -401,9 +421,7 @@ function WorkflowSteps({
         className="m-0 flex list-none flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25 p-0 shadow-1"
       >
         <li className="flex items-center gap-3 px-4 py-3">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-control bg-signal/15 text-signal">
-            <Icon name="bolt" size={14} />
-          </span>
+          <KindTile type={triggers[0]?.type ?? "upload"} />
           <span className="min-w-0 text-[14px] text-ink">
             When {triggers.map((t) => t.name.toLowerCase()).join(" or ") || "nothing happens"}
           </span>
@@ -414,14 +432,7 @@ function WorkflowSteps({
               <span className="tabular w-7 shrink-0 text-center text-[12px] text-ink-3">
                 {i + 1}
               </span>
-              <span
-                className={cn(
-                  "flex size-7 shrink-0 items-center justify-center rounded-control",
-                  familyTiles[familyOf(node.type)],
-                )}
-              >
-                <Icon name={nodeLooks[node.type].icon} size={14} />
-              </span>
+              <KindTile type={node.type} />
               <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{node.name}</span>
               <span className="hidden shrink-0 text-[12px] text-ink-3 @3xl/app:inline">
                 {nodeTypes[node.type].label}
@@ -501,9 +512,7 @@ function WorkflowSteps({
           </li>
         ))}
         <li className="flex items-center gap-3 px-4 py-3">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-control bg-raised text-ink-2">
-            <Icon name="stop" size={14} />
-          </span>
+          <KindTile type="finish" />
           <span className="min-w-0 truncate text-[14px] text-ink">
             {finish ? `Finish: ${finish.name}` : "No finish yet"}
           </span>

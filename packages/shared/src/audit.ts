@@ -81,6 +81,8 @@ export const auditActions = [
   /** Someone renamed a caption track or changed its language or kind (#201), or exported one. */
   "file.captions_update",
   "file.captions_export",
+  /** Someone took a file's QA report away (#515): as PDF, branded and marked for them, CSV or JSON. */
+  "file.qa_report",
   /** Someone exported a file's comments as a marker list. */
   "comment.export",
   /** Someone imported a marker list as comments on a file (#134). */

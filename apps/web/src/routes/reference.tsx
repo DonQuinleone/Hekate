@@ -1,4 +1,4 @@
-import { frameRates } from "@hekate/shared";
+import { frameRates, loudnessGauge } from "@hekate/shared";
 import { type ReactNode, useState } from "react";
 import { Avatar, AvatarRow } from "~/components/avatar";
 import { Lockup, Mark, Wordmark } from "~/components/brand";
@@ -7,6 +7,7 @@ import { Empty } from "~/components/empty";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Card, Page, SectionHead } from "~/components/page";
+import { Crop, Gauge, Verdict } from "~/components/qa-report";
 import { FoldingSection, Row, Section, SwitchRow } from "~/components/settings";
 import { StatusChipView } from "~/components/status-chip";
 import { Button } from "~/components/ui/button";
@@ -34,6 +35,7 @@ import {
   UploadZone,
 } from "~/components/ui/upload-dialog";
 import { FrameGuides, GoToTimecode } from "~/components/video-frame";
+import { GroupLegend, KindLegend } from "~/components/workflow-kinds";
 import { cn } from "~/lib/cn";
 import { categoryTones } from "~/lib/comments";
 
@@ -847,6 +849,20 @@ function Components() {
         </Spec>
       </Section>
       <Section
+        title="Workflow nodes"
+        intro="Each kind of node has a family, which gives its colour and shape, and an icon of its own: no two kinds are drawn alike, on the canvas, in the picker or in any list that offers them."
+      >
+        <Spec
+          name="Families"
+          rule="In the order a workflow reads; the key on the canvas and in the picker."
+        >
+          <GroupLegend />
+        </Spec>
+        <div className="px-4 py-4">
+          <KindLegend />
+        </div>
+      </Section>
+      <Section
         title="Video frame"
         intro="Guides over the picture never take a click; the picture beneath still plays."
       >
@@ -940,6 +956,64 @@ function Components() {
             duration={600}
             onGo={() => {}}
           />
+        </Spec>
+      </Section>
+      <Section
+        title="QA report"
+        intro="The report as a page and as a PDF (#515): the same parts, from the same document."
+      >
+        <Spec
+          name="Verdict"
+          rule="One line under the signal's bar: what fails, by name; ready with what to look at; or ready."
+        >
+          <div className="flex w-full max-w-[520px] flex-col gap-4">
+            {(["fail", "warn", "pass"] as const).map((tone) => (
+              <Verdict
+                key={tone}
+                doc={{
+                  profile: "Streaming",
+                  verdict: {
+                    tone,
+                    words:
+                      tone === "fail"
+                        ? "Not ready for Streaming: clipping and true peak fail."
+                        : tone === "warn"
+                          ? "Ready for Streaming, with one thing worth a look."
+                          : "Ready for Streaming: every check passes.",
+                  },
+                }}
+              />
+            ))}
+          </div>
+        </Spec>
+        <Spec
+          name="Loudness gauge"
+          rule="The target's band in the signal, the value's needle in ink; without a target, −30 to 0 LUFS."
+        >
+          <div className="flex w-full max-w-[520px] flex-col gap-4">
+            <Gauge gauge={loudnessGauge(-16.4, { target: -14, tolerance: 1 })} />
+            <Gauge gauge={loudnessGauge(-9.8, null)} />
+          </div>
+        </Spec>
+        <Spec
+          name="A finding's crop"
+          rule="The waveform around the finding, its stretch in the signal; the window's ends below."
+        >
+          <div className="w-full max-w-[520px]">
+            <Crop
+              crop={{
+                from: 11.25,
+                to: 13.25,
+                markFrom: 12,
+                markTo: 12.5,
+                envelope: Array.from({ length: 160 }, (_, i): [number, number] => {
+                  const level =
+                    i >= 60 && i < 100 ? 1 : 0.15 + 0.35 * Math.exp(-((i * 0.0125) % 0.5) * 4);
+                  return [-level, level];
+                }),
+              }}
+            />
+          </div>
         </Spec>
       </Section>
       <Section title="Feedback" intro="Menus and dialogs rise in over 160 ms; nothing bounces.">

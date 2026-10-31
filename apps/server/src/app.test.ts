@@ -10922,6 +10922,126 @@ describe.runIf(url)("api", () => {
       const request = (cookie: string, projectId: string, body: Record<string, unknown>) =>
         app.request(`/api/projects/${projectId}/reviews`, json(body, cookie));
 
+      it("gives the QA report as a document, branded and marked for whoever asked, and logged (#515)", async () => {
+        const s = await studio();
+        await db.insert(schema.qaFindings).values({
+          organisationId: s.organisationId,
+          fileId: s.mix,
+          check: "clipping",
+          severity: "fail",
+          summary: "Clipped 12 times",
+          channel: 0,
+          start: 12,
+          end: 12.5,
+          details: {},
+        });
+        await db
+          .update(schema.files)
+          .set({ analysisStatus: "ready" })
+          .where(eq(schema.files.id, s.mix));
+        // The document the app shows: the file's place, the findings with what to do.
+        const shown = await getAs(`/api/files/${s.mix}/qa/document`, s.engineer);
+        expect(shown.status).toBe(200);
+        const { document } = (await shown.json()) as {
+          document: {
+            file: object;
+            verdict: { tone: string };
+            groups: { findings: { name: string; at: string; advice: string }[] }[];
+            appendix: { link: string };
+          };
+        };
+        expect(document.file).toMatchObject({ track: "Maple Leaf Rag", version: 1, variant: "Mix" });
+        expect(document.verdict.tone).toBe("fail");
+        // The format fails Streaming (48 kHz, no bit depth): the whole file's first, then in time.
+        expect(document.groups[0]?.findings.map((f) => [f.name, f.at])).toEqual([
+          ["Format", "Whole file"],
+          ["Clipping", "00:12.000–00:12.500"],
+        ]);
+        expect(document.appendix.link).toMatch(new RegExp(`/files/${s.mix}\\?view=qa$`));
+
+        // The PDF: the brand and the engineer's own mark on every page.
+        const pdf = await getAs(`/api/files/${s.mix}/qa/report?format=pdf`, s.engineer);
+        expect(pdf.status).toBe(200);
+        expect(pdf.headers.get("content-type")).toBe("application/pdf");
+        expect(pdf.headers.get("content-disposition")).toContain("Mix v1 QA report.pdf");
+        const text = Buffer.from(await pdf.arrayBuffer()).toString("latin1");
+        const count = Number(/\/Count (\d+)/.exec(text)?.[1]);
+        const pages = [...text.matchAll(/stream\n([\s\S]*?)\nendstream/g)]
+          .map((m) => m[1] ?? "")
+          .filter((content) => content.includes(" of ") && content.includes("(Page "));
+        expect(count).toBeGreaterThanOrEqual(4);
+        expect(pages).toHaveLength(count);
+        for (const page of pages) {
+          expect(page).toContain("(Studio) Tj");
+          expect(page).toContain("(Made with Hekate) Tj");
+          expect(page).toContain("(Prepared for engineer \\267 engineer@example.test \\267 Studio");
+          expect(page).toContain("/Mark gs");
+        }
+        expect(await getAs(`/api/files/${s.mix}/qa/report?format=csv`, s.owner)).toHaveProperty(
+          "status",
+          200,
+        );
+
+        // Each taken away is in the access log, by whom and in which format.
+        const logged = await db
+          .select({
+            userId: schema.accessEvents.userId,
+            fileId: schema.accessEvents.fileId,
+            details: schema.accessEvents.details,
+          })
+          .from(schema.accessEvents)
+          .where(
+            and(
+              eq(schema.accessEvents.organisationId, s.organisationId),
+              eq(schema.accessEvents.action, "file.qa_report"),
+            ),
+          );
+        expect(logged).toEqual(
+          expect.arrayContaining([
+            { userId: s.ids.engineer, fileId: s.mix, details: { format: "pdf" } },
+            { userId: s.ids.owner, fileId: s.mix, details: { format: "csv" } },
+          ]),
+        );
+        expect(logged).toHaveLength(2);
+
+        // A role without QA is refused both, and nothing is logged for it.
+        expect((await getAs(`/api/files/${s.mix}/qa/document`, s.composer)).status).toBe(403);
+        expect((await getAs(`/api/files/${s.mix}/qa/report?format=pdf`, s.composer)).status).toBe(
+          403,
+        );
+        // Someone with no place in the project, and another workspace's owner, find nothing.
+        const outsider = await joinAs(s.owner, "outsider-qa-document@example.test");
+        expect((await getAs(`/api/files/${s.mix}/qa/document`, outsider)).status).toBe(404);
+        // As the owner of a workspace of their own, they still find nothing.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Saltmarsh Films", slug: "saltmarsh-qa-document" })
+          .returning({ id: schema.organisations.id });
+        await db
+          .insert(schema.members)
+          .values({ organisationId: other?.id ?? "", userId: await idOf(outsider), role: "owner" });
+        expect(
+          (
+            await app.request("/api/me/organisation", {
+              ...json({ organisationId: other?.id }, outsider),
+              method: "PUT",
+            })
+          ).status,
+        ).toBe(200);
+        expect((await getAs(`/api/files/${s.mix}/qa/document`, outsider)).status).toBe(404);
+        expect((await getAs(`/api/files/${s.mix}/qa/report?format=pdf`, outsider)).status).toBe(404);
+        const after = await db
+          .select({ id: schema.accessEvents.id })
+          .from(schema.accessEvents)
+          .where(
+            and(
+              eq(schema.accessEvents.organisationId, s.organisationId),
+              eq(schema.accessEvents.action, "file.qa_report"),
+            ),
+          );
+        expect(after).toHaveLength(2);
+      });
+
       it("counts each track's takes in the project's list, for those who may see takes", async () => {
         const s = await studio();
         const listPath = `/api/projects/${s.projectId}/tracks`;
@@ -16676,17 +16796,18 @@ describe.runIf(url)("api", () => {
             version: number;
             problems: { level: string; text: string }[];
           };
-          const at = (id: string, type: string, name: string, x: number) => ({
+          const at = (id: string, type: string, name: string, x: number, config = {}) => ({
             id,
             type,
             name,
             x,
             y: 0,
+            config,
           });
           const review = {
             nodes: [
               at("start", "upload", "A version is uploaded", 0),
-              at("fb", "feedback", "Conductor", 320),
+              at("fb", "feedback", "Conductor", 320, { who: "Conductor" }),
               at("done", "finish", "Done", 640),
             ],
             connectors: [
@@ -17311,6 +17432,64 @@ describe.runIf(url)("api", () => {
           expect((await runs()).map((r) => r.state)).toEqual(["finished"]);
           await version("Edit v4.wav");
           expect((await runs()).map((r) => r.state)).toEqual(["finished"]);
+        });
+
+        it("starts a workflow by hand at its one start, where its triggers say so (#514)", async () => {
+          const s = await studio();
+          const at = (id: string, type: string, name: string, x: number, config = {}) => ({
+            id,
+            type,
+            name,
+            x,
+            y: 0,
+            config,
+          });
+          const definition = (triggers?: string) => ({
+            nodes: [
+              at("start", "upload", "Version uploaded", 0, triggers ? { triggers } : {}),
+              at("status", "status", "Mastering", 1, { status: "Mastering" }),
+              at("done", "finish", "Done", 2),
+            ],
+            connectors: [
+              { id: "1", from: "start", outcome: "happened", to: "status" },
+              { id: "2", from: "status", outcome: "set", to: "done" },
+            ],
+          });
+          const send = (url: string, body: unknown, method = "POST", who = s.owner) =>
+            app.request(url, { ...json(body, who), method });
+          const made = (await (
+            await send(`/api/projects/${s.projectId}/workflows`, {
+              name: "Mastering",
+              definition: definition(),
+            })
+          ).json()) as { workflow: { id: string } };
+          await send(`/api/workflows/${made.workflow.id}`, { active: true }, "PATCH");
+          const byHand = () =>
+            send(`/api/tracks/${s.trackId}/workflow-runs`, { workflowId: made.workflow.id });
+          // A start on a version alone is not started by hand.
+          expect((await byHand()).status).toBe(422);
+          // Named among its start's triggers, it is, from that one start: no second start node.
+          await send(
+            `/api/workflows/${made.workflow.id}`,
+            { definition: definition("manual") },
+            "PATCH",
+          );
+          const started = await byHand();
+          expect(started.status).toBe(201);
+          const { run } = (await started.json()) as { run: { state: string } };
+          expect(run.state).toBe("finished");
+          // Not by someone outside the project, nor someone of another workspace.
+          const newcomer = await joinAs(s.owner, "newcomer-start@example.test");
+          expect(
+            (
+              await send(
+                `/api/tracks/${s.trackId}/workflow-runs`,
+                { workflowId: made.workflow.id },
+                "POST",
+                newcomer,
+              )
+            ).status,
+          ).toBe(404);
         });
 
         it("asks for a stage's review, and its outcome moves the run on (#25)", async () => {

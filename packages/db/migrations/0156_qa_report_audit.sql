@@ -1,0 +1,1 @@
+ALTER TYPE "public"."audit_action" ADD VALUE 'file.qa_report' BEFORE 'comment.export';

@@ -325,6 +325,28 @@ export const DEAD_CHANNEL_DB = -90;
 export const IMBALANCE_DB = 3;
 
 /**
+ * Whether a recording's format meets each of a profile's asks on its own: its sample rate,
+ * its bit depth (a lossy or unreported one cannot show it meets a minimum) and its channels.
+ * An ask the profile does not make is met. The format check and the QA report's appendix
+ * both judge by it, so a row never fails for another row's reason.
+ */
+export function formatMeets(
+  profile: Pick<DeliveryProfile, "sampleRates" | "bitDepthMin" | "bitDepthExact" | "channels">,
+  audio: { sampleRate: number; bitDepth?: number | null; channels: number },
+): { sampleRate: boolean; bitDepth: boolean; channels: boolean } {
+  const { rates, atLeast } = profile.sampleRates;
+  const depth = audio.bitDepth ?? null;
+  return {
+    sampleRate: atLeast ? audio.sampleRate >= (rates[0] ?? 0) : rates.includes(audio.sampleRate),
+    bitDepth:
+      !profile.bitDepthMin ||
+      (depth !== null &&
+        (profile.bitDepthExact ? depth === profile.bitDepthMin : depth >= profile.bitDepthMin)),
+    channels: profile.channels === null || audio.channels === profile.channels,
+  };
+}
+
+/**
  * The delivery checks: the recording's measured facts against a profile. Each check gives
  * one finding, a pass included, so a report shows what was checked as well as what failed.
  */
@@ -338,24 +360,13 @@ export function deliveryFindings(
   const audio = info?.audio;
   if (audio) {
     const problems: string[] = [];
-    const { rates, atLeast } = profile.sampleRates;
-    const rateOk = atLeast ? audio.sampleRate >= (rates[0] ?? 0) : rates.includes(audio.sampleRate);
-    if (!rateOk) problems.push(`${audio.sampleRate / 1000} kHz`);
-    if (profile.bitDepthMin && !audio.bitDepth) {
+    const meets = formatMeets(profile, audio);
+    if (!meets.sampleRate) problems.push(`${audio.sampleRate / 1000} kHz`);
+    if (!meets.bitDepth)
       // A lossy or unreported format cannot show it meets a master's bit depth.
-      problems.push(`${audio.codec}, no bit depth`);
-    } else if (
-      profile.bitDepthMin &&
-      audio.bitDepth &&
-      (profile.bitDepthExact
-        ? audio.bitDepth !== profile.bitDepthMin
-        : audio.bitDepth < profile.bitDepthMin)
-    ) {
-      problems.push(`${audio.bitDepth}-bit`);
-    }
-    if (profile.channels !== null && audio.channels !== profile.channels) {
+      problems.push(audio.bitDepth ? `${audio.bitDepth}-bit` : `${audio.codec}, no bit depth`);
+    if (!meets.channels)
       problems.push(`${audio.channels} ${audio.channels === 1 ? "channel" : "channels"}`);
-    }
     out.push({
       check: "format",
       severity: problems.length ? "fail" : "pass",

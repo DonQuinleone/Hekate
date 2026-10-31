@@ -1093,6 +1093,8 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
       "drawbox=x=0:y=24:w=80:h=80:color=0x4fb3a9@1:t=fill",
       "drawbox=x=104:y=40:w=360:h=18:color=0xf4f4f5@1:t=fill",
       "drawbox=x=104:y=72:w=220:h=14:color=0xa1a1aa@1:t=fill",
+      // drawbox leaves the ground's alpha as it was: what it drew is made opaque here.
+      "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(r(X,Y)+g(X,Y)+b(X,Y),255,0)'",
     ].join(","),
     ...["-frames:v", "1", "-c:v", "png", "-f", "image2", "-update", "1", logoPath],
   ]);
@@ -1361,7 +1363,8 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
   );
 
   // The project's workflows (#25, #26), made last so no version arrives to start them: the
-  // album's review, switched on, and a delivery still a draft, with something to look at.
+  // album's review, switched on, its steps far enough apart for their paths' labels to show
+  // whole (#513), and a delivery still a draft, with something to look at.
   const step = (
     id: string,
     type: string,
@@ -1379,21 +1382,21 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
         groups: [],
         nodes: [
           step("start", "upload", "A version is uploaded", 0),
-          step("notes", "feedback", "Soloists' notes", 1, 0, {
+          step("notes", "feedback", "Soloists' notes", 1.25, 0, {
             who: "Soloists",
             order: "In turn",
             status: "With the soloists",
             due: "3",
           }),
-          step("edit", "task", "Engineer edits", 2, 0, { who: "Producer", status: "Editing" }),
-          step("label", "approval", "Label approval", 3, 0, {
+          step("edit", "task", "Engineer edits", 2.5, 0, { who: "Producer", status: "Editing" }),
+          step("label", "approval", "Label approval", 3.75, 0, {
             who: "Reviewer",
             rule: "Everyone approves",
             status: "With the label",
             due: "5",
           }),
-          step("done", "finish", "Approved", 4, 0, { status: "Approved" }),
-          step("tell", "notify", "Tell the producer", 4, 1, {
+          step("done", "finish", "Approved", 5, 0, { status: "Approved" }),
+          step("tell", "notify", "Tell the producer", 5, 1, {
             to: "Producer",
             message: "Some approved: decide.",
           }),
@@ -1413,6 +1416,8 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
     },
   );
   await owner.api("PATCH", `/api/workflows/${albumReview.id}`, { active: true });
+  // The delivery's sign-off names nobody yet (#513): a warning on a step with three outputs, and
+  // a path whose label, thirty characters long, is shown whole.
   await owner.api("POST", `/api/projects/${music.id}/workflows`, {
     name: "Delivery",
     definition: {
@@ -1420,9 +1425,10 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
       nodes: [
         step("start", "upload", "A version is uploaded", 0),
         step("qa", "checks", "Delivery checks", 1),
-        step("file", "move", "File the master", 2, 0, { folder: "Masters" }),
-        step("done", "finish", "Delivered", 3, 0, { status: "Delivered" }),
-        step("tell", "notify", "Ask for a new export", 2, 1, {
+        step("signoff", "approval", "Label sign-off", 2.25, 1.5, { rule: "Everyone approves" }),
+        step("file", "move", "File the master", 4.5, 0, { folder: "Masters" }),
+        step("done", "finish", "Delivered", 5.5, 0, { status: "Delivered" }),
+        step("tell", "notify", "Ask for a new export", 4.5, 1, {
           to: "Producer",
           message: "The master failed its checks.",
         }),
@@ -1430,8 +1436,18 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
       connectors: [
         { id: "c1", from: "start", outcome: "happened", to: "qa" },
         { id: "c2", from: "qa", outcome: "passed", to: "file" },
-        { id: "c3", from: "file", outcome: "moved", to: "done" },
+        { id: "c6", from: "qa", outcome: "warnings", to: "signoff" },
         { id: "c4", from: "qa", outcome: "failed", to: "tell" },
+        {
+          id: "c7",
+          from: "signoff",
+          outcome: "approved",
+          to: "file",
+          condition: { test: "tag", is: "Final" },
+        },
+        { id: "c8", from: "signoff", outcome: "mixed", to: "tell" },
+        { id: "c9", from: "signoff", outcome: "changes", to: "tell" },
+        { id: "c3", from: "file", outcome: "moved", to: "done" },
         { id: "c5", from: "tell", outcome: "sent", to: "done" },
       ],
     },

@@ -33,6 +33,7 @@ const actionWords = {
   "file.captions_remove": "Captions removed",
   "file.captions_update": "Captions renamed",
   "file.captions_export": "Captions exported",
+  "file.qa_report": "QA report taken",
   "guest.link": "Guest link sent",
   "guest.sign_in": "Guest signed in",
   "guest.code_sent": "Guest sent a code",

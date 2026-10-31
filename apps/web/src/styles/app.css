@@ -39,6 +39,8 @@
   --color-node-work: var(--hk-node-work);
   --color-node-comm: var(--hk-node-comm);
   --color-node-flow: var(--hk-node-flow);
+  --color-node-qa: var(--hk-node-qa);
+  --color-node-wait: var(--hk-node-wait);
   --color-category-1: var(--hk-category-1);
   --color-category-2: var(--hk-category-2);
   --color-category-3: var(--hk-category-3);

@@ -122,6 +122,7 @@ import {
   type PromoCodeInput,
   type PublicBranding,
   permissionsOfLevels,
+  type QaDocument,
   type QaFinding,
   type QaSettings,
   type QueueJobDetail,
@@ -2289,6 +2290,22 @@ export interface QaChanges {
   fixed: QaFinding[];
   new: QaFinding[];
 }
+
+/**
+ * The QA report as a document (#515): what the PDF sets, for the report's page. Made afresh
+ * each time, as it says who asked and when.
+ */
+export const qaDocumentQuery = (fileId: string) =>
+  queryOptions({
+    queryKey: ["files", fileId, "qa", "document"],
+    queryFn: async () =>
+      (
+        await json<{ document: QaDocument }>(
+          await api.files[":id"].qa.document.$get({ param: { id: fileId } }),
+        )
+      ).document,
+    staleTime: 60_000,
+  });
 
 export const qaChangesQuery = (fileId: string) =>
   queryOptions({
