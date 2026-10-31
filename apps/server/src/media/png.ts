@@ -6,9 +6,10 @@ import type { PdfImage } from "./pdf.ts";
  * eight-bit RGBA without interlacing, on the cover and at the head of every page of its QA
  * report. Its rows are unfiltered here and its colour and opacity written apart, as PDF keeps
  * them. Anything else (another bit depth, a palette, interlacing, a broken file) is null, and
- * the report carries Hekate's mark instead.
+ * the report carries Hekate's mark instead. `light` says the logo was made for a dark ground
+ * (as the sign-in page is): a third or more of what it shows is too pale to read on paper.
  */
-export function pdfImageOfPng(png: Uint8Array): PdfImage | null {
+export function pdfImageOfPng(png: Uint8Array): (PdfImage & { light: boolean }) | null {
   const bytes = Buffer.from(png.buffer, png.byteOffset, png.byteLength);
   const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   if (bytes.length < 33 || signature.some((b, i) => bytes[i] !== b)) return null;
@@ -78,14 +79,29 @@ export function pdfImageOfPng(png: Uint8Array): PdfImage | null {
       pixels[out + x] = ((row[x] as number) + predicted) & 0xff;
     }
   }
-  if (channels === 3) return { width, height, rgb: deflateSync(pixels), alpha: null };
-  const rgb = Buffer.alloc(width * height * 3);
-  const alpha = Buffer.alloc(width * height);
+  const rgb = channels === 3 ? pixels : Buffer.alloc(width * height * 3);
+  const alpha = channels === 4 ? Buffer.alloc(width * height) : null;
+  let shown = 0;
+  let pale = 0;
   for (let i = 0; i < width * height; i++) {
-    rgb[i * 3] = pixels[i * 4] as number;
-    rgb[i * 3 + 1] = pixels[i * 4 + 1] as number;
-    rgb[i * 3 + 2] = pixels[i * 4 + 2] as number;
-    alpha[i] = pixels[i * 4 + 3] as number;
+    const [r, g, b, a] = [0, 1, 2, 3].map((k) => pixels[i * channels + k] as number);
+    if (alpha) {
+      rgb[i * 3] = r as number;
+      rgb[i * 3 + 1] = g as number;
+      rgb[i * 3 + 2] = b as number;
+      alpha[i] = a as number;
+    }
+    if (channels === 3 || (a as number) >= 128) {
+      shown++;
+      // Relative luminance, roughly: pale enough that paper hardly shows it.
+      if (0.2126 * (r as number) + 0.7152 * (g as number) + 0.0722 * (b as number) > 200) pale++;
+    }
   }
-  return { width, height, rgb: deflateSync(rgb), alpha: deflateSync(alpha) };
+  return {
+    width,
+    height,
+    rgb: deflateSync(rgb),
+    alpha: alpha ? deflateSync(alpha) : null,
+    light: shown > 0 && pale / shown >= 1 / 3,
+  };
 }

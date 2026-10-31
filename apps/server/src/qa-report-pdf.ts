@@ -40,6 +40,8 @@ export const PRINT = {
   ink: "#111113",
   ink2: "#45454c",
   ink3: "#5f5f67",
+  /** The brand's ground, under a logo made for it. */
+  ground: "#0a0a0b",
   hairline: "#dcdcd7",
   raised: "#f0f0ed",
   /** Signal's own colour in the light theme, where the workspace has no accent. */
@@ -49,8 +51,11 @@ export const PRINT = {
 export interface ReportLook {
   /** The accent as paper shows it: the workspace's light-theme cut, or the signal's. */
   accent: string;
-  /** The workspace's logo; without one, Hekate's mark and the workspace's name. */
-  logo: PdfImage | null;
+  /**
+   * The workspace's logo; without one, Hekate's mark and the workspace's name. A light one
+   * (made for the dark sign-in page) is set on a plate of the brand's ground.
+   */
+  logo: (PdfImage & { light?: boolean }) | null;
   /** The recipient's mark (the visible watermark's words) and how the project draws it. */
   mark: { text: string; style: Pick<WatermarkSettings, "position" | "opacity"> };
   /** The link back to the file as a QR code's modules, true for dark. */
@@ -241,16 +246,40 @@ export function qaReportPages(doc: QaDocument, look: ReportLook, layout?: SetWor
   function logo(x: number, top: number, maxWidth: number, maxHeight: number): number {
     const image = look.logo;
     if (!image) return 0;
-    const scale = Math.min(maxWidth / image.width, maxHeight / image.height);
+    // A light logo sits on the ground it was made for, inset as the sign-in page shows it.
+    const pad = image.light ? maxHeight * 0.22 : 0;
+    const scale = Math.min(
+      (maxWidth - 2 * pad) / image.width,
+      (maxHeight - 2 * pad) / image.height,
+    );
     const w = image.width * scale;
     const h = image.height * scale;
-    ops.push(`q ${n(w)} 0 0 ${n(h)} ${n(x)} ${n(Y(top + (maxHeight + h) / 2))} cm /Logo Do Q`);
-    return w;
+    if (image.light) plate(x, top + (maxHeight - h) / 2 - pad, w + 2 * pad, h + 2 * pad, 4);
+    ops.push(
+      `q ${n(w)} 0 0 ${n(h)} ${n(x + pad)} ${n(Y(top + (maxHeight + h) / 2))} cm /Logo Do Q`,
+    );
+    return w + 2 * pad;
+  }
+
+  /** A rounded rectangle of the brand's ground, from its top left. */
+  function plate(x: number, top: number, w: number, h: number, r: number) {
+    const k = 0.5523 * r;
+    const [l, t, rr, b] = [x, Y(top), x + w, Y(top + h)];
+    ops.push(
+      [
+        fill(PRINT.ground),
+        `${n(l + r)} ${n(t)} m ${n(rr - r)} ${n(t)} l`,
+        `${n(rr - r + k)} ${n(t)} ${n(rr)} ${n(t - r + k)} ${n(rr)} ${n(t - r)} c`,
+        `${n(rr)} ${n(b + r)} l ${n(rr)} ${n(b + r - k)} ${n(rr - r + k)} ${n(b)} ${n(rr - r)} ${n(b)} c`,
+        `${n(l + r)} ${n(b)} l ${n(l + r - k)} ${n(b)} ${n(l)} ${n(b + r - k)} ${n(l)} ${n(b + r)} c`,
+        `${n(l)} ${n(t - r)} l ${n(l)} ${n(t - r + k)} ${n(l + r - k)} ${n(t)} ${n(l + r)} ${n(t)} c f`,
+      ].join(" "),
+    );
   }
 
   /** The brand at the head of every page but the cover, and what the page belongs to. */
   function pageHead() {
-    if (look.logo) logo(M, 30, 120, 20);
+    if (look.logo) logo(M, 28, 130, 24);
     else {
       hekateMark(M - 3, 30, 20);
       text("bold", 9.5, M + 22, 44, fitted(doc.workspace, W / 2 - 24, 9.5, true));
@@ -316,7 +345,7 @@ export function qaReportPages(doc: QaDocument, look: ReportLook, layout?: SetWor
 
   function coverPage() {
     // The brand, large.
-    if (look.logo) logo(M, 56, 200, 52);
+    if (look.logo) logo(M, 56, 180, 44);
     else {
       hekateMark(M - 5, 58, 44);
       text("bold", 15, M + 46, 86, fitted(doc.workspace, W - 50, 15, true));
@@ -358,7 +387,6 @@ export function qaReportPages(doc: QaDocument, look: ReportLook, layout?: SetWor
     const facts: [string, string][] = [
       ["Project", doc.project],
       ["Workspace", doc.workspace],
-      ["Measured against", doc.profile],
       [
         "Prepared by",
         `${doc.preparedBy.name}${doc.preparedBy.role ? `, ${doc.preparedBy.role}` : ""}`,
@@ -427,7 +455,7 @@ export function qaReportPages(doc: QaDocument, look: ReportLook, layout?: SetWor
         null,
       ],
       [
-        "Loudest short-term",
+        "Short-term max",
         s.shortTermMax === null ? "Not measured" : `${decibels(s.shortTermMax)} LUFS`,
         "Over 3 seconds",
         null,
@@ -647,7 +675,7 @@ export function qaReportPages(doc: QaDocument, look: ReportLook, layout?: SetWor
     }
     const heard = wrapped(f.heard, width, 9.5);
     const advice = wrapped(f.advice, width, 9);
-    const cropHeight = f.crop ? 66 : 0;
+    const cropHeight = f.crop ? 72 : 0;
     const height = 16 + 14 + heard.length * 13 + cropHeight + 16 + advice.length * 12.5 + 12;
     need(height);
     const top = y;

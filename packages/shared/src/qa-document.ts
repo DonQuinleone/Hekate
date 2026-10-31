@@ -644,7 +644,7 @@ export function rulesChecked(
     if (asks.length > 0) add("profile", "Picture", asks.join(", "), of("picture-format", false));
   }
   for (const check of signalChecksFor(info))
-    add("signal", qaCheckNames[check], "nothing found", of(check));
+    add("signal", qaCheckNames[check], "none in the file", of(check));
   for (const rule of rules.filter((r) => r.on)) {
     const measure = ruleMeasures[rule.measure];
     add(

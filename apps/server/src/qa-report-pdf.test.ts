@@ -314,6 +314,20 @@ describe("a logo as a PDF draws it", () => {
     expect([...inflateSync(image?.alpha as Buffer)]).toEqual([255, 64]);
   });
 
+  it("knows a logo made for a dark ground, which the report sets on one", () => {
+    const pale = pdfImageOfPng(
+      png(2, 1, [
+        [244, 244, 245, 255],
+        [79, 179, 169, 255],
+      ]),
+    );
+    expect(pale?.light).toBe(true);
+    expect(pdfImageOfPng(png(1, 1, [[17, 17, 19, 255]]))?.light).toBe(false);
+    const pages = qaReportPages(fixtureDocument(), look({ logo: pale }));
+    // The brand's ground under the logo, on every page.
+    for (const page of pages) expect(page).toMatch(/^0\.04 0\.04 0\.04 rg .* c f$/m);
+  });
+
   it("refuses what is not an eight-bit RGB or RGBA PNG", () => {
     expect(pdfImageOfPng(Buffer.from("not a picture"))).toBeNull();
     const paletted = png(1, 1, [[0, 0, 0, 255]]);
