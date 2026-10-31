@@ -1,4 +1,6 @@
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import postgres from "postgres";
@@ -989,14 +991,95 @@ test("instance-operator-new", async ({ page }) => {
   await checkScreen(page);
 });
 
-// The QA report to take away (#43): its formats, and what it is stamped with.
+// The QA report as a page (#515): the document the PDF sets, opened from the QA view.
 test("file-qa-report", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}?view=qa`);
   await settle(page, "ul[aria-label=Findings] li");
-  await page.getByRole("button", { name: "QA report" }).click();
-  await settle(page, "[role=dialog] button:has-text('Download PDF')");
+  await page.getByRole("link", { name: "QA report" }).click();
+  await settle(page, "article[aria-label='QA report'] >> text=What to do");
+  await expect(page.getByRole("button", { name: "Download PDF" })).toBeVisible();
   await saveScreen(page, "file-qa-report");
   await checkScreen(page);
+});
+
+/**
+ * The same report as the PDF it downloads as (#515), kept in the artefact page by page and
+ * checked as the screens are: the brand at the head of every page and Hekate at its foot, the
+ * mark of whoever asked, no words run into words or off the page. Poppler (as the server
+ * uses it) reads the words and draws the pages. Once, not at each width: a PDF has one.
+ */
+test("file-qa-report-pdf", async ({ page }, info) => {
+  test.skip(info.project.name !== "desktop", "A PDF is the same at every width");
+  const res = await page.request.get(`/api/files/${seeded().dryFileId}/qa/report?format=pdf`);
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-disposition"]).toContain("QA report.pdf");
+  const dir = join(import.meta.dirname, "../test-results/screens");
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, "file-qa-report.pdf");
+  writeFileSync(path, await res.body());
+  const poppler = (tool: string, n: number, ...args: string[]) =>
+    execFileSync(
+      tool,
+      ["-f", String(n), "-l", String(n), ...args, path, ...(tool === "pdftotext" ? ["-"] : [])],
+      {
+        encoding: "utf8",
+      },
+    );
+  const pages = Number(
+    /Pages:\s+(\d+)/.exec(execFileSync("pdfinfo", [path], { encoding: "utf8" }))?.[1],
+  );
+  expect(pages).toBeGreaterThanOrEqual(4);
+  for (let n = 1; n <= pages; n++) {
+    // Each page in the artefact, as it prints.
+    execFileSync("pdftoppm", [
+      ...["-png", "-r", "110", "-f", String(n), "-l", String(n), "-singlefile"],
+      path,
+      join(dir, `file-qa-report-pdf-page-${n}`),
+    ]);
+    // The workspace's logo at the head (the seeded label has one), Hekate and the page at the foot.
+    expect(poppler("pdfimages", n, "-list"), `the logo on page ${n}`).toMatch(
+      /^\s*\d+\s+\d+\s+image\s+480\s+128\s/m,
+    );
+    const text = poppler("pdftotext", n, "-layout");
+    expect(text, `page ${n}`).toContain("Made with Hekate");
+    expect(text, `page ${n}`).toContain(`Page ${n} of ${pages}`);
+    // Whose copy it is.
+    const mine = /Prepared for (Alex Rivera · producer@example\.test · .+?)\s{2,}/.exec(text)?.[1];
+    expect(mine, `the mark on page ${n}`).toContain("Endless Hall Records");
+    // The mark's words, drawn across the page on purpose, are not the page's own.
+    const mark = (mine ?? "").replaceAll("·", " ");
+    const html = poppler("pdftotext", n, "-bbox");
+    const [width = 0, height = 0] = (/<page width="([\d.]+)" height="([\d.]+)"/.exec(html) ?? [])
+      .slice(1)
+      .map(Number);
+    const words = [
+      ...html.matchAll(
+        /<word xMin="([\d.-]+)" yMin="([\d.-]+)" xMax="([\d.-]+)" yMax="([\d.-]+)">([^<]*)<\/word>/g,
+      ),
+    ]
+      .map((m) => ({
+        x0: Number(m[1]),
+        y0: Number(m[2]),
+        x1: Number(m[3]),
+        y1: Number(m[4]),
+        word: (m[5] ?? "").replaceAll("&amp;", "&"),
+      }))
+      .filter((w) => !mark.includes(w.word) && !/^[·.@-]?$/.test(w.word));
+    for (const w of words) {
+      expect(w.x0, `"${w.word}" off page ${n}`).toBeGreaterThanOrEqual(20);
+      expect(w.x1, `"${w.word}" off page ${n}`).toBeLessThanOrEqual(width - 20);
+      expect(w.y1, `"${w.word}" off page ${n}`).toBeLessThanOrEqual(height - 20);
+    }
+    // Text running into text: two words' boxes crossing by more than a hair.
+    words.forEach((a, i) => {
+      for (const b of words.slice(i + 1)) {
+        const crossing =
+          Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > 1 &&
+          Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) > 1.5;
+        expect(crossing, `"${a.word}" runs into "${b.word}" on page ${n}`).toBe(false);
+      }
+    });
+  }
 });
 
 // An exception to the player tools (decision 258): for one person, guest or group of the project.

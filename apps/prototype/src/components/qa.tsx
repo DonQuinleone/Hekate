@@ -1,6 +1,6 @@
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Checksum } from "~/components/checksum";
-import { QaReportDialog } from "~/components/exports";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { SeverityDot } from "~/components/status";
@@ -393,7 +393,9 @@ export function QaView({
   const advisories = findings.filter((f) => f.severity === "info");
   const passed = findings.filter((f) => f.severity === "pass");
   const [showPassed, setShowPassed] = useState(false);
-  const [report, setReport] = useState(false);
+  const navigate = useNavigate();
+  const openReport = () =>
+    void navigate({ to: "/files/$fileId/qa-report", params: { fileId: file.id } });
   const [editingMetadata, setEditingMetadata] = useState(false);
   // Narrowing the list (#43): to one severity, as its count is pressed, and to one check.
   const [only, setOnly] = useState<"fail" | "warn" | "info" | null>(null);
@@ -484,7 +486,7 @@ export function QaView({
             <ActionMenu
               label="report"
               actions={[
-                { label: "Report…", onSelect: () => setReport(true) },
+                { label: "QA report", onSelect: openReport },
                 { label: "Run the checks again", onSelect: () => {} },
               ]}
             />
@@ -767,12 +769,11 @@ export function QaView({
             </div>
           )}
         </section>
-        <Button variant="secondary" size="sm" className="self-start">
-          <Icon name="download" size={14} />
+        <Button variant="secondary" size="sm" className="self-start" onClick={openReport}>
+          <Icon name="text" size={14} />
           QA report
         </Button>
       </div>
-      {report && <QaReportDialog file={file} onClose={() => setReport(false)} />}
     </div>
   );
 }

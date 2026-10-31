@@ -11,6 +11,7 @@ import {
   qaSeverityNames,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, MIN_LOOP } from "~/lib/loop";
@@ -24,10 +25,8 @@ import {
 } from "~/lib/queries";
 import { ProfileOptions } from "./delivery-profiles";
 import { Icon } from "./icons";
-import { Button } from "./ui/button";
-import { Dialog } from "./ui/dialog";
+import { buttonVariants } from "./ui/button";
 import { Select } from "./ui/input";
-import { Segmented } from "./ui/segmented";
 
 /** Where a file's profile comes from, when it has none of its own. */
 const inheritedFrom: Record<ProfileSource, string> = {
@@ -301,7 +300,6 @@ export function QualityChecks({
   const choose = useFileDeliveryProfile(fileId);
   const { data: customs = [] } = useQuery({ ...customProfilesQuery, enabled: canChoose });
   const [showPassed, setShowPassed] = useState(false);
-  const [report, setReport] = useState(false);
   const [filter, setFilter] = useState<FindingFilter>({ severity: null, check: null });
   const { data: changes } = useQuery(qaChangesQuery(fileId));
   // Once this version is measured, what changed since the last can be said at once.
@@ -462,17 +460,15 @@ export function QualityChecks({
       {changes?.previous && changes.measured && (
         <SincePrevious changes={changes} previous={changes.previous} />
       )}
-      <Button variant="secondary" size="sm" className="self-start" onClick={() => setReport(true)}>
-        <Icon name="download" size={14} />
+      {/* The report as a document (#515): read here, taken away as PDF, CSV or JSON. */}
+      <Link
+        to="/files/$fileId/qa-report"
+        params={{ fileId }}
+        className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "self-start")}
+      >
+        <Icon name="text" size={14} />
         QA report
-      </Button>
-      {report && (
-        <QaReportDialog
-          fileId={fileId}
-          profile={data.profile.label}
-          onClose={() => setReport(false)}
-        />
-      )}
+      </Link>
     </section>
   );
 }
@@ -524,65 +520,6 @@ function SincePrevious({
         </div>
       </div>
     </section>
-  );
-}
-
-const reportFormats = ["pdf", "csv", "json"] as const;
-type ReportFormat = (typeof reportFormats)[number];
-
-/**
- * The QA report to take away (#43), as the prototype's dialog offers it: PDF to read and
- * send, CSV for a spreadsheet, JSON for another program.
- */
-function QaReportDialog({
-  fileId,
-  profile,
-  onClose,
-}: {
-  fileId: string;
-  profile: string;
-  onClose: () => void;
-}) {
-  const [format, setFormat] = useState<ReportFormat>("pdf");
-  return (
-    <Dialog
-      title="QA report"
-      onClose={onClose}
-      width="sm"
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              window.location.assign(`/api/files/${fileId}/qa/report?format=${format}`);
-              onClose();
-            }}
-          >
-            <Icon name="download" size={14} />
-            Download {format.toUpperCase()}
-          </Button>
-        </>
-      }
-    >
-      <Segmented
-        label="Format"
-        value={format}
-        options={reportFormats.map((f) => ({ value: f, label: f.toUpperCase() }))}
-        onChange={setFormat}
-        className="w-fit"
-      />
-      <dl className="m-0 mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
-        <dt className="text-ink-3">Stamped with</dt>
-        <dd className="m-0 text-ink">The workspace, the project, your name and part in it</dd>
-        <dt className="text-ink-3">Measured against</dt>
-        <dd className="m-0 text-ink">{profile}</dd>
-        <dt className="text-ink-3">Includes</dt>
-        <dd className="m-0 text-ink">Findings, what passed, loudness and format</dd>
-      </dl>
-    </Dialog>
   );
 }
 

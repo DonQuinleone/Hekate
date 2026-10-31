@@ -1,6 +1,6 @@
 import type { QaFinding } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { qaReport, qaReportCsv, qaReportJson, qaReportLines, stampOf } from "./qa-report.ts";
+import { qaReport, qaReportCsv, qaReportFilename, qaReportJson, stampOf } from "./qa-report.ts";
 import { latin1, textPdf, wrap } from "./text-pdf.ts";
 
 const finding = (f: Partial<QaFinding>): QaFinding =>
@@ -89,51 +89,14 @@ describe("a QA report to take away (#43)", () => {
     expect(parsed.findings).toHaveLength(3);
   });
 
-  it("reads as a page: measures first, problems worst first, then what passed", () => {
-    const text = qaReportLines(input).map((l) => l.text);
-    expect(text).toContain("pcm_s16le · 44.1 kHz · 16-bit · 2 channels (stereo) · 00:40.000");
-    expect(text).toContain("Integrated -16.0 LUFS · range 6.2 LU · true peak -0.8 dBTP");
-    expect(text).toContain("Fails · Clipping · 00:12.005 - 00:12.500");
-    expect(text).toContain("Worth a look · Phase · Whole file");
-    expect(text.indexOf("Findings (2)")).toBeLessThan(text.indexOf("Passed (1)"));
-  });
-
-  it("says what the file says about itself, where that was read (#41)", () => {
-    const tagged = {
-      ...input,
-      format: {
-        ...input.format,
-        metadata: { tags: { isrc: "GBEHR2600001" }, bext: { originator: "Endless Hall Records" } },
-      },
-    };
-    const text = qaReportLines(tagged).map((l) => l.text);
-    expect(text.slice(text.indexOf("Embedded metadata"), text.indexOf("Loudness"))).toEqual([
-      "Embedded metadata",
-      "Originator: Endless Hall Records",
-      "ISRC: GBEHR2600001",
-      "Artwork: none",
-    ]);
-    expect(qaReportLines(input).map((l) => l.text)).not.toContain("Embedded metadata");
-  });
-
-  it("names each format, and writes a PDF a reader can open", () => {
+  it("names each format", () => {
     expect(qaReport(input, "csv")).toMatchObject({
       filename: "Maple Leaf Rag - Dry v2 QA report.csv",
       contentType: "text/csv; charset=utf-8",
     });
-    const pdf = qaReport(input, "pdf");
-    const bytes = pdf.body as Buffer;
-    const text = bytes.toString("latin1");
-    expect(text.startsWith("%PDF-1.4")).toBe(true);
-    expect(text.trimEnd().endsWith("%%EOF")).toBe(true);
-    expect(text).toContain("(QA report) Tj");
-    // The cross-reference table points at each object where it starts.
-    const offset = Number(/startxref\n(\d+)/.exec(text)?.[1]);
-    expect(text.slice(offset, offset + 4)).toBe("xref");
-    const offsets = [...text.matchAll(/(\d{10}) 00000 n \n/g)].map((m) => Number(m[1]));
-    offsets.forEach((at, i) => {
-      expect(text.slice(at).startsWith(`${i + 1} 0 obj`)).toBe(true);
-    });
+    expect(qaReportFilename("Maple Leaf Rag - Dry v2.wav", "pdf")).toBe(
+      "Maple Leaf Rag - Dry v2 QA report.pdf",
+    );
   });
 });
 

@@ -10922,6 +10922,126 @@ describe.runIf(url)("api", () => {
       const request = (cookie: string, projectId: string, body: Record<string, unknown>) =>
         app.request(`/api/projects/${projectId}/reviews`, json(body, cookie));
 
+      it("gives the QA report as a document, branded and marked for whoever asked, and logged (#515)", async () => {
+        const s = await studio();
+        await db.insert(schema.qaFindings).values({
+          organisationId: s.organisationId,
+          fileId: s.mix,
+          check: "clipping",
+          severity: "fail",
+          summary: "Clipped 12 times",
+          channel: 0,
+          start: 12,
+          end: 12.5,
+          details: {},
+        });
+        await db
+          .update(schema.files)
+          .set({ analysisStatus: "ready" })
+          .where(eq(schema.files.id, s.mix));
+        // The document the app shows: the file's place, the findings with what to do.
+        const shown = await getAs(`/api/files/${s.mix}/qa/document`, s.engineer);
+        expect(shown.status).toBe(200);
+        const { document } = (await shown.json()) as {
+          document: {
+            file: object;
+            verdict: { tone: string };
+            groups: { findings: { name: string; at: string; advice: string }[] }[];
+            appendix: { link: string };
+          };
+        };
+        expect(document.file).toMatchObject({ track: "Maple Leaf Rag", version: 1, variant: "Mix" });
+        expect(document.verdict.tone).toBe("fail");
+        // The format fails Streaming (48 kHz, no bit depth): the whole file's first, then in time.
+        expect(document.groups[0]?.findings.map((f) => [f.name, f.at])).toEqual([
+          ["Format", "Whole file"],
+          ["Clipping", "00:12.000–00:12.500"],
+        ]);
+        expect(document.appendix.link).toMatch(new RegExp(`/files/${s.mix}\\?view=qa$`));
+
+        // The PDF: the brand and the engineer's own mark on every page.
+        const pdf = await getAs(`/api/files/${s.mix}/qa/report?format=pdf`, s.engineer);
+        expect(pdf.status).toBe(200);
+        expect(pdf.headers.get("content-type")).toBe("application/pdf");
+        expect(pdf.headers.get("content-disposition")).toContain("Mix v1 QA report.pdf");
+        const text = Buffer.from(await pdf.arrayBuffer()).toString("latin1");
+        const count = Number(/\/Count (\d+)/.exec(text)?.[1]);
+        const pages = [...text.matchAll(/stream\n([\s\S]*?)\nendstream/g)]
+          .map((m) => m[1] ?? "")
+          .filter((content) => content.includes(" of ") && content.includes("(Page "));
+        expect(count).toBeGreaterThanOrEqual(4);
+        expect(pages).toHaveLength(count);
+        for (const page of pages) {
+          expect(page).toContain("(Studio) Tj");
+          expect(page).toContain("(Made with Hekate) Tj");
+          expect(page).toContain("(Prepared for engineer \\267 engineer@example.test \\267 Studio");
+          expect(page).toContain("/Mark gs");
+        }
+        expect(await getAs(`/api/files/${s.mix}/qa/report?format=csv`, s.owner)).toHaveProperty(
+          "status",
+          200,
+        );
+
+        // Each taken away is in the access log, by whom and in which format.
+        const logged = await db
+          .select({
+            userId: schema.accessEvents.userId,
+            fileId: schema.accessEvents.fileId,
+            details: schema.accessEvents.details,
+          })
+          .from(schema.accessEvents)
+          .where(
+            and(
+              eq(schema.accessEvents.organisationId, s.organisationId),
+              eq(schema.accessEvents.action, "file.qa_report"),
+            ),
+          );
+        expect(logged).toEqual(
+          expect.arrayContaining([
+            { userId: s.ids.engineer, fileId: s.mix, details: { format: "pdf" } },
+            { userId: s.ids.owner, fileId: s.mix, details: { format: "csv" } },
+          ]),
+        );
+        expect(logged).toHaveLength(2);
+
+        // A role without QA is refused both, and nothing is logged for it.
+        expect((await getAs(`/api/files/${s.mix}/qa/document`, s.composer)).status).toBe(403);
+        expect((await getAs(`/api/files/${s.mix}/qa/report?format=pdf`, s.composer)).status).toBe(
+          403,
+        );
+        // Someone with no place in the project, and another workspace's owner, find nothing.
+        const outsider = await joinAs(s.owner, "outsider-qa-document@example.test");
+        expect((await getAs(`/api/files/${s.mix}/qa/document`, outsider)).status).toBe(404);
+        // As the owner of a workspace of their own, they still find nothing.
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Saltmarsh Films", slug: "saltmarsh-qa-document" })
+          .returning({ id: schema.organisations.id });
+        await db
+          .insert(schema.members)
+          .values({ organisationId: other?.id ?? "", userId: await idOf(outsider), role: "owner" });
+        expect(
+          (
+            await app.request("/api/me/organisation", {
+              ...json({ organisationId: other?.id }, outsider),
+              method: "PUT",
+            })
+          ).status,
+        ).toBe(200);
+        expect((await getAs(`/api/files/${s.mix}/qa/document`, outsider)).status).toBe(404);
+        expect((await getAs(`/api/files/${s.mix}/qa/report?format=pdf`, outsider)).status).toBe(404);
+        const after = await db
+          .select({ id: schema.accessEvents.id })
+          .from(schema.accessEvents)
+          .where(
+            and(
+              eq(schema.accessEvents.organisationId, s.organisationId),
+              eq(schema.accessEvents.action, "file.qa_report"),
+            ),
+          );
+        expect(after).toHaveLength(2);
+      });
+
       it("counts each track's takes in the project's list, for those who may see takes", async () => {
         const s = await studio();
         const listPath = `/api/projects/${s.projectId}/tracks`;

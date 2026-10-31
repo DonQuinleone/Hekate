@@ -1093,6 +1093,8 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
       "drawbox=x=0:y=24:w=80:h=80:color=0x4fb3a9@1:t=fill",
       "drawbox=x=104:y=40:w=360:h=18:color=0xf4f4f5@1:t=fill",
       "drawbox=x=104:y=72:w=220:h=14:color=0xa1a1aa@1:t=fill",
+      // drawbox leaves the ground's alpha as it was: what it drew is made opaque here.
+      "geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='if(r(X,Y)+g(X,Y)+b(X,Y),255,0)'",
     ].join(","),
     ...["-frames:v", "1", "-c:v", "png", "-f", "image2", "-update", "1", logoPath],
   ]);

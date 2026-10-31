@@ -34,6 +34,7 @@ import { InstancePage } from "~/routes/instance";
 import { NotificationsPage, SearchPage } from "~/routes/misc";
 import { ProjectPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
+import { QaReportPage } from "~/routes/qa-report";
 import { RequestReviewPage } from "~/routes/request-review";
 import { ReviewPage } from "~/routes/review";
 import { SettingsPage } from "~/routes/settings";
@@ -334,6 +335,15 @@ const file = createRoute({
     );
   },
 });
+/** A recording's QA report as a page (#515). */
+const qaReport = createRoute({
+  getParentRoute: () => app,
+  path: "/files/$fileId/qa-report",
+  component: function QaReportRoute() {
+    const { fileId } = qaReport.useParams();
+    return <QaReportPage fileId={fileId} />;
+  },
+});
 /** A listening room's link (#200): who leads it, and the way in. */
 const listen = createRoute({
   getParentRoute: () => app,
@@ -486,6 +496,7 @@ export const router = createRouter({
       track,
       compare,
       file,
+      qaReport,
       listen,
       session,
       take,

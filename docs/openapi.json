@@ -18043,6 +18043,63 @@
         }
       }
     },
+    "/files/{id}/qa/document": {
+      "get": {
+        "operationId": "getFilesIdQaDocument",
+        "tags": [
+          "Files"
+        ],
+        "summary": "Read a file's quality report as a document",
+        "description": "The report as the PDF sets it: the verdict, the loudness against the delivery profile, the findings by severity then time with a crop of the waveform and what to do about each, and the appendices.\n\nNeeds the `files:read` scope.",
+        "security": [
+          {
+            "token": [
+              "files:read"
+            ]
+          }
+        ],
+        "x-hekate-scope": "files:read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The answer.",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/InvalidRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorised"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/Failure"
+          }
+        }
+      }
+    },
     "/files/{id}/qa/report": {
       "get": {
         "operationId": "getFilesIdQaReport",
@@ -18050,7 +18107,7 @@
           "Files"
         ],
         "summary": "Download a file's quality report",
-        "description": "PDF to read, CSV for a spreadsheet, or JSON for a program, as `format` says.\n\nNeeds the `files:read` scope.",
+        "description": "PDF to read, CSV for a spreadsheet, or JSON for a program, as `format` says. The PDF carries the workspace's brand and the mark of whoever asked for it; each report taken is in the access log.\n\nNeeds the `files:read` scope.",
         "security": [
           {
             "token": [

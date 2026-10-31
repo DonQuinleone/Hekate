@@ -65,6 +65,7 @@ export * from "./project-transfer.ts";
 export * from "./public-api.ts";
 export * from "./qa.ts";
 export * from "./qa-changes.ts";
+export * from "./qa-document.ts";
 export * from "./qa-rules.ts";
 export * from "./queues.ts";
 export * from "./recorders.ts";

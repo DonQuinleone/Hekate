@@ -71,6 +71,11 @@ This is not DRM: a determined person can capture the key from a live session. Th
 - An export is written afresh from the cues as SubRip, WebVTT or TTML, for whoever may download from the file at either level (or through a review that allows downloads), in their session; an API token needs the `downloads` scope. It is in the access log (`file.captions_export`, with the format) before it is sent, as an attachment, `no-store`. Not watermarked: text carries no mark. Adding, changing and removing a track are logged too.
 - Hekate transcribes nothing: no media is sent to a speech service.
 
+### QA reports
+
+- A recording's QA report (#515, decision 293) holds no media: its findings, its measures, its metadata, and crops of its waveform drawn from the stored peaks, which are numbers about the audio no audio can be rebuilt from. It is for whoever may see the file's QA tool; a guest's review gives that only where it gives the tool.
+- The PDF is made afresh for whoever asks, in their session, and carries their visible mark on every page (name, address, workspace and date, at the foot and across the page as the project draws its watermark), whatever the project marks on screen, as a download does. Every report taken (PDF, CSV or JSON) is in the access log (`file.qa_report`, with the format) before it is sent, as an attachment, `no-store`. Its link back to the file opens only for those who may see the project.
+
 ### Workspace export and deletion
 
 A workspace's owners, and the instance's operators, can take away everything it holds (#186, decision 220). It is the one way originals leave unwatermarked, so it is held to the rest of this page in every other way.
