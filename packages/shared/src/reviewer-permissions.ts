@@ -198,10 +198,13 @@ export function seesComment(
  * What a guest may do with a file linked to a comment they can see (#527, decision 294): look
  * at it, with the tools and within the window and play limit of the review that shows them the
  * comment, and download it only as far as that review lets them. No comment of their own on it,
- * no decision, none of its threads, and nothing else of the review's items.
+ * no decision, none of its threads, no comparing it with anything (compare is taken out of the
+ * tools), and nothing else of the review's items. A review that gives the file directly keeps
+ * what it gives besides.
  */
 export const linkedFileGrant = <P extends ReviewerPermissions>(review: P): P => ({
   ...review,
+  tools: review.tools.filter((tool) => tool !== "compare"),
   comment: false,
   decide: false,
   invite: false,

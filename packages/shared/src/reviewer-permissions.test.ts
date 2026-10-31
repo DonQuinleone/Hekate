@@ -103,7 +103,7 @@ describe("reviewer permissions", () => {
       download: "proxy",
       maxPlays: 3,
       items: ["01890000-0000-7000-8000-000000000000"],
-      tools: ["loops"],
+      tools: ["loops", "compare"],
     });
     expect(grant).toMatchObject({
       comment: false,
@@ -111,7 +111,7 @@ describe("reviewer permissions", () => {
       invite: false,
       comments: "own",
       items: null,
-      // What the review gives them to look and download with stays theirs.
+      // What the review gives them to look and download with stays theirs, save comparing.
       download: "proxy",
       maxPlays: 3,
       tools: ["loops"],
