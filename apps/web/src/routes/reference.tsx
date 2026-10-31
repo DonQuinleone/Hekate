@@ -7,7 +7,7 @@ import { Empty } from "~/components/empty";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Card, Page, SectionHead } from "~/components/page";
-import { Row, Section, SwitchRow } from "~/components/settings";
+import { FoldingSection, Row, Section, SwitchRow } from "~/components/settings";
 import { StatusChipView } from "~/components/status-chip";
 import { Button } from "~/components/ui/button";
 import { Chip, Count, ToggleChip } from "~/components/ui/chip";
@@ -325,6 +325,7 @@ function MarkSlot({ name }: { name: IconName }) {
 
 function Components() {
   const [on, setOn] = useState(true);
+  const [folded, setFolded] = useState(true);
   const [colour, setColour] = useState("#4fb3a9");
   const [view, setView] = useState<"list" | "grid">("list");
   const [mode, setMode] = useState<"light" | "dark" | "text">("light");
@@ -616,6 +617,25 @@ function Components() {
                 </Button>
               }
             />
+          </div>
+        </Spec>
+        <Spec
+          name="Folding section"
+          rule="Folded to one line, its heading and how it stands, where it matters less; Show opens it."
+        >
+          <div className="w-full max-w-[460px]">
+            <FoldingSection
+              id="reference-folding"
+              title="Video"
+              intro="The visible watermark, laid over the player and burned into each download."
+              summary="Visible watermark · Guests only · Tiled · 30%"
+              open={!folded}
+              onToggle={() => setFolded(!folded)}
+            >
+              <Row name="Visible watermark" hint="Whom it marks.">
+                <span className="text-[13px] text-ink-2">Guests only</span>
+              </Row>
+            </FoldingSection>
           </div>
         </Spec>
         <Spec name="Tabs" rule="A third level of navigation, with the panel they control.">

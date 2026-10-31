@@ -191,6 +191,7 @@ describe.runIf(url)("project settings: downloads, deletion, tool exceptions, not
         project: {
           assetPolicy: AssetPolicy;
           workspaceMarks?: boolean;
+          fileKinds?: string[];
           permissions: string[];
           tools: string[];
           workflowNotices: unknown;
@@ -361,6 +362,51 @@ describe.runIf(url)("project settings: downloads, deletion, tool exceptions, not
       );
     expect(deleted?.details).toMatchObject({ fileId: s.fileId, reviews: [review?.id] });
   }, 60_000);
+
+  it("tells whoever opens the settings which kinds of file the project holds, its own only (decision 287)", async () => {
+    const s = await studio();
+    expect((await projectOf(s.projectId, s.producer)).fileKinds).toEqual(["audio"]);
+    // A score and a picture arrive; the kinds are each said once.
+    for (const [name, kind, contentType] of [
+      ["Maple Leaf Rag - Score.pdf", "document", "application/pdf"],
+      ["Cover.png", "image", "image/png"],
+      ["Maple Leaf Rag - V3 dry.wav", "audio", "audio/wav"],
+    ] as const) {
+      const blob = await storage.put(s.organisationId, Buffer.from(name));
+      await db.insert(schema.files).values({
+        organisationId: s.organisationId,
+        projectId: s.projectId,
+        name,
+        kind,
+        blobId: blob.id,
+        contentType,
+        byteSize: blob.byteSize,
+      });
+    }
+    expect((await projectOf(s.projectId, s.producer)).fileKinds).toEqual([
+      "audio",
+      "document",
+      "image",
+    ]);
+    // Another workspace's video in the same project id is not this workspace's to count.
+    const [other] = await db
+      .insert(schema.organisations)
+      .values({ name: "Saltmarsh Films", slug: "saltmarsh-kinds" })
+      .returning();
+    const foreignBlob = await storage.put(other?.id ?? "", Buffer.from("cut"));
+    await db.insert(schema.files).values({
+      organisationId: other?.id ?? "",
+      projectId: s.projectId,
+      name: "Cut 3.mp4",
+      kind: "video",
+      blobId: foreignBlob.id,
+      contentType: "video/mp4",
+      byteSize: foreignBlob.byteSize,
+    });
+    expect((await projectOf(s.projectId, s.producer)).fileKinds).not.toContain("video");
+    // A reviewer, who has no settings, is not told.
+    expect((await projectOf(s.projectId, s.reviewer)).fileKinds).toBeUndefined();
+  });
 
   it("lets only the workspace's owners stop marking a project's downloads", async () => {
     const s = await studio();

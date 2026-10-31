@@ -51,29 +51,37 @@ const standingWords = {
 } as const;
 
 /** Storage, members and the month so far, as rows of a section. */
-export function UsageRows({ usage }: { usage: WorkspaceUsage }) {
-  const { storageQuota, memberLimit } = usage.limits;
+/** The storage used against the quota, with its meter: on Storage and on Operations (#510). */
+export function StorageUsageRow({ usage }: { usage: WorkspaceUsage }) {
+  const { storageQuota } = usage.limits;
   const storage = standing(usage.storageBytes, storageQuota);
+  return (
+    <Row
+      name="Storage"
+      hint={
+        <Standing where={storage}>
+          {storageQuota === null
+            ? `${formatBytes(usage.storageBytes)} · no quota`
+            : `${formatBytes(usage.storageBytes)} of ${formatBytes(storageQuota)}${storage === "reached" ? ": uploads are refused" : ""}`}
+        </Standing>
+      }
+    >
+      {storageQuota !== null && (
+        <QuotaMeter used={usage.storageBytes} limit={storageQuota} label="Storage used" />
+      )}
+    </Row>
+  );
+}
+
+export function UsageRows({ usage }: { usage: WorkspaceUsage }) {
+  const { memberLimit } = usage.limits;
   const people = standing(usage.members + usage.invited, memberLimit);
   // Set by a plan (#177); an older server sends none.
   const projectLimit = usage.limits.projectLimit ?? null;
   const projects = standing(usage.projects, projectLimit);
   return (
     <>
-      <Row
-        name="Storage"
-        hint={
-          <Standing where={storage}>
-            {storageQuota === null
-              ? `${formatBytes(usage.storageBytes)} · no quota`
-              : `${formatBytes(usage.storageBytes)} of ${formatBytes(storageQuota)}${storage === "reached" ? ": uploads are refused" : ""}`}
-          </Standing>
-        }
-      >
-        {storageQuota !== null && (
-          <QuotaMeter used={usage.storageBytes} limit={storageQuota} label="Storage used" />
-        )}
-      </Row>
+      <StorageUsageRow usage={usage} />
       <Row
         name="Members"
         hint={

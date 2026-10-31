@@ -500,6 +500,8 @@ export interface Project {
   assetPolicy?: AssetPolicy;
   /** For whoever edits it: whether the workspace marks recordings' downloads (decision 239). */
   workspaceMarks?: boolean;
+  /** For whoever opens its settings: the kinds of file it holds (decision 287). */
+  fileKinds?: FileKind[];
   /** Who its workflows tell, and how (decision 259). */
   workflowNotices?: WorkflowNotices;
   /** Whom a new comment is for, unless a track or a stage says otherwise (decision 279). */

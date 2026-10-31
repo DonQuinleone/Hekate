@@ -243,7 +243,7 @@ export const workspaceDeletionRoutes = (deps: LifecycleDeps) => {
           recipients: others,
           actor: { userId },
           text: `asked to delete the workspace ${name}`,
-          link: "/settings/general",
+          link: "/settings/operations",
         }).catch((error: unknown) =>
           console.warn(`Could not tell the owners of a deletion request: ${String(error)}`),
         );

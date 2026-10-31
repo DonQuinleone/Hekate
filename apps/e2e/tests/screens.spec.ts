@@ -273,9 +273,16 @@ const screens: Screen[] = [
     path: (s) => `/projects/${s.musicProjectId}/settings?section=storage`,
     ready: "main >> text=Used by this project",
   },
+  // Asset security (decision 287): a music project leads with audio, its documents open and its
+  // video folded; a video project leads with video.
   {
     name: "project-settings-security",
     path: (s) => `/projects/${s.musicProjectId}/settings?section=security`,
+    ready: "main >> text=Files in a review cannot be deleted",
+  },
+  {
+    name: "project-settings-security-video",
+    path: (s) => `/projects/${s.videoProjectId}/settings?section=security`,
     ready: "main >> text=Files in a review cannot be deleted",
   },
   {
@@ -594,7 +601,7 @@ const screens: Screen[] = [
   {
     name: "settings-operations",
     path: () => "/settings/operations",
-    ready: "main >> text=How backups work",
+    ready: "main >> text=Run by this instance's operators",
   },
 ];
 
@@ -2498,6 +2505,32 @@ const exportsShown = {
   ],
 };
 
+// A music project's Asset security fits one screen at desktop height, audio first (decision
+// 287); its folded Video opens on Show, with the preview, and says where the mark is set.
+test("project-settings-security-video-opened", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/settings?section=security`);
+  await settle(page, "main >> text=Files in a review cannot be deleted");
+  const headings = await page.locator("main h2").allTextContents();
+  expect(headings.slice(0, 3)).toEqual(["Audio", "Pictures and documents", "Video"]);
+  if (test.info().project.name === "desktop") {
+    // Its last row ends inside the window: only the page's own margin is below the fold.
+    const overflow = await page.evaluate(() => {
+      const main = document.querySelector("main");
+      const last = [...document.querySelectorAll("main section")].at(-1);
+      return main && last
+        ? last.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom
+        : 0;
+    });
+    expect(overflow, "the page fits one screen").toBeLessThanOrEqual(0);
+  }
+  await page.getByRole("button", { name: "Show video" }).click();
+  await settle(page, "main >> text=The same mark, set under Pictures and documents above.");
+  await showWhole(page);
+  await saveScreen(page, "project-settings-security-video-opened");
+  await checkScreen(page);
+});
+
 // Exporting the workspace (#186): its exports, starting one, and the key shown once. Every
 // answer is amended in the page alone, so nothing is exported. The key is put together here so
 // that no secret scanner mistakes the file for one holding a real key.
@@ -2512,7 +2545,7 @@ test("settings-export", async ({ page }) => {
       },
     });
   });
-  await page.goto("/settings/general");
+  await page.goto("/settings/operations");
   await settle(page, "main >> text=until 2026-10-27");
   await saveScreen(page, "settings-export");
   await checkScreen(page);
@@ -2544,7 +2577,7 @@ test("settings-workspace-deletion", async ({ page }) => {
       },
     });
   });
-  await page.goto("/settings/general");
+  await page.goto("/settings/operations");
   await settle(page, "main >> text=Deletion asked for");
   await saveScreen(page, "settings-workspace-deletion");
   await checkScreen(page);

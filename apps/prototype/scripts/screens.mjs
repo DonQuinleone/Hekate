@@ -125,6 +125,8 @@ const screens = [
     steps: [{ click: 'role=button[name="New role"]' }, { click: 'role=menuitem[name="Engineer"]' }],
   },
   { name: "qa-rules", route: "/projects/proj-joplin/settings?section=qa" },
+  { name: "project-security", route: "/projects/proj-joplin/settings?section=security" },
+  { name: "project-security-video", route: "/projects/proj-titles/settings?section=security" },
   {
     name: "workflow-basic",
     route: "/projects/proj-joplin/workflow",
@@ -236,7 +238,7 @@ const screens = [
 
   // 3.11 Workspace, settings and operations
   { name: "org-general", route: "/settings/general" },
-  { name: "org-export", route: "/settings/general", steps: [{ scroll: "Export" }] },
+  { name: "org-export", route: "/settings/operations", steps: [{ scroll: "Export" }] },
   { name: "org-branding", route: "/settings/branding" },
   { name: "design-system", route: "/settings/brand" },
   {

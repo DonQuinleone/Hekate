@@ -67,7 +67,7 @@ const intros: Record<string, string> = {
   leaks: "Find which recipient a leaked file was watermarked for.",
   log: "Every key issue, page render and download.",
   operations:
-    "The instance's version, worker, jobs, keys and backups, as they stand for this workspace. Read-only: the operators change them.",
+    "How the workspace's files are kept, what they take against the plan, and taking everything away or deleting it. The instance itself is its operators'.",
 };
 
 const sections = [
@@ -978,36 +978,6 @@ export function SettingsPage({
             </Row>
             <Row name="North Choir Collective" hint="Member" />
           </Section>
-          {/* #186: an owner's export, encrypted with age to a key shown once, kept a week. */}
-          <Section
-            title="Export"
-            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
-          >
-            <Row
-              name="Export everything"
-              hint="Every record as JSON and every file as it was uploaded, in one archive encrypted with age. Kept 7 days for its download."
-            >
-              <Button variant="secondary" size="md">
-                Start an export…
-              </Button>
-            </Row>
-            <Row name="20 October, 18:04" hint="38.2 GB · 1,204 files · until 27 October">
-              <Button variant="ghost" size="md">
-                <Icon name="download" size={13} />
-                Download
-              </Button>
-            </Row>
-          </Section>
-          <Danger>
-            <Row
-              name="Delete this workspace"
-              hint="Every project, file and review. Only an owner, with a second owner confirming."
-            >
-              <Button variant="secondary" size="md" className="text-signal">
-                Delete…
-              </Button>
-            </Row>
-          </Danger>
         </>
       )}
       {sec === "defaults" && (
@@ -1701,67 +1671,78 @@ export function SettingsPage({
       {sec === "log" && <AccessLogSection empty={state === "empty"} />}
       {sec === "operations" && (
         <>
-          <Section title="This instance">
-            <Row name="Version" hint="Build 4f1c2a9b7e03">
-              <span className="tabular text-[13px] text-ink-2">0.2.0</span>
-            </Row>
-            <Row name="Worker" hint="Runs analysis, renditions, pages and mail.">
-              <span
-                className={cn(
-                  "flex items-center gap-2 text-[13px]",
-                  state === "failed" ? "text-signal" : "text-ink-2",
-                )}
-              >
-                <Dot state={state === "failed" ? "changes_requested" : "approved"} />
-                {state === "failed" ? "Not running: no job finished in the last ten minutes" : "On"}
-              </span>
-            </Row>
-            <Row
-              name="Queue"
-              hint="This workspace's jobs: waiting · running · failed in the last day."
-            >
-              <span
-                className={cn(
-                  "tabular text-[13px]",
-                  state === "failed" ? "text-signal" : "text-ink-2",
-                )}
-              >
-                {state === "failed" ? "38 · 0 · 12" : "2 · 1 · 0"}
-              </span>
-            </Row>
+          {/* #510: only what an owner acts on; the queues, metrics and release are the operators'. */}
+          <Section title="This workspace">
             <Row
               name="Encryption"
-              hint="Every file has its own key, wrapped by the workspace key, which the instance's master key wraps."
+              hint="Every file has its own key, wrapped by the workspace's key; storage only ever holds ciphertext."
             >
               <span className="text-[13px] text-ink-2">
-                {state === "processing" ? "Key v3 · re-wrapping, 41 to go" : "Key v3 since 2 Oct"}
+                {state === "processing"
+                  ? "Encrypted, moving to a new key: 41 to go"
+                  : "Encrypted, on a key from 2 Oct 2026"}
+              </span>
+            </Row>
+            <Row name="Storage" hint="245 GB of the plan's 1.0 TB">
+              <span className="block h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
+                <span className="block h-full w-[24.5%] rounded-full bg-ink-2" />
               </span>
             </Row>
             <Row
-              name="Metrics"
-              hint="Exported for Prometheus at /metrics, when the instance turns it on."
+              name="Run by this instance's operators"
+              hint={
+                env.support === "off"
+                  ? "They keep its backups, upgrades and workers. Support is not turned on here: ask whoever runs it."
+                  : env.support === "mail"
+                    ? "They keep its backups, upgrades and workers. Ask them by email."
+                    : "They keep its backups, upgrades and workers. Ask them through Support."
+              }
             >
-              <span className="tabular text-[13px] text-ink-2">/metrics · read 14 s ago</span>
+              {env.support !== "off" && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={() =>
+                    env.support === "app"
+                      ? navigate({ to: "/settings/$section", params: { section: "support" } })
+                      : undefined
+                  }
+                >
+                  {env.support === "app" ? "Support" : "Ask them"}
+                </Button>
+              )}
             </Row>
           </Section>
-          <Section title="Backups and upgrades">
+          {/* #186: an owner's export, encrypted with age to a key shown once, kept a week. */}
+          <Section
+            title="Export"
+            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
+          >
             <Row
-              name="Backups"
-              hint="The instance's operator takes them: the database and the settings file, with the master key kept apart."
+              name="Export everything"
+              hint="Every record as JSON and every file as it was uploaded, in one archive encrypted with age. Kept 7 days for its download."
             >
               <Button variant="secondary" size="md">
-                How backups work
+                Start an export…
               </Button>
             </Row>
-            <Row
-              name="Upgrade"
-              hint="Hekate 0.2.1 is available. Pull the new image and restart; migrations run on start."
-            >
-              <Button variant="secondary" size="md">
-                Release notes
+            <Row name="20 October, 18:04" hint="38.2 GB · 1,204 files · until 27 October">
+              <Button variant="ghost" size="md">
+                <Icon name="download" size={13} />
+                Download
               </Button>
             </Row>
           </Section>
+          <Danger>
+            <Row
+              name="Delete this workspace"
+              hint="Every project, file and review. Only an owner, with a second owner confirming."
+            >
+              <Button variant="secondary" size="md" className="text-signal">
+                Delete…
+              </Button>
+            </Row>
+          </Danger>
         </>
       )}
       {adding && (

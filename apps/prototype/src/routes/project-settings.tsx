@@ -1,9 +1,16 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Icon } from "~/components/icons";
 import { usePageHeader } from "~/components/page-header";
 import { RolesAndAccess } from "~/components/role-editor";
-import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
+import {
+  Danger,
+  FoldingSection,
+  Row,
+  Section,
+  SettingsLayout,
+  SwitchRow,
+} from "~/components/settings";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
@@ -14,6 +21,7 @@ import {
   categories,
   customRules,
   deliveryProfiles,
+  files,
   measures,
   type Project,
   type ProjectPermission,
@@ -50,7 +58,8 @@ const intros: Record<string, string> = {
   roles:
     "Who may do what, one role at a time: a level in each area, each including the ones before it, and the tools it is given.",
   workflow: "The stages a track goes through, the statuses they set, and who is told.",
-  security: "How originals are protected on their way to a browser.",
+  security:
+    "How each kind of file names whoever has it, and who may take files away or delete them.",
   storage: "Where this project's files live and how much they take.",
   delivery: "The numbers the checks measure against: loudness, peaks, formats and lengths.",
   qa: "Every check that runs on a file, by category: plain errors always on, delivery checks and your own rules as you choose.",
@@ -236,6 +245,143 @@ function AssigneeSelect({ project, inherits }: { project: Project; inherits?: st
         ))}
       </optgroup>
     </Select>
+  );
+}
+
+type AssetSection = "audio" | "video" | "documents";
+
+/**
+ * Asset security (#509): a section for each kind of file, in the order the profile puts first
+ * (music: audio, documents, video; video: video, audio, documents; general: documents first),
+ * each open where the project has that kind of file and folded to its summary where it has
+ * none. The visible watermark covers video, pictures and documents alike, so it is set in the
+ * first of them that is open, and the other says so. The product orders them with
+ * `assetSecurityLayout` in packages/shared.
+ */
+function AssetSecurity({ project }: { project: Project }) {
+  const order: AssetSection[] =
+    project.profile === "music"
+      ? ["audio", "documents", "video"]
+      : project.profile === "video"
+        ? ["video", "audio", "documents"]
+        : ["documents", "audio", "video"];
+  const holds = new Set(files.filter((f) => f.projectId === project.id).map((f) => f.kind));
+  const [open, setOpen] = useState<Record<AssetSection, boolean>>({
+    audio: true,
+    video: project.profile === "video" || holds.has("video"),
+    documents: project.profile === "general" || holds.has("document") || holds.has("image"),
+  });
+  const home = order.find((s) => s !== "audio" && open[s]);
+  const flip = (s: AssetSection) => setOpen((o) => ({ ...o, [s]: !o[s] }));
+  const summary = "Visible watermark · Guests only · Bottom right · 35%";
+  const watermark = (
+    <Row
+      name="Visible watermark"
+      hint="Whom it marks, where, and how strongly (10 to 80 per cent)."
+    >
+      <Select defaultValue="guests" className="w-36">
+        <option value="off">Off</option>
+        <option value="guests">Guests only</option>
+        <option value="everyone">Everyone</option>
+      </Select>
+      <Select defaultValue="br" className="w-36">
+        <option value="br">Bottom right</option>
+        <option value="c">Centre</option>
+        <option value="tile">Tiled</option>
+      </Select>
+      <Input defaultValue="35%" className="w-20" />
+    </Row>
+  );
+  const setAbove = (where: string) => (
+    <Row name="Visible watermark" hint={`The same mark, set under ${where} above.`}>
+      <span className="text-[13px] text-ink-2">Guests only · Bottom right · 35%</span>
+    </Row>
+  );
+  const sections: Record<AssetSection, ReactNode> = {
+    audio: (
+      <Section
+        key="audio"
+        title="Audio"
+        intro="An inaudible mark, made for each person, in every download of a recording."
+      >
+        <SwitchRow
+          name="Forensic mark on downloads"
+          hint="If a copy leaks, a workspace owner traces it under Leak tracing to whoever received it."
+          checked
+        />
+      </Section>
+    ),
+    video: (
+      <FoldingSection
+        key="video"
+        id="asset-security-video"
+        title="Video"
+        intro="The visible watermark, laid over the player and burned into each download."
+        summary={summary}
+        open={open.video}
+        onToggle={() => flip("video")}
+      >
+        {home === "video" ? watermark : setAbove("Pictures and documents")}
+        <Row name="Preview" stacked>
+          <div className="relative aspect-video w-full max-w-[420px] overflow-hidden rounded-panel bg-sunken">
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_40%_30%,#3a2a24,#0b0b0d_70%)]" />
+            <span className="absolute right-3 bottom-2 text-[11px] tracking-[0.1em] text-paper/40">
+              Mira Solberg · Endless Hall Records · 14 Oct 2026
+            </span>
+          </div>
+        </Row>
+      </FoldingSection>
+    ),
+    documents: (
+      <FoldingSection
+        key="documents"
+        id="asset-security-documents"
+        title="Pictures and documents"
+        intro="The visible watermark, burned into each page and picture as it is shown and downloaded."
+        summary={summary}
+        open={open.documents}
+        onToggle={() => flip("documents")}
+      >
+        {home === "documents" ? watermark : setAbove("Video")}
+      </FoldingSection>
+    ),
+  };
+  return (
+    <>
+      {order.map((s) => sections[s])}
+      <Section
+        title="Downloads and deletion"
+        intro="Each narrows what the roles and reviews allow; a download is still marked and logged."
+      >
+        <Row name="Who may download">
+          <Select defaultValue="roles" className="w-64">
+            <option value="roles">Roles that allow downloads</option>
+            <option value="nobody">Nobody</option>
+          </Select>
+        </Row>
+        <Row
+          name="Originals"
+          hint="A download gives the proxy unless the person may have the original."
+        >
+          <Select defaultValue="roles" className="w-64">
+            <option value="roles">Roles that allow originals</option>
+            <option value="owners">Workspace owners and admins</option>
+            <option value="never">Never</option>
+          </Select>
+        </Row>
+        <Row name="Who may delete">
+          <Select defaultValue="roles" className="w-64">
+            <option value="roles">Roles that allow deleting</option>
+            <option value="owners">Workspace owners and admins</option>
+          </Select>
+        </Row>
+        <SwitchRow
+          name="Files in a review cannot be deleted"
+          hint="Open or closed, so what reviewers were asked about stays on the record."
+          checked
+        />
+      </Section>
+    </>
   );
 }
 
@@ -781,78 +927,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
           )}
         </>
       )}
-      {sec === "security" && (
-        <>
-          <Section
-            title="Visible watermark"
-            intro="Burned into pages and video for guests, and for members when you choose."
-          >
-            <Row name="Scope">
-              <Select defaultValue="guests" className="w-56">
-                <option value="off">Off</option>
-                <option value="guests">Guests only</option>
-                <option value="everyone">Everyone</option>
-              </Select>
-            </Row>
-            <Row name="Position and opacity">
-              <Select defaultValue="br" className="w-40">
-                <option value="br">Bottom right</option>
-                <option value="c">Centre</option>
-                <option value="tile">Tiled</option>
-              </Select>
-              <Input defaultValue="35%" className="w-20" />
-            </Row>
-            <Row name="Preview" stacked>
-              <div className="relative aspect-video w-full max-w-[420px] overflow-hidden rounded-panel bg-sunken">
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_40%_30%,#3a2a24,#0b0b0d_70%)]" />
-                <span className="absolute right-3 bottom-2 text-[11px] tracking-[0.1em] text-paper/40">
-                  Mira Solberg · Endless Hall Records · 14 Oct 2026
-                </span>
-              </div>
-            </Row>
-          </Section>
-          <Section
-            title="Forensic marking"
-            intro="An inaudible and invisible mark per recipient on every stream and download, so a leak can be traced to the person who received it."
-          >
-            <SwitchRow name="Audio streams" checked />
-            <SwitchRow name="Video streams" checked />
-            <SwitchRow name="Downloads" checked />
-          </Section>
-          <Section
-            title="Downloads and deletion"
-            intro="Each narrows what the roles and reviews allow. A download is still made for the person who asked, marked and logged."
-          >
-            <Row name="Who may download">
-              <Select defaultValue="roles" className="w-64">
-                <option value="roles">Roles that allow downloads</option>
-                <option value="nobody">Nobody</option>
-              </Select>
-            </Row>
-            <Row
-              name="Originals"
-              hint="A download gives the proxy unless the person may have the original."
-            >
-              <Select defaultValue="roles" className="w-64">
-                <option value="roles">Roles that allow originals</option>
-                <option value="owners">Workspace owners and admins</option>
-                <option value="never">Never</option>
-              </Select>
-            </Row>
-            <Row name="Who may delete">
-              <Select defaultValue="roles" className="w-64">
-                <option value="roles">Roles that allow deleting</option>
-                <option value="owners">Workspace owners and admins</option>
-              </Select>
-            </Row>
-            <SwitchRow
-              name="Files in a review cannot be deleted"
-              hint="Open or closed, so what reviewers were asked about stays on the record."
-              checked
-            />
-          </Section>
-        </>
-      )}
+      {sec === "security" && <AssetSecurity project={project} />}
       {sec === "storage" && (
         <Section
           title="Storage"
