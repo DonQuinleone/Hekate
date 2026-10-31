@@ -329,8 +329,8 @@ export const freshId = (prefix: string) => `${prefix}-${Math.random().toString(3
 const snap = (v: number) => Math.round(v / 10) * 10;
 
 /**
- * A node added at a place on the canvas, named after its kind; from a node, wired from its
- * first outcome not yet wired (else its first).
+ * A node added at a place on the canvas, named after its kind; from a node, wired from the
+ * outcome given (one it was dropped on), else its first outcome not yet wired (else its first).
  */
 export function withNode(
   flow: WorkflowDefinition,
@@ -338,6 +338,8 @@ export function withNode(
   at: Pt,
   from?: string,
   id = freshId("n"),
+  /** The output of `from` to wire it from: one it was dropped on (#511). */
+  outcome?: string,
 ): WorkflowDefinition {
   // Never a second start (#514): such a node is refused, the workflow left as it was.
   if (addRefusal(flow, type, from)) return flow;
@@ -356,9 +358,8 @@ export function withNode(
     const free = outs.find(
       (o) => !connectors.some((c) => c.from === source.id && c.outcome === o.id),
     );
-    const outcome = free ?? outs[0];
-    if (outcome)
-      connectors.push({ id: freshId("c"), from: source.id, outcome: outcome.id, to: id });
+    const way = outs.find((o) => o.id === outcome) ?? free ?? outs[0];
+    if (way) connectors.push({ id: freshId("c"), from: source.id, outcome: way.id, to: id });
   }
   return { ...flow, nodes: [...flow.nodes, node], connectors };
 }

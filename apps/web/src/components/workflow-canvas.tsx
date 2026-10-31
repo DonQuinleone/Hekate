@@ -31,11 +31,21 @@ import { StatusesPanel } from "~/components/workflow-statuses";
 import { cn } from "~/lib/cn";
 import { useShortcuts } from "~/lib/shortcuts";
 import {
-  GROUP_ORDER,
+  dropTarget,
+  landing,
+  pinched,
+  type View,
+  wheelFactor,
+  zoomAbout,
+} from "~/lib/workflow-gestures";
+import {
   groupOf,
   groups,
   kindLine,
   kindsByGroup,
+  type PickerType,
+  paletteKinds,
+  pickerTypes,
   shapeOf,
 } from "~/lib/workflow-kinds";
 import {
@@ -105,6 +115,11 @@ interface AddAt {
   from?: string;
 }
 
+/** Where a dragged kind lands: in a workflow, at a place, wired from an output if over one. */
+interface Drop extends AddAt {
+  outcome?: string;
+}
+
 type MenuItem = { label: string; danger?: boolean; onSelect: () => void } | "divider";
 
 type ItemKind = WorkflowContext["item"]["kind"];
@@ -159,8 +174,18 @@ export function WorkflowCanvas({
   const [picking, setPicking] = useState<AddAt | null>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [linking, setLinking] = useState<Linking | null>(null);
-  const [pan, setPan] = useState<Pt>({ x: 80, y: 80 });
-  const [zoom, setZoom] = useState(0.85);
+  // Where the canvas is looked at, kept in a ref as well, so a burst of wheel or pinch events
+  // each builds on the last rather than on what was last drawn.
+  const [view, setViewState] = useState<View>({ pan: { x: 80, y: 80 }, zoom: 0.85 });
+  const viewRef = useRef(view);
+  const setView = useCallback((next: View | ((v: View) => View)) => {
+    const v = typeof next === "function" ? next(viewRef.current) : next;
+    viewRef.current = v;
+    setViewState(v);
+  }, []);
+  const { pan, zoom } = view;
+  const setPan = (p: Pt) => setView((v) => ({ ...v, pan: p }));
+  const setZoom = (z: number) => setView((v) => ({ ...v, zoom: z }));
   const [panning, setPanning] = useState(false);
   const [walk, setWalk] = useState<Walk | null>(null);
   const [statusesOpen, setStatusesOpen] = useState(false);
@@ -223,8 +248,8 @@ export function WorkflowCanvas({
     if (editing && flowById(flowId)) onEdit(flowId, change);
   };
   const [notice, setNotice] = useState<string | null>(null);
-  const addNode = (type: NodeType) => {
-    const target = picking ?? { flowId: workflows[0]?.id ?? "", at: { x: 0, y: 0 } };
+  /** A node of a kind added at a place, wired from the step (and output) given, if any. */
+  const place = (type: NodeType, target: AddAt & { outcome?: string }) => {
     if (!editing || !target.flowId) return;
     // Never a second start (#514): said, and nothing added.
     const flow = flowById(target.flowId)?.definition;
@@ -233,11 +258,97 @@ export function WorkflowCanvas({
       setNotice(refused);
       return;
     }
+    setNotice(null);
     const id = `n-${Math.random().toString(36).slice(2, 8)}`;
-    edit(target.flowId, (f) => withNode(f, type, target.at, target.from, id));
+    edit(target.flowId, (f) => withNode(f, type, target.at, target.from, id, target.outcome));
     setSelection({ kind: "node", id, flowId: target.flowId });
     setPicking(null);
   };
+  const addNode = (type: NodeType) =>
+    place(type, picking ?? { flowId: workflows[0]?.id ?? "", at: { x: 0, y: 0 } });
+
+  /*
+   * A kind dragged from the picker or the palette (#511): it follows the pointer, the output
+   * it would be wired from lights up, and let go over the canvas it lands there in one
+   * gesture. A press without a drag is a click, which adds it as the picker does.
+   */
+  const [kindDrag, setKindDrag] = useState<{
+    type: NodeType;
+    client: Pt;
+    over: Drop | null;
+  } | null>(null);
+  const dragged = useRef(false);
+  /** Where a kind let go at a point of the window would land, or null off the canvas. */
+  const dropAt = (client: Pt): Drop | null => {
+    const el = canvas.current;
+    const rect = el?.getBoundingClientRect();
+    if (!el || !rect) return null;
+    if (
+      client.x < rect.left ||
+      client.x > rect.right ||
+      client.y < rect.top ||
+      client.y > rect.bottom
+    )
+      return null;
+    // Not under the panel beside it, nor the controls floating over it.
+    const under = document.elementFromPoint(client.x, client.y);
+    if (under && !el.contains(under)) return null;
+    if (under?.closest("[data-e2e-layer]")) return null;
+    const { pan: p, zoom: z } = viewRef.current;
+    const world = { x: (client.x - rect.left - p.x) / z, y: (client.y - rect.top - p.y) / z };
+    const band =
+      bands.find((b) => world.y >= b.top - 80 && world.y <= b.top + b.height + 80) ??
+      [...bands].sort(
+        (a, b) =>
+          Math.abs(world.y - (a.top + a.height / 2)) - Math.abs(world.y - (b.top + b.height / 2)),
+      )[0];
+    if (!band) return null;
+    const flow = band.flow.definition;
+    const at = { x: world.x, y: world.y - band.offsetY };
+    const from = dropTarget(flow.nodes, at, (id, o) =>
+      flow.connectors.some((c) => c.from === id && c.outcome === o),
+    );
+    const source = from ? flow.nodes.find((n) => n.id === from.nodeId) : undefined;
+    return {
+      flowId: band.flow.id,
+      at: landing(at, source && from ? { node: source, outcome: from.outcome } : undefined),
+      from: from?.nodeId,
+      outcome: from?.outcome,
+    };
+  };
+  const kindHandle = (type: NodeType, onPick: () => void) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      if (!editing || e.button !== 0) return;
+      const start = { x: e.clientX, y: e.clientY };
+      dragged.current = false;
+      const move = (ev: PointerEvent) => {
+        const client = { x: ev.clientX, y: ev.clientY };
+        if (!dragged.current && Math.hypot(client.x - start.x, client.y - start.y) < 6) return;
+        dragged.current = true;
+        setKindDrag({ type, client, over: dropAt(client) });
+      };
+      const end = (ev: PointerEvent) => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", end);
+        window.removeEventListener("pointercancel", end);
+        if (!dragged.current) return;
+        const over = ev.type === "pointerup" ? dropAt({ x: ev.clientX, y: ev.clientY }) : null;
+        if (over) place(type, over);
+        setKindDrag(null);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", end);
+      window.addEventListener("pointercancel", end);
+    },
+    onClick: () => {
+      // The click a drag ends with adds nothing more.
+      if (dragged.current) {
+        dragged.current = false;
+        return;
+      }
+      onPick();
+    },
+  });
   const removeNode = (flowId: string, id: string) => {
     edit(flowId, (f) => withoutNode(f, id));
     setSelection(null);
@@ -273,10 +384,12 @@ export function WorkflowCanvas({
         (rect.height - pad * 2) / (b.maxY - b.minY + 120),
       ),
     );
-    setZoom(z);
-    setPan({
-      x: (rect.width - (b.maxX - b.minX + 240) * z) / 2 - (b.minX - 120) * z,
-      y: (rect.height - (b.maxY - b.minY + 120) * z) / 2 - (b.minY - 60) * z,
+    setView({
+      zoom: z,
+      pan: {
+        x: (rect.width - (b.maxX - b.minX + 240) * z) / 2 - (b.minX - 120) * z,
+        y: (rect.height - (b.maxY - b.minY + 120) * z) / 2 - (b.minY - 60) * z,
+      },
     });
   };
   const fitAll = () => fitTo(worldBounds);
@@ -289,18 +402,19 @@ export function WorkflowCanvas({
     const rect = canvas.current?.getBoundingClientRect();
     if (!b || !rect) return;
     const z = rect.width < 640 ? 0.6 : 0.8;
-    setZoom(z);
-    setPan({ x: 56 - b.bounds.minX * z, y: 120 - (b.bounds.minY + b.offsetY) * z });
+    setView({
+      zoom: z,
+      pan: { x: 56 - b.bounds.minX * z, y: 120 - (b.bounds.minY + b.offsetY) * z },
+    });
   };
-  const zoomBy = (factor: number, around?: Pt) => {
-    const rect = canvas.current?.getBoundingClientRect();
-    const centre = around ?? (rect ? { x: rect.width / 2, y: rect.height / 2 } : { x: 0, y: 0 });
-    const next = Math.min(2, Math.max(0.25, zoom * factor));
-    const wx = (centre.x - pan.x) / zoom;
-    const wy = (centre.y - pan.y) / zoom;
-    setZoom(next);
-    setPan({ x: centre.x - wx * next, y: centre.y - wy * next });
-  };
+  const zoomBy = useCallback(
+    (factor: number, around?: Pt) => {
+      const rect = canvas.current?.getBoundingClientRect();
+      const centre = around ?? (rect ? { x: rect.width / 2, y: rect.height / 2 } : { x: 0, y: 0 });
+      setView((v) => zoomAbout(v, factor, centre));
+    },
+    [setView],
+  );
 
   // The first view lands on the first workflow, once the canvas has a size; a new one when it
   // arrives.
@@ -313,15 +427,88 @@ export function WorkflowCanvas({
     requestAnimationFrame(() => jumpTo(target));
   }, [focus, bands]);
 
-  const onWheel = (e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      const rect = canvas.current?.getBoundingClientRect();
-      if (!rect) return;
-      zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1, { x: e.clientX - rect.left, y: e.clientY - rect.top });
-    } else setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+  /*
+   * Zooming with ctrl and the wheel, a trackpad's pinch (sent as the same) and Safari's gesture
+   * events zoom the canvas about the pointer, and never the page (#511): the browser's own
+   * zoom is stopped here, which only a listener that is not passive may do, so these are
+   * added by hand rather than through React's, which are.
+   */
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    const local = (x: number, y: number): Pt => {
+      const rect = el.getBoundingClientRect();
+      return { x: x - rect.left, y: y - rect.top };
+    };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey)
+        setView((v) =>
+          zoomAbout(v, wheelFactor(e.deltaY, e.deltaMode), local(e.clientX, e.clientY)),
+        );
+      else setView((v) => ({ ...v, pan: { x: v.pan.x - e.deltaX, y: v.pan.y - e.deltaY } }));
+    };
+    let scale = 1;
+    const onGestureStart = (e: Event) => {
+      e.preventDefault();
+      scale = 1;
+    };
+    const onGestureChange = (e: Event) => {
+      e.preventDefault();
+      const g = e as Event & { scale: number; clientX: number; clientY: number };
+      if (!g.scale) return;
+      setView((v) => zoomAbout(v, g.scale / scale, local(g.clientX, g.clientY)));
+      scale = g.scale;
+    };
+    // Two fingers on a screen: the page is never pinched while they are on the canvas.
+    const onTouch = (e: TouchEvent) => {
+      if (e.touches.length > 1) e.preventDefault();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("gesturestart", onGestureStart, { passive: false });
+    el.addEventListener("gesturechange", onGestureChange, { passive: false });
+    el.addEventListener("gestureend", onGestureStart, { passive: false });
+    el.addEventListener("touchmove", onTouch, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("gesturestart", onGestureStart);
+      el.removeEventListener("gesturechange", onGestureChange);
+      el.removeEventListener("gestureend", onGestureStart);
+      el.removeEventListener("touchmove", onTouch);
+    };
+  }, [setView]);
+
+  /** The fingers on the canvas, by pointer, where they are: two of them pinch. */
+  const touches = useRef(new Map<number, Pt>());
+  const pinch = (e: React.PointerEvent): boolean => {
+    if (e.pointerType !== "touch" || !touches.current.has(e.pointerId)) return false;
+    const rect = canvas.current?.getBoundingClientRect();
+    const at = { x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0) };
+    const before = [...touches.current.values()] as [Pt, Pt];
+    touches.current.set(e.pointerId, at);
+    if (touches.current.size !== 2) return false;
+    const after = [...touches.current.values()] as [Pt, Pt];
+    setView((v) => pinched(v, before, after));
+    return true;
+  };
+  const touchDown = (e: React.PointerEvent) => {
+    if (e.pointerType !== "touch") return false;
+    const rect = canvas.current?.getBoundingClientRect();
+    touches.current.set(e.pointerId, {
+      x: e.clientX - (rect?.left ?? 0),
+      y: e.clientY - (rect?.top ?? 0),
+    });
+    // A second finger turns a pan or a drag into a pinch.
+    if (touches.current.size < 2) return false;
+    drag.current = null;
+    setLinking(null);
+    setPanning(false);
+    canvas.current?.setPointerCapture?.(e.pointerId);
+    return true;
   };
 
   const onCanvasPointerDown = (e: React.PointerEvent) => {
+    if (touchDown(e)) return;
     if (e.button !== 0) return;
     setMenu(null);
     drag.current = { kind: "pan", start: { x: e.clientX, y: e.clientY }, origin: pan };
@@ -329,6 +516,10 @@ export function WorkflowCanvas({
     (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
   };
   const onNodePointerDown = (flowId: string, id: string, e: React.PointerEvent) => {
+    if (touchDown(e)) {
+      e.stopPropagation();
+      return;
+    }
     if (e.button !== 0) return;
     e.stopPropagation();
     setMenu(null);
@@ -345,6 +536,7 @@ export function WorkflowCanvas({
     canvas.current?.setPointerCapture?.(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
+    if (pinch(e)) return;
     if (linking) {
       setLinking({ ...linking, at: toWorld({ x: e.clientX, y: e.clientY }) });
       return;
@@ -366,6 +558,9 @@ export function WorkflowCanvas({
     }
   };
   const onPointerUp = (e: React.PointerEvent) => {
+    const pinching = touches.current.size > 1;
+    touches.current.delete(e.pointerId);
+    if (pinching) return;
     setPanning(false);
     if (linking) {
       // The canvas holds the pointer while a connector is drawn, so the event is the canvas's:
@@ -432,22 +627,32 @@ export function WorkflowCanvas({
     const i = outcome ? outs.findIndex((o) => o.id === outcome) : 0;
     return { x: n.x + NODE_W + 92, y: n.y + (outcome ? (i - 1) * 100 : 0) };
   };
+  /**
+   * Where the Add button, or a click on the palette, adds a node: after the selected step, or
+   * in the middle of the view, in the workflow nearest it.
+   */
+  const addTarget = (): AddAt | null => {
+    if (selectedNode && selectedFlow)
+      return { flowId: selectedFlow.id, at: besides(selectedNode), from: selectedNode.id };
+    const rect = canvas.current?.getBoundingClientRect();
+    const centre = toWorld({
+      x: (rect?.left ?? 0) + (rect?.width ?? 0) / 2,
+      y: (rect?.top ?? 0) + (rect?.height ?? 0) / 2,
+    });
+    const band = [...bands].sort(
+      (a, b) =>
+        Math.abs(centre.y - (a.top + a.height / 2)) - Math.abs(centre.y - (b.top + b.height / 2)),
+    )[0];
+    if (!band) return null;
+    return {
+      flowId: band.flow.id,
+      at: { x: centre.x - NODE_W / 2, y: centre.y - band.offsetY - NODE_H / 2 },
+    };
+  };
   const openPicker = () => {
-    const w = selectedNode ? selectedFlow : workflows[0];
-    if (!w) return;
-    if (selectedNode)
-      setPicking({ flowId: w.id, at: besides(selectedNode), from: selectedNode.id });
-    else {
-      const rect = canvas.current?.getBoundingClientRect();
-      const centre = toWorld({
-        x: (rect?.left ?? 0) + (rect?.width ?? 0) / 2,
-        y: (rect?.top ?? 0) + (rect?.height ?? 0) / 2,
-      });
-      setPicking({
-        flowId: w.id,
-        at: { x: centre.x, y: centre.y - (bandOf(w.id)?.offsetY ?? 0) },
-      });
-    }
+    const target = addTarget();
+    if (!target) return;
+    setPicking(target);
     setSelection(null);
   };
 
@@ -691,7 +896,11 @@ export function WorkflowCanvas({
           onPointerDown={onCanvasPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onWheel={onWheel}
+          onPointerCancel={(e) => {
+            touches.current.delete(e.pointerId);
+            drag.current = null;
+            setPanning(false);
+          }}
           onContextMenu={(e) => {
             const w = toWorld({ x: e.clientX, y: e.clientY });
             const band =
@@ -895,6 +1104,11 @@ export function WorkflowCanvas({
                   walked={Boolean(walked(b.flow.id)?.reached.includes(n.id))}
                   current={Boolean(walked(b.flow.id)?.run?.active.includes(n.id))}
                   trigger={triggersOf(b.flow.definition).some((t) => t.id === n.id)}
+                  dropOn={
+                    kindDrag?.over?.flowId === b.flow.id && kindDrag.over.from === n.id
+                      ? kindDrag.over.outcome
+                      : undefined
+                  }
                   wired={b.flow.definition.connectors.flatMap((c) => {
                     const route = routes.get(b.flow.id);
                     return c.from === n.id && route && chipShown(b.flow.definition, route, c) > 0
@@ -1021,9 +1235,53 @@ export function WorkflowCanvas({
               </Button>
             </div>
           )}
-          <div className="pointer-events-none absolute top-3 left-3 hidden rounded-control border border-line bg-overlay/90 px-2.5 py-1.5 @3xl/app:block">
+          {/* The key to the families, where there is no palette to say it. */}
+          <div
+            data-e2e-layer
+            className={cn(
+              "pointer-events-none absolute top-3 left-3 hidden rounded-control border border-line bg-overlay/90 px-2.5 py-1.5",
+              editing ? "@3xl/app:block @5xl/app:hidden" : "@3xl/app:block",
+            )}
+          >
             <GroupLegend compact />
           </div>
+          {/* The palette (#511): every action, by family, to drag onto the canvas, on a wide
+              screen; the Add button's picker does the same everywhere. */}
+          {editing && (
+            <div
+              data-e2e-layer
+              role="toolbar"
+              aria-label="Nodes to add"
+              aria-orientation="vertical"
+              className="absolute top-3 left-3 hidden flex-col items-center gap-1 rounded-panel border border-line bg-overlay p-1 shadow-2 @5xl/app:flex"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              {paletteKinds.map((family, i) => (
+                <div key={family.join()} className="flex flex-col items-center gap-1">
+                  {i > 0 && <span aria-hidden="true" className="h-px w-5 bg-line" />}
+                  {family.map((t) => {
+                    const bind = kindHandle(t, () => {
+                      const target = addTarget();
+                      if (target) place(t, target);
+                    });
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        aria-label={`${nodeTypes[t].label}: drag onto the canvas, or click to add`}
+                        title={`${nodeTypes[t].label}: ${nodeLooks[t].hint}`}
+                        onPointerDown={bind.onPointerDown}
+                        onClick={bind.onClick}
+                        className="flex size-8 cursor-grab touch-none items-center justify-center rounded-control transition-colors hover:bg-raised active:cursor-grabbing"
+                      >
+                        <KindTile type={t} />
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
           {/* The hints, while the canvas is wide enough for them beside its controls. */}
           <div
             className={cn(
@@ -1033,10 +1291,10 @@ export function WorkflowCanvas({
           >
             <span>Drag to pan</span>
             <span className="flex items-center gap-1">
-              <Kbd>ctrl</Kbd> scroll to zoom
+              <Kbd>ctrl</Kbd> scroll or pinch to zoom
             </span>
             <span>Right-click for more</span>
-            {editing && <span>Drag a port to connect</span>}
+            {editing && <span>Drag a node in, or from a port to connect</span>}
           </div>
 
           <Minimap
@@ -1089,6 +1347,17 @@ export function WorkflowCanvas({
         </div>
       </div>
 
+      {kindDrag && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none fixed z-50 flex items-center gap-2 rounded-control border border-line bg-overlay py-1 pr-3 pl-1 text-[13px] text-ink shadow-4"
+          style={{ left: kindDrag.client.x + 10, top: kindDrag.client.y + 10 }}
+        >
+          <KindTile type={kindDrag.type} />
+          {nodeTypes[kindDrag.type].label}
+          {kindDrag.over?.from && <span className="text-ink-3">· wired on</span>}
+        </div>
+      )}
       {inspectorOpen && (
         <aside
           aria-label="Inspector"
@@ -1096,7 +1365,11 @@ export function WorkflowCanvas({
           // covers is out of sight to the visual suite's checks.
           data-e2e-overlap
           data-e2e-layer
-          className="absolute inset-y-0 right-0 z-20 flex w-full flex-col border-l border-line bg-pane shadow-4 @3xl/app:static @3xl/app:w-[340px] @3xl/app:shadow-none"
+          className={cn(
+            "absolute inset-y-0 right-0 z-20 flex w-full flex-col border-l border-line bg-pane shadow-4 @3xl/app:static @3xl/app:w-[340px] @3xl/app:shadow-none",
+            // On a phone it covers the canvas: while a kind is dragged from it, it steps aside.
+            kindDrag && "@max-3xl/app:pointer-events-none @max-3xl/app:opacity-0",
+          )}
         >
           {picking && (
             <Picker
@@ -1106,6 +1379,7 @@ export function WorkflowCanvas({
                 ),
               )}
               from={picking.from}
+              handle={kindHandle}
               onPick={addNode}
               onNew={(start) => {
                 setPicking(null);
@@ -1224,6 +1498,7 @@ function CanvasNode({
   current,
   trigger,
   wired,
+  dropOn,
   problem,
   editing,
   onPointerDown,
@@ -1240,6 +1515,8 @@ function CanvasNode({
   trigger: boolean;
   /** The outcomes a connector leaves by already: their chips name them, so the port needn't. */
   wired: string[];
+  /** The output a kind being dragged would be wired from, lit while it is over it. */
+  dropOn?: string;
   problem?: WorkflowProblem;
   editing: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
@@ -1331,6 +1608,7 @@ function CanvasNode({
             className={cn(
               "size-3.5 rounded-full border-2 border-ink-3 bg-overlay transition-colors",
               editing && "cursor-crosshair hover:border-signal hover:bg-signal",
+              dropOn === o.id && "border-signal bg-signal ring-4 ring-signal/30",
             )}
           />
           {o.label && !wired.includes(o.id) && (
@@ -1448,9 +1726,21 @@ function PanelHead({
   );
 }
 
+/** What a kind's row is given to be dragged onto the canvas, or clicked to add. */
+type KindHandle = (
+  type: NodeType,
+  onPick: () => void,
+) => { onPointerDown: (e: React.PointerEvent) => void; onClick: () => void };
+
+/**
+ * The Add button's picker (#511, decision 289): the families first, in the order a workflow
+ * reads, then the kinds of the one chosen, each dragged onto the canvas or clicked; Show all
+ * lists every kind at once, and a search finds any. A family of one kind is that kind.
+ */
 function Picker({
   hasStart,
   from,
+  handle,
   onPick,
   onNew,
   onClose,
@@ -1459,20 +1749,97 @@ function Picker({
   hasStart: boolean;
   /** The step it follows, if any: an event waited for needs one. */
   from?: string;
+  handle: KindHandle;
   onPick: (t: NodeType) => void;
   onNew: (start: NodeType) => void;
   onClose: () => void;
 }) {
   const [q, setQ] = useState("");
-  const hit = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase());
+  const [open, setOpen] = useState<PickerType["key"] | "all" | null>(null);
+  const types = pickerTypes({ hasStart });
+  const query = q.trim().toLowerCase();
+  const hit = (t: NodeType) =>
+    nodeTypes[t].label.toLowerCase().includes(query) ||
+    nodeLooks[t].hint.toLowerCase().includes(query);
+  const chosen = types.find((t) => t.key === open);
+  const kindRow = (t: NodeType, type: PickerType) => {
+    const begins = type.key === "new";
+    // An event waited for follows a step: without one to follow, it waits for a selection.
+    const waits = !from && hasStart && !begins && nodeTypes[t].kind === "event";
+    const bind = handle(t, () => (begins ? onNew(t) : onPick(t)));
+    return (
+      <button
+        key={`${type.key}-${t}`}
+        type="button"
+        disabled={waits}
+        title={
+          waits ? "Follows a step: select one first, or drop it on a step's output" : undefined
+        }
+        onPointerDown={begins || waits ? undefined : bind.onPointerDown}
+        onClick={bind.onClick}
+        className={cn(
+          "flex w-full touch-pan-y items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors enabled:hover:bg-raised disabled:opacity-50",
+          !begins && !waits && "cursor-grab active:cursor-grabbing",
+        )}
+      >
+        <KindTile type={t} />
+        <span className="min-w-0">
+          <span className="block truncate text-[13px] text-ink">{nodeTypes[t].label}</span>
+          <span className="block truncate text-[12px] text-ink-3">{nodeLooks[t].hint}</span>
+        </span>
+      </button>
+    );
+  };
+  const typeRow = (type: PickerType) => {
+    const [only] = type.kinds;
+    if (type.kinds.length === 1 && only) return kindRow(only, type);
+    const lead = type.key === "new" ? "upload" : (type.kinds[0] ?? "upload");
+    return (
+      <button
+        key={type.key}
+        type="button"
+        onClick={() => setOpen(type.key)}
+        className="flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors hover:bg-raised"
+      >
+        {type.key === "new" ? (
+          <span className="flex size-7 shrink-0 items-center justify-center rounded-control border border-dashed border-line-strong text-ink-2">
+            <Icon name="plus" size={14} />
+          </span>
+        ) : (
+          <KindTile type={lead} />
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] text-ink">{type.label}</span>
+          <span className="block truncate text-[12px] text-ink-3">{type.hint}</span>
+        </span>
+        <span className="tabular shrink-0 text-[12px] text-ink-3">{type.kinds.length}</span>
+        <Icon name="chevronRight" size={14} className="shrink-0 text-ink-3" />
+      </button>
+    );
+  };
   return (
     <>
       <PanelHead
-        title="What happens next?"
-        hint={from ? "Pick a node; it is wired from the selected one." : "Pick a node to add."}
+        title={chosen ? chosen.label : "Add a node"}
+        hint={
+          chosen
+            ? chosen.key === "new"
+              ? "This workflow has its start; one of these begins another."
+              : chosen.hint
+            : from
+              ? "Wired from the selected step. Drag one onto the canvas, or click."
+              : "Drag one onto the canvas, or click to add it."
+        }
         onClose={onClose}
-      />
-      <div className="flex flex-col gap-3 px-3 pt-3">
+      >
+        {open && !query && (
+          <Button variant="ghost" size="sm" onClick={() => setOpen(null)}>
+            <Icon name="chevronLeft" size={13} />
+            Types
+          </Button>
+        )}
+      </PanelHead>
+      <div className="px-3 pt-3">
         <Input
           aria-label="Search nodes"
           value={q}
@@ -1480,52 +1847,43 @@ function Picker({
           placeholder="Search nodes"
           autoFocus
         />
-        <GroupLegend compact />
       </div>
       <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto p-2">
-        {GROUP_ORDER.map((g) => {
-          const types = kindsByGroup[g].filter(
-            (t) => hit(nodeTypes[t].label) || hit(nodeLooks[t].hint),
-          );
-          if (types.length === 0) return null;
-          // Once a workflow has its start, a start kind begins another workflow (#514).
-          const begins = g === "start" && hasStart;
-          return (
-            <div key={g} className="mb-2">
-              <div className={cn("px-2 pt-2 pb-1", eyebrow)}>
-                {begins ? "New workflow" : groups[g].label}
-              </div>
-              {begins && (
-                <p className="m-0 px-2 pb-1 text-[12px] text-ink-3">
-                  This workflow has its start; one of these begins another.
-                </p>
-              )}
-              {types.map((t) => {
-                const waits = !from && hasStart && g === "wait" && nodeTypes[t].kind === "event";
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    disabled={waits}
-                    title={waits ? "Follows a step: select one first" : undefined}
-                    onClick={() => (begins ? onNew(t) : onPick(t))}
-                    className="flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors enabled:hover:bg-raised disabled:opacity-50"
-                  >
-                    <KindTile type={t} />
-                    <span className="min-w-0">
-                      <span className="block truncate text-[13px] text-ink">
-                        {nodeTypes[t].label}
-                      </span>
-                      <span className="block truncate text-[12px] text-ink-3">
-                        {nodeLooks[t].hint}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
+        {query ? (
+          types.flatMap((type) => type.kinds.filter(hit).map((t) => kindRow(t, type))).length >
+          0 ? (
+            types.map((type) => {
+              const found = type.kinds.filter(hit);
+              if (found.length === 0) return null;
+              return (
+                <div key={type.key} className="mb-2">
+                  <div className={cn("px-2 pt-2 pb-1", eyebrow)}>{type.label}</div>
+                  {found.map((t) => kindRow(t, type))}
+                </div>
+              );
+            })
+          ) : (
+            <p className="m-0 px-2 py-2 text-[13px] text-ink-3">No node is called that.</p>
+          )
+        ) : open === "all" ? (
+          types.map((type) => (
+            <div key={type.key} className="mb-2">
+              <div className={cn("px-2 pt-2 pb-1", eyebrow)}>{type.label}</div>
+              {type.kinds.map((t) => kindRow(t, type))}
             </div>
-          );
-        })}
+          ))
+        ) : chosen ? (
+          chosen.kinds.map((t) => kindRow(t, chosen))
+        ) : (
+          <>
+            {types.map(typeRow)}
+            <div className="mt-1 border-t border-line px-2 pt-2">
+              <Button variant="quiet" size="sm" onClick={() => setOpen("all")}>
+                Show all
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </>
   );

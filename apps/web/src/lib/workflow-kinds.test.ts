@@ -1,6 +1,14 @@
 import { ACTION_TYPES, EVENT_TYPES, type NodeType, nodeTypes } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { GROUP_ORDER, groupOf, groups, kindLine, kindsByGroup } from "./workflow-kinds";
+import {
+  GROUP_ORDER,
+  groupOf,
+  groups,
+  kindLine,
+  kindsByGroup,
+  paletteKinds,
+  pickerTypes,
+} from "./workflow-kinds";
 import { nodeLooks } from "./workflow-nodes";
 
 const every: NodeType[] = [...EVENT_TYPES, ...ACTION_TYPES];
@@ -39,5 +47,48 @@ describe("the kinds of node", () => {
     expect(review).toBe("Approval review");
     expect(approve).toBe("Set status: Approved");
     expect(kindLine({ type: "status", config: {} })).toBe("Set status");
+  });
+});
+
+describe("what the Add button offers (#511)", () => {
+  it("offers families first, in the order a workflow reads, Start only on an empty canvas", () => {
+    expect(pickerTypes({ hasStart: false }).map((t) => t.key)).toEqual([
+      "start",
+      "qa",
+      "review",
+      "task",
+      "wait",
+      "status",
+      "notify",
+      "finish",
+    ]);
+    const started = pickerTypes({ hasStart: true });
+    expect(started.map((t) => t.key)).toEqual([
+      "qa",
+      "review",
+      "task",
+      "wait",
+      "status",
+      "notify",
+      "finish",
+      "new",
+    ]);
+    expect(started.at(-1)?.kinds).toEqual(kindsByGroup.start);
+  });
+
+  it("orders kinds within a family as they are met, and lets a wait be for a version", () => {
+    const by = (key: string) => pickerTypes({ hasStart: true }).find((t) => t.key === key)?.kinds;
+    expect(by("review")).toEqual(["feedback", "approval"]);
+    expect(by("status")).toEqual(["status", "move"]);
+    expect(by("wait")?.[0]).toBe("wait");
+    expect(by("wait")).toContain("upload");
+    expect(by("wait")).not.toContain("manual");
+    expect(by("qa")).toEqual(["checks"]);
+  });
+
+  it("puts every action, and nothing else, on the palette", () => {
+    const listed = paletteKinds.flat();
+    expect([...listed].sort()).toEqual([...ACTION_TYPES].sort());
+    expect(paletteKinds[0]).toEqual(["checks"]);
   });
 });

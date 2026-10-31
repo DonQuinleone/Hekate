@@ -174,3 +174,49 @@ export function kindLine(node: { type: NodeType; config: Record<string, string> 
   if (node.type === "finish" && status) return `${label}: ${status}`;
   return label;
 }
+
+/** A family as the Add button offers it (#511): its kinds, in the order a workflow reads. */
+export interface PickerType {
+  key: KindGroup | "new";
+  label: string;
+  hint: string;
+  kinds: readonly NodeType[];
+}
+
+/**
+ * What the Add button offers first, the families in the order a workflow reads, left to right
+ * (#511, decision 289). Start while the workflow has none (#514); once it has, its kinds begin
+ * a new workflow instead, offered last. A wait may be for any event, a version arriving among
+ * them, so the starting events follow the wait's own.
+ */
+export function pickerTypes({ hasStart }: { hasStart: boolean }): PickerType[] {
+  const of = (g: KindGroup, kinds: readonly NodeType[] = kindsByGroup[g]): PickerType => ({
+    key: g,
+    label: groups[g].label,
+    hint: groups[g].hint,
+    kinds,
+  });
+  const waits: NodeType[] = [
+    ...kindsByGroup.wait,
+    ...kindsByGroup.start.filter((t) => t !== "manual"),
+  ];
+  const body = GROUP_ORDER.filter((g) => g !== "start").map((g) =>
+    g === "wait" ? of(g, waits) : of(g),
+  );
+  return hasStart
+    ? [
+        ...body,
+        {
+          key: "new",
+          label: "New workflow",
+          hint: "Begin another workflow, at its own start",
+          kinds: kindsByGroup.start,
+        },
+      ]
+    : [of("start"), ...body];
+}
+
+/** The kinds the palette at the canvas's edge offers to drag: every action, by family. */
+export const paletteKinds: readonly (readonly NodeType[])[] = GROUP_ORDER.filter(
+  (g) => g !== "start",
+).map((g) => kindsByGroup[g].filter((t) => nodeTypes[t].kind === "action"));
