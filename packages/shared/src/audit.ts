@@ -137,6 +137,8 @@ export const auditActions = [
   "organisation.channel_remove",
   /** An admin set, changed or removed the workspace's own mail (#161). */
   "organisation.mail",
+  /** An owner chose where the workspace's new files go, or saved its own bucket (#508). */
+  "organisation.storage",
   /**
    * An owner, or an operator, asked for an export of everything the workspace holds (#186), and
    * someone downloaded a finished one.

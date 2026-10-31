@@ -136,6 +136,7 @@ describe("tenancy", () => {
       "workflow_steps",
       "workflows",
       "works",
+      "workspace_buckets",
       "workspace_categories",
       "workspace_exports",
       "workspace_mail",

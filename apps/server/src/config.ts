@@ -353,7 +353,7 @@ const schema = z.object({
     info({
       group: "Server",
       description:
-        "Origins on a private network (a chat server or receiver inside your own network), comma separated, that workspaces' channels, webhooks and own mail may reach (#161): `https://host` for a webhook or Mailcoach, `smtp://host:port` for an SMTP server. Public ones need nothing; anything else on a private address is refused.",
+        "Origins on a private network (a chat server or receiver inside your own network), comma separated, that workspaces' channels, webhooks, own mail and own storage buckets may reach (#161, #508): `https://host` for a webhook, Mailcoach or an S3-compatible endpoint (`http://host:port` lets one be reached without TLS), `smtp://host:port` for an SMTP server. Public ones need nothing; anything else on a private address is refused.",
       example: "https://hooks.internal.example,smtp://mail.internal.example:587",
     }),
   ),

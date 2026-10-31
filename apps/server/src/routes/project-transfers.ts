@@ -30,7 +30,7 @@ import type { Keyring } from "../keyring.ts";
 import type { Mailer } from "../mail.ts";
 import { notifyNow } from "../notifications.ts";
 import { zValidator } from "../openapi/validator.ts";
-import { moveProject } from "../project-transfer.ts";
+import { type MoveDeps, moveProject } from "../project-transfer.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
 const { members, organisations, projectMembers, projectRoles, projects, projectTransfers, users } =
@@ -52,6 +52,8 @@ export interface TransferDeps {
   auth: Auth;
   keyring: Keyring;
   backends: Backends;
+  /** Where each workspace keeps its files, its own bucket among them (#508). */
+  places?: MoveDeps["places"];
   jobs: Pick<Jobs, "send">;
   audit: Audit;
   mailer: Mailer;

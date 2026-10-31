@@ -179,7 +179,7 @@ export async function boot(
     console.error(error.message);
     process.exit(1);
   }
-  const storage = createStorage(db, backends, keyring);
+  const storage = createStorage(db, backends, keyring, { trusted: config.WEBHOOK_TRUSTED_ORIGINS });
 
   const audit = createAudit(db);
   const flags = createFlags(db);
@@ -323,7 +323,7 @@ export async function boot(
       }
     });
     await taking.work("workspaces-purge", async () => {
-      const purged = await purgeDueWorkspaces(db, backends, new Date(), keyring);
+      const purged = await purgeDueWorkspaces(db, backends, new Date(), keyring, storage.buckets);
       if (purged > 0) console.log(`Purged ${purged} deleted workspace(s)`);
       // Exports a week old (#186), and any whose job was lost.
       const expired = await expireExports(db, storage);

@@ -520,8 +520,22 @@ function Components() {
         </Spec>
         <Spec
           name="Choice cards"
-          rule="A few larger choices with a line each, such as a project's profile."
+          rule="A few larger choices with a line each, such as a project's profile. One the plan leaves out is disabled, its line saying why."
         >
+          <div className="grid w-full gap-2 @3xl/app:grid-cols-2">
+            <ChoiceCard
+              name="reference-storage"
+              defaultChecked
+              title="Instance storage"
+              hint="Kept and backed up by this instance's operators."
+            />
+            <ChoiceCard
+              name="reference-storage"
+              disabled
+              title="Your own S3-compatible bucket"
+              hint="Not on the Studio plan."
+            />
+          </div>
           <div className="grid w-full gap-2 @3xl/app:grid-cols-3">
             {[
               ["music", "Music", "Bars, scores and takes."],

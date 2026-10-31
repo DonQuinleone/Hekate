@@ -592,6 +592,8 @@ export function createApi(given: AppDeps) {
           storage: deps.storage,
           audit: deps.audit,
           removing: (deps.storageReconcile ?? "remove") === "remove",
+          billing: (deps.modules?.billing ?? "off") !== "off",
+          trustProxy: deps.trustProxy ?? false,
         }),
       )
       .route("/organisation/categories", workspaceCategoryRoutes(deps.db))
@@ -599,14 +601,7 @@ export function createApi(given: AppDeps) {
       .route("/organisation/deletion", workspaceDeletionRoutes(lifecycle))
       .route(
         "/organisation",
-        organisationRoutes(
-          deps.db,
-          deps.mailer,
-          links,
-          deps.storage,
-          deps.audit,
-          deps.trustProxy ?? false,
-        ),
+        organisationRoutes(deps.db, deps.mailer, links, deps.audit, deps.trustProxy ?? false),
       )
       .use("/notifications/*", ...member)
       .use("/notifications", ...member)
@@ -727,6 +722,7 @@ export function createApi(given: AppDeps) {
           auth: deps.auth,
           keyring: deps.keyring,
           backends: deps.storage.backends,
+          places: deps.storage,
           jobs: deps.jobs,
           audit: deps.audit,
           mailer: deps.mailer,

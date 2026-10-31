@@ -1,4 +1,5 @@
 import { type Database, inOrg, schema } from "@hekate/db";
+import type { StorageBackend } from "@hekate/storage";
 import { and, eq, inArray, isNull, lt, notExists, or, sql } from "drizzle-orm";
 import { type Audit, systemActor } from "./audit.ts";
 import type { Storage } from "./storage.ts";
@@ -141,9 +142,23 @@ export async function reconcileStorage(
   // A targeted run settles only its own organisations' findings.
   const inScope = scope ? inArray(storageFindings.ownerOrganisationId, [...scope]) : undefined;
 
+  // The instance's backends hold every workspace's objects; a workspace's own bucket (#508)
+  // holds its workspace's alone, and only those are looked at in it.
+  const places: { name: string; backend: StorageBackend; only: string | null }[] = storage.backends
+    .names()
+    .map((name) => ({
+      name,
+      backend: storage.backends.get(name),
+      only: null,
+    }));
+  for (const organisationId of scope ?? living) {
+    if (!living.has(organisationId)) continue;
+    for (const backend of await storage.buckets.all(organisationId))
+      places.push({ name: backend.name, backend, only: organisationId });
+  }
+
   const reports: ReconcileReport[] = [];
-  for (const name of storage.backends.names()) {
-    const backend = storage.backends.get(name);
+  for (const { name, backend, only } of places) {
     const report: ReconcileReport = {
       backend: name,
       orphanObjects: 0,
@@ -155,7 +170,12 @@ export async function reconcileStorage(
     // What the backend holds, grouped by the organisation in each key. A targeted run lists
     // only its own organisations' keys, never the whole backend.
     const stored = new Map<string, string[]>();
-    for (const prefix of scope ? [...scope].map((o) => `org/${o}/`) : ["org/"]) {
+    const prefixes = only
+      ? [`org/${only}/`]
+      : scope
+        ? [...scope].map((o) => `org/${o}/`)
+        : ["org/"];
+    for (const prefix of prefixes) {
       for await (const object of backend.list(prefix)) {
         const owner = ownerOf(object.key);
         if (!owner) continue;
@@ -163,7 +183,7 @@ export async function reconcileStorage(
       }
     }
 
-    for (const owner of new Set([...stored.keys(), ...living])) {
+    for (const owner of only ? [only] : new Set([...stored.keys(), ...living])) {
       if (scope && !scope.has(owner)) continue;
       // Rows written after this run began may not be listed yet; leave them for next time.
       const recorded = living.has(owner)

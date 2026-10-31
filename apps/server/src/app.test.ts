@@ -37,7 +37,15 @@ import {
   type WorkspaceOperations,
   workspaceSettingsOf,
 } from "@hekate/shared";
-import { CHUNK_SIZE, createBackends, encryptedSize, storageConfigFromEnv } from "@hekate/storage";
+import {
+  CHUNK_SIZE,
+  createBackends,
+  encryptedSize,
+  localBackend,
+  type S3BackendOptions,
+  type StorageBackend,
+  storageConfigFromEnv,
+} from "@hekate/storage";
 import {
   and,
   asc,
@@ -148,7 +156,33 @@ describe.runIf(url)("api", () => {
       STORAGE_SPARE_PATH: join(storageRoot, "spare"),
     }),
   );
-  const storage = createStorage(db, backends, keyring);
+  /**
+   * Workspaces' own buckets (#508), as directories the tests can look into: what each was made
+   * with is kept, and a bucket named "missing" refuses every write as S3 would.
+   */
+  const bucketsMade: S3BackendOptions[] = [];
+  const bucketRoot = (bucket: string, prefix = "") => join(storageRoot, "buckets", bucket, prefix);
+  const storage = createStorage(db, backends, keyring, {
+    trusted: ["https://s3.example.test"],
+    createBucket: (options): StorageBackend => {
+      bucketsMade.push(options);
+      const backend = localBackend({
+        name: options.name,
+        root: bucketRoot(options.bucket, options.prefix),
+      });
+      if (options.bucket !== "missing") return backend;
+      const missing = Object.assign(new Error("The specified bucket does not exist"), {
+        name: "NoSuchBucket",
+        $metadata: { httpStatusCode: 404 },
+      });
+      return {
+        ...backend,
+        put: async () => {
+          throw missing;
+        },
+      };
+    },
+  });
   const sent: { name: string; data: unknown }[] = [];
   /** Set to make the next queue call fail, as if the queue were down. */
   let failNextSend = false;
@@ -1660,7 +1694,9 @@ describe.runIf(url)("api", () => {
           const internal = await get("/api/organisation/plan", operator, app);
           expect(await internal.json()).toMatchObject({
             plan: null,
-            entitlements: { features: ["sso", "directory", "forensicMarking", "namedOperator"] },
+            entitlements: {
+              features: ["sso", "directory", "forensicMarking", "namedOperator", "ownStorage"],
+            },
           });
 
           // With it, only an operator puts it on one.
@@ -1789,6 +1825,68 @@ describe.runIf(url)("api", () => {
           const back = await assign({ planId: null });
           expect(await back.json()).toMatchObject({ plan: null });
           expect((await project("Bristol sessions", operator)).status).toBe(201);
+        });
+
+        it("keep a workspace's own bucket to the plans that include it (#508)", async () => {
+          const operator = cookieOf(await setup());
+          const id = await studio();
+          const bucket = {
+            endpoint: "https://s3.example.test",
+            region: "eu-central-1",
+            bucket: "endless-hall-masters",
+            prefix: "",
+            pathStyle: true,
+            accessKeyId: "AKIAENDLESSHALL",
+            secretAccessKey: "masters-secret-do-not-echo",
+          };
+          const { plans } = (await (
+            await call("POST", "/api/instance/plans", plan, operator)
+          ).json()) as Plans;
+          const planId = plans[0]?.id ?? "";
+          expect(
+            (await call("PUT", `/api/instance/workspaces/${id}/plan`, { planId }, operator)).status,
+          ).toBe(200);
+          // Shown, with the plan's name, and refused: both the test and the save.
+          expect(
+            await (await get("/api/organisation/storage", operator, billed)).json(),
+          ).toMatchObject({ usesBucket: false, ownStorage: { entitled: false, plan: "Studio" } });
+          for (const [method, path] of [
+            ["POST", "/api/organisation/storage/bucket/test"],
+            ["PUT", "/api/organisation/storage/bucket"],
+          ] as const) {
+            const refused = await call(method, path, bucket, operator);
+            expect(refused.status).toBe(403);
+            expect(await refused.json()).toMatchObject({
+              error: {
+                code: "not_entitled",
+                message: "Your own storage is not on this workspace's plan.",
+              },
+            });
+          }
+          expect(
+            await db
+              .select()
+              .from(schema.workspaceBuckets)
+              .where(eq(schema.workspaceBuckets.organisationId, id)),
+          ).toEqual([]);
+          // On a plan that includes it, the same save goes through and takes the new files.
+          expect(
+            (
+              await call(
+                "PUT",
+                `/api/instance/plans/${planId}`,
+                { ...plan, features: ["directory", "ownStorage"] },
+                operator,
+              )
+            ).status,
+          ).toBe(200);
+          const saved = await call("PUT", "/api/organisation/storage/bucket", bucket, operator);
+          expect(saved.status).toBe(200);
+          expect(await saved.json()).toMatchObject({
+            usesBucket: true,
+            ownStorage: { entitled: true, plan: "Studio" },
+          });
+          expect((await storage.put(id, Buffer.from("Solace"))).backend).toMatch(/^bucket:/);
         });
       });
 
@@ -6457,6 +6555,9 @@ describe.runIf(url)("api", () => {
           backend: null,
           defaultBackend: "local",
           available: ["local", "spare"],
+          usesBucket: false,
+          bucket: null,
+          ownStorage: { entitled: true, plan: null },
         });
         const put = (backend: string | null, cookie: string) =>
           app.request("/api/organisation/storage", { ...json({ backend }, cookie), method: "PUT" });
@@ -6548,6 +6649,261 @@ describe.runIf(url)("api", () => {
           (await app.request(`/api/projects/${projectId}/archive`, json({}, owner))).status,
         ).toBe(204);
         expect((await put("spare", owner)).status).toBe(409);
+      });
+
+      describe("a workspace's own bucket (#508)", () => {
+        const bucket = {
+          endpoint: "https://s3.example.test",
+          region: "eu-central-1",
+          bucket: "endless-hall-masters",
+          prefix: "hekate",
+          pathStyle: true,
+          accessKeyId: "AKIAENDLESSHALL",
+          secretAccessKey: "masters-secret-do-not-echo",
+        };
+        const send = (method: string, path: string, body: unknown, cookie: string) =>
+          app.request(`/api/organisation/storage${path}`, { ...json(body, cookie), method });
+        type View = {
+          usesBucket: boolean;
+          bucket: { id: string; credentialsSet: boolean } | null;
+          ownStorage: { entitled: boolean; plan: string | null };
+        };
+        const read = (stream: NodeJS.ReadableStream) => buffer(stream as never);
+
+        it("takes a workspace's new files, encrypted, and keeps the old ones where they are", async () => {
+          const owner = cookieOf(await setup());
+          const organisationId = await organisationOf(owner);
+          const before = await storage.put(organisationId, Buffer.from("Maple Leaf Rag, take 1"));
+          expect(before.backend).toBe("local");
+          bucketsMade.length = 0;
+
+          // Tested first: a bucket that refuses writes is said in words and never saved.
+          const missing = await send(
+            "POST",
+            "/bucket/test",
+            { ...bucket, bucket: "missing" },
+            owner,
+          );
+          expect(missing.status).toBe(200);
+          expect(await missing.json()).toEqual({
+            ok: false,
+            step: "write",
+            message: "Could not write to the bucket: the bucket does not exist.",
+          });
+          expect(
+            (await send("PUT", "/bucket", { ...bucket, bucket: "missing" }, owner)).status,
+          ).toBe(422);
+          // Credentials are needed the first time; a private address or plain http is refused.
+          const { accessKeyId: _a, secretAccessKey: _s, ...bare } = bucket;
+          const keyless = await send("POST", "/bucket/test", bare, owner);
+          expect(keyless.status).toBe(422);
+          expect(await keyless.text()).toContain("access key and secret");
+          for (const endpoint of ["https://127.0.0.1:9000", "http://s3.example.org"])
+            expect(
+              (await send("POST", "/bucket/test", { ...bucket, endpoint }, owner)).status,
+            ).toBe(422);
+          const tested = await send("POST", "/bucket/test", bucket, owner);
+          expect(await tested.json()).toEqual({
+            ok: true,
+            step: null,
+            message: "Wrote a probe object and deleted it again.",
+          });
+          // Always the workspace's own credentials, never the instance's from its environment.
+          expect(bucketsMade.at(-1)).toMatchObject({
+            bucket: "endless-hall-masters",
+            region: "eu-central-1",
+            endpoint: "https://s3.example.test",
+            forcePathStyle: true,
+            prefix: "hekate",
+            accessKeyId: "AKIAENDLESSHALL",
+            secretAccessKey: "masters-secret-do-not-echo",
+          });
+
+          const saved = await send("PUT", "/bucket", bucket, owner);
+          expect(saved.status).toBe(200);
+          const text = await saved.text();
+          // The response says the credentials are set, and nothing more.
+          expect(text).not.toContain("AKIAENDLESSHALL");
+          expect(text).not.toContain("masters-secret");
+          const view = JSON.parse(text) as View;
+          expect(view).toMatchObject({
+            usesBucket: true,
+            backend: null,
+            bucket: { bucket: "endless-hall-masters", prefix: "hekate", credentialsSet: true },
+          });
+          const [row] = await db
+            .select()
+            .from(schema.workspaceBuckets)
+            .where(eq(schema.workspaceBuckets.organisationId, organisationId));
+          expect(row?.credentialsSealed).not.toContain("masters-secret");
+          expect(JSON.stringify(row)).not.toContain("AKIAENDLESSHALL");
+          const [logged] = await db
+            .select()
+            .from(schema.accessEvents)
+            .where(eq(schema.accessEvents.action, "organisation.storage"));
+          expect(logged?.details).toEqual({
+            bucket: "endless-hall-masters/hekate at s3.example.test",
+            credentials: "changed",
+          });
+          expect(JSON.stringify(logged)).not.toContain("masters-secret");
+
+          // A new file lands in the bucket as ciphertext, and reads back.
+          const plain = Buffer.from("Maple Leaf Rag, take 2: the master");
+          const blob = await storage.put(organisationId, plain, { contentType: "audio/wav" });
+          expect(blob.backend).toBe(`bucket:${view.bucket?.id}`);
+          const stored = readFileSync(join(bucketRoot("endless-hall-masters", "hekate"), blob.key));
+          expect(stored.length).toBe(encryptedSize(plain.length));
+          expect(stored.includes(Buffer.from("Maple Leaf Rag"))).toBe(false);
+          expect(await read((await storage.open(organisationId, blob.id)).stream)).toEqual(plain);
+          expect(
+            (
+              await read((await storage.open(organisationId, blob.id, { start: 6, end: 9 })).stream)
+            ).toString(),
+          ).toBe("Leaf");
+          // A resumable upload goes there too, in parts.
+          const session = await storage.beginUpload(organisationId, 5, "audio/wav");
+          expect(session.backend).toBe(blob.backend);
+          const tag = await storage.putUploadChunk(
+            organisationId,
+            session,
+            0,
+            Buffer.from("strum"),
+          );
+          const uploaded = await storage.completeUpload(organisationId, session, [tag]);
+          expect(await read((await storage.open(organisationId, uploaded.id)).stream)).toEqual(
+            Buffer.from("strum"),
+          );
+          // A project's choice among the instance's backends does not take files out of it.
+          const made = await app.request(
+            "/api/projects",
+            json({ name: "Joplin Rags", profile: "music" }, owner),
+          );
+          const projectId = ((await made.json()) as { project: { id: string } }).project.id;
+          await db
+            .update(schema.projects)
+            .set({ storageBackend: "spare" })
+            .where(eq(schema.projects.id, projectId));
+          expect((await storage.put(organisationId, Buffer.from("x"), { projectId })).backend).toBe(
+            blob.backend,
+          );
+          // The file kept before stays where it was.
+          expect(
+            (await read((await storage.open(organisationId, before.id)).stream)).toString(),
+          ).toBe("Maple Leaf Rag, take 1");
+
+          // Saved again without credentials, for the same endpoint, they are kept; another bucket
+          // is another place, and the first keeps the files it holds.
+          bucketsMade.length = 0;
+          const moved = await send(
+            "PUT",
+            "/bucket",
+            { ...bucket, bucket: "endless-hall-archive", accessKeyId: "", secretAccessKey: "" },
+            owner,
+          );
+          expect(moved.status).toBe(200);
+          expect(bucketsMade.at(-1)).toMatchObject({
+            secretAccessKey: "masters-secret-do-not-echo",
+          });
+          const second = ((await moved.json()) as View).bucket?.id;
+          expect(second).not.toBe(view.bucket?.id);
+          expect((await storage.put(organisationId, Buffer.from("y"))).backend).toBe(
+            `bucket:${second}`,
+          );
+          expect(await read((await storage.open(organisationId, blob.id)).stream)).toEqual(plain);
+          // A new endpoint needs the credentials typed again.
+          const elsewhere = await send(
+            "PUT",
+            "/bucket",
+            { ...bucket, endpoint: "", accessKeyId: "", secretAccessKey: "" },
+            owner,
+          );
+          expect(elsewhere.status).toBe(422);
+          expect(await elsewhere.text()).toContain("again for a new endpoint");
+
+          // Back to the instance's storage: new files go there, the bucket's still read.
+          const back = await send("PUT", "", { backend: null }, owner);
+          expect(await back.json()).toMatchObject({ usesBucket: false, bucket: { id: second } });
+          expect((await storage.put(organisationId, Buffer.from("z"))).backend).toBe("local");
+          expect(await read((await storage.open(organisationId, blob.id)).stream)).toEqual(plain);
+
+          // Rotating the workspace's key re-seals the credentials, and the bucket still opens.
+          await keyring.rotate(organisationId);
+          await rewrapOrganisation(db, keyring, organisationId);
+          const [resealed] = await db
+            .select()
+            .from(schema.workspaceBuckets)
+            .where(eq(schema.workspaceBuckets.id, view.bucket?.id ?? ""));
+          expect(resealed?.keyVersion).toBe(2);
+          expect(await read((await storage.open(organisationId, blob.id)).stream)).toEqual(plain);
+
+          // The reconciliation looks in the workspace's buckets too, at its objects alone.
+          const swept = await reconcileStorage(
+            { db, storage, audit },
+            { organisations: [organisationId], remove: false },
+          );
+          expect(swept.map((r) => r.backend)).toEqual(
+            expect.arrayContaining([blob.backend, `bucket:${second}`]),
+          );
+          for (const r of swept) expect(r).toMatchObject({ orphanObjects: 0, missingObjects: 0 });
+
+          // The verification of a backup names the workspace as keeping its own.
+          const report = await verifyBackup({ db, storage, keyring }, { sample: 0 });
+          expect(report.objects.missing).toEqual([]);
+          expect(report.ownBuckets).toEqual([
+            {
+              workspace: "Studio",
+              bucket: "endless-hall-archive/hekate at s3.example.test",
+              objects: 4,
+            },
+          ]);
+          expect(describeReport(report)).toContain(
+            "1 workspace keeps files in a bucket of its own",
+          );
+        });
+
+        it("is the owners' to choose, and another workspace's bucket is never reached", async () => {
+          const owner = cookieOf(await setup());
+          const organisationId = await organisationOf(owner);
+          const admin = await joinAs(owner, "engineer@example.test", "admin");
+          const member = await joinAs(owner, "player@example.test", "member");
+          // Admins see where files go; only owners test or save; members see nothing.
+          expect(
+            (await app.request("/api/organisation/storage", { headers: { cookie: admin } })).status,
+          ).toBe(200);
+          expect((await send("POST", "/bucket/test", bucket, admin)).status).toBe(403);
+          expect((await send("PUT", "/bucket", bucket, admin)).status).toBe(403);
+          expect((await send("PUT", "/bucket", bucket, member)).status).toBe(403);
+          expect(
+            (await app.request("/api/organisation/storage", { headers: { cookie: member } }))
+              .status,
+          ).toBe(403);
+
+          const saved = (await (await send("PUT", "/bucket", bucket, owner)).json()) as View;
+          const bucketId = saved.bucket?.id ?? "";
+          const blob = await storage.put(organisationId, Buffer.from("Solace"));
+          // Another workspace: neither the bucket nor the blob, even with the bucket opened.
+          const [other] = await db
+            .insert(schema.organisations)
+            .values({ name: "Saltmarsh Films", slug: "saltmarsh-bucket" })
+            .returning();
+          const otherId = other?.id ?? "";
+          await expect(storage.backendOf(otherId, `bucket:${bucketId}`)).rejects.toThrow(
+            /has no bucket/,
+          );
+          await expect(storage.open(otherId, blob.id)).rejects.toThrow(/not found/i);
+          expect(await storage.buckets.current(otherId)).toBeNull();
+          // Naming the bucket as its own backend is refused: it is not one of the instance's.
+          await db
+            .update(schema.organisations)
+            .set({ storageBackend: `bucket:${bucketId}` })
+            .where(eq(schema.organisations.id, otherId));
+          await expect(storage.put(otherId, Buffer.from("theirs"))).rejects.toThrow(
+            /has no bucket/,
+          );
+          expect((await send("PUT", "", { backend: `bucket:${bucketId}` }, owner)).status).toBe(
+            400,
+          );
+        });
       });
 
       it("lets only owners rename the workspace", async () => {

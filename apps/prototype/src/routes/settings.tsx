@@ -9,10 +9,12 @@ import { Dot } from "~/components/status";
 import { StatusRows } from "~/components/status-desk";
 import { TicketDialog, TicketRow } from "~/components/tickets";
 import { Button } from "~/components/ui/button";
+import { ChoiceCard } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Floating } from "~/components/ui/floating";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
+import { Switch } from "~/components/ui/toggle";
 import {
   type AccessEvent,
   accessLog,
@@ -156,6 +158,141 @@ function Test({ state }: { state: "idle" | "ok" | "failed" }) {
         Test
       </Button>
     </span>
+  );
+}
+
+/**
+ * Where the workspace's new files go (#508): the instance's storage, or a bucket of its own on a
+ * plan that includes it. The access key and secret are never shown again once saved.
+ */
+function StorageChoice({ notOnPlan, failed }: { notOnPlan: boolean; failed: boolean }) {
+  const [picked, setPicked] = useState<"instance" | "bucket">(notOnPlan ? "instance" : "bucket");
+  const [tested, setTested] = useState<"idle" | "ok" | "failed">(failed ? "failed" : "idle");
+  const [pathStyle, setPathStyle] = useState(false);
+  return (
+    <Section
+      title="Where new files go"
+      intro="Existing files stay where they are; the choice applies to new ones. Files are encrypted before they leave Hekate, so a bucket holds ciphertext only."
+    >
+      <div className="px-4 py-row">
+        <fieldset className="grid w-full gap-2 @3xl/app:grid-cols-2">
+          <legend className="sr-only">Where new files go</legend>
+          <ChoiceCard
+            name="storage"
+            checked={picked === "instance"}
+            onChange={() => setPicked("instance")}
+            title="Instance storage"
+            hint={
+              notOnPlan
+                ? "Taking new files. Kept and backed up by this instance's operators."
+                : "Kept and backed up by this instance's operators."
+            }
+          />
+          <ChoiceCard
+            name="storage"
+            checked={picked === "bucket"}
+            disabled={notOnPlan}
+            onChange={() => setPicked("bucket")}
+            title="Your own S3-compatible bucket"
+            hint={
+              notOnPlan
+                ? "Your own storage is not on the Studio plan."
+                : "Taking new files: endless-hall-masters/hekate"
+            }
+          />
+        </fieldset>
+      </div>
+      {picked === "instance" && !notOnPlan && (
+        <Row
+          name="Move new files to the instance's storage"
+          hint="Files already in your bucket stay there and keep working. The bucket's details are kept, for coming back."
+        >
+          <Button variant="primary" size="md">
+            Switch
+          </Button>
+        </Row>
+      )}
+      {picked === "bucket" && (
+        <>
+          <Row name="Endpoint" hint="The service's address. Empty for Amazon S3.">
+            <Input
+              aria-label="Endpoint"
+              defaultValue="https://s3.eu-central-1.amazonaws.com"
+              className="w-full @3xl/app:w-96"
+            />
+          </Row>
+          <Row name="Bucket" hint="Its name and region; us-east-1 where the service has none.">
+            <span className="flex w-full flex-wrap gap-2 @3xl/app:w-96">
+              <Input
+                aria-label="Bucket"
+                defaultValue="endless-hall-masters"
+                className="min-w-0 flex-[2_1_10rem]"
+              />
+              <Input
+                aria-label="Region"
+                defaultValue="eu-central-1"
+                className="min-w-0 flex-[1_1_7rem]"
+              />
+            </span>
+          </Row>
+          <Row
+            name="Prefix"
+            hint="Optional. Hekate's objects go under it, in a bucket shared with other things."
+          >
+            <Input aria-label="Prefix" defaultValue="hekate" className="w-full @3xl/app:w-96" />
+          </Row>
+          <Row
+            name="Path-style addressing"
+            hint="Reach the bucket as endpoint/bucket rather than bucket.endpoint, as most self-hosted services need."
+          >
+            <Switch label="Path-style addressing" checked={pathStyle} onChange={setPathStyle} />
+          </Row>
+          <Row name="Access key" hint="Saved, and never shown again. Type both to replace them.">
+            <span className="flex w-full flex-wrap gap-2 @3xl/app:w-96">
+              <Input
+                aria-label="Access key ID"
+                placeholder="Access key ID, kept"
+                className="min-w-0 flex-[1_1_10rem]"
+              />
+              <Input
+                type="password"
+                aria-label="Secret access key"
+                placeholder="Secret, kept"
+                className="min-w-0 flex-[1_1_10rem]"
+              />
+            </span>
+          </Row>
+          <Row
+            name="Save changes"
+            hint={
+              tested === "failed" ? (
+                <span className="flex items-start gap-1.5 text-signal">
+                  <Icon name="warning" size={13} className="mt-[3px] shrink-0" />
+                  Could not write to the bucket: the access key may not do this in the bucket.
+                </span>
+              ) : tested === "ok" ? (
+                <span className="text-ink-2">Wrote a probe object and deleted it again.</span>
+              ) : (
+                "Saving tests it first: a small probe object is written and deleted again. New files go there from then on."
+              )
+            }
+          >
+            <span className="flex gap-2">
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => setTested(failed ? "failed" : "ok")}
+              >
+                Test connection
+              </Button>
+              <Button variant="primary" size="md">
+                Save
+              </Button>
+            </span>
+          </Row>
+        </>
+      )}
+    </Section>
   );
 }
 
@@ -1358,15 +1495,8 @@ export function SettingsPage({
             <Row name="Guests and projects" hint="31 guests · 2 projects" />
             <Row name="This month" hint="184 plays · 12 downloads · storage at its peak 251 GB" />
           </Section>
-          <Section
-            title="Backends"
-            action={
-              <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
-                <Icon name="plus" size={14} />
-                Backend
-              </Button>
-            }
-          >
+          <StorageChoice notOnPlan={state === "refused"} failed={state === "failed"} />
+          <Section title="Backends" intro="What this workspace keeps in each.">
             <Row
               name={
                 <span className="flex items-center gap-2">
@@ -1385,7 +1515,7 @@ export function SettingsPage({
                   Hetzner Object Storage (S3)
                 </span>
               }
-              hint="hekate-endless-hall, eu-central · default for new objects"
+              hint="hekate-endless-hall, eu-central · the instance default"
             >
               <span className="text-[12px] text-ink-3">214 GB used</span>
               <ActionMenu
@@ -1397,6 +1527,14 @@ export function SettingsPage({
                 ]}
               />
             </Row>
+            {state !== "refused" && (
+              <Row
+                name="Your bucket"
+                hint="Receives new files · endless-hall-masters/hekate at s3.eu-central-1.amazonaws.com · 1,204 objects"
+              >
+                <span className="text-[12px] text-ink-3">18 GB used</span>
+              </Row>
+            )}
           </Section>
           <Section title="Usage by project">
             {projects.map((p) => (

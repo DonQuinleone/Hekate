@@ -1706,11 +1706,11 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
   await priced("solo", "Solo", 0, { storageQuota: 1e11, memberLimit: 3, projectLimit: 1 });
   await priced("label", "Label", 19_000, {
     storageQuota: 5e12,
-    features: ["sso", "directory", "forensicMarking", "namedOperator"],
+    features: ["sso", "directory", "forensicMarking", "namedOperator", "ownStorage"],
     severities: ["low", "normal", "high", "urgent", "emergency"],
   });
   const all = await priced("custom", "Custom", -1, {
-    features: ["sso", "directory", "forensicMarking", "namedOperator"],
+    features: ["sso", "directory", "forensicMarking", "namedOperator", "ownStorage"],
     severities: ["low", "normal", "high", "urgent", "emergency"],
     hidden: true,
   });

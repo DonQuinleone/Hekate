@@ -55,6 +55,7 @@ const actionWords = {
   "organisation.channel_change": "Channel changed",
   "organisation.channel_remove": "Channel removed",
   "organisation.mail": "Workspace mail changed",
+  "organisation.storage": "Workspace storage changed",
   "organisation.export_request": "Workspace export asked for",
   "organisation.export_download": "Workspace export downloaded",
   "organisation.deletion_request": "Workspace deletion asked for",

@@ -3620,6 +3620,43 @@ export const workspaceMail = pgTable(
 );
 
 /**
+ * A workspace's own S3-compatible bucket (#508), on a plan that includes it: where its new files
+ * go instead of the instance's storage while `organisations.storage_backend` names it
+ * (`bucket:<id>`). Each place (endpoint, bucket, prefix) is a row of its own, kept once
+ * another replaces it (`replaced_at`) for as long as blobs name it, so files stored there keep
+ * reading. The access key and secret are sealed with the workspace's key, as its mail's are,
+ * and never leave the server. The bucket holds ciphertext only, as every backend does.
+ */
+export const workspaceBuckets = pgTable(
+  "workspace_buckets",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    /** Null is Amazon S3 itself, found by region. */
+    endpoint: text("endpoint"),
+    region: text("region").notNull(),
+    bucket: text("bucket").notNull(),
+    /** Keys go under it, for a bucket shared with other things; empty is none. */
+    prefix: text("prefix").notNull().default(""),
+    pathStyle: boolean("path_style").notNull().default(false),
+    /** The access key and secret, as JSON, sealed with the workspace's key. */
+    credentialsSealed: text("credentials_sealed").notNull(),
+    /** The version of the workspace key that sealed them. */
+    keyVersion: integer("key_version").notNull(),
+    /** Another place took its new files; it is kept for the files it still holds. */
+    replacedAt: timestamp("replaced_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index("workspace_buckets_organisation_idx").on(t.organisationId),
+    // One current place a workspace keeps, however many it has had.
+    uniqueIndex("workspace_buckets_current_idx")
+      .on(t.organisationId)
+      .where(sql`${t.replacedAt} is null`),
+  ],
+);
+
+/**
  * Addresses mail is no longer sent to (#161), because the instance's provider reported a hard
  * bounce or a complaint: global, as the instance's mail sends for everyone. A workspace's own
  * provider's reports are kept apart, in `workspace_mail_suppressions`.
