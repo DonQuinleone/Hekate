@@ -6,6 +6,7 @@ import { HTTPException } from "hono/http-exception";
 import { NotFound } from "./errors.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
+import { keepAnOwner } from "./project-owners.ts";
 import { dataKeyContext, type Storage } from "./storage.ts";
 import { assertProjectRoom } from "./usage.ts";
 
@@ -34,6 +35,7 @@ export const transferTables = {
     "projects",
     "project_roles",
     "project_members",
+    "project_owners",
     "folders",
     "sessions",
     "session_tracks",
@@ -332,7 +334,8 @@ async function assertEligible(
  * copied too, every key rewrapped with the gaining workspace's key, every row moved, and what
  * cannot follow it mapped or left behind:
  * - people who are not members of the gaining workspace lose their place in the project, and
- *   the tasks and threads given to them are given to nobody;
+ *   the tasks and threads given to them are given to nobody; one left with no owner is given
+ *   its earliest member there, else the gaining workspace's earliest owner;
  * - guests are matched in the gaining workspace by address, or added to it;
  * - tags and custom delivery profiles are matched by name, or copied;
  * - unfinished uploads, download tickets, calendar links, upload requests and listening rooms
@@ -414,6 +417,8 @@ export async function moveProject(
       await mapTags(tx, projectId, from, to);
       await mapProfiles(tx, projectId, from, to);
       await moveRows(tx, projectId, from, to);
+      // Every owner it had may have stayed behind: it is never without one (decision 285).
+      await keepAnOwner(tx, to, [projectId]);
       return {
         result: { objects: objects.length, leftBehind },
         old: objects.filter(moves),
@@ -482,6 +487,9 @@ async function leavePeople(tx: Tx, projectId: string, from: string, to: string) 
   const reviews = idsIn("reviews", from, sql`project_id = ${projectId}`);
   const groups = idsIn("groups", from, sql`project_id = ${projectId}`);
   await tx.execute(sql`delete from project_members where organisation_id = ${from}
+    and project_id = ${projectId} and user_id not in ${kept}`);
+  // Their ownership too; a project left with none is given one once it has moved.
+  await tx.execute(sql`delete from project_owners where organisation_id = ${from}
     and project_id = ${projectId} and user_id not in ${kept}`);
   await tx.execute(sql`delete from group_members where organisation_id = ${from}
     and user_id is not null and user_id not in ${kept} and group_id in ${groups}`);
@@ -698,6 +706,7 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
     ...[
       "project_roles",
       "project_members",
+      "project_owners",
       "folders",
       "sessions",
       "workflows",

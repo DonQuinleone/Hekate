@@ -12775,6 +12775,12 @@ describe.runIf(url)("api", () => {
             .update(schema.blobs)
             .set({ sha256: null })
             .where(eq(schema.blobs.id, oldBlob.id));
+          // A second owner, who is not in the gaining workspace (decision 285).
+          await db.insert(schema.projectOwners).values({
+            organisationId: s.organisationId,
+            projectId: s.projectId,
+            userId: s.ids.composer,
+          });
           sent.length = 0;
           const moved = await moveProject(deps, move);
           expect(sent).toEqual([
@@ -12809,6 +12815,16 @@ describe.runIf(url)("api", () => {
             .from(schema.projectMembers)
             .where(eq(schema.projectMembers.projectId, s.projectId));
           expect(people.map((p) => p.userId).sort()).toEqual([s.ids.owner, s.ids.engineer].sort());
+          // Its owners too: the one who came still owns it, there; the one left behind does not.
+          expect(
+            await db
+              .select({
+                userId: schema.projectOwners.userId,
+                organisationId: schema.projectOwners.organisationId,
+              })
+              .from(schema.projectOwners)
+              .where(eq(schema.projectOwners.projectId, s.projectId)),
+          ).toEqual([{ userId: s.ids.owner, organisationId: to }]);
           // So do their standing grants.
           expect(
             await db

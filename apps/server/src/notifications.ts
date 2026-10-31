@@ -74,6 +74,18 @@ async function reachable(db: Db, organisationId: string, ids: string[], projectI
     .from(members)
     .where(inOrg(members, organisationId, inArray(members.userId, ids)));
   if (!projectId) return rows.map((r) => r.userId);
+  // A project's owners see it whatever their role (decision 285).
+  const owning = await db
+    .select({ userId: schema.projectOwners.userId })
+    .from(schema.projectOwners)
+    .where(
+      inOrg(
+        schema.projectOwners,
+        organisationId,
+        eq(schema.projectOwners.projectId, projectId),
+        inArray(schema.projectOwners.userId, ids),
+      ),
+    );
   const seeing = new Set(
     (
       await db
@@ -97,6 +109,7 @@ async function reachable(db: Db, organisationId: string, ids: string[], projectI
         )
     ).map((r) => r.userId),
   );
+  for (const o of owning) seeing.add(o.userId);
   return rows
     .filter((r) => r.role === "owner" || r.role === "admin" || seeing.has(r.userId))
     .map((r) => r.userId);

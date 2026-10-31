@@ -74,7 +74,8 @@ async function takers(db: Database, organisationId: string) {
 
 /**
  * Who may approve moving a project out, or withdraw it: the losing workspace's owners and
- * admins, and members whose role in the project may delete it.
+ * admins, the project's own owners (decision 285), and members whose role in the project may
+ * delete it.
  */
 async function approvers(db: Database, organisationId: string, projectId: string) {
   const roles = await db
@@ -91,7 +92,19 @@ async function approvers(db: Database, organisationId: string, projectId: string
   const deleting = roles
     .filter((r) => r.permissions.includes("delete_project"))
     .map((r) => r.userId);
-  return [...new Set([...(await takers(db, organisationId)), ...deleting])];
+  const owners = await db
+    .select({ userId: schema.projectOwners.userId })
+    .from(schema.projectOwners)
+    .where(
+      inOrg(schema.projectOwners, organisationId, eq(schema.projectOwners.projectId, projectId)),
+    );
+  return [
+    ...new Set([
+      ...(await takers(db, organisationId)),
+      ...owners.map((o) => o.userId),
+      ...deleting,
+    ]),
+  ];
 }
 
 /** The workspace role someone holds in a workspace, or null when they are not a member. */

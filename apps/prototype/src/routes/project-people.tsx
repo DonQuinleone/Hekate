@@ -3,12 +3,13 @@ import { Avatar, AvatarRow } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { Card, SectionHead } from "~/components/page";
 import { PermissionsDialog } from "~/components/permissions";
+import { PeopleField, type Person } from "~/components/share";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
-import { groups, guests, initials, type Project, personById, reviews } from "~/data";
+import { groups, guests, initials, members, type Project, personById, reviews } from "~/data";
 import { formatDate } from "~/lib/format";
 import { useViewer } from "~/viewer/context";
 
@@ -31,12 +32,90 @@ export function People({ project }: { project: Project }) {
   const [permissionsFor, setPermissionsFor] = useState<{ id: string; guest: boolean } | null>(null);
   const memberIds = new Set(project.members.map((m) => m.personId));
   const projectGuests = guests.filter((g) => !memberIds.has(g.personId) || g.personId === "p-mira");
+  // Who owns it (decision 285): fixed above its roles, at least one, handed on as people leave.
+  const [owners, setOwners] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      project.members.flatMap((m) => (m.ownerSince ? [[m.personId, m.ownerSince]] : [])),
+    ),
+  );
+  const [leaving, setLeaving] = useState(false);
+  const [left, setLeft] = useState(false);
+  // Owners are managed by owners, and by the workspace's owners and admins.
+  const manageOwners =
+    viewer.owns(project.id) ||
+    viewer.persona.organisationRole === "owner" ||
+    viewer.persona.organisationRole === "admin";
+  const ownerIds = Object.keys(owners);
+  const here = project.members.filter((m) => !(left && m.personId === viewer.personId));
+  const ownerRows = here.filter((m) => owners[m.personId]);
+  const memberRows = here.filter((m) => !owners[m.personId]);
+  const mine = (personId: string) => personId === viewer.personId;
+  const leaveAction = (personId: string) =>
+    mine(personId) ? [{ label: "Leave project…", onSelect: () => setLeaving(true) }] : [];
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
+        <SectionHead title="Owners" hint="everything in this project, whatever their role" />
+        <Card>
+          <ul className="list-none p-0">
+            {ownerRows.map((m) => {
+              const p = personById(m.personId);
+              const since = owners[m.personId] ?? "";
+              const actions = [
+                // A project keeps at least one owner: the last cannot step down.
+                ...(manageOwners && ownerIds.length > 1
+                  ? [
+                      {
+                        label: "Make a member",
+                        hint: "Back to their role in the project",
+                        onSelect: () => {
+                          const { [m.personId]: _, ...rest } = owners;
+                          setOwners(rest);
+                        },
+                      },
+                    ]
+                  : []),
+                ...leaveAction(m.personId),
+              ];
+              return (
+                <li
+                  key={m.personId}
+                  className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-4 py-2.5 last:border-b-0 @3xl/app:grid-cols-[auto_minmax(0,1fr)_150px_150px_auto]"
+                >
+                  <Avatar personId={m.personId} size={30} />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[14px] text-ink">
+                      {p.name}
+                      {mine(m.personId) && <span className="text-ink-3"> · you</span>}
+                    </span>
+                    <span className="block truncate text-[13px] text-ink-3">{p.email}</span>
+                  </span>
+                  <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
+                    Active {m.personId === "p-ines" ? "yesterday" : "today"}
+                  </span>
+                  <span className="hidden text-[13px] text-ink-2 @3xl/app:block">
+                    Owner since {formatDate(since)}
+                  </span>
+                  <span className="w-8">
+                    {actions.length > 0 && <ActionMenu always label={p.name} actions={actions} />}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+        <p className="text-[12px] text-ink-3">
+          {ownerIds.length === 1
+            ? "A project always has an owner: make someone else one before this one steps down. "
+            : ""}
+          Workspace owners and admins can do everything in every project too.
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-3">
         <SectionHead
           title="Members"
-          hint={`${project.members.length} with accounts`}
+          hint={`${memberRows.length} with a role here`}
           action={
             manage && (
               <Button variant="secondary" size="md" onClick={() => setDialog("member")}>
@@ -48,9 +127,35 @@ export function People({ project }: { project: Project }) {
         />
         <Card>
           <ul className="list-none p-0">
-            {project.members.map((m) => {
+            {memberRows.map((m) => {
               const p = personById(m.personId);
               const role = project.roles.find((r) => r.id === m.roleId);
+              const actions = [
+                ...(manageOwners
+                  ? [
+                      {
+                        label: "Make an owner",
+                        hint: "Everything in the project, whatever their role",
+                        onSelect: () => setOwners({ ...owners, [m.personId]: NOW_ISO }),
+                      },
+                    ]
+                  : []),
+                ...(manage
+                  ? [
+                      {
+                        label: "Review permissions…",
+                        onSelect: () => setPermissionsFor({ id: m.personId, guest: false }),
+                      },
+                    ]
+                  : []),
+                ...leaveAction(m.personId),
+                ...(manage && !mine(m.personId)
+                  ? [
+                      "divider" as const,
+                      { label: "Remove from project", danger: true, onSelect: () => {} },
+                    ]
+                  : []),
+              ];
               return (
                 <li
                   key={m.personId}
@@ -60,7 +165,7 @@ export function People({ project }: { project: Project }) {
                   <span className="min-w-0">
                     <span className="block truncate text-[14px] text-ink">
                       {p.name}
-                      {m.personId === viewer.personId && <span className="text-ink-3"> · you</span>}
+                      {mine(m.personId) && <span className="text-ink-3"> · you</span>}
                     </span>
                     <span className="block truncate text-[13px] text-ink-3">{p.email}</span>
                   </span>
@@ -79,23 +184,16 @@ export function People({ project }: { project: Project }) {
                     <span className="text-[13px] text-ink-2">{role?.name}</span>
                   )}
                   <span className="w-8">
-                    {manage && (
-                      <ActionMenu
-                        label={p.name}
-                        actions={[
-                          {
-                            label: "Review permissions…",
-                            onSelect: () => setPermissionsFor({ id: m.personId, guest: false }),
-                          },
-                          "divider",
-                          { label: "Remove from project", danger: true, onSelect: () => {} },
-                        ]}
-                      />
-                    )}
+                    {actions.length > 0 && <ActionMenu label={p.name} actions={actions} />}
                   </span>
                 </li>
               );
             })}
+            {memberRows.length === 0 && (
+              <li className="px-4 py-4 text-[13px] text-ink-3">
+                Nobody but its owners yet. Add members to give them a role.
+              </li>
+            )}
           </ul>
         </Card>
       </section>
@@ -275,6 +373,19 @@ export function People({ project }: { project: Project }) {
         </div>
       </section>
 
+      {leaving && (
+        <LeaveDialog
+          project={project}
+          lastOwner={Boolean(owners[viewer.personId]) && ownerIds.length === 1}
+          onClose={() => setLeaving(false)}
+          onLeave={(successor) => {
+            const { [viewer.personId]: _, ...rest } = owners;
+            setOwners(successor ? { ...rest, [successor]: NOW_ISO } : rest);
+            setLeft(true);
+            setLeaving(false);
+          }}
+        />
+      )}
       {permissionsFor && (
         <PermissionsDialog
           personId={permissionsFor.id}
@@ -449,5 +560,80 @@ export function People({ project }: { project: Project }) {
         </Dialog>
       )}
     </div>
+  );
+}
+
+/** What a new owner's "since" reads in the prototype: its fixed today. */
+const NOW_ISO = "2026-10-15T09:00:00Z";
+
+/**
+ * Leaving a project (decision 285): you lose your place in it. Its last owner cannot simply
+ * go, as Slack's primary owner cannot: they choose who takes over, who becomes an owner as
+ * they leave.
+ */
+function LeaveDialog({
+  project,
+  lastOwner,
+  onClose,
+  onLeave,
+}: {
+  project: Project;
+  lastOwner: boolean;
+  onClose: () => void;
+  onLeave: (successor: string | null) => void;
+}) {
+  const viewer = useViewer();
+  const [chosen, setChosen] = useState<Person[]>([]);
+  const people: Person[] = members
+    .filter((m) => m.personId !== viewer.personId)
+    .map((m) => ({
+      key: `member:${m.personId}`,
+      name: personById(m.personId).name,
+      hint: project.members.some((x) => x.personId === m.personId)
+        ? "In this project"
+        : "In the workspace",
+      kind: "member" as const,
+      personId: m.personId,
+    }));
+  const successor = chosen[0]?.personId ?? null;
+  return (
+    <Dialog
+      title={`Leave ${project.name}?`}
+      description={
+        lastOwner
+          ? "You are its only owner, and a project always has one. Choose who takes over: they become its owner as you leave."
+          : "You lose your place in it and what your role gave you. An owner or a workspace admin can add you again."
+      }
+      onClose={onClose}
+      width="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={lastOwner && !successor}
+            onClick={() => onLeave(lastOwner ? successor : null)}
+          >
+            {lastOwner ? "Hand over and leave" : "Leave project"}
+          </Button>
+        </>
+      }
+    >
+      {lastOwner && (
+        <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Who takes over
+          <PeopleField
+            label="Who takes over"
+            placeholder="A member of the workspace"
+            people={people}
+            chosen={chosen}
+            // One successor: a new choice takes the place of the last, and only a member counts.
+            onChange={(next) => setChosen(next.filter((p) => p.kind === "member").slice(-1))}
+          />
+        </div>
+      )}
+    </Dialog>
   );
 }

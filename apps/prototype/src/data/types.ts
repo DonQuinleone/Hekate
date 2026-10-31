@@ -64,6 +64,11 @@ export interface ProjectRole {
 export interface ProjectMembership {
   personId: string;
   roleId: string;
+  /**
+   * When they became one of the project's owners (decision 285), fixed above its roles: an
+   * owner may do everything in it, whatever their role says. A project has at least one.
+   */
+  ownerSince?: string;
 }
 
 export interface Group {

@@ -121,9 +121,10 @@ function ExceptionDialog({
   const has = (kind: ToolException["kind"], id: string) =>
     taken.some((e) => e.kind === kind && e.subjectId === id);
   const choices = [
-    // Not the workspace's owners and admins: they keep every tool, so an exception would do nothing.
+    // Not the workspace's owners and admins, nor the project's owners (decision 285): they keep
+    // every tool, so an exception would do nothing.
     ...members
-      .filter((m) => m.workspaceRole === "member" && !has("member", m.userId))
+      .filter((m) => m.workspaceRole === "member" && !m.ownerSince && !has("member", m.userId))
       .map((m) => ({ value: `member:${m.userId}`, label: m.name, group: "People" })),
     ...guests
       .filter((g) => !has("guest", g.id))

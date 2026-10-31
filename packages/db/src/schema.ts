@@ -642,6 +642,31 @@ export const projectMembers = pgTable(
   ],
 );
 
+/**
+ * A project's owners (#507, decision 285): fixed above its roles, so an owner may do everything
+ * in it whatever their role says, as the workspace's owners and admins may. Its creator is the
+ * first; there may be several, as a Slack workspace has, and never none: the last steps down
+ * or leaves only by handing it on. An owner usually holds a role too, which they go back to as
+ * a member; one who holds none is given the creator's.
+ */
+export const projectOwners = pgTable(
+  "project_owners",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** When they became one. */
+    since: timestamp("since", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("project_owners_user_idx").on(t.organisationId, t.projectId, t.userId),
+    index("project_owners_user_lookup_idx").on(t.userId),
+  ],
+);
+
 /** Folders nest; a null parent is the project root. */
 export const folders = pgTable(
   "folders",

@@ -84,9 +84,18 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean, b
         .select({
           project: projects,
           memberId: projectMembers.id,
+          ownerId: schema.projectOwners.id,
           rolePermissions: projectRoles.permissions,
         })
         .from(projects)
+        .leftJoin(
+          schema.projectOwners,
+          and(
+            eq(schema.projectOwners.projectId, projects.id),
+            eq(schema.projectOwners.organisationId, organisationId),
+            eq(schema.projectOwners.userId, userId),
+          ),
+        )
         .leftJoin(
           projectMembers,
           and(
@@ -113,9 +122,11 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean, b
         .orderBy(desc(projects.createdAt));
       const list = rows.map((r) => ({
         ...shown(r.project),
-        mine: r.memberId !== null,
+        mine: r.memberId !== null || r.ownerId !== null,
         // Archiving is part of running the project: whoever manages its roles and members.
-        mayArchive: permissionsFor(organisationRole, r.rolePermissions).has("delete_project"),
+        mayArchive: permissionsFor(organisationRole, r.rolePermissions, r.ownerId !== null).has(
+          "delete_project",
+        ),
       }));
       if (!figures || list.length === 0) return c.json({ projects: list });
       const counted = await projectFigures(
@@ -272,6 +283,10 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean, b
           userId: c.var.userId,
           roleId: producer.id,
         });
+        // And is its first owner (decision 285): a project is never without one.
+        await tx
+          .insert(schema.projectOwners)
+          .values({ organisationId, projectId: created.id, userId: c.var.userId });
         return created;
       });
       // The creator may do whatever their role allows; a Producer, everything.
