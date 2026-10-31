@@ -374,7 +374,14 @@ export function qaReportPages(doc: QaDocument, look: ReportLook, layout?: SetWor
     top += 54;
 
     // The verdict, in one line.
-    const words = wrapped(doc.verdict.words, W - 34, 17, true);
+    // Balanced: a last word alone on its line pulls the lines in until it has company.
+    let words = wrapped(doc.verdict.words, W - 34, 17, true);
+    for (
+      let narrower = 0.9;
+      narrower > 0.6 && words.length > 1 && !words.at(-1)?.includes(" ");
+      narrower -= 0.1
+    )
+      words = wrapped(doc.verdict.words, (W - 34) * narrower, 17, true);
     const height = 24 + words.length * 22;
     box(M, top, 3, height, doc.verdict.tone === "pass" ? PRINT.ink3 : accent);
     dot(doc.verdict.tone, M + 20, top + 20.5, 5);
