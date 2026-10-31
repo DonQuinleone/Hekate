@@ -93,6 +93,12 @@ A workspace's owners, and the instance's operators, can take away everything it 
 - A guest reaches a shared take only through a thread their review shows them: on a file of their review, or carried to one, and within their comment scope. They reach it as they reach that file, within the same window and play limit, but to listen only: no comment, no download, and none of the take's own comments, their own from an earlier review included, while a share is all that reaches it.
 - Only those who triage the thread's file and may see the project's takes share or unshare one, from takes of the same project. Both are in the access log (`comment.takes_share`, `comment.takes_unshare`), and unsharing closes the take to the guest at once.
 
+### Files linked to a comment
+
+- A file already in the project linked to a comment (#527, decision 294) is a link, not a copy: the comment names the file, and the file opens in the viewer, through the delivery path above, for each reader as their own access allows. No route returns its bytes from the comment, and a comment never shows it as a download.
+- Only the comment's author links, while they may comment on the thread's file, and only files of that file's project they can see: never a take's, another project's or another workspace's. Members only; a guest sees no project to pick from. The author while they may comment, or whoever triages, unlinks. Both are in the access log (`comment.files_link`, `comment.files_unlink`).
+- A guest reaches a linked file only through a comment their review shows them, within its comment scope, and through that review alone: its window, play limit and tools, and its download, which is none unless it gives one (a download it gives is marked, one-time and logged as any). No comment of their own on it, none of its threads, no compare with it. Every page drawn, key issued and segment served is in the access log with the guest and that review. Unlinking, narrowing their scope or the review closing shuts it at once.
+
 ### Listening rooms
 
 - A listening room (#200, decision 234) carries only where its leader is: a file's id, playing or paused, a position and a speed. No playback token, segment address or key passes from the leader to a listener; each listener's page asks for its own playback of that file, on its own session, so their permissions, watermark and access log apply as they would to the file opened by hand.

@@ -31,7 +31,7 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Stage plan** | A metre-scaled plan of a venue's stage: performers, ensemble blocks, microphones, instruments, risers, cables and walls, over an optional floor-plan underlay. |
 | **Patch list** | The stage boxes of a project and the input and output channel tables of each, linked to the microphones on the stage plan. |
 | **Coverage** | The page and bar range of the score that a take, or a set of takes, contains. Used to answer "which takes cover bar 72?". |
-| **Comment** | A note on a file, optionally anchored to a place in it. Comments can be threaded and resolved. |
+| **Comment** | A note on a file, optionally anchored to a place in it. Comments can be threaded and resolved. A comment can carry files uploaded to it, files already in the project linked to it (each opened in the viewer, as each reader may), and, on a thread, takes shared with it. |
 | **Category** | A configurable label on a comment, such as *Noise*, *Edit*, *Balance*, *Performance*. A category can carry a default handling, for example *Noise* defers the comment to a later stage. Categories are defined per project. |
 | **Deferred** | A comment set aside for a later stage of the workflow (typically noise, handled at the end). It stays open and reappears when that stage starts. |
 | **Carry-over** | Linking a comment raised on one version to the version where it was addressed, with the anchor mapped across, so the reviewer can hear or see a before and after. Whoever adds a version confirms or corrects it: each open thread is carried, carried but hidden, or settled as the version lands. |
@@ -217,7 +217,7 @@ Every reviewer in a review has their own permission set. Defaults are set per wo
 - **Access window:** start and expiry dates, and a maximum number of views or plays
 - **Actions:** comment, record an approval decision, invite others
 
-The same model applies to members in a review (their project role sets the ceiling) and to guests (the review sets it entirely).
+The same model applies to members in a review (their project role sets the ceiling) and to guests (the review sets it entirely). A file linked to a comment a guest can see opens for them too, through that review: to look at and listen to with its tools, its window and its download, and nothing more (decision 294).
 
 What a reviewer starts with is built up from the general to the particular, each layer changing only what it names: the workspace's defaults (Settings, Defaults), then anything the request sets for everyone, then what the project's People page sets for that person, then any override the request makes for them alone (decision 141). The People page holds no dates or items, which belong to one review.
 
