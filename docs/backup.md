@@ -45,6 +45,10 @@ docker compose --env-file .env -f deploy/compose.yml stop app
 
 With S3, files uploaded after the dump may be in the bucket but not the database; they are harmless, and the daily storage reconciliation removes them after a restore.
 
+### A workspace's own bucket
+
+A workspace on a plan that includes it can keep its new files in an S3-compatible bucket of its own (Workspace settings, Storage; decision 286). That bucket is the workspace's to back up, not the operator's: this backup holds the database rows that name its files and the keys that open them, never the files. Its owners should keep versions there as above, for at least as long as you keep database dumps, or a restore will name files their bucket no longer has. Its credentials are in the database, sealed with the workspace key, so they come back with the dump.
+
 ## Restoring
 
 1. Stop Hekate: `docker compose --env-file .env -f deploy/compose.yml stop app`.
@@ -65,7 +69,7 @@ With S3, files uploaded after the dump may be in the bucket but not the database
    docker compose --env-file .env -f deploy/compose.yml run --rm app apps/server/src/cli.ts backup verify
    ```
 
-   It checks that every workspace key opens with the master key, that every file the database records is in its storage, and that a random sample of files (`--sample 50` for more) reads back, decrypts and matches its checksum. It changes nothing. A `FAIL` line names what is wrong: a different master key, a storage copy from the wrong day, or a backend that is not configured.
+   It checks that every workspace key opens with the master key, that every file the database records is in its storage, and that a random sample of files (`--sample 50` for more) reads back, decrypts and matches its checksum. It changes nothing. A `FAIL` line names what is wrong: a different master key, a storage copy from the wrong day, or a backend that is not configured. A `note` line lists the workspaces that keep files in a bucket of their own, with the bucket and how many objects it holds: their files are checked in their buckets like any others, and are theirs to restore.
 
 6. Start Hekate: `docker compose --env-file .env -f deploy/compose.yml start app`.
 
