@@ -35,6 +35,7 @@ import {
   UploadZone,
 } from "~/components/ui/upload-dialog";
 import { FrameGuides, GoToTimecode } from "~/components/video-frame";
+import { GroupLegend, KindLegend } from "~/components/workflow-kinds";
 import { cn } from "~/lib/cn";
 import { categoryTones } from "~/lib/comments";
 
@@ -846,6 +847,20 @@ function Components() {
             <span className="tabular text-[12px] text-ink-3">2</span>
           </span>
         </Spec>
+      </Section>
+      <Section
+        title="Workflow nodes"
+        intro="Each kind of node has a family, which gives its colour and shape, and an icon of its own: no two kinds are drawn alike, on the canvas, in the picker or in any list that offers them."
+      >
+        <Spec
+          name="Families"
+          rule="In the order a workflow reads; the key on the canvas and in the picker."
+        >
+          <GroupLegend />
+        </Spec>
+        <div className="px-4 py-4">
+          <KindLegend />
+        </div>
       </Section>
       <Section
         title="Video frame"

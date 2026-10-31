@@ -79,10 +79,10 @@ connectors:
 | Key | |
 | --- | --- |
 | `id` | How connectors refer to it: letters, digits, hyphens and underscores. |
-| `event` or `action` | What it is. Events: `upload`, `folder`, `manual`, `review`, `decision`, `submitted`, `comment`, `resolved`, `task_done`, `due`, `opened`, `download`, `mention`. Actions: `approval`, `feedback`, `task`, `checks`, `notify`, `status`, `wait`, `share`, `move`, `finish`. |
+| `event` or `action` | What it is. Events: `upload`, `folder`, `manual`, `review`, `decision`, `submitted`, `comment`, `resolved`, `task_done`, `due`, `opened`, `download`, `mention`, `recorded`. Actions: `approval` (the builder's *Approval review*), `feedback` (*Feedback review*), `task`, `checks` (the *QA check*: the project's QA rules on the version), `notify`, `status` (*Set status*), `wait`, `share`, `move`, `finish`. |
 | `name` | What it is called on the canvas and in a track's history. |
 | `group` | The id of the group it belongs to (optional). |
-| `with` | Its settings, as the builder's inspector shows them (optional): `who`, `order`, `rule`, `status`, `due`, `to`, `message`, `days`, `expires`, `folder`. |
+| `with` | Its settings, as the builder's inspector shows them (optional): `who`, `order`, `rule`, `status`, `due`, `to`, `message`, `days`, `expires`, `folder`, and on the start, `triggers`: anything else that starts the workflow there, as events separated by commas (`manual, recorded`). |
 | `at` | Where it sits on the canvas, as `[x, y]` in pixels (optional; without it, steps are placed in a row). |
 
 **`connectors`** lists how the steps lead on, each with:
@@ -95,7 +95,9 @@ connectors:
 | `when` or `unless` | A condition (optional): `kind audio` (or `video`, `document`, `image`), `tag Rush`, or `by guest` (or `member`, who made the decision). `unless` turns it round. |
 | `until` | For a loop back to an earlier step: how many times it may be taken. |
 
-Each step's outcomes are the ones the builder shows: an approval ends by `approved`, `mixed` or `changes`; feedback and a task by `done` or `overdue`; checks by `passed`, `warnings` or `failed`; an event by `happened`; a notification or a share by `sent`; a status by `set`; a wait by `elapsed`; a move by `moved`. A finish has none.
+A workflow has one start: the event with nothing before it. Another entry point is a trigger of that start, not a second start; a different path is a workflow of its own.
+
+Each step's outcomes are the ones the builder shows: an approval ends by `approved`, `mixed` or `changes`; feedback and a task by `done` or `overdue`; a QA check (`checks`) by `passed`, `warnings` or `failed`; an event by `happened`; a notification or a share by `sent`; a status by `set`; a wait by `elapsed`; a move by `moved`. A finish has none.
 
 ## Writing YAML by hand
 

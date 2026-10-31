@@ -19,12 +19,18 @@
   /** Which way native controls (scroll bars, form fields) are drawn. */
   --hk-scheme: dark;
 
-  /* Workflow node families, each told apart by shape as well as colour. */
+  /*
+   * Workflow node families, each told apart by shape as well as colour (#512): a start, a
+   * review, a task, a message, a status, and, from the colours the app already has, a QA check
+   * (warm) and a wait (quiet ink).
+   */
   --hk-node-event: var(--hk-signal);
   --hk-node-review: #6fa8ff;
   --hk-node-work: #58b98a;
   --hk-node-comm: #b08cff;
   --hk-node-flow: #4fc3c9;
+  --hk-node-qa: var(--hk-wave-warm);
+  --hk-node-wait: var(--hk-ink-2);
 
   /* Waveform colours a listener may choose besides ink and signal (View, Waveform). */
   --hk-wave-cool: #7cc1e9;

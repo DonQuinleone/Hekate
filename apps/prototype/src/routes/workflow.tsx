@@ -7,11 +7,8 @@ import { Input, Select } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import {
-  type ActionType,
-  actionTypes,
   type Connector,
   customRules,
-  type EventType,
   eventTypes,
   type Flow,
   type FlowNode,
@@ -106,77 +103,121 @@ function boundsOf(nodes: { x: number; y: number }[]): Bounds {
   };
 }
 
-/* ---------- Node families: a shape and a colour each ---------- */
+/* ---------- Node families: a colour and a shape each, and an icon per kind (#512) ---------- */
 
-type Family = "event" | "review" | "work" | "comm" | "flow" | "finish";
+type Family = "start" | "qa" | "review" | "task" | "wait" | "status" | "notify" | "finish";
+
+/** The families in the order a workflow reads, left to right, each with its kinds in order. */
+const familyOrder: Family[] = [
+  "start",
+  "qa",
+  "review",
+  "task",
+  "wait",
+  "status",
+  "notify",
+  "finish",
+];
+
+export const familyKinds: Record<Family, NodeType[]> = {
+  start: ["upload", "manual", "recorded", "folder", "review"],
+  qa: ["checks"],
+  review: ["feedback", "approval"],
+  task: ["task"],
+  wait: [
+    "wait",
+    "decision",
+    "submitted",
+    "comment",
+    "resolved",
+    "task_done",
+    "due",
+    "opened",
+    "download",
+    "mention",
+  ],
+  status: ["status", "move"],
+  notify: ["notify", "share"],
+  finish: ["finish"],
+};
 
 export const familyOf = (t: NodeType): Family =>
-  t in eventTypes
-    ? "event"
-    : t === "approval" || t === "feedback"
-      ? "review"
-      : t === "task" || t === "checks"
-        ? "work"
-        : t === "notify" || t === "share"
-          ? "comm"
-          : t === "finish"
-            ? "finish"
-            : "flow";
+  familyOrder.find((f) => familyKinds[f].includes(t)) ?? "wait";
+
+const eventShape = "rounded-l-full rounded-r-panel pl-4";
+const slanted = "rounded-panel [clip-path:polygon(10px_0,100%_0,calc(100%-10px)_100%,0_100%)] pl-5";
 
 export const families: Record<
   Family,
   { label: string; hint: string; shape: string; tile: string; swatch: string }
 > = {
-  event: {
-    label: "Event",
-    hint: "Something happens; a D-shape, in the signal colour",
-    shape: "rounded-l-full rounded-r-panel pl-4",
+  start: {
+    label: "Start",
+    hint: "What begins the workflow",
+    shape: eventShape,
     tile: "bg-node-event/15 text-node-event",
     swatch: "rounded-l-full rounded-r-[3px] bg-node-event/70",
   },
+  qa: {
+    label: "QA",
+    hint: "Check the version against the project's QA rules",
+    shape: "rounded-control border-t-[3px] border-t-node-qa",
+    tile: "bg-node-qa/15 text-node-qa",
+    swatch: "rounded-[2px] border-t-[3px] border-t-node-qa bg-node-qa/30",
+  },
   review: {
     label: "Review",
-    hint: "People decide or comment; a card with a blue edge",
+    hint: "Ask people to approve, or for their comments",
     shape: "rounded-panel-lg border-l-[3px] border-l-node-review",
     tile: "bg-node-review/15 text-node-review",
     swatch: "rounded-[3px] border-l-[3px] border-l-node-review bg-node-review/30",
   },
-  work: {
-    label: "Work",
-    hint: "Something gets done; a square-cornered card, green",
+  task: {
+    label: "Task",
+    hint: "Someone does a piece of work",
     shape: "rounded-control",
     tile: "bg-node-work/15 text-node-work",
     swatch: "rounded-[2px] bg-node-work/60",
   },
-  comm: {
-    label: "Message",
-    hint: "Someone is told or sent a link; a pill, violet",
+  wait: {
+    label: "Wait",
+    hint: "Pause, or wait for something to happen",
+    shape: slanted,
+    tile: "bg-node-wait/15 text-node-wait",
+    swatch: "rounded-l-full rounded-r-[3px] bg-node-wait/60",
+  },
+  status: {
+    label: "Status",
+    hint: "Change where the item stands, or where it is filed",
+    shape: slanted,
+    tile: "bg-node-flow/15 text-node-flow",
+    swatch: "[clip-path:polygon(4px_0,100%_0,calc(100%-4px)_100%,0_100%)] bg-node-flow/60",
+  },
+  notify: {
+    label: "Notify",
+    hint: "Tell people, or send them a link",
     shape: "rounded-full pl-4",
     tile: "bg-node-comm/15 text-node-comm",
     swatch: "rounded-full bg-node-comm/60",
   },
-  flow: {
-    label: "Flow",
-    hint: "Wait, set a status, move; a slanted card, teal",
-    shape: "rounded-panel [clip-path:polygon(10px_0,100%_0,calc(100%-10px)_100%,0_100%)] pl-5",
-    tile: "bg-node-flow/15 text-node-flow",
-    swatch: "[clip-path:polygon(4px_0,100%_0,calc(100%-4px)_100%,0_100%)] bg-node-flow/60",
-  },
   finish: {
     label: "Finish",
-    hint: "The end; the mirror of the event, in ink",
+    hint: "End the workflow, with a final status",
     shape: "rounded-r-full rounded-l-panel pr-4",
     tile: "bg-ink text-ground",
     swatch: "rounded-r-full rounded-l-[3px] bg-ink/70",
   },
 };
 
+/** A node's shape: an event keeps the D of a start, whatever its family. */
+const shapeOf = (t: NodeType) => (t in eventTypes ? eventShape : families[familyOf(t)].shape);
+
 export function Legend({ compact = false }: { compact?: boolean }) {
   return (
     <div
       className={cn("flex flex-wrap gap-x-4 gap-y-1.5", compact ? "text-[11px]" : "text-[12px]")}
     >
-      {(Object.keys(families) as Family[]).map((f) => (
+      {familyOrder.map((f) => (
         <span key={f} className="flex items-center gap-1.5 text-ink-3" title={families[f].hint}>
           <span className={cn("inline-block h-2.5 w-4", families[f].swatch)} />
           {families[f].label}
@@ -186,42 +227,30 @@ export function Legend({ compact = false }: { compact?: boolean }) {
   );
 }
 
-/* ---------- The picker ---------- */
+/** A kind's icon in its family's colour, wherever kinds are shown or offered. */
+function KindTile({ type, size = "md" }: { type: NodeType; size?: "sm" | "md" | "lg" }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-control",
+        size === "lg" ? "size-8" : size === "md" ? "size-7" : "size-5 rounded-[4px]",
+        families[familyOf(type)].tile,
+      )}
+    >
+      <Icon
+        name={typeMeta(type).icon as IconName}
+        size={size === "lg" ? 16 : size === "md" ? 14 : 12}
+      />
+    </span>
+  );
+}
 
-const picker: { group: string; items: { type: NodeType; label: string; hint: string }[] }[] = [
-  {
-    group: "Review",
-    items: (["approval", "feedback"] as ActionType[]).map((t) => ({
-      type: t,
-      label: actionTypes[t].label,
-      hint: actionTypes[t].hint,
-    })),
-  },
-  {
-    group: "Work",
-    items: (["task", "checks", "notify", "share", "move"] as ActionType[]).map((t) => ({
-      type: t,
-      label: actionTypes[t].label,
-      hint: actionTypes[t].hint,
-    })),
-  },
-  {
-    group: "Flow",
-    items: (["wait", "status", "finish"] as ActionType[]).map((t) => ({
-      type: t,
-      label: actionTypes[t].label,
-      hint: actionTypes[t].hint,
-    })),
-  },
-  {
-    group: "Events: start on, or wait for",
-    items: (Object.keys(eventTypes) as EventType[]).map((t) => ({
-      type: t,
-      label: eventTypes[t].label,
-      hint: eventTypes[t].hint,
-    })),
-  },
-];
+/** What a node is beside its name: its kind, and for a status, the status it sets. */
+const kindLine = (n: FlowNode) =>
+  (n.type === "status" || n.type === "finish") && n.config.status
+    ? `${typeMeta(n.type).label}: ${n.config.status}`
+    : typeMeta(n.type).label;
 
 /* ---------- Pieces ---------- */
 
@@ -271,7 +300,6 @@ function Node({
   onPortDown: (outcome: string, e: React.PointerEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
-  const meta = typeMeta(node.type);
   const outs = outcomesOf(node);
   const subtitle =
     node.kind === "event"
@@ -280,41 +308,41 @@ function Node({
         : "Waits for it"
       : [node.config.who ?? node.config.to, node.config.due ? `${node.config.due} d` : null]
           .filter(Boolean)
-          .join(" · ") || meta.label;
+          .join(" · ") || kindLine(node);
   return (
     <div
       data-node={node.id}
       onPointerDown={onPointerDown}
       onContextMenu={onContextMenu}
-      className={cn(
-        "absolute flex cursor-grab touch-none items-center gap-3 border bg-overlay px-3 shadow-3 transition-[box-shadow,border-color] select-none",
-        families[familyOf(node.type)].shape,
-        selected
-          ? "border-signal shadow-[0_0_0_3px_var(--hk-signal-line),var(--hk-shadow-3)]"
-          : walked
-            ? "border-ink-3"
-            : "border-line hover:border-line-strong",
-        current && "ring-2 ring-signal/60",
-      )}
+      className="group absolute cursor-grab touch-none select-none"
       style={{ left: node.x, top: node.y, width: NODE_W, height: NODE_H }}
     >
-      <span
+      {/* The shape apart from its ports and its mark (#513): a thick edge or a slant never
+          moves them off the middle, nor clips them. */}
+      <div
         className={cn(
-          "flex size-8 shrink-0 items-center justify-center rounded-control",
-          families[familyOf(node.type)].tile,
+          "absolute inset-0 flex items-center gap-3 border bg-overlay px-3 shadow-3 transition-[box-shadow,border-color]",
+          shapeOf(node.type),
+          selected
+            ? "border-signal shadow-[0_0_0_3px_var(--hk-signal-line),var(--hk-shadow-3)]"
+            : walked
+              ? "border-ink-3"
+              : "border-line group-hover:border-line-strong",
+          current && "ring-2 ring-signal/60",
         )}
       >
-        <Icon name={meta.icon as IconName} size={16} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-ink">{node.name}</span>
-        <span className="block truncate text-[11px] text-ink-3">{subtitle}</span>
-      </span>
+        <KindTile type={node.type} size="lg" />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-medium text-ink">{node.name}</span>
+          <span className="block truncate text-[11px] text-ink-3">{subtitle}</span>
+        </span>
+      </div>
       {problem && (
         <span
           title={problem.text}
           className={cn(
-            "absolute -top-2 -right-2 flex size-5 items-center justify-center rounded-full border border-ground text-[11px]",
+            // Top-left, clear of the outputs down the right edge (#513).
+            "absolute -top-2 -left-2 flex size-5 items-center justify-center rounded-full border border-ground text-[11px]",
             problem.level === "error" ? "bg-signal text-ground" : "bg-raised text-ink-2",
           )}
         >
@@ -429,32 +457,38 @@ export function WorkflowPage({ project }: { project: Project }) {
     ],
     title: "Workflows",
     actions: (
-      <div
-        role="tablist"
-        aria-label="View"
-        className="flex h-8 items-center rounded-control border border-line bg-raised/40 p-0.5"
-      >
-        {(
-          [
-            ["basic", "Basic"],
-            ["advanced", "Advanced"],
-            ["code", "Code"],
-          ] as [Mode, string][]
-        ).map(([m, label]) => (
-          <button
-            key={m}
-            type="button"
-            role="tab"
-            aria-selected={mode === m}
-            onClick={() => setMode(m)}
-            className={cn(
-              "h-7 rounded-[7px] px-2.5 text-[13px] transition-colors",
-              mode === m ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
-            )}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="flex items-center gap-2">
+        <div
+          role="tablist"
+          aria-label="View"
+          className="flex h-8 items-center rounded-control border border-line bg-raised/40 p-0.5"
+        >
+          {(
+            [
+              ["basic", "Basic"],
+              ["advanced", "Advanced"],
+              ["code", "Code"],
+            ] as [Mode, string][]
+          ).map(([m, label]) => (
+            <button
+              key={m}
+              type="button"
+              role="tab"
+              aria-selected={mode === m}
+              onClick={() => setMode(m)}
+              className={cn(
+                "h-7 rounded-[7px] px-2.5 text-[13px] transition-colors",
+                mode === m ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => newFlow()}>
+          <Icon name="plus" size={13} />
+          <span className="hidden @3xl/app:inline">New workflow</span>
+        </Button>
       </div>
     ),
     revision: mode,
@@ -508,6 +542,17 @@ export function WorkflowPage({ project }: { project: Project }) {
 
   const addNode = (flowId: string, type: NodeType, at: Pt, from?: Selection) => {
     const meta = typeMeta(type);
+    // Never a second start (#514): an event with nothing before it, where the workflow has its
+    // start, is refused and said.
+    const target = flows.find((f) => f.id === flowId);
+    if (meta.kind === "event" && from?.kind !== "node" && target && triggersOf(target).length) {
+      setToast(
+        familyOf(type) === "start"
+          ? "This workflow has its start: switch it on there, or begin a new workflow."
+          : "A wait follows a step: drop it on a step's output, or add it after one.",
+      );
+      return;
+    }
     const band = bandOf(flowId);
     const id = `n-${uid()}`;
     const node: FlowNode = {
@@ -576,8 +621,10 @@ export function WorkflowPage({ project }: { project: Project }) {
     setSelection({ kind: "node", id: copy.id });
   };
 
-  const newFlow = () => {
+  /** A new workflow (#514), begun at the start chosen for it, placed and selected. */
+  const newFlow = (start: NodeType = "upload") => {
     const id = `wf-${uid()}`;
+    const kind = typeMeta(start).kind === "event" ? start : "upload";
     const flow: Flow = {
       id,
       projectId: project.id,
@@ -588,8 +635,8 @@ export function WorkflowPage({ project }: { project: Project }) {
         {
           id: `${id}-start`,
           kind: "event",
-          type: "upload",
-          name: "A version is uploaded",
+          type: kind,
+          name: typeMeta(kind).label,
           x: 0,
           y: 0,
           config: {},
@@ -608,6 +655,8 @@ export function WorkflowPage({ project }: { project: Project }) {
     };
     setFlows((list) => [...list, flow]);
     setSelection({ kind: "node", id: `${id}-start` });
+    setPanel(null);
+    setAddAt(null);
     setToast("New workflow added below; wire its start to what should happen.");
     requestAnimationFrame(() => jumpTo(id));
   };
@@ -667,17 +716,80 @@ export function WorkflowPage({ project }: { project: Project }) {
     if (mode === "advanced") requestAnimationFrame(() => jumpTo(flows[0]?.id ?? ""));
   }, [mode]);
 
-  const onWheel = (e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey) {
+  /*
+   * Ctrl and the wheel, a trackpad's pinch and Safari's gestures zoom the canvas about the
+   * pointer and never the page (#511): stopped by a listener that is not passive.
+   */
+  const zoomRef = useRef(zoomBy);
+  zoomRef.current = zoomBy;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: listens once the canvas is there.
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    const local = (x: number, y: number) => {
+      const r = el.getBoundingClientRect();
+      return { x: x - r.left, y: y - r.top };
+    };
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey)
+        zoomRef.current(
+          Math.exp(-Math.max(-10, Math.min(10, e.deltaY)) / 100),
+          local(e.clientX, e.clientY),
+        );
+      else setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+    };
+    let scale = 1;
+    const onGesture = (e: Event) => {
+      e.preventDefault();
+      const g = e as Event & { scale?: number; clientX: number; clientY: number };
+      if (e.type === "gesturestart" || !g.scale) scale = 1;
+      else {
+        zoomRef.current(g.scale / scale, local(g.clientX, g.clientY));
+        scale = g.scale;
+      }
+    };
+    const onTouch = (e: TouchEvent) => {
+      if (e.touches.length > 1) e.preventDefault();
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("gesturestart", onGesture, { passive: false });
+    el.addEventListener("gesturechange", onGesture, { passive: false });
+    el.addEventListener("touchmove", onTouch, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("gesturestart", onGesture);
+      el.removeEventListener("gesturechange", onGesture);
+      el.removeEventListener("touchmove", onTouch);
+    };
+  }, [mode]);
+
+  /** Two fingers on the canvas pinch it, about the point between them. */
+  const fingers = useRef(new Map<number, Pt>());
+  const onFinger = (e: React.PointerEvent): boolean => {
+    if (e.pointerType !== "touch") return false;
+    const before = [...fingers.current.values()];
+    fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const after = [...fingers.current.values()];
+    if (after.length !== 2) return false;
+    drag.current = null;
+    if (before.length === 2) {
+      const [a, b] = before as [Pt, Pt];
+      const [c, d] = after as [Pt, Pt];
       const rect = canvas.current?.getBoundingClientRect();
-      if (!rect) return;
-      zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1, { x: e.clientX - rect.left, y: e.clientY - rect.top });
-    } else {
-      setPan((p) => ({ x: p.x - e.deltaX, y: p.y - e.deltaY }));
+      const was = Math.hypot(a.x - b.x, a.y - b.y);
+      const now = Math.hypot(c.x - d.x, c.y - d.y);
+      if (was > 0)
+        zoomBy(now / was, {
+          x: (c.x + d.x) / 2 - (rect?.left ?? 0),
+          y: (c.y + d.y) / 2 - (rect?.top ?? 0),
+        });
     }
+    return true;
   };
 
   const onCanvasPointerDown = (e: React.PointerEvent) => {
+    if (onFinger(e)) return;
     if (e.button !== 0) return;
     setMenu(null);
     drag.current = { kind: "pan", start: { x: e.clientX, y: e.clientY }, origin: pan };
@@ -700,6 +812,7 @@ export function WorkflowPage({ project }: { project: Project }) {
     canvas.current?.setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
+    if (fingers.current.has(e.pointerId) && onFinger(e)) return;
     if (linking) {
       setLinking({ ...linking, at: toWorld({ x: e.clientX, y: e.clientY }) });
       return;
@@ -720,6 +833,9 @@ export function WorkflowPage({ project }: { project: Project }) {
     }
   };
   const onPointerUp = (e: React.PointerEvent) => {
+    const pinching = fingers.current.size > 1;
+    fingers.current.delete(e.pointerId);
+    if (pinching) return;
     if (linking) {
       const el = (e.target as HTMLElement).closest?.("[data-node]") as HTMLElement | null;
       const to = el?.dataset.node;
@@ -752,6 +868,66 @@ export function WorkflowPage({ project }: { project: Project }) {
       if (!moved) setSelection(null);
     }
   };
+
+  /*
+   * A kind dragged from the picker or the palette (#511): it follows the pointer and lands
+   * where it is let go over the canvas; let go on a node, it is wired from that node's first
+   * free output and set beside it. A press without a drag is a click.
+   */
+  const [kindDrag, setKindDrag] = useState<{ type: NodeType; x: number; y: number } | null>(null);
+  const dragged = useRef(false);
+  const dropKind = (type: NodeType, x: number, y: number) => {
+    const el = canvas.current;
+    const rect = el?.getBoundingClientRect();
+    if (!el || !rect || x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
+    const under = document.elementFromPoint(x, y);
+    if (under && !el.contains(under)) return;
+    const w = toWorld({ x, y });
+    const onNode = (under?.closest("[data-node]") as HTMLElement | null)?.dataset.node;
+    const f = onNode ? flowOfNode(onNode) : undefined;
+    const n = f?.nodes.find((m) => m.id === onNode);
+    if (f && n && outcomesOf(n).length) {
+      addNode(
+        f.id,
+        type,
+        { x: n.x + NODE_W + 120, y: n.y + (bandOf(f.id)?.offsetY ?? 0) },
+        { kind: "node", id: n.id },
+      );
+      return;
+    }
+    const band = bands.find((b) => w.y >= b.top - 80 && w.y <= b.top + b.height + 80) ?? bands[0];
+    if (band) addNode(band.flow.id, type, { x: w.x - NODE_W / 2, y: w.y - NODE_H / 2 });
+  };
+  const kindHandle = (type: NodeType, onPick: () => void) => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      const start = { x: e.clientX, y: e.clientY };
+      dragged.current = false;
+      const move = (ev: PointerEvent) => {
+        if (!dragged.current && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 6) return;
+        dragged.current = true;
+        setKindDrag({ type, x: ev.clientX, y: ev.clientY });
+      };
+      const end = (ev: PointerEvent) => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", end);
+        window.removeEventListener("pointercancel", end);
+        if (!dragged.current) return;
+        if (ev.type === "pointerup") dropKind(type, ev.clientX, ev.clientY);
+        setKindDrag(null);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", end);
+      window.addEventListener("pointercancel", end);
+    },
+    onClick: () => {
+      if (dragged.current) {
+        dragged.current = false;
+        return;
+      }
+      onPick();
+    },
+  });
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -829,7 +1005,7 @@ export function WorkflowPage({ project }: { project: Project }) {
         { label: "Zoom to 100%", onSelect: () => setZoom(1) },
         "divider",
         { label: "Walk an item through", onSelect: () => startWalk(t.flowId) },
-        { label: "New workflow", onSelect: newFlow },
+        { label: "New workflow", onSelect: () => newFlow() },
       ];
     }
     if (m.target.kind === "node") {
@@ -897,7 +1073,7 @@ export function WorkflowPage({ project }: { project: Project }) {
             setMode("advanced");
             requestAnimationFrame(() => jumpTo(id));
           }}
-          onNew={newFlow}
+          onNew={() => newFlow()}
         />
       )}
       {mode === "code" && <CodeView flows={flows} onToast={setToast} />}
@@ -923,10 +1099,6 @@ export function WorkflowPage({ project }: { project: Project }) {
                     )}
                   </button>
                 ))}
-                <Button variant="ghost" size="sm" onClick={newFlow} className="shrink-0">
-                  <Icon name="plus" size={13} />
-                  <span className="hidden @3xl/app:inline">Workflow</span>
-                </Button>
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 <Button
@@ -989,7 +1161,6 @@ export function WorkflowPage({ project }: { project: Project }) {
               onPointerDown={onCanvasPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
-              onWheel={onWheel}
               onContextMenu={(e) => {
                 e.preventDefault();
                 const rect = canvas.current?.getBoundingClientRect();
@@ -1134,11 +1305,16 @@ export function WorkflowPage({ project }: { project: Project }) {
                             r={3}
                             className={selected ? "fill-signal" : "fill-ink-3"}
                           />
+                          {/* A path's label (#513): whole up to about 32 characters, then an
+                              ellipsis, the full text on hover; on a quiet ground over the paths. */}
                           {label && (
-                            <foreignObject x={lp.x - 90} y={lp.y - 11} width={180} height={22}>
+                            <foreignObject x={lp.x - 120} y={lp.y - 11} width={240} height={22}>
                               <div className="flex justify-center">
-                                <span className="max-w-full truncate rounded-chip border border-line bg-overlay px-1.5 text-[11px] leading-5 text-ink-2">
-                                  {label}
+                                <span
+                                  title={label}
+                                  className="max-w-full truncate rounded-chip bg-pane px-1.5 text-[11px] leading-5 text-ink-2"
+                                >
+                                  {label.length > 32 ? `${label.slice(0, 31).trimEnd()}…` : label}
                                 </span>
                               </div>
                             </foreignObject>
@@ -1243,16 +1419,62 @@ export function WorkflowPage({ project }: { project: Project }) {
                   Tidy up
                 </Button>
               </div>
-              <div className="pointer-events-none absolute top-3 left-3 hidden rounded-control border border-line bg-overlay/90 px-2.5 py-1.5 @3xl/app:block">
+              <div className="pointer-events-none absolute top-3 left-3 hidden rounded-control border border-line bg-overlay/90 px-2.5 py-1.5 @3xl/app:block @5xl/app:hidden">
                 <Legend compact />
+              </div>
+              {/* The palette (#511): every action, by family, to drag onto the canvas. */}
+              <div
+                role="toolbar"
+                aria-label="Nodes to add"
+                aria-orientation="vertical"
+                className="absolute top-3 left-3 hidden flex-col items-center gap-1 rounded-panel border border-line bg-overlay p-1 shadow-2 @5xl/app:flex"
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                {familyOrder
+                  .filter((f) => f !== "start")
+                  .map((f, i) => (
+                    <div key={f} className="flex flex-col items-center gap-1">
+                      {i > 0 && <span className="h-px w-5 bg-line" />}
+                      {familyKinds[f]
+                        .filter((t) => !(t in eventTypes))
+                        .map((t) => {
+                          const bind = kindHandle(t, () => {
+                            const target = flows[0];
+                            if (!target) return;
+                            const r = canvas.current?.getBoundingClientRect();
+                            addNode(
+                              target.id,
+                              t,
+                              toWorld({
+                                x: (r?.left ?? 0) + (r?.width ?? 0) / 2,
+                                y: (r?.top ?? 0) + (r?.height ?? 0) / 2,
+                              }),
+                            );
+                          });
+                          return (
+                            <button
+                              key={t}
+                              type="button"
+                              aria-label={`${typeMeta(t).label}: drag onto the canvas, or click to add`}
+                              title={`${typeMeta(t).label}: ${typeMeta(t).hint}`}
+                              onPointerDown={bind.onPointerDown}
+                              onClick={bind.onClick}
+                              className="flex size-8 cursor-grab touch-none items-center justify-center rounded-control transition-colors hover:bg-raised"
+                            >
+                              <KindTile type={t} />
+                            </button>
+                          );
+                        })}
+                    </div>
+                  ))}
               </div>
               <div className="pointer-events-none absolute bottom-3 left-1/2 hidden -translate-x-1/2 items-center gap-3 text-[11px] text-ink-3 @3xl/app:flex">
                 <span>Drag to pan</span>
                 <span className="flex items-center gap-1">
-                  <Kbd>ctrl</Kbd> scroll to zoom
+                  <Kbd>ctrl</Kbd> scroll or pinch to zoom
                 </span>
                 <span>Right-click for more</span>
-                <span>Drag a port to connect</span>
+                <span>Drag a node in, or from a port to connect</span>
               </div>
 
               {/* Minimap */}
@@ -1306,11 +1528,27 @@ export function WorkflowPage({ project }: { project: Project }) {
             </div>
           </div>
 
+          {kindDrag && (
+            <div
+              className="pointer-events-none fixed z-50 flex items-center gap-2 rounded-control border border-line bg-overlay py-1 pr-3 pl-1 text-[13px] text-ink shadow-4"
+              style={{ left: kindDrag.x + 10, top: kindDrag.y + 10 }}
+            >
+              <KindTile type={kindDrag.type} />
+              {typeMeta(kindDrag.type).label}
+            </div>
+          )}
           {/* Inspector */}
           {inspectorOpen && (
             <aside className="absolute inset-y-0 right-0 z-20 flex w-full flex-col border-l border-line bg-pane shadow-4 @3xl/app:static @3xl/app:w-[340px] @3xl/app:shadow-none">
               {panel === "picker" && (
                 <Picker
+                  hasStart={(() => {
+                    const f = flows.find((x) => x.id === (addAt?.flowId ?? flows[0]?.id));
+                    return f ? triggersOf(f).length > 0 : false;
+                  })()}
+                  from={addAt?.from?.id}
+                  handle={kindHandle}
+                  onNew={newFlow}
                   onPick={(type) => {
                     const target = addAt ?? { flowId: flows[0]?.id ?? "", world: { x: 0, y: 0 } };
                     addNode(target.flowId, type, target.world, target.from);
@@ -1508,59 +1746,153 @@ function Minimap({
 
 /* ---------- Panels ---------- */
 
-function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: () => void }) {
+/**
+ * The Add button's picker (#511): the families first, in the order a workflow reads, then the
+ * kinds of the one chosen, each dragged onto the canvas or clicked; Show all lists every kind,
+ * a search finds any. Start while the workflow has none; New workflow, last, once it has.
+ */
+function Picker({
+  hasStart,
+  from,
+  handle,
+  onPick,
+  onNew,
+  onClose,
+}: {
+  hasStart: boolean;
+  from?: string;
+  handle: (
+    t: NodeType,
+    onPick: () => void,
+  ) => { onPointerDown: (e: React.PointerEvent) => void; onClick: () => void };
+  onPick: (t: NodeType) => void;
+  onNew: (start: NodeType) => void;
+  onClose: () => void;
+}) {
   const [q, setQ] = useState("");
-  const hit = (s: string) => s.toLowerCase().includes(q.trim().toLowerCase());
+  const [open, setOpen] = useState<string | null>(null);
+  const waits: NodeType[] = [
+    ...familyKinds.wait,
+    ...familyKinds.start.filter((t) => t !== "manual"),
+  ];
+  const types: { key: string; label: string; hint: string; kinds: NodeType[] }[] = [
+    ...familyOrder
+      .filter((f) => f !== "start" || !hasStart)
+      .map((f) => ({
+        key: f as string,
+        label: families[f].label,
+        hint: families[f].hint,
+        kinds: f === "wait" ? waits : familyKinds[f],
+      })),
+    ...(hasStart
+      ? [
+          {
+            key: "new",
+            label: "New workflow",
+            hint: "Begin another workflow, at its own start",
+            kinds: familyKinds.start,
+          },
+        ]
+      : []),
+  ];
+  const query = q.trim().toLowerCase();
+  const hit = (t: NodeType) =>
+    typeMeta(t).label.toLowerCase().includes(query) ||
+    typeMeta(t).hint.toLowerCase().includes(query);
+  const chosen = types.find((t) => t.key === open);
+  const kindRow = (t: NodeType, key: string) => {
+    const begins = key === "new";
+    const waiting = !from && hasStart && !begins && t in eventTypes;
+    const bind = handle(t, () => (begins ? onNew(t) : onPick(t)));
+    return (
+      <button
+        key={`${key}-${t}`}
+        type="button"
+        disabled={waiting}
+        title={waiting ? "Follows a step: select one first, or drop it on a step" : undefined}
+        onPointerDown={begins || waiting ? undefined : bind.onPointerDown}
+        onClick={bind.onClick}
+        className="flex w-full touch-pan-y items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors enabled:hover:bg-raised disabled:opacity-50"
+      >
+        <KindTile type={t} />
+        <span className="min-w-0">
+          <span className="block truncate text-[13px] text-ink">{typeMeta(t).label}</span>
+          <span className="block truncate text-[12px] text-ink-3">{typeMeta(t).hint}</span>
+        </span>
+      </button>
+    );
+  };
   return (
     <>
       <PanelHead
-        title="What happens next?"
-        hint="Pick a node; it is wired from the selected one."
+        title={chosen ? chosen.label : "Add a node"}
+        hint={chosen ? chosen.hint : "Drag one onto the canvas, or click to add it."}
         onClose={onClose}
-      />{" "}
-      <div className="flex flex-col gap-3 px-3 pt-3">
+      >
+        {open && !query && (
+          <Button variant="ghost" size="sm" onClick={() => setOpen(null)}>
+            <Icon name="chevronLeft" size={13} />
+            Types
+          </Button>
+        )}
+      </PanelHead>
+      <div className="px-3 pt-3">
         <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search nodes"
           autoFocus
         />
-        <Legend compact />
       </div>
       <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto p-2">
-        {picker.map((g) => {
-          const items = g.items.filter((i) => hit(i.label) || hit(i.hint));
-          if (items.length === 0) return null;
-          return (
-            <div key={g.group} className="mb-2">
-              <Label className="block px-2 pt-2 pb-1">{g.group}</Label>
-              {items.map((i) => {
-                const meta = typeMeta(i.type);
-                return (
-                  <button
-                    key={i.type}
-                    type="button"
-                    onClick={() => onPick(i.type)}
-                    className="flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors hover:bg-raised"
-                  >
-                    <span
-                      className={cn(
-                        "flex size-7 shrink-0 items-center justify-center rounded-control",
-                        families[familyOf(i.type)].tile,
-                      )}
-                    >
-                      <Icon name={meta.icon as IconName} size={14} />
+        {query || open === "all" ? (
+          types.map((type) => {
+            const found = type.kinds.filter((t) => !query || hit(t));
+            if (found.length === 0) return null;
+            return (
+              <div key={type.key} className="mb-2">
+                <Label className="block px-2 pt-2 pb-1">{type.label}</Label>
+                {found.map((t) => kindRow(t, type.key))}
+              </div>
+            );
+          })
+        ) : chosen ? (
+          chosen.kinds.map((t) => kindRow(t, chosen.key))
+        ) : (
+          <>
+            {types.map((type) => {
+              const [only] = type.kinds;
+              if (type.kinds.length === 1 && only) return kindRow(only, type.key);
+              return (
+                <button
+                  key={type.key}
+                  type="button"
+                  onClick={() => setOpen(type.key)}
+                  className="flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors hover:bg-raised"
+                >
+                  {type.key === "new" ? (
+                    <span className="flex size-7 shrink-0 items-center justify-center rounded-control border border-dashed border-line-strong text-ink-2">
+                      <Icon name="plus" size={14} />
                     </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-[13px] text-ink">{i.label}</span>
-                      <span className="block truncate text-[12px] text-ink-3">{i.hint}</span>
-                    </span>
-                  </button>
-                );
-              })}
+                  ) : (
+                    <KindTile type={type.kinds[0] ?? "upload"} />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] text-ink">{type.label}</span>
+                    <span className="block truncate text-[12px] text-ink-3">{type.hint}</span>
+                  </span>
+                  <span className="tabular text-[12px] text-ink-3">{type.kinds.length}</span>
+                  <Icon name="chevronRight" size={14} className="text-ink-3" />
+                </button>
+              );
+            })}
+            <div className="mt-1 border-t border-line px-2 pt-2">
+              <Button variant="quiet" size="sm" onClick={() => setOpen("all")}>
+                Show all
+              </Button>
             </div>
-          );
-        })}
+          </>
+        )}
       </div>
     </>
   );
@@ -1733,6 +2065,8 @@ function NodeInspector({
   const meta = typeMeta(node.type);
   const outs = outcomesOf(node);
   const isTrigger = node.kind === "event" && !flow?.connectors.some((c) => c.to === node.id);
+  // The one start (#514): what else starts the workflow is set on it.
+  const isStart = flow ? triggersOf(flow)[0]?.id === node.id : false;
   const uploadRules = useMemo(
     () =>
       [
@@ -1777,6 +2111,49 @@ function NodeInspector({
         <Field label="Name">
           <Input value={node.name} onChange={(e) => onChange({ name: e.target.value })} />
         </Field>
+        {isStart && (
+          <div className="flex flex-col gap-2">
+            <Label>Starts when</Label>
+            {familyKinds.start.map((t) => {
+              const own = t === node.type;
+              const on =
+                own ||
+                (node.config.triggers ?? "")
+                  .split(",")
+                  .map((x) => x.trim())
+                  .includes(t);
+              return (
+                <div key={t} className="flex items-center justify-between gap-3 text-[13px]">
+                  <span className="flex min-w-0 items-center gap-2 text-ink">
+                    <KindTile type={t} size="sm" />
+                    <span className="truncate">{typeMeta(t).label}</span>
+                  </span>
+                  <Switch
+                    label={typeMeta(t).label}
+                    checked={on}
+                    disabled={own}
+                    onChange={(next) => {
+                      const rest = (node.config.triggers ?? "")
+                        .split(",")
+                        .map((x) => x.trim())
+                        .filter((x) => x && x !== t);
+                      onChange({
+                        config: {
+                          ...node.config,
+                          triggers: [...rest, ...(next ? [t] : [])].join(", "),
+                        },
+                      });
+                    }}
+                  />
+                </div>
+              );
+            })}
+            <div className="text-[12px] text-ink-3">
+              A workflow has one start. Switch on anything else that should start it here; a
+              different path is a workflow of its own (New workflow, in the page header).
+            </div>
+          </div>
+        )}
         {meta.fields.map((f) => (
           <Field key={f.id} label={f.label}>
             {f.id === "status" && statuses.length ? (
@@ -1911,6 +2288,8 @@ function NodeInspector({
                           "divider",
                           ...others.map((n) => ({
                             label: n.name,
+                            icon: <KindTile type={n.type} size="sm" />,
+                            hint: kindLine(n),
                             onSelect: () => onConnect(o.id, n.id),
                           })),
                         ]}
@@ -1935,6 +2314,7 @@ function NodeInspector({
                                   size={13}
                                   className="text-ink-3"
                                 />
+                                {to && <KindTile type={to.type} size="sm" />}
                                 <span className="min-w-0 flex-1 truncate">{to?.name}</span>
                                 {(c.condition || c.until) && (
                                   <span className="max-w-[45%] truncate text-[11px] text-ink-3">
@@ -2125,14 +2505,7 @@ function BasicView({
                         <span className="tabular w-7 text-center text-[12px] text-ink-3">
                           {i + 1}
                         </span>
-                        <span
-                          className={cn(
-                            "flex size-7 items-center justify-center rounded-control",
-                            families[familyOf(n.type)].tile,
-                          )}
-                        >
-                          <Icon name={meta.icon as IconName} size={14} />
-                        </span>
+                        <KindTile type={n.type} />
                         <span className="min-w-0 flex-1 truncate text-[14px] text-ink">
                           {n.name}
                         </span>

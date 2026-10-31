@@ -1,8 +1,11 @@
 import {
+  type EventType,
   flowShape,
   type NodeType,
   nodeTypes,
   outcomesOf,
+  START_TRIGGERS,
+  startsOn,
   triggersOf,
   type WorkflowConnector,
   type WorkflowDefinition,
@@ -10,6 +13,7 @@ import {
   type WorkflowNode,
 } from "@hekate/shared";
 import type { IconName } from "~/components/icons";
+import { groupOf } from "~/lib/workflow-kinds";
 
 /**
  * A setting a node's inspector and the basic view show (#26), as the prototype has them: its
@@ -36,23 +40,27 @@ const order: NodeField = { id: "order", label: "Order", options: ["All at once",
 const status: NodeField = { id: "status", label: "Sets status", placeholder: "Editing" };
 const due: NodeField = { id: "due", label: "Due in days", placeholder: "3" };
 
+/**
+ * Each kind's one-line description and icon (#512, decision 290): no two kinds share an icon
+ * within a family, nor an icon and a colour across them.
+ */
 export const nodeLooks: Record<NodeType, NodeLook> = {
-  upload: { hint: "Checked at the door by the upload rules", icon: "upload", fields: [] },
-  folder: { hint: "Any file, or a chosen folder", icon: "folder", fields: [] },
-  manual: { hint: "From the track", icon: "play", fields: [] },
-  review: { hint: "Of any kind, or one kind", icon: "review", fields: [] },
-  decision: { hint: "Approved or changes requested", icon: "check", fields: [] },
-  submitted: { hint: "By everyone, or anyone", icon: "comment", fields: [] },
-  comment: { hint: "Any, or one category", icon: "comment", fields: [] },
-  resolved: { hint: "On the version", icon: "check", fields: [] },
-  task_done: { hint: "Any task on the item", icon: "task", fields: [] },
-  due: { hint: "Of the stage, or of a review", icon: "clock", fields: [] },
+  upload: { hint: "A new version arrives, past the upload rules", icon: "upload", fields: [] },
+  folder: { hint: "Any file, or one in a chosen folder", icon: "folder", fields: [] },
+  manual: { hint: "Someone starts it from the track", icon: "play", fields: [] },
+  review: { hint: "A review of any kind, or of one kind", icon: "inbox", fields: [] },
+  decision: { hint: "A reviewer approves or asks for changes", icon: "gate", fields: [] },
+  submitted: { hint: "By everyone asked, or by anyone", icon: "comment", fields: [] },
+  comment: { hint: "Any comment, or one of a category", icon: "pin", fields: [] },
+  resolved: { hint: "Every comment on the version", icon: "check", fields: [] },
+  task_done: { hint: "Any task on the item marked done", icon: "task", fields: [] },
+  due: { hint: "Of the stage, a review or a task", icon: "calendar", fields: [] },
   opened: { hint: "By anyone it was sent to", icon: "eye", fields: [] },
   download: { hint: "Of the proxy or the original", icon: "download", fields: [] },
-  mention: { hint: "In a comment", icon: "user", fields: [] },
+  mention: { hint: "Someone named in a comment", icon: "user", fields: [] },
   recorded: { hint: "Every slot it has on the schedule ticked off", icon: "mic", fields: [] },
   approval: {
-    hint: "Each reviewer records approved or changes requested",
+    hint: "Ask reviewers to approve or request changes",
     icon: "review",
     fields: [
       who,
@@ -63,7 +71,7 @@ export const nodeLooks: Record<NodeType, NodeLook> = {
     ],
   },
   feedback: {
-    hint: "Comments, then submitted; no formal decision",
+    hint: "Ask reviewers for comments; no formal decision",
     icon: "comment",
     fields: [who, order, status, due],
   },
@@ -72,9 +80,9 @@ export const nodeLooks: Record<NodeType, NodeLook> = {
     icon: "task",
     fields: [{ ...who, label: "Role" }, status, due],
   },
-  checks: { hint: "The project's QA rules on the item", icon: "shield", fields: [] },
+  checks: { hint: "Run the project's QA rules on the version", icon: "shield", fields: [] },
   notify: {
-    hint: "Tell someone, then carry on",
+    hint: "Tell people, then carry on",
     icon: "bell",
     fields: [
       { id: "to", label: "To", people: true },
@@ -82,17 +90,17 @@ export const nodeLooks: Record<NodeType, NodeLook> = {
     ],
   },
   status: {
-    hint: "Mark the item",
+    hint: "Change the item's status, then carry on",
     icon: "flag",
     fields: [{ id: "status", label: "Status", placeholder: "Editing" }],
   },
   wait: {
-    hint: "A pause before carrying on",
+    hint: "Pause for some days before carrying on",
     icon: "clock",
     fields: [{ id: "days", label: "Days", placeholder: "1" }],
   },
   share: {
-    hint: "A link to named people, no review",
+    hint: "Send a link to named people; no review",
     icon: "send",
     fields: [
       { id: "to", label: "To", placeholder: "Producer, ines@example.test" },
@@ -100,40 +108,15 @@ export const nodeLooks: Record<NodeType, NodeLook> = {
     ],
   },
   move: {
-    hint: "File the item away",
+    hint: "File the item away in a folder",
     icon: "folderPlus",
     fields: [{ id: "folder", label: "Folder", placeholder: "Masters" }],
   },
   finish: {
-    hint: "The workflow ends here",
+    hint: "The workflow ends here, with a final status",
     icon: "stop",
     fields: [{ id: "status", label: "Final status", placeholder: "Approved" }],
   },
-};
-
-/** The six families nodes come in, each with a shape and a colour (as in the prototype). */
-export type Family = "event" | "review" | "work" | "comm" | "flow" | "finish";
-
-export const familyOf = (t: NodeType): Family =>
-  nodeTypes[t].kind === "event"
-    ? "event"
-    : t === "approval" || t === "feedback"
-      ? "review"
-      : t === "task" || t === "checks"
-        ? "work"
-        : t === "notify" || t === "share"
-          ? "comm"
-          : t === "finish"
-            ? "finish"
-            : "flow";
-
-export const familyTiles: Record<Family, string> = {
-  event: "bg-node-event/15 text-node-event",
-  review: "bg-node-review/15 text-node-review",
-  work: "bg-node-work/15 text-node-work",
-  comm: "bg-node-comm/15 text-node-comm",
-  flow: "bg-node-flow/15 text-node-flow",
-  finish: "bg-ink text-ground",
 };
 
 /** A step of the basic view: an action, and the loops that leave it for an earlier step. */
@@ -167,15 +150,56 @@ export function basicSteps(flow: WorkflowDefinition): {
   };
 }
 
-/** A new workflow, as the prototype starts one: a version arriving, and a finish to wire it to. */
-export const newWorkflowDefinition = (): WorkflowDefinition => ({
+/**
+ * A new workflow, as the prototype starts one: its start (a version arriving, unless another is
+ * chosen, #514) and a finish to wire it to.
+ */
+export const newWorkflowDefinition = (start: NodeType = "upload"): WorkflowDefinition => ({
   nodes: [
-    { id: "start", type: "upload", name: "A version is uploaded", x: 0, y: 0, config: {} },
+    {
+      id: "start",
+      type: nodeTypes[start].kind === "event" ? start : "upload",
+      name: nodeTypes[nodeTypes[start].kind === "event" ? start : "upload"].label,
+      x: 0,
+      y: 0,
+      config: {},
+    },
     { id: "end", type: "finish", name: "Finish", x: 640, y: 0, config: {} },
   ],
   connectors: [],
   groups: [],
 });
+
+/** The workflow's start, if it has one: the event with nothing before it (#514). */
+export const startOf = (flow: WorkflowDefinition): WorkflowNode | undefined => triggersOf(flow)[0];
+
+/**
+ * Why a node of a kind cannot be added where asked, or null when it can (#514, decision 292).
+ * An event with nothing before it would be a second start: one that starts workflows belongs
+ * among the start's triggers, or begins a new workflow; one waited for follows a step.
+ */
+export function addRefusal(flow: WorkflowDefinition, type: NodeType, from?: string): string | null {
+  if (nodeTypes[type].kind !== "event" || from) return null;
+  const start = startOf(flow);
+  if (!start) return null;
+  return groupOf(type) === "start"
+    ? `This workflow starts at “${start.name}”: name it among what starts it there, or begin a new workflow.`
+    : "A wait follows a step: drop it on a step's output, or add it after one.";
+}
+
+/** A start's triggers changed: what else, besides its own event, starts the workflow there. */
+export function withStartTrigger(
+  flow: WorkflowDefinition,
+  nodeId: string,
+  type: EventType,
+  on: boolean,
+): WorkflowDefinition {
+  const node = flow.nodes.find((n) => n.id === nodeId);
+  if (!node) return flow;
+  const others = startsOn(node).filter((t) => t !== node.type && t !== type);
+  const next = on && type !== node.type ? [...others, type] : others;
+  return withConfig(flow, nodeId, { [START_TRIGGERS]: next.join(", ") });
+}
 
 /** A node's settings changed: the rest of the workflow as it was. */
 export const withConfig = (
@@ -299,25 +323,14 @@ export function boundsOf(nodes: { x: number; y: number }[]): Bounds {
   };
 }
 
-/** What the picker offers, grouped as the prototype groups it. */
-export const pickerGroups: { group: string; types: NodeType[] }[] = [
-  { group: "Review", types: ["approval", "feedback"] },
-  { group: "Work", types: ["task", "checks", "notify", "share", "move"] },
-  { group: "Flow", types: ["wait", "status", "finish"] },
-  {
-    group: "Events: start on, or wait for",
-    types: (Object.keys(nodeTypes) as NodeType[]).filter((t) => nodeTypes[t].kind === "event"),
-  },
-];
-
 /** A fresh id for a node or a connector, as the model's identifiers allow. */
 export const freshId = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
 
 const snap = (v: number) => Math.round(v / 10) * 10;
 
 /**
- * A node added at a place on the canvas, named after its kind; from a node, wired from its
- * first outcome not yet wired (else its first).
+ * A node added at a place on the canvas, named after its kind; from a node, wired from the
+ * outcome given (one it was dropped on), else its first outcome not yet wired (else its first).
  */
 export function withNode(
   flow: WorkflowDefinition,
@@ -325,7 +338,11 @@ export function withNode(
   at: Pt,
   from?: string,
   id = freshId("n"),
+  /** The output of `from` to wire it from: one it was dropped on (#511). */
+  outcome?: string,
 ): WorkflowDefinition {
+  // Never a second start (#514): such a node is refused, the workflow left as it was.
+  if (addRefusal(flow, type, from)) return flow;
   const node: WorkflowNode = {
     id,
     type,
@@ -341,9 +358,8 @@ export function withNode(
     const free = outs.find(
       (o) => !connectors.some((c) => c.from === source.id && c.outcome === o.id),
     );
-    const outcome = free ?? outs[0];
-    if (outcome)
-      connectors.push({ id: freshId("c"), from: source.id, outcome: outcome.id, to: id });
+    const way = outs.find((o) => o.id === outcome) ?? free ?? outs[0];
+    if (way) connectors.push({ id: freshId("c"), from: source.id, outcome: way.id, to: id });
   }
   return { ...flow, nodes: [...flow.nodes, node], connectors };
 }

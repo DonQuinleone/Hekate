@@ -59,6 +59,11 @@ interface Outcome {
 
 interface NodeTypeInfo {
   kind: "event" | "action";
+  /**
+   * What the kind is called wherever kinds are offered (#512, decision 290): a verb phrase or a
+   * noun that says what it does, never two that read alike ("Approval review" asks reviewers to
+   * approve; "Set status" sets one, Approved among them).
+   */
   label: string;
   outcomes: Outcome[];
   /**
@@ -70,25 +75,28 @@ interface NodeTypeInfo {
 
 const happened: Outcome[] = [{ id: "happened", label: "" }];
 
-/** What each kind of node is, and the outcomes it can end by. */
+/**
+ * What each kind of node is, and the outcomes it can end by. The stored kinds never change: the
+ * QA check is stored as `checks`, as it always was (decision 290).
+ */
 export const nodeTypes: Record<NodeType, NodeTypeInfo> = {
-  upload: { kind: "event", label: "A version is uploaded", outcomes: happened },
-  folder: { kind: "event", label: "A file lands in a folder", outcomes: happened },
-  manual: { kind: "event", label: "Started by hand", outcomes: happened },
-  review: { kind: "event", label: "A review is requested", outcomes: happened },
-  decision: { kind: "event", label: "A decision is recorded", outcomes: happened },
-  submitted: { kind: "event", label: "Feedback is submitted", outcomes: happened },
-  comment: { kind: "event", label: "A comment is posted", outcomes: happened },
-  resolved: { kind: "event", label: "Every comment is resolved", outcomes: happened },
-  task_done: { kind: "event", label: "A task is done", outcomes: happened },
-  due: { kind: "event", label: "A due date passes", outcomes: happened },
-  opened: { kind: "event", label: "A share is opened", outcomes: happened },
-  download: { kind: "event", label: "A download happens", outcomes: happened },
-  mention: { kind: "event", label: "Someone is mentioned", outcomes: happened },
-  recorded: { kind: "event", label: "A track's last slot is done", outcomes: happened },
+  upload: { kind: "event", label: "Version uploaded", outcomes: happened },
+  folder: { kind: "event", label: "File added to a folder", outcomes: happened },
+  manual: { kind: "event", label: "Start by hand", outcomes: happened },
+  review: { kind: "event", label: "Review requested", outcomes: happened },
+  decision: { kind: "event", label: "Decision recorded", outcomes: happened },
+  submitted: { kind: "event", label: "Feedback submitted", outcomes: happened },
+  comment: { kind: "event", label: "Comment posted", outcomes: happened },
+  resolved: { kind: "event", label: "Comments resolved", outcomes: happened },
+  task_done: { kind: "event", label: "Task done", outcomes: happened },
+  due: { kind: "event", label: "Due date passed", outcomes: happened },
+  opened: { kind: "event", label: "Share opened", outcomes: happened },
+  download: { kind: "event", label: "File downloaded", outcomes: happened },
+  mention: { kind: "event", label: "Someone mentioned", outcomes: happened },
+  recorded: { kind: "event", label: "Track recorded", outcomes: happened },
   approval: {
     kind: "action",
-    label: "Ask for approval",
+    label: "Approval review",
     outcomes: [
       { id: "approved", label: "all approved" },
       { id: "mixed", label: "some approved" },
@@ -97,7 +105,7 @@ export const nodeTypes: Record<NodeType, NodeTypeInfo> = {
   },
   feedback: {
     kind: "action",
-    label: "Ask for feedback",
+    label: "Feedback review",
     outcomes: [
       { id: "done", label: "submitted" },
       { id: "overdue", label: "due date passed" },
@@ -113,7 +121,7 @@ export const nodeTypes: Record<NodeType, NodeTypeInfo> = {
   },
   checks: {
     kind: "action",
-    label: "Run the checks",
+    label: "QA check",
     outcomes: [
       { id: "passed", label: "passed" },
       { id: "warnings", label: "warnings" },
@@ -133,7 +141,12 @@ export const nodeTypes: Record<NodeType, NodeTypeInfo> = {
     immediate: true,
   },
   wait: { kind: "action", label: "Wait", outcomes: [{ id: "elapsed", label: "" }] },
-  share: { kind: "action", label: "Share", outcomes: [{ id: "sent", label: "" }], immediate: true },
+  share: {
+    kind: "action",
+    label: "Share a link",
+    outcomes: [{ id: "sent", label: "" }],
+    immediate: true,
+  },
   move: {
     kind: "action",
     label: "Move to a folder",
@@ -217,11 +230,36 @@ const kindOf = (type: NodeType) => nodeTypes[type].kind;
 
 /* ---------- Reading the graph ---------- */
 
-/** The events with nothing before them: where the workflow starts. */
+/**
+ * The events with nothing before them: where the workflow starts. A workflow has one (#514,
+ * decision 292); a second is a warning, not an error, so a workflow made before that rule
+ * keeps running.
+ */
 export const triggersOf = (flow: WorkflowDefinition) =>
   flow.nodes.filter(
     (n) => kindOf(n.type) === "event" && !flow.connectors.some((c) => c.to === n.id),
   );
+
+/** The start node's setting that names what else starts the workflow, as event kinds. */
+export const START_TRIGGERS = "triggers";
+
+/**
+ * What starts a workflow at a start node (#514): its own event, and any other its `triggers`
+ * setting names, separated by commas ("manual, recorded"). A start that several things begin
+ * stays one node, not one per entry point. Unknown names are left out, as are repeats.
+ */
+export function startsOn(node: Pick<WorkflowNode, "type" | "config">): EventType[] {
+  const named = (node.config[START_TRIGGERS] ?? "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter((t): t is EventType => (EVENT_TYPES as readonly string[]).includes(t));
+  const own = kindOf(node.type) === "event" ? [node.type as EventType] : [];
+  return [...new Set([...own, ...named])];
+}
+
+/** The start an event of a kind begins the workflow at, if any does. */
+export const startFor = (flow: WorkflowDefinition, type: EventType): WorkflowNode | undefined =>
+  triggersOf(flow).find((t) => startsOn(t).includes(type));
 
 /**
  * The nodes in the order the workflow reaches them from its triggers, and the connectors that
@@ -316,10 +354,19 @@ export function workflowProblems(flow: WorkflowDefinition): WorkflowProblem[] {
     wires.add(c.id);
   }
   const groups = new Set(flow.groups.map((g) => g.id));
-  if (triggersOf(flow).length === 0)
+  const starts = triggersOf(flow);
+  if (starts.length === 0)
     out.push({
       level: "error",
       text: "Nothing starts this workflow: add an event with nothing before it.",
+    });
+  // One start per workflow (#514): anything else that should start it is a trigger of that
+  // start, and a different path is a workflow of its own.
+  for (const extra of starts.slice(1))
+    out.push({
+      nodeId: extra.id,
+      level: "warning",
+      text: `${name(extra.id)} is a second start. A workflow has one: name what else starts it on “${starts[0]?.name ?? ""}”, connect something before this, or make it a workflow of its own.`,
     });
   const incoming = (id: string) => flow.connectors.filter((c) => c.to === id);
   const outgoing = (id: string) => flow.connectors.filter((c) => c.from === id);
@@ -344,6 +391,13 @@ export function workflowProblems(flow: WorkflowDefinition): WorkflowProblem[] {
         nodeId: n.id,
         level: "warning",
         text: `${name(n.id)} leads nowhere: the item would stop here without a finish.`,
+      });
+    // A review that names nobody cannot ask anyone (#513): it would wait to be ended by hand.
+    if ((n.type === "approval" || n.type === "feedback") && namedPeople(n.config.who).length === 0)
+      out.push({
+        nodeId: n.id,
+        level: "warning",
+        text: `${name(n.id)} asks nobody: choose who reviews, or it waits to be ended by hand.`,
       });
     if (info.outcomes.length === 0 && outgoing(n.id).length > 0)
       out.push({
@@ -446,7 +500,7 @@ export function startRun(
 
 /**
  * The stages a new version may start a workflow again from (#25), in the order a run reaches
- * them: the steps a run waits at (an approval, feedback, a task, the checks, a wait).
+ * them: the steps a run waits at (an approval, feedback, a task, a QA check, a wait).
  */
 export function restartPoints(flow: WorkflowDefinition): WorkflowNode[] {
   const byId = new Map(flow.nodes.map((n) => [n.id, n]));
@@ -761,7 +815,7 @@ export function stageClock(node: Pick<WorkflowNode, "type" | "config">): {
 }
 
 /**
- * A file of the version a checks stage is about, as the stage sees it: still being measured, not
+ * A file of the version a QA check is about, as the stage sees it: still being measured, not
  * checked (it has no sound), not measurable (its probe or analysis failed), or checked, with the
  * severities of what its quality report found.
  */
@@ -772,7 +826,7 @@ export type MeasuredFile =
   | { state: "checked"; severities: QaSeverity[] };
 
 /**
- * How far a file has been measured, for a checks stage: still being measured, not checked, not
+ * How far a file has been measured, for a QA check: still being measured, not checked, not
  * measurable, or measured, when its quality report is to be read. Sound and picture are measured
  * once probed. A recording whose probe found no sound, or a video in which it found neither sound
  * nor picture, could not be read; a silent video has its picture checked (#42), unless it was
@@ -797,7 +851,7 @@ export function measuredState(file: {
 }
 
 /**
- * How a checks stage ends (decision 119): null while any file is still being measured; failed
+ * How a QA check ends (decision 119): null while any file is still being measured; failed
  * when any check fails or a file cannot be measured; warnings when any warns; passed otherwise,
  * a version with nothing to check included.
  */
