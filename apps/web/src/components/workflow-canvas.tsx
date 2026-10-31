@@ -24,9 +24,18 @@ import { Choice } from "~/components/ui/choice";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Committed, StepField } from "~/components/workflow-fields";
+import { GroupLegend, KindTile } from "~/components/workflow-kinds";
 import { StatusesPanel } from "~/components/workflow-statuses";
 import { cn } from "~/lib/cn";
 import { useShortcuts } from "~/lib/shortcuts";
+import {
+  GROUP_ORDER,
+  groupOf,
+  groups,
+  kindLine,
+  kindsByGroup,
+  shapeOf,
+} from "~/lib/workflow-kinds";
 import {
   CHIP_GAP,
   CHIP_H,
@@ -44,9 +53,6 @@ import {
   boundsOf,
   conditionText,
   connectorPath,
-  type Family,
-  familyOf,
-  familyTiles,
   inPort,
   NODE_H,
   NODE_W,
@@ -54,7 +60,6 @@ import {
   outcomeWords,
   outPort,
   type Pt,
-  pickerGroups,
   portTop,
   walkLine,
   walkQuestions,
@@ -66,63 +71,6 @@ import {
   withoutConnector,
   withoutNode,
 } from "~/lib/workflow-nodes";
-
-/* ---------- Families: a shape each, as the prototype draws them ---------- */
-
-const families: Record<Family, { label: string; hint: string; shape: string; swatch: string }> = {
-  event: {
-    label: "Event",
-    hint: "Something happens; a D-shape, in the signal colour",
-    shape: "rounded-l-full rounded-r-panel pl-4",
-    swatch: "rounded-l-full rounded-r-[3px] bg-node-event/70",
-  },
-  review: {
-    label: "Review",
-    hint: "People decide or comment; a card with a blue edge",
-    shape: "rounded-panel-lg border-l-[3px] border-l-node-review",
-    swatch: "rounded-[3px] border-l-[3px] border-l-node-review bg-node-review/30",
-  },
-  work: {
-    label: "Work",
-    hint: "Something gets done; a square-cornered card, green",
-    shape: "rounded-control",
-    swatch: "rounded-[2px] bg-node-work/60",
-  },
-  comm: {
-    label: "Message",
-    hint: "Someone is told or sent a link; a pill, violet",
-    shape: "rounded-full pl-4",
-    swatch: "rounded-full bg-node-comm/60",
-  },
-  flow: {
-    label: "Flow",
-    hint: "Wait, set a status, move; a slanted card, teal",
-    shape: "rounded-panel [clip-path:polygon(10px_0,100%_0,calc(100%-10px)_100%,0_100%)] pl-5",
-    swatch: "[clip-path:polygon(4px_0,100%_0,calc(100%-4px)_100%,0_100%)] bg-node-flow/60",
-  },
-  finish: {
-    label: "Finish",
-    hint: "The end; the mirror of the event, in ink",
-    shape: "rounded-r-full rounded-l-panel pr-4",
-    swatch: "rounded-r-full rounded-l-[3px] bg-ink/70",
-  },
-};
-
-/** The families, each with its shape and colour, as a key to the canvas. */
-export function Legend({ compact = false }: { compact?: boolean }) {
-  return (
-    <div
-      className={cn("flex flex-wrap gap-x-4 gap-y-1.5", compact ? "text-[11px]" : "text-[12px]")}
-    >
-      {(Object.keys(families) as Family[]).map((f) => (
-        <span key={f} className="flex items-center gap-1.5 text-ink-3" title={families[f].hint}>
-          <span className={cn("inline-block h-2.5 w-4", families[f].swatch)} />
-          {families[f].label}
-        </span>
-      ))}
-    </div>
-  );
-}
 
 const eyebrow = "text-[11px] font-medium tracking-wide text-ink-3 uppercase";
 
@@ -246,7 +194,7 @@ export function WorkflowCanvas({
         b.flow.definition.nodes.map((n) => ({
           x: n.x,
           y: n.y + b.offsetY,
-          event: nodeTypes[n.type].kind === "event",
+          fill: groups[groupOf(n.type)].fill,
         })),
       ),
     [bands],
@@ -1047,7 +995,7 @@ export function WorkflowCanvas({
             </div>
           )}
           <div className="pointer-events-none absolute top-3 left-3 hidden rounded-control border border-line bg-overlay/90 px-2.5 py-1.5 @3xl/app:block">
-            <Legend compact />
+            <GroupLegend compact />
           </div>
           {/* The hints, while the canvas is wide enough for them beside its controls. */}
           <div
@@ -1256,7 +1204,6 @@ function CanvasNode({
 }) {
   const info = nodeTypes[node.type];
   const outs = outcomesOf(node.type);
-  const family = familyOf(node.type);
   const subtitle =
     info.kind === "event"
       ? trigger
@@ -1264,7 +1211,7 @@ function CanvasNode({
         : "Waits for it"
       : [node.config.who ?? node.config.to, node.config.due ? `${node.config.due} d` : null]
           .filter(Boolean)
-          .join(" · ") || info.label;
+          .join(" · ") || kindLine(node);
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: dragged by pointer; its own button below is what the keyboard reaches.
     <div
@@ -1276,7 +1223,7 @@ function CanvasNode({
       className={cn(
         "absolute flex touch-none items-center border bg-overlay px-3 shadow-3 transition-[box-shadow,border-color] select-none",
         editing ? "cursor-grab" : "cursor-pointer",
-        families[family].shape,
+        shapeOf(node.type),
         selected
           ? "border-signal shadow-[0_0_0_3px_var(--hk-signal-line),var(--hk-shadow-3)]"
           : walked
@@ -1295,14 +1242,7 @@ function CanvasNode({
         }}
         className="flex min-w-0 flex-1 cursor-[inherit] items-center gap-3 rounded-control text-left"
       >
-        <span
-          className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-control",
-            familyTiles[family],
-          )}
-        >
-          <Icon name={nodeLooks[node.type].icon} size={16} />
-        </span>
+        <KindTile type={node.type} size="lg" />
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] font-medium text-ink">{node.name}</span>
           <span className="block truncate text-[11px] text-ink-3">{subtitle}</span>
@@ -1372,7 +1312,7 @@ function Minimap({
   onJump,
 }: {
   bounds: Bounds;
-  nodes: { x: number; y: number; event: boolean }[];
+  nodes: { x: number; y: number; fill: string }[];
   pan: Pt;
   zoom: number;
   size: { w: number; h: number } | null;
@@ -1419,7 +1359,7 @@ function Minimap({
           width={NODE_W * s}
           height={NODE_H * s}
           rx={2}
-          className={n.event ? "fill-signal/70" : "fill-ink-3/70"}
+          className={n.fill}
         />
       ))}
       {view && (
@@ -1479,15 +1419,17 @@ function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: (
           placeholder="Search nodes"
           autoFocus
         />
-        <Legend compact />
+        <GroupLegend compact />
       </div>
       <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto p-2">
-        {pickerGroups.map((g) => {
-          const types = g.types.filter((t) => hit(nodeTypes[t].label) || hit(nodeLooks[t].hint));
+        {GROUP_ORDER.map((g) => {
+          const types = kindsByGroup[g].filter(
+            (t) => hit(nodeTypes[t].label) || hit(nodeLooks[t].hint),
+          );
           if (types.length === 0) return null;
           return (
-            <div key={g.group} className="mb-2">
-              <div className={cn("px-2 pt-2 pb-1", eyebrow)}>{g.group}</div>
+            <div key={g} className="mb-2">
+              <div className={cn("px-2 pt-2 pb-1", eyebrow)}>{groups[g].label}</div>
               {types.map((t) => (
                 <button
                   key={t}
@@ -1495,14 +1437,7 @@ function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: (
                   onClick={() => onPick(t)}
                   className="flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors hover:bg-raised"
                 >
-                  <span
-                    className={cn(
-                      "flex size-7 shrink-0 items-center justify-center rounded-control",
-                      familyTiles[familyOf(t)],
-                    )}
-                  >
-                    <Icon name={nodeLooks[t].icon} size={14} />
-                  </span>
+                  <KindTile type={t} />
                   <span className="min-w-0">
                     <span className="block truncate text-[13px] text-ink">
                       {nodeTypes[t].label}
@@ -1676,7 +1611,11 @@ function NodeInspector({
     <>
       <PanelHead
         title={node.name}
-        hint={`${info.kind === "event" ? (isTrigger ? "Event, starts the workflow" : "Event, waited for") : "Action"} · ${info.label}`}
+        hint={
+          info.kind === "event"
+            ? `${info.label}, ${isTrigger ? "starts the workflow" : "waited for"}`
+            : info.label
+        }
         onClose={onClose}
       >
         {editing && (
@@ -1790,6 +1729,10 @@ function NodeInspector({
                             "divider",
                             ...others.map((n) => ({
                               label: n.name,
+                              // Each step's kind beside its name, in its colour and icon, so an
+                              // approval review and a status of Approved never read alike.
+                              icon: <KindTile type={n.type} size="sm" />,
+                              hint: kindLine(n),
                               onSelect: () => onConnect(o.id, n.id),
                             })),
                           ]}
@@ -1815,6 +1758,7 @@ function NodeInspector({
                                   size={13}
                                   className="text-ink-3"
                                 />
+                                {to && <KindTile type={to.type} size="sm" />}
                                 <span className="min-w-0 flex-1 truncate">{to?.name}</span>
                                 {text && (
                                   <span className="max-w-[45%] truncate text-[11px] text-ink-3">

@@ -4,7 +4,6 @@ import {
   basicSteps,
   conditionText,
   connectorPath,
-  familyOf,
   inPort,
   NODE_H,
   NODE_W,
@@ -89,17 +88,6 @@ describe("changing a workflow", () => {
     expect(withConnector(album, "5", { until: { times: 4 } }).connectors[4]?.until).toEqual({
       times: 4,
     });
-  });
-});
-
-describe("familyOf", () => {
-  it("puts each kind of node in its family", () => {
-    expect(familyOf("upload")).toBe("event");
-    expect(familyOf("approval")).toBe("review");
-    expect(familyOf("checks")).toBe("work");
-    expect(familyOf("share")).toBe("comm");
-    expect(familyOf("wait")).toBe("flow");
-    expect(familyOf("finish")).toBe("finish");
   });
 });
 

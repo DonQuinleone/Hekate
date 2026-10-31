@@ -25,6 +25,9 @@
   --hk-node-work: #58b98a;
   --hk-node-comm: #b08cff;
   --hk-node-flow: #4fc3c9;
+  /* A QA check, warm, and a wait, in quiet ink (#512). */
+  --hk-node-qa: #e7bc81;
+  --hk-node-wait: var(--hk-ink-2);
   /* Comment categories (#496): the bar at a thread's edge, by the category's place in the list. */
   --hk-category-1: var(--hk-signal);
   --hk-category-2: var(--hk-node-review);
@@ -87,6 +90,8 @@
   --color-node-work: var(--hk-node-work);
   --color-node-comm: var(--hk-node-comm);
   --color-node-flow: var(--hk-node-flow);
+  --color-node-qa: var(--hk-node-qa);
+  --color-node-wait: var(--hk-node-wait);
   --color-category-1: var(--hk-category-1);
   --color-category-2: var(--hk-category-2);
   --color-category-3: var(--hk-category-3);

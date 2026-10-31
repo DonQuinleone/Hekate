@@ -7,11 +7,8 @@ import { Input, Select } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import {
-  type ActionType,
-  actionTypes,
   type Connector,
   customRules,
-  type EventType,
   eventTypes,
   type Flow,
   type FlowNode,
@@ -106,77 +103,121 @@ function boundsOf(nodes: { x: number; y: number }[]): Bounds {
   };
 }
 
-/* ---------- Node families: a shape and a colour each ---------- */
+/* ---------- Node families: a colour and a shape each, and an icon per kind (#512) ---------- */
 
-type Family = "event" | "review" | "work" | "comm" | "flow" | "finish";
+type Family = "start" | "qa" | "review" | "task" | "wait" | "status" | "notify" | "finish";
+
+/** The families in the order a workflow reads, left to right, each with its kinds in order. */
+const familyOrder: Family[] = [
+  "start",
+  "qa",
+  "review",
+  "task",
+  "wait",
+  "status",
+  "notify",
+  "finish",
+];
+
+export const familyKinds: Record<Family, NodeType[]> = {
+  start: ["upload", "manual", "recorded", "folder", "review"],
+  qa: ["checks"],
+  review: ["feedback", "approval"],
+  task: ["task"],
+  wait: [
+    "wait",
+    "decision",
+    "submitted",
+    "comment",
+    "resolved",
+    "task_done",
+    "due",
+    "opened",
+    "download",
+    "mention",
+  ],
+  status: ["status", "move"],
+  notify: ["notify", "share"],
+  finish: ["finish"],
+};
 
 export const familyOf = (t: NodeType): Family =>
-  t in eventTypes
-    ? "event"
-    : t === "approval" || t === "feedback"
-      ? "review"
-      : t === "task" || t === "checks"
-        ? "work"
-        : t === "notify" || t === "share"
-          ? "comm"
-          : t === "finish"
-            ? "finish"
-            : "flow";
+  familyOrder.find((f) => familyKinds[f].includes(t)) ?? "wait";
+
+const eventShape = "rounded-l-full rounded-r-panel pl-4";
+const slanted = "rounded-panel [clip-path:polygon(10px_0,100%_0,calc(100%-10px)_100%,0_100%)] pl-5";
 
 export const families: Record<
   Family,
   { label: string; hint: string; shape: string; tile: string; swatch: string }
 > = {
-  event: {
-    label: "Event",
-    hint: "Something happens; a D-shape, in the signal colour",
-    shape: "rounded-l-full rounded-r-panel pl-4",
+  start: {
+    label: "Start",
+    hint: "What begins the workflow",
+    shape: eventShape,
     tile: "bg-node-event/15 text-node-event",
     swatch: "rounded-l-full rounded-r-[3px] bg-node-event/70",
   },
+  qa: {
+    label: "QA",
+    hint: "Check the version against the project's QA rules",
+    shape: "rounded-control border-t-[3px] border-t-node-qa",
+    tile: "bg-node-qa/15 text-node-qa",
+    swatch: "rounded-[2px] border-t-[3px] border-t-node-qa bg-node-qa/30",
+  },
   review: {
     label: "Review",
-    hint: "People decide or comment; a card with a blue edge",
+    hint: "Ask people to approve, or for their comments",
     shape: "rounded-panel-lg border-l-[3px] border-l-node-review",
     tile: "bg-node-review/15 text-node-review",
     swatch: "rounded-[3px] border-l-[3px] border-l-node-review bg-node-review/30",
   },
-  work: {
-    label: "Work",
-    hint: "Something gets done; a square-cornered card, green",
+  task: {
+    label: "Task",
+    hint: "Someone does a piece of work",
     shape: "rounded-control",
     tile: "bg-node-work/15 text-node-work",
     swatch: "rounded-[2px] bg-node-work/60",
   },
-  comm: {
-    label: "Message",
-    hint: "Someone is told or sent a link; a pill, violet",
+  wait: {
+    label: "Wait",
+    hint: "Pause, or wait for something to happen",
+    shape: slanted,
+    tile: "bg-node-wait/15 text-node-wait",
+    swatch: "rounded-l-full rounded-r-[3px] bg-node-wait/60",
+  },
+  status: {
+    label: "Status",
+    hint: "Change where the item stands, or where it is filed",
+    shape: slanted,
+    tile: "bg-node-flow/15 text-node-flow",
+    swatch: "[clip-path:polygon(4px_0,100%_0,calc(100%-4px)_100%,0_100%)] bg-node-flow/60",
+  },
+  notify: {
+    label: "Notify",
+    hint: "Tell people, or send them a link",
     shape: "rounded-full pl-4",
     tile: "bg-node-comm/15 text-node-comm",
     swatch: "rounded-full bg-node-comm/60",
   },
-  flow: {
-    label: "Flow",
-    hint: "Wait, set a status, move; a slanted card, teal",
-    shape: "rounded-panel [clip-path:polygon(10px_0,100%_0,calc(100%-10px)_100%,0_100%)] pl-5",
-    tile: "bg-node-flow/15 text-node-flow",
-    swatch: "[clip-path:polygon(4px_0,100%_0,calc(100%-4px)_100%,0_100%)] bg-node-flow/60",
-  },
   finish: {
     label: "Finish",
-    hint: "The end; the mirror of the event, in ink",
+    hint: "End the workflow, with a final status",
     shape: "rounded-r-full rounded-l-panel pr-4",
     tile: "bg-ink text-ground",
     swatch: "rounded-r-full rounded-l-[3px] bg-ink/70",
   },
 };
 
+/** A node's shape: an event keeps the D of a start, whatever its family. */
+const shapeOf = (t: NodeType) => (t in eventTypes ? eventShape : families[familyOf(t)].shape);
+
 export function Legend({ compact = false }: { compact?: boolean }) {
   return (
     <div
       className={cn("flex flex-wrap gap-x-4 gap-y-1.5", compact ? "text-[11px]" : "text-[12px]")}
     >
-      {(Object.keys(families) as Family[]).map((f) => (
+      {familyOrder.map((f) => (
         <span key={f} className="flex items-center gap-1.5 text-ink-3" title={families[f].hint}>
           <span className={cn("inline-block h-2.5 w-4", families[f].swatch)} />
           {families[f].label}
@@ -186,42 +227,42 @@ export function Legend({ compact = false }: { compact?: boolean }) {
   );
 }
 
+/** A kind's icon in its family's colour, wherever kinds are shown or offered. */
+function KindTile({ type, size = "md" }: { type: NodeType; size?: "sm" | "md" | "lg" }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-control",
+        size === "lg" ? "size-8" : size === "md" ? "size-7" : "size-5 rounded-[4px]",
+        families[familyOf(type)].tile,
+      )}
+    >
+      <Icon
+        name={typeMeta(type).icon as IconName}
+        size={size === "lg" ? 16 : size === "md" ? 14 : 12}
+      />
+    </span>
+  );
+}
+
+/** What a node is beside its name: its kind, and for a status, the status it sets. */
+const kindLine = (n: FlowNode) =>
+  (n.type === "status" || n.type === "finish") && n.config.status
+    ? `${typeMeta(n.type).label}: ${n.config.status}`
+    : typeMeta(n.type).label;
+
 /* ---------- The picker ---------- */
 
-const picker: { group: string; items: { type: NodeType; label: string; hint: string }[] }[] = [
-  {
-    group: "Review",
-    items: (["approval", "feedback"] as ActionType[]).map((t) => ({
+const picker: { group: string; items: { type: NodeType; label: string; hint: string }[] }[] =
+  familyOrder.map((f) => ({
+    group: families[f].label,
+    items: familyKinds[f].map((t) => ({
       type: t,
-      label: actionTypes[t].label,
-      hint: actionTypes[t].hint,
+      label: typeMeta(t).label,
+      hint: typeMeta(t).hint,
     })),
-  },
-  {
-    group: "Work",
-    items: (["task", "checks", "notify", "share", "move"] as ActionType[]).map((t) => ({
-      type: t,
-      label: actionTypes[t].label,
-      hint: actionTypes[t].hint,
-    })),
-  },
-  {
-    group: "Flow",
-    items: (["wait", "status", "finish"] as ActionType[]).map((t) => ({
-      type: t,
-      label: actionTypes[t].label,
-      hint: actionTypes[t].hint,
-    })),
-  },
-  {
-    group: "Events: start on, or wait for",
-    items: (Object.keys(eventTypes) as EventType[]).map((t) => ({
-      type: t,
-      label: eventTypes[t].label,
-      hint: eventTypes[t].hint,
-    })),
-  },
-];
+  }));
 
 /* ---------- Pieces ---------- */
 
@@ -271,7 +312,6 @@ function Node({
   onPortDown: (outcome: string, e: React.PointerEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
 }) {
-  const meta = typeMeta(node.type);
   const outs = outcomesOf(node);
   const subtitle =
     node.kind === "event"
@@ -280,7 +320,7 @@ function Node({
         : "Waits for it"
       : [node.config.who ?? node.config.to, node.config.due ? `${node.config.due} d` : null]
           .filter(Boolean)
-          .join(" · ") || meta.label;
+          .join(" · ") || kindLine(node);
   return (
     <div
       data-node={node.id}
@@ -288,7 +328,7 @@ function Node({
       onContextMenu={onContextMenu}
       className={cn(
         "absolute flex cursor-grab touch-none items-center gap-3 border bg-overlay px-3 shadow-3 transition-[box-shadow,border-color] select-none",
-        families[familyOf(node.type)].shape,
+        shapeOf(node.type),
         selected
           ? "border-signal shadow-[0_0_0_3px_var(--hk-signal-line),var(--hk-shadow-3)]"
           : walked
@@ -298,14 +338,7 @@ function Node({
       )}
       style={{ left: node.x, top: node.y, width: NODE_W, height: NODE_H }}
     >
-      <span
-        className={cn(
-          "flex size-8 shrink-0 items-center justify-center rounded-control",
-          families[familyOf(node.type)].tile,
-        )}
-      >
-        <Icon name={meta.icon as IconName} size={16} />
-      </span>
+      <KindTile type={node.type} size="lg" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-medium text-ink">{node.name}</span>
         <span className="block truncate text-[11px] text-ink-3">{subtitle}</span>
@@ -1535,7 +1568,6 @@ function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: (
             <div key={g.group} className="mb-2">
               <Label className="block px-2 pt-2 pb-1">{g.group}</Label>
               {items.map((i) => {
-                const meta = typeMeta(i.type);
                 return (
                   <button
                     key={i.type}
@@ -1543,14 +1575,7 @@ function Picker({ onPick, onClose }: { onPick: (t: NodeType) => void; onClose: (
                     onClick={() => onPick(i.type)}
                     className="flex w-full items-center gap-3 rounded-control px-2 py-1.5 text-left transition-colors hover:bg-raised"
                   >
-                    <span
-                      className={cn(
-                        "flex size-7 shrink-0 items-center justify-center rounded-control",
-                        families[familyOf(i.type)].tile,
-                      )}
-                    >
-                      <Icon name={meta.icon as IconName} size={14} />
-                    </span>
+                    <KindTile type={i.type} />
                     <span className="min-w-0">
                       <span className="block truncate text-[13px] text-ink">{i.label}</span>
                       <span className="block truncate text-[12px] text-ink-3">{i.hint}</span>
@@ -1911,6 +1936,8 @@ function NodeInspector({
                           "divider",
                           ...others.map((n) => ({
                             label: n.name,
+                            icon: <KindTile type={n.type} size="sm" />,
+                            hint: kindLine(n),
                             onSelect: () => onConnect(o.id, n.id),
                           })),
                         ]}
@@ -1935,6 +1962,7 @@ function NodeInspector({
                                   size={13}
                                   className="text-ink-3"
                                 />
+                                {to && <KindTile type={to.type} size="sm" />}
                                 <span className="min-w-0 flex-1 truncate">{to?.name}</span>
                                 {(c.condition || c.until) && (
                                   <span className="max-w-[45%] truncate text-[11px] text-ink-3">
@@ -2125,14 +2153,7 @@ function BasicView({
                         <span className="tabular w-7 text-center text-[12px] text-ink-3">
                           {i + 1}
                         </span>
-                        <span
-                          className={cn(
-                            "flex size-7 items-center justify-center rounded-control",
-                            families[familyOf(n.type)].tile,
-                          )}
-                        >
-                          <Icon name={meta.icon as IconName} size={14} />
-                        </span>
+                        <KindTile type={n.type} />
                         <span className="min-w-0 flex-1 truncate text-[14px] text-ink">
                           {n.name}
                         </span>

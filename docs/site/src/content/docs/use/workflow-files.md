@@ -79,7 +79,7 @@ connectors:
 | Key | |
 | --- | --- |
 | `id` | How connectors refer to it: letters, digits, hyphens and underscores. |
-| `event` or `action` | What it is. Events: `upload`, `folder`, `manual`, `review`, `decision`, `submitted`, `comment`, `resolved`, `task_done`, `due`, `opened`, `download`, `mention`. Actions: `approval`, `feedback`, `task`, `checks`, `notify`, `status`, `wait`, `share`, `move`, `finish`. |
+| `event` or `action` | What it is. Events: `upload`, `folder`, `manual`, `review`, `decision`, `submitted`, `comment`, `resolved`, `task_done`, `due`, `opened`, `download`, `mention`, `recorded`. Actions: `approval` (the builder's *Approval review*), `feedback` (*Feedback review*), `task`, `checks` (the *QA check*: the project's QA rules on the version), `notify`, `status` (*Set status*), `wait`, `share`, `move`, `finish`. |
 | `name` | What it is called on the canvas and in a track's history. |
 | `group` | The id of the group it belongs to (optional). |
 | `with` | Its settings, as the builder's inspector shows them (optional): `who`, `order`, `rule`, `status`, `due`, `to`, `message`, `days`, `expires`, `folder`. |
@@ -95,7 +95,7 @@ connectors:
 | `when` or `unless` | A condition (optional): `kind audio` (or `video`, `document`, `image`), `tag Rush`, or `by guest` (or `member`, who made the decision). `unless` turns it round. |
 | `until` | For a loop back to an earlier step: how many times it may be taken. |
 
-Each step's outcomes are the ones the builder shows: an approval ends by `approved`, `mixed` or `changes`; feedback and a task by `done` or `overdue`; checks by `passed`, `warnings` or `failed`; an event by `happened`; a notification or a share by `sent`; a status by `set`; a wait by `elapsed`; a move by `moved`. A finish has none.
+Each step's outcomes are the ones the builder shows: an approval ends by `approved`, `mixed` or `changes`; feedback and a task by `done` or `overdue`; a QA check (`checks`) by `passed`, `warnings` or `failed`; an event by `happened`; a notification or a share by `sent`; a status by `set`; a wait by `elapsed`; a move by `moved`. A finish has none.
 
 ## Writing YAML by hand
 
