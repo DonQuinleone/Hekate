@@ -1422,7 +1422,7 @@ export function InstancePage({ section }: { section: string }) {
                   [
                     "Label",
                     "£190 a month",
-                    "5 TB · no member limit · SSO · support up to Emergency · a named operator",
+                    "5 TB · no member limit · SSO · your own storage · support up to Emergency · a named operator",
                     "1 workspace",
                   ],
                   [
