@@ -1,9 +1,11 @@
 import { type Database, inOrg, schema, withAuditPurge } from "@hekate/db";
-import type { Backends } from "@hekate/storage";
+import { bucketIdOf } from "@hekate/shared";
+import type { Backends, StorageBackend } from "@hekate/storage";
 import { and, eq, inArray, isNotNull, lte } from "drizzle-orm";
 import { recordInstanceEvent } from "./instance-events.ts";
 import type { Keyring } from "./keyring.ts";
 import { deleteVariants } from "./variants.ts";
+import type { WorkspaceBuckets } from "./workspace-buckets.ts";
 
 /**
  * Deletes a workspace set to be deleted, by an operator (#174) or by its owners (#186), once its
@@ -13,6 +15,8 @@ import { deleteVariants } from "./variants.ts";
  * in one transaction, so a failure leaves the workspace whole; bytes left behind by a backend
  * that fails are orphans, which the storage reconciliation reports and removes. Unfinished
  * uploads are aborted first. Returns how many objects it removed, or null when it did not purge.
+ * A workspace's own buckets (#508) are emptied of what Hekate kept there too, opened while its
+ * rows and keys still say how; what is left in one is ciphertext whose keys are gone.
  */
 export async function purgeWorkspace(
   db: Database,
@@ -20,8 +24,14 @@ export async function purgeWorkspace(
   organisationId: string,
   now = new Date(),
   keyring?: Pick<Keyring, "forget">,
+  buckets?: Pick<WorkspaceBuckets, "all" | "backend">,
 ) {
   if (!(await due(db, organisationId, now))) return null;
+  const own: StorageBackend[] = buckets ? await buckets.all(organisationId) : [];
+  const backendOf = (name: string) => {
+    const bucketId = bucketIdOf(name);
+    return bucketId && buckets ? buckets.backend(organisationId, bucketId) : backends.get(name);
+  };
   // Unfinished uploads keep their parts where no listing of the prefix finds them, so they
   // are aborted while their rows still say where; if one cannot be, the purge waits an hour.
   const unfinished = await db
@@ -37,7 +47,7 @@ export async function purgeWorkspace(
     );
   for (const upload of unfinished) {
     try {
-      await backends.get(upload.backend).abortMultipart(upload.key, upload.backendUploadId);
+      await (await backendOf(upload.backend)).abortMultipart(upload.key, upload.backendUploadId);
     } catch (error) {
       console.error(`Could not abort upload ${upload.id} before the purge; will retry`, error);
       return null;
@@ -62,15 +72,14 @@ export async function purgeWorkspace(
   });
   if (name === null) return null;
   let removed = 0;
-  for (const backendName of backends.names()) {
-    const backend = backends.get(backendName);
+  for (const backend of [...backends.names().map((n) => backends.get(n)), ...own]) {
     try {
       for await (const object of backend.list(`org/${organisationId}/`)) {
         await backend.delete(object.key);
         removed += 1;
       }
     } catch (error) {
-      console.error(`Purging ${name} from storage ${backendName} stopped:`, error);
+      console.error(`Purging ${name} from storage ${backend.name} stopped:`, error);
     }
   }
   keyring?.forget(organisationId);
@@ -101,6 +110,7 @@ export async function purgeDueWorkspaces(
   backends: Backends,
   now = new Date(),
   keyring?: Pick<Keyring, "forget">,
+  buckets?: Pick<WorkspaceBuckets, "all" | "backend">,
 ) {
   const due = await db
     .select({ id: schema.organisations.id })
@@ -110,6 +120,6 @@ export async function purgeDueWorkspaces(
     );
   let purged = 0;
   for (const w of due)
-    if ((await purgeWorkspace(db, backends, w.id, now, keyring)) !== null) purged += 1;
+    if ((await purgeWorkspace(db, backends, w.id, now, keyring, buckets)) !== null) purged += 1;
   return purged;
 }

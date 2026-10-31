@@ -36,6 +36,7 @@ export function PeoplePicker({
   autoFocus = false,
   chips = true,
   size = "md",
+  newGuests = true,
 }: {
   id?: string;
   /** What the field asks, for a screen reader: its visible label is beside it. */
@@ -49,6 +50,8 @@ export function PeoplePicker({
   chips?: boolean;
   /** Quiet, without a box of its own, where the field sits inside a card's row. */
   size?: "md" | "quiet";
+  /** Whether an address no one answers to is offered as a new guest; off where only members count. */
+  newGuests?: boolean;
 }) {
   const own = useId();
   const listId = `${id ?? own}-list`;
@@ -75,6 +78,7 @@ export function PeoplePicker({
     .slice(0, 7);
   // An address no one here answers to becomes a guest, named from it until they are renamed.
   const typedEmail =
+    newGuests &&
     emailPattern.test(needle) &&
     !people.some((p) => emailOf(p) === needle || p.hint?.toLowerCase() === needle) &&
     !taken.has(`guest:${needle}`)

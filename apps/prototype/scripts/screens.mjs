@@ -105,12 +105,28 @@ const screens = [
   },
   { name: "tasks", route: "/projects/proj-joplin/tasks" },
   { name: "people", route: "/projects/proj-joplin/people" },
+  { name: "roles", route: "/projects/proj-joplin/settings?section=roles" },
+
+  // Its only owner leaving (decision 285): asked who takes over.
   {
-    name: "roles",
+    name: "people-leave",
+    route: "/projects/proj-titles/people",
+    persona: "producer",
+    steps: [
+      { click: 'role=button[name="Actions for Mira Solberg"]' },
+      { click: 'role=menuitem[name="Leave project…"]' },
+      { click: 'role=combobox[name="Who takes over"]' },
+      { click: "role=option[name=/Tomas Varga/]" },
+    ],
+  },
+  {
+    name: "roles-copy",
     route: "/projects/proj-joplin/settings?section=roles",
-    steps: [{ scroll: "Access permissions" }],
+    steps: [{ click: 'role=button[name="New role"]' }, { click: 'role=menuitem[name="Engineer"]' }],
   },
   { name: "qa-rules", route: "/projects/proj-joplin/settings?section=qa" },
+  { name: "project-security", route: "/projects/proj-joplin/settings?section=security" },
+  { name: "project-security-video", route: "/projects/proj-titles/settings?section=security" },
   {
     name: "workflow-basic",
     route: "/projects/proj-joplin/workflow",
@@ -222,7 +238,7 @@ const screens = [
 
   // 3.11 Workspace, settings and operations
   { name: "org-general", route: "/settings/general" },
-  { name: "org-export", route: "/settings/general", steps: [{ scroll: "Export" }] },
+  { name: "org-export", route: "/settings/operations", steps: [{ scroll: "Export" }] },
   { name: "org-branding", route: "/settings/branding" },
   { name: "design-system", route: "/settings/brand" },
   {

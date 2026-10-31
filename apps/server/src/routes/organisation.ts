@@ -9,7 +9,6 @@ import {
   inviteInput,
   methodsFor,
   organisationRole,
-  organisationStorageInput,
   organisationUpdateInput,
   secondFactorRequired,
   sessionMethod,
@@ -35,7 +34,7 @@ import { type LinkRoots, linkBase } from "../hosts.ts";
 import { INVITATION_LIFETIME_MS, newInvitationToken } from "../invitation-token.ts";
 import { type Mailer, sendEmail } from "../mail.ts";
 import { zValidator } from "../openapi/validator.ts";
-import type { Storage } from "../storage.ts";
+import { dropOwnerships } from "../project-owners.ts";
 import { requireRole, type TenantVariables } from "../tenancy.ts";
 import { assertMemberRoom } from "../usage.ts";
 
@@ -75,7 +74,6 @@ export const organisationRoutes = (
   mailer: Mailer,
   /** Links in mail: the workspace's own address with subdomains on (#437). */
   links: LinkRoots,
-  storage: Storage,
   audit: Audit,
   trustProxy: boolean,
 ) =>
@@ -418,6 +416,9 @@ export const organisationRoutes = (
             ),
           );
         await tx.delete(members).where(inOrg(members, c.var.organisationId, eq(members.id, id)));
+        // So does their ownership of them, each project handed to its earliest member, or the
+        // workspace's earliest owner, should they have been its last (decision 285).
+        await dropOwnerships(tx, c.var.organisationId, member.userId);
         // Their API tokens here stop working with them (#198).
         await revokeMemberTokens(tx, c.var.organisationId, member.userId, c.var.userId);
       });
@@ -601,37 +602,6 @@ export const organisationRoutes = (
       });
       return c.body(null, 204);
     })
-    .get("/storage", requireRole("admin"), async (c) => {
-      const [organisation] = await db
-        .select({ backend: organisations.storageBackend })
-        .from(organisations)
-        .where(eq(organisations.id, c.var.organisationId));
-      return c.json({
-        /** The organisation's choice; null follows the instance default. */
-        backend: organisation?.backend ?? null,
-        defaultBackend: storage.backends.defaultBackend,
-        available: storage.backends.names(),
-      });
-    })
-    .put(
-      "/storage",
-      requireRole("owner"),
-      zValidator("json", organisationStorageInput),
-      async (c) => {
-        const { backend } = c.req.valid("json");
-        if (backend !== null && !storage.backends.has(backend)) {
-          throw new HTTPException(400, {
-            message: `Storage backend "${backend}" is not configured`,
-          });
-        }
-        // Existing objects stay where they are; only new objects use the new backend.
-        await db
-          .update(organisations)
-          .set({ storageBackend: backend })
-          .where(eq(organisations.id, c.var.organisationId));
-        return c.json({ backend });
-      },
-    )
     .get("/audit", requireRole("admin"), zValidator("query", auditQuery), async (c) => {
       const organisationId = c.var.organisationId;
       const page = await audit.query(organisationId, c.req.valid("query"));

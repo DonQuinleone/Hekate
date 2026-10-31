@@ -29,6 +29,7 @@ const {
   commentTakes,
   projects,
   projectMembers,
+  projectOwners,
   projectRoles,
   files,
   groupMembers,
@@ -321,15 +322,18 @@ async function guestNarrowing(
 
 /**
  * The tools a member has in a project once its exceptions apply (decision 258): their own
- * exception, else their groups', else their role's. Owners and admins keep every tool.
+ * exception, else their groups', else their role's. The workspace's owners and admins, and the
+ * project's own owners (decision 285), keep every tool.
  */
 async function memberTools(
   db: Pick<Database, "select">,
   actor: MemberActor,
   projectId: string,
   base: Set<PlayerTool>,
+  projectOwner: boolean,
 ): Promise<Set<PlayerTool>> {
-  if (actor.organisationRole === "owner" || actor.organisationRole === "admin") return base;
+  if (projectOwner || actor.organisationRole === "owner" || actor.organisationRole === "admin")
+    return base;
   const org = actor.organisationId;
   const found = await db
     .select({ userId: projectToolExceptions.userId, tools: projectToolExceptions.tools })
@@ -445,7 +449,8 @@ async function sharedTakeReach(
 
 /**
  * What the actor may do in a project, or null when they may not see it (or it does not
- * exist in their organisation). Organisation owners and admins may do everything.
+ * exist in their organisation). Organisation owners and admins may do everything, and so may
+ * the project's own owners (decision 285), whatever their role says.
  */
 export async function projectAccess(
   db: Pick<Database, "select">,
@@ -462,6 +467,8 @@ export async function projectAccess(
   /** The project's downloads and deletion (decision 257). */
   assetPolicy: AssetPolicy;
   archived: boolean;
+  /** Whether the actor is one of the project's owners (decision 285). */
+  owner: boolean;
 } | null> {
   // Guests see no projects; they reach files only through their reviews.
   if (actor.kind === "guest") return null;
@@ -472,8 +479,17 @@ export async function projectAccess(
       assetPolicy: projects.assetPolicy,
       permissions: projectRoles.permissions,
       tools: projectRoles.tools,
+      ownerId: projectOwners.id,
     })
     .from(projects)
+    .leftJoin(
+      projectOwners,
+      and(
+        eq(projectOwners.projectId, projects.id),
+        eq(projectOwners.organisationId, actor.organisationId),
+        eq(projectOwners.userId, actor.userId),
+      ),
+    )
     .leftJoin(
       projectMembers,
       and(
@@ -492,10 +508,11 @@ export async function projectAccess(
     .where(inOrg(projects, actor.organisationId, eq(projects.id, projectId)));
   if (!row) return null;
   const assetPolicy = assetPolicyOf(row.assetPolicy);
-  // What the role grants, less what the project's downloads and deletion leave to nobody, or
-  // to the workspace's owners and admins (decision 257).
+  const owner = row.ownerId !== null;
+  // What the role grants (everything, to an owner), less what the project's downloads and
+  // deletion leave to nobody, or to the workspace's owners and admins (decision 257).
   const granted = narrowedByPolicy(
-    permissionsFor(actor.organisationRole, row.permissions),
+    permissionsFor(actor.organisationRole, row.permissions, owner),
     assetPolicy,
     actor.organisationRole,
   );
@@ -509,9 +526,16 @@ export async function projectAccess(
     projectId: row.id,
     permissions,
     granted,
-    tools: await memberTools(db, actor, row.id, toolsFor(actor.organisationRole, row.tools)),
+    tools: await memberTools(
+      db,
+      actor,
+      row.id,
+      toolsFor(actor.organisationRole, row.tools, owner),
+      owner,
+    ),
     assetPolicy,
     archived,
+    owner,
   };
 }
 
@@ -622,11 +646,17 @@ export async function canOnFile(
 /**
  * A condition for project lists: the projects the actor may see, or (with another
  * permission) may act in that way. Owners and admins have every project in the
- * organisation; members, those where their role allows it.
+ * organisation; a project's own owners, theirs (decision 285); members, those where their
+ * role allows it.
  */
 export function visibleProjects(actor: MemberActor, permission: ProjectPermission = "view") {
   if (actor.organisationRole === "owner" || actor.organisationRole === "admin") return undefined;
-  return sql`exists (
+  return sql`(exists (
+    select 1 from ${projectOwners}
+    where ${projectOwners.projectId} = ${projects.id}
+      and ${projectOwners.organisationId} = ${actor.organisationId}
+      and ${projectOwners.userId} = ${actor.userId}
+  ) or exists (
     select 1 from ${projectMembers}
     join ${projectRoles} on ${projectRoles.id} = ${projectMembers.roleId}
       and ${projectRoles.organisationId} = ${actor.organisationId}
@@ -634,7 +664,7 @@ export function visibleProjects(actor: MemberActor, permission: ProjectPermissio
       and ${projectMembers.organisationId} = ${actor.organisationId}
       and ${projectMembers.userId} = ${actor.userId}
       and ${permission} = any(${projectRoles.permissions})
-  )`;
+  ))`;
 }
 
 /**

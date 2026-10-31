@@ -1,10 +1,12 @@
 import { createHash, randomInt } from "node:crypto";
 import { type Database, inOrg, schema } from "@hekate/db";
-import { asc } from "drizzle-orm";
+import { bucketIdOf, bucketLine } from "@hekate/shared";
+import type { StorageBackend } from "@hekate/storage";
+import { asc, isNull } from "drizzle-orm";
 import type { Keyring } from "./keyring.ts";
 import type { Storage } from "./storage.ts";
 
-const { blobs, organisationKeys, organisations } = schema;
+const { blobs, organisationKeys, organisations, workspaceBuckets } = schema;
 
 export interface VerifyReport {
   /** Organisation key versions that open with the configured master keys. */
@@ -13,6 +15,11 @@ export interface VerifyReport {
   objects: { checked: number; missing: string[] };
   /** Blobs read in full and decrypted, compared with their checksum where it is known. */
   sample: { checked: number; failed: string[] };
+  /**
+   * Workspaces that keep files in a bucket of their own (#508): theirs to back up, not the
+   * operator's, each with its current bucket and how many objects its buckets hold.
+   */
+  ownBuckets: { workspace: string; bucket: string | null; objects: number }[];
   ok: boolean;
 }
 
@@ -31,6 +38,7 @@ export async function verifyBackup(
     keys: { checked: 0, failed: [] },
     objects: { checked: 0, missing: [] },
     sample: { checked: 0, failed: [] },
+    ownBuckets: [],
     ok: false,
   };
   const all = await db
@@ -57,22 +65,48 @@ export async function verifyBackup(
         );
       }
     }
+    const before = recorded.length;
     for (const blob of await db
       .select({ id: blobs.id, backend: blobs.backend, key: blobs.key, sha256: blobs.sha256 })
       .from(blobs)
       .where(inOrg(blobs, workspace.id))
       .orderBy(asc(blobs.id)))
       recorded.push({ organisationId: workspace.id, ...blob });
+    const [current] = await db
+      .select()
+      .from(workspaceBuckets)
+      .where(inOrg(workspaceBuckets, workspace.id, isNull(workspaceBuckets.replacedAt)));
+    const inBuckets = recorded.slice(before).filter((b) => bucketIdOf(b.backend)).length;
+    if (current || inBuckets > 0)
+      report.ownBuckets.push({
+        workspace: workspace.name,
+        bucket: current ? bucketLine(current) : null,
+        objects: inBuckets,
+      });
   }
 
   for (const blob of recorded) {
     report.objects.checked += 1;
-    const backend = storage.backends.has(blob.backend) ? storage.backends.get(blob.backend) : null;
-    if (!backend) {
+    let backend: StorageBackend;
+    if (bucketIdOf(blob.backend)) {
+      // A workspace's own bucket, opened with its sealed credentials, as the server opens it.
+      try {
+        backend = await storage.backendOf(blob.organisationId, blob.backend);
+      } catch (error) {
+        report.objects.missing.push(`${blob.key}: ${(error as Error).message}`);
+        continue;
+      }
+    } else if (storage.backends.has(blob.backend)) backend = storage.backends.get(blob.backend);
+    else {
       report.objects.missing.push(`${blob.key}: backend "${blob.backend}" is not configured`);
       continue;
     }
-    if (!(await backend.head(blob.key))) report.objects.missing.push(`${blob.backend}:${blob.key}`);
+    try {
+      if (!(await backend.head(blob.key)))
+        report.objects.missing.push(`${blob.backend}:${blob.key}`);
+    } catch (error) {
+      report.objects.missing.push(`${blob.backend}:${blob.key}: ${(error as Error).name}`);
+    }
   }
 
   // A random sample, read in full: decryption checks every chunk's tag, the checksum the whole.
@@ -121,6 +155,17 @@ export function describeReport(report: VerifyReport): string {
       `${report.sample.checked - report.sample.failed.length} of ${report.sample.checked} sampled files decrypt and match their checksum`,
     ),
     ...details(report.sample.failed),
+    ...(report.ownBuckets.length === 0
+      ? ["note  No workspace keeps files in a bucket of its own."]
+      : [
+          `note  ${report.ownBuckets.length} ${report.ownBuckets.length === 1 ? "workspace keeps" : "workspaces keep"} files in a bucket of its own, for it to back up (checked above, not part of this backup):`,
+          ...details(
+            report.ownBuckets.map(
+              (w) =>
+                `${w.workspace}: ${w.bucket ?? "no bucket now"} · ${w.objects} ${w.objects === 1 ? "object" : "objects"}`,
+            ),
+          ),
+        ]),
     "",
     report.ok
       ? "The database, the storage and the master key belong together."

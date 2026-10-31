@@ -4,6 +4,7 @@ import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { cn } from "~/lib/cn";
 import { Label } from "./label";
+import { Button } from "./ui/button";
 import { Switch } from "./ui/toggle";
 
 export interface NavSection {
@@ -145,11 +146,14 @@ export function Section({
   intro,
   children,
   action,
+  panelId,
 }: {
   title: string;
   intro?: string;
-  children: ReactNode;
+  /** Its rows; a section without them is its heading alone, as a folded one is. */
+  children?: ReactNode;
   action?: ReactNode;
+  panelId?: string;
 }) {
   return (
     <section className="flex flex-col gap-3">
@@ -160,10 +164,71 @@ export function Section({
         </div>
         {action}
       </div>
-      <div className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25 shadow-1">
-        {children}
-      </div>
+      {children ? (
+        <div
+          id={panelId}
+          className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25 shadow-1"
+        >
+          {children}
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+/**
+ * A section that folds to its heading and a line saying how it stands: for what matters less
+ * here, such as video settings in a project with no video (#509). Show opens it.
+ */
+export function FoldingSection({
+  id,
+  title,
+  intro,
+  summary,
+  open,
+  onToggle,
+  children,
+}: {
+  id: string;
+  title: string;
+  intro?: string;
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const toggle = (
+    <Button
+      variant="ghost"
+      size="sm"
+      aria-expanded={open}
+      aria-controls={id}
+      aria-label={`${open ? "Hide" : "Show"} ${title.toLowerCase()}`}
+      onClick={onToggle}
+    >
+      {open ? "Hide" : "Show"}
+      <Icon
+        name="chevronDown"
+        size={12}
+        className={cn("text-ink-3 transition-transform", open && "rotate-180")}
+      />
+    </Button>
+  );
+  // Folded, it is one line: its heading, how it stands, and Show.
+  if (!open)
+    return (
+      <section className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <h2 className="text-[16px] font-medium text-ink">{title}</h2>
+          <p className="m-0 text-[13px] text-ink-3">{summary}</p>
+        </div>
+        {toggle}
+      </section>
+    );
+  return (
+    <Section title={title} intro={intro} panelId={id} action={toggle}>
+      {children}
+    </Section>
   );
 }
 

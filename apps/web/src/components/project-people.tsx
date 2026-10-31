@@ -1,11 +1,19 @@
-import { applyPermissions, reviewerDefaults } from "@hekate/shared";
+import {
+  applyPermissions,
+  leaveRefusal,
+  managesOwners,
+  type ProjectMember,
+  reviewerDefaults,
+  stepDownRefusal,
+} from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { ReviewerGroups } from "~/components/groups";
 import { Icon } from "~/components/icons";
 import { Card, SectionHead } from "~/components/page";
+import { PeoplePicker, type Person } from "~/components/people-picker";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
@@ -21,6 +29,7 @@ import {
   projectGroupsQuery,
   projectGuestsQuery,
   projectMembersQuery,
+  projectQuery,
   projectReviewerGrantsQuery,
   projectRolesQuery,
   useProjectAccessMutations,
@@ -35,11 +44,13 @@ const dayFormat = formatDates({ day: "numeric", month: "short" });
 
 /**
  * Two kinds of people, never conflated (#143): members have accounts and a role in the
- * project; reviewers are guests, reaching only what a review gives them, by a link.
+ * project, and its owners (decision 285) everything in it; reviewers are guests, reaching only
+ * what a review gives them, by a link.
  */
 export function ProjectPeople({ projectId }: { projectId: string }) {
   return (
     <div className="flex flex-col gap-8">
+      {/* Owners, then members (decision 285). */}
       <Members projectId={projectId} />
       <Reviewers projectId={projectId} />
       <ReviewerGroups projectId={projectId} />
@@ -47,129 +58,290 @@ export function ProjectPeople({ projectId }: { projectId: string }) {
   );
 }
 
-/** The members with a role here: change it, take it away, or give one to someone new. */
+/**
+ * The project's owners and its members (decision 285): owners above, fixed over the roles and
+ * at least one always; members below, each with a role to change, take away, or give someone
+ * new. As Slack lists a workspace's owners, and Linear a team's members, in one place.
+ */
 function Members({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
   const manage = can("manage_roles");
   const { data: holders, error: loadError } = useQuery(projectMembersQuery(projectId));
   const { data: roles } = useQuery(projectRolesQuery(projectId));
   const { data: me } = useQuery(meQuery);
-  const { assign, remove } = useProjectAccessMutations(projectId);
+  const { assign, remove, makeOwner, makeMember } = useProjectAccessMutations(projectId);
   const manageReviewers = can("manage_reviewers");
   const { data: grants } = useQuery({
     ...projectReviewerGrantsQuery(projectId),
     enabled: manageReviewers,
   });
   const [adding, setAdding] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const [granting, setGranting] = useState<Grantee | null>(null);
-  const error = loadError ?? assign.error ?? remove.error;
-  return (
-    <section aria-label="Members" className="flex flex-col gap-3">
-      <SectionHead
-        title="Members"
-        hint={
-          holders
-            ? `${holders.length} with ${holders.length === 1 ? "an account" : "accounts"}`
-            : undefined
-        }
-        action={
-          manage && (
-            <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
-              <Icon name="userPlus" size={14} />
-              Add member
-            </Button>
-          )
-        }
-      />
-      {error && !adding && <p className="text-[13px] text-signal">{error.message}</p>}
-      <Card>
-        <ul className="m-0 list-none p-0">
-          {!holders && <li className="px-4 py-4 text-[13px] text-ink-3">Loading</li>}
-          {holders?.length === 0 && (
-            <li className="px-4 py-4 text-[13px] text-ink-3">
-              Nobody has a role here yet.{" "}
-              {manage ? "Add members to give them one." : "Workspace admins can add them."}
-            </li>
+  const error = loadError ?? assign.error ?? remove.error ?? makeOwner.error ?? makeMember.error;
+  const myId = me?.user.id;
+  const workspaceRole = me?.organisations.find((o) => o.id === me.activeOrganisationId)?.role;
+  const owners = holders?.filter((m) => m.ownerSince) ?? [];
+  const others = holders?.filter((m) => !m.ownerSince);
+  const ownerIds = owners.map((o) => o.userId);
+  const manageOwners = managesOwners(
+    workspaceRole ?? null,
+    Boolean(myId && ownerIds.includes(myId)),
+  );
+  const mine = (m: ProjectMember) => m.userId === myId;
+  const permissionsAction = (m: ProjectMember) =>
+    manageReviewers
+      ? [
+          {
+            label: "Review permissions…",
+            onSelect: () => setGranting({ kind: "member", id: m.userId, name: m.name }),
+          },
+        ]
+      : [];
+  const leaveAction = (m: ProjectMember) =>
+    mine(m) ? [{ label: "Leave project…", onSelect: () => setLeaving(true) }] : [];
+  const person = (m: ProjectMember) => (
+    <>
+      <Avatar id={m.userId} name={m.name} size={30} />
+      <span className="min-w-0">
+        <span className="block truncate text-[14px] text-ink">
+          {m.name}
+          {mine(m) && <span className="text-ink-3"> · you</span>}
+          {grants?.some((g) => g.userId === m.userId) && (
+            <span className="text-ink-3"> · own review permissions</span>
           )}
-          {holders?.map((m) => {
-            const role = roles?.find((r) => r.id === m.roleId);
-            return (
-              <li
-                key={m.userId}
-                className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-line px-4 py-2.5 last:border-b-0 @3xl/app:grid-cols-[auto_minmax(0,1fr)_160px_auto]"
-              >
-                <Avatar id={m.userId} name={m.name} size={30} />
-                <span className="min-w-0">
-                  <span className="block truncate text-[14px] text-ink">
-                    {m.name}
-                    {m.userId === me?.user.id && <span className="text-ink-3"> · you</span>}
-                    {grants?.some((g) => g.userId === m.userId) && (
-                      <span className="text-ink-3"> · own review permissions</span>
-                    )}
+        </span>
+        <span className="block truncate text-[13px] text-ink-3">{m.email}</span>
+      </span>
+    </>
+  );
+  const row =
+    "grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 border-b border-line px-4 py-2.5 last:border-b-0 @3xl/app:grid-cols-[auto_minmax(0,1fr)_160px_auto]";
+  return (
+    <>
+      <section aria-label="Owners" className="flex flex-col gap-3">
+        <SectionHead title="Owners" hint="everything in this project, whatever their role" />
+        {error && !adding && !leaving && <p className="text-[13px] text-signal">{error.message}</p>}
+        <Card>
+          <ul className="m-0 list-none p-0">
+            {!holders && <li className="px-4 py-4 text-[13px] text-ink-3">Loading</li>}
+            {owners.map((m) => {
+              const actions = [
+                // A project keeps at least one owner: the last cannot step down.
+                ...(manageOwners && stepDownRefusal(ownerIds, m.userId) === null
+                  ? [
+                      {
+                        label: "Make a member",
+                        hint: "Back to their role in the project",
+                        onSelect: () => makeMember.mutate(m.userId),
+                      },
+                    ]
+                  : []),
+                ...permissionsAction(m),
+                ...leaveAction(m),
+              ];
+              return (
+                <li key={m.userId} className={row}>
+                  {person(m)}
+                  <span className="hidden text-[13px] text-ink-2 @3xl/app:block">
+                    Owner since {dayFormat.format(new Date(m.ownerSince ?? ""))}
                   </span>
-                  <span className="block truncate text-[13px] text-ink-3">{m.email}</span>
-                </span>
-                {manage && roles ? (
-                  <Select
-                    size="sm"
-                    value={m.roleId}
-                    aria-label={`Role of ${m.name}`}
-                    onChange={(event) =>
-                      assign.mutate({ userId: m.userId, roleId: event.target.value })
-                    }
-                    className="w-32 @3xl/app:w-full"
-                  >
-                    {roles.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </Select>
-                ) : (
-                  <span className="text-[13px] text-ink-2">{role?.name}</span>
-                )}
-                {manage || manageReviewers ? (
-                  <ActionMenu
-                    always
-                    label={m.name}
-                    actions={[
-                      ...(manageReviewers
-                        ? [
-                            {
-                              label: "Review permissions…",
-                              onSelect: () =>
-                                setGranting({ kind: "member", id: m.userId, name: m.name }),
-                            },
-                          ]
-                        : []),
-                      ...(manage && manageReviewers ? ["divider" as const] : []),
-                      ...(manage
-                        ? [
-                            {
-                              label: "Remove from project",
-                              danger: true,
-                              onSelect: () => remove.mutate(m.userId),
-                            },
-                          ]
-                        : []),
-                    ]}
-                  />
-                ) : (
-                  <span className="hidden @3xl/app:block" />
-                )}
+                  {actions.length > 0 ? (
+                    <ActionMenu always label={m.name} actions={actions} />
+                  ) : (
+                    <span className="size-7" />
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+        <p className="text-[12px] text-ink-3">
+          {owners.length === 1 && manageOwners
+            ? "A project always has an owner: make someone else one before this one steps down. "
+            : ""}
+          Workspace owners and admins can do everything in every project too.
+        </p>
+      </section>
+
+      <section aria-label="Members" className="flex flex-col gap-3">
+        <SectionHead
+          title="Members"
+          // None says itself in the empty row beneath.
+          hint={others?.length ? `${others.length} with a role here` : undefined}
+          action={
+            manage && (
+              <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
+                <Icon name="userPlus" size={14} />
+                Add member
+              </Button>
+            )
+          }
+        />
+        <Card>
+          <ul className="m-0 list-none p-0">
+            {!holders && <li className="px-4 py-4 text-[13px] text-ink-3">Loading</li>}
+            {others?.length === 0 && (
+              <li className="px-4 py-4 text-[13px] text-ink-3">
+                Nobody but its owners yet.{" "}
+                {manage ? "Add members to give them a role." : "Its owners can add them."}
               </li>
-            );
-          })}
-        </ul>
-      </Card>
-      <p className="text-[12px] text-ink-3">
-        Workspace owners and admins can do everything in every project, with a role here or not.
-      </p>
+            )}
+            {others?.map((m) => {
+              const role = roles?.find((r) => r.id === m.roleId);
+              const actions = [
+                ...(manageOwners
+                  ? [
+                      {
+                        label: "Make an owner",
+                        hint: "Everything in the project, whatever their role",
+                        onSelect: () => makeOwner.mutate(m.userId),
+                      },
+                    ]
+                  : []),
+                ...permissionsAction(m),
+                ...leaveAction(m),
+                ...(manage && !mine(m)
+                  ? [
+                      "divider" as const,
+                      {
+                        label: "Remove from project",
+                        danger: true,
+                        onSelect: () => remove.mutate(m.userId),
+                      },
+                    ]
+                  : []),
+              ];
+              return (
+                <li key={m.userId} className={row}>
+                  {person(m)}
+                  {manage && roles && m.roleId ? (
+                    <Select
+                      size="sm"
+                      value={m.roleId}
+                      aria-label={`Role of ${m.name}`}
+                      onChange={(event) =>
+                        assign.mutate({ userId: m.userId, roleId: event.target.value })
+                      }
+                      className="w-32 @3xl/app:w-full"
+                    >
+                      {roles.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.name}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <span className="text-[13px] text-ink-2">{role?.name}</span>
+                  )}
+                  {actions.length > 0 ? (
+                    <ActionMenu always label={m.name} actions={actions} />
+                  ) : (
+                    <span className="size-7" />
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      </section>
       {adding && <AddMember projectId={projectId} onClose={() => setAdding(false)} />}
+      {leaving && myId && (
+        <LeaveDialog
+          projectId={projectId}
+          myId={myId}
+          lastOwner={leaveRefusal(ownerIds, myId, undefined) === "successor_needed"}
+          onClose={() => setLeaving(false)}
+        />
+      )}
       {granting && (
         <StandingDialog projectId={projectId} person={granting} onClose={() => setGranting(null)} />
       )}
-    </section>
+    </>
+  );
+}
+
+/**
+ * Leaving the project (decision 285): your role and your ownership go. Its last owner cannot
+ * simply go, as Slack's primary owner cannot: they choose who takes over, a member of the
+ * workspace, who becomes an owner as they leave.
+ */
+function LeaveDialog({
+  projectId,
+  myId,
+  lastOwner,
+  onClose,
+}: {
+  projectId: string;
+  myId: string;
+  lastOwner: boolean;
+  onClose: () => void;
+}) {
+  const navigate = useNavigate();
+  const { data: project } = useQuery(projectQuery(projectId));
+  const { data: workspace } = useQuery({ ...membersQuery, enabled: lastOwner });
+  const { data: holders } = useQuery(projectMembersQuery(projectId));
+  const { leave } = useProjectAccessMutations(projectId);
+  const [chosen, setChosen] = useState<Person[]>([]);
+  const here = new Set(holders?.map((h) => h.userId));
+  const people: Person[] = (workspace ?? [])
+    .filter((m) => m.userId !== myId)
+    // Those already in the project first: the likeliest to take it on.
+    .sort((a, b) => Number(here.has(b.userId)) - Number(here.has(a.userId)))
+    .map((m) => ({
+      key: `member:${m.userId}`,
+      name: m.name,
+      hint: here.has(m.userId) ? "In this project" : m.email,
+      kind: "member",
+    }));
+  const successor = chosen[0]?.key.slice("member:".length);
+  const name = project?.name ?? "this project";
+  return (
+    <Dialog
+      title={`Leave ${name}?`}
+      description={
+        lastOwner
+          ? "You are its only owner, and a project always has one. Choose who takes over: they become its owner as you leave."
+          : "You lose your place in it and what your role gave you. An owner or a workspace admin can add you again."
+      }
+      onClose={onClose}
+      width="sm"
+      footer={
+        <>
+          <Button variant="ghost" size="md" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="md"
+            disabled={leave.isPending || (lastOwner && !successor)}
+            onClick={() =>
+              leave.mutate(lastOwner ? successor : undefined, {
+                onSuccess: () => void navigate({ to: "/projects" }),
+              })
+            }
+          >
+            {lastOwner ? "Hand over and leave" : "Leave project"}
+          </Button>
+        </>
+      }
+    >
+      {lastOwner && (
+        <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          <span>Who takes over</span>
+          <PeoplePicker
+            label="Who takes over"
+            placeholder="A member of the workspace"
+            people={people}
+            chosen={chosen}
+            newGuests={false}
+            // One successor: a new choice takes the place of the last.
+            onChange={(next) => setChosen(next.slice(-1))}
+          />
+        </div>
+      )}
+      {leave.error && <p className="mt-3 text-[13px] text-signal">{leave.error.message}</p>}
+    </Dialog>
   );
 }
 

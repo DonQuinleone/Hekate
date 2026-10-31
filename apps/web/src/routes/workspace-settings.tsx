@@ -1,6 +1,7 @@
 import {
   accessWindowDays,
-  type CheckState,
+  bucketIdOf,
+  bucketLine,
   type CommentScope,
   type CustomProfile,
   type DateFormat,
@@ -10,6 +11,7 @@ import {
   defaultRoleNames,
   deliveryProfileIds,
   deliveryProfiles,
+  encryptionWords,
   formatBytes,
   type GuestVerification,
   guestLinkDays,
@@ -32,6 +34,7 @@ import {
   type WorkspaceSettingsInput,
 } from "@hekate/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import {
   ApiAndMcpSection,
@@ -72,9 +75,9 @@ import { Field } from "~/components/ui/field";
 import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
-import { StatusDot } from "~/components/ui/status";
-import { UsageRows } from "~/components/usage";
+import { StorageUsageRow, UsageRows } from "~/components/usage";
 import { DeleteWorkspace, WorkspaceExports } from "~/components/workspace-lifecycle";
+import { WhereFilesGo } from "~/components/workspace-storage";
 import {
   actionCopy,
   exportUrl,
@@ -89,8 +92,6 @@ import {
 } from "~/lib/access-log";
 import { shortAgent } from "~/lib/agent";
 import { cn } from "~/lib/cn";
-import { ago } from "~/lib/comments";
-import { docsUrl } from "~/lib/links";
 import { formatDates, languageNames } from "~/lib/locale";
 import {
   type AccessEvent,
@@ -99,6 +100,7 @@ import {
   customProfilesQuery,
   directoryQuery,
   invitationsQuery,
+  type Me,
   type Member,
   membersQuery,
   meQuery,
@@ -113,7 +115,6 @@ import {
   useRevokeGuest,
   useSaveWorkspaceSettings,
   useWorkspaceCategoryMutations,
-  useWorkspaceStorage,
   workspaceCategoriesQuery,
   workspaceGuestsQuery,
   workspaceOperationsQuery,
@@ -281,8 +282,8 @@ const allSections: SectionSpec[] = [
     group: "Operations",
     from: "owner",
     intro:
-      "The instance's version, worker, jobs, keys and backups, as they stand for this workspace. Read-only: the operators change them.",
-    docs: "/operate/upgrades/",
+      "How the workspace's files are kept, what they take against the plan, and taking everything away or deleting it. The instance itself is its operators'.",
+    docs: "/use/export-and-delete/",
   },
 ];
 
@@ -367,19 +368,6 @@ function General({ role }: { role: Role }) {
           />
         ))}
       </Section>
-      {mayExportWorkspace(role) && (
-        <>
-          <Section
-            title="Export"
-            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
-          >
-            <WorkspaceExports scope={{ kind: "workspace" }} name={workspace.name} />
-          </Section>
-          <Danger>
-            <DeleteWorkspace name={workspace.name} />
-          </Danger>
-        </>
-      )}
     </>
   );
 }
@@ -1236,121 +1224,101 @@ function Guests() {
   );
 }
 
-const workerWords: Record<CheckState, string> = {
-  ok: "On",
-  stale: "Not running: no job finished in the last ten minutes",
-  failed: "Its queue could not be read",
-  off: "Off",
-};
-
 /**
- * Operations (#165), for the owner: what the instance pages show an operator, reduced to what an
- * owner may see. Backups and upgrades are the operator's, so they link to the docs.
+ * Operations (#165), for the owners: only what they act on (decision 288). How the files are
+ * encrypted, the storage against the plan, the export and deletion, and who runs the instance
+ * with where to ask them. The release, the worker, the queues and the metrics are the
+ * operators', under Instance, Operations.
  */
-function Operations() {
+function Operations({ role }: { role: Role }) {
   const { data, error } = useQuery(workspaceOperationsQuery);
+  const { data: usage } = useQuery(storageUsageQuery);
+  const { data: me } = useQuery(meQuery);
+  const workspace = me?.organisations.find((o) => o.id === me.activeOrganisationId);
   if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data) return null;
-  const { encryption: e, queue: q, metrics: m, release: r } = data;
+  if (!data || !me || !workspace) return null;
   return (
     <>
-      <Section title="This instance">
-        <Row
-          name="Version"
-          hint={data.build === "dev" ? "A development build" : `Build ${data.build.slice(0, 12)}`}
-          inline
-        >
-          <span className="tabular text-[13px] text-ink-2">{data.version}</span>
-        </Row>
-        <Row name="Worker" hint="Runs analysis, renditions, pages and mail." inline>
-          <span
-            className={cn(
-              "flex items-center gap-2 text-[13px]",
-              data.worker === "ok" ? "text-ink-2" : "text-signal",
-            )}
-          >
-            <StatusDot state={data.worker === "ok" ? "approved" : "changes_requested"} />
-            {workerWords[data.worker]}
-          </span>
-        </Row>
-        <Row
-          name="Queue"
-          hint="This workspace's jobs: waiting · running · failed in the last day."
-          inline
-        >
-          <span className={cn("tabular text-[13px]", q?.failed ? "text-signal" : "text-ink-2")}>
-            {q ? `${q.waiting} · ${q.running} · ${q.failed}` : "Could not be read"}
-          </span>
-        </Row>
+      <Section title="This workspace">
         <Row
           name="Encryption"
-          hint="Every file has its own key, wrapped by the workspace key, which the instance's master key wraps."
+          hint="Every file has its own key, wrapped by the workspace's key; storage only ever holds ciphertext."
         >
           <span className="text-[13px] text-ink-2">
-            {e.keyVersion === null
-              ? "No key yet: one is made with the first file"
-              : e.behind > 0
-                ? `Key v${e.keyVersion} · re-wrapping, ${e.behind} to go`
-                : `Key v${e.keyVersion} since ${dateFormat.format(new Date(e.keySince ?? ""))}`}
+            {encryptionWords(data.encryption, (iso) => dateFormat.format(new Date(iso)))}
           </span>
         </Row>
-        <Row
-          name="Metrics"
-          hint="Exported for Prometheus at /metrics, when the instance turns it on."
-          inline
-        >
-          <span className="tabular text-[13px] text-ink-2">
-            {!m.on
-              ? "Off"
-              : m.lastReadAt
-                ? `/metrics · read ${ago(m.lastReadAt)}`
-                : "/metrics · not read yet"}
-          </span>
-        </Row>
+        {usage && <StorageUsageRow usage={usage.usage} />}
+        <OperatorsRow support={me.support} />
       </Section>
-      <Section title="Backups and upgrades">
-        <Row
-          name="Backups"
-          hint="The instance's operator takes them: the database and the settings file, with the master key kept apart."
-        >
-          <Button variant="secondary" size="md" asChild>
-            <a href={`${docsUrl}/operate/backup/`} target="_blank" rel="noopener noreferrer">
-              How backups work
-            </a>
-          </Button>
-        </Row>
-        <Row
-          name="Upgrade"
-          hint={
-            r.newer
-              ? `${r.newer.name} is available. Pull the new image and restart; migrations run on start.`
-              : r.checkOn
-                ? "Up to date."
-                : "Release checks are off on this instance."
-          }
-        >
-          {r.newer && (
-            <Button variant="secondary" size="md" asChild>
-              <a href={r.newer.url} target="_blank" rel="noopener noreferrer">
-                Release notes
-              </a>
-            </Button>
-          )}
-        </Row>
-      </Section>
+      {mayExportWorkspace(role) && (
+        <>
+          <Section
+            title="Export"
+            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
+          >
+            <WorkspaceExports scope={{ kind: "workspace" }} name={workspace.name} />
+          </Section>
+          <Danger>
+            <DeleteWorkspace name={workspace.name} />
+          </Danger>
+        </>
+      )}
     </>
+  );
+}
+
+/** Who runs the instance, and where to ask them, as the instance answers support (#181). */
+function OperatorsRow({ support }: { support: Me["support"] }) {
+  const mode = support?.mode ?? "off";
+  const keep = "They keep its backups, upgrades and workers.";
+  return (
+    <Row
+      name="Run by this instance's operators"
+      hint={
+        mode === "app"
+          ? `${keep} Ask them through Support.`
+          : mode === "link"
+            ? `${keep} Ask them at their own help desk.`
+            : mode === "mail" && support?.address
+              ? `${keep} Ask them by email, at ${support.address}.`
+              : `${keep} Support is not turned on here: ask whoever runs it.`
+      }
+    >
+      {mode === "app" ? (
+        <Button variant="secondary" size="md" asChild>
+          <Link to="/settings/$section" params={{ section: "support" }}>
+            Support
+          </Link>
+        </Button>
+      ) : mode === "link" && support?.address ? (
+        <Button variant="secondary" size="md" asChild>
+          <a href={support.address} target="_blank" rel="noopener noreferrer">
+            Open their desk
+          </a>
+        </Button>
+      ) : mode === "mail" && support?.address ? (
+        <Button variant="secondary" size="md" asChild>
+          <a href={`mailto:${support.address}`}>Write to them</a>
+        </Button>
+      ) : null}
+    </Row>
   );
 }
 
 function Storage({ role }: { role: Role }) {
   const { data } = useQuery(workspaceStorageQuery);
   const { data: usage } = useQuery(storageUsageQuery);
-  const choose = useWorkspaceStorage();
   if (!data) return null;
-  const receiving = data.backend ?? data.defaultBackend;
+  const receiving = data.usesBucket ? null : (data.backend ?? data.defaultBackend);
   const usedIn = (name: string) => usage?.backends.find((b) => b.name === name);
+  // A workspace's own buckets, however many places it has had, are one row: its bucket.
+  const inBuckets = (usage?.backends ?? []).filter((b) => bucketIdOf(b.name));
+  const bucketBytes = inBuckets.reduce((sum, b) => sum + b.bytes, 0);
+  const bucketObjects = inBuckets.reduce((sum, b) => sum + b.objects, 0);
   const limited =
     usage && (usage.usage.limits.storageQuota !== null || usage.usage.limits.memberLimit !== null);
+  const objects = (n: number) => `${n} ${n === 1 ? "object" : "objects"}`;
   return (
     <>
       {usage && (
@@ -1365,36 +1333,12 @@ function Storage({ role }: { role: Role }) {
           <UsageRows usage={usage.usage} />
         </Section>
       )}
-      <Section
-        title="Backends"
-        intro="Existing files stay where they are; the choice applies to new ones."
-      >
-        <Row
-          name="New files go to"
-          hint={
-            role === "owner"
-              ? "The instance default unless you choose another backend."
-              : "Only an owner can change it."
-          }
-        >
-          {role === "owner" ? (
-            <Select
-              aria-label="Backend for new files"
-              value={data.backend ?? ""}
-              onChange={(e) => choose.mutate(e.target.value || null)}
-              className="w-56"
-            >
-              <option value="">The default ({data.defaultBackend})</option>
-              {data.available.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </Select>
-          ) : (
-            <span className="text-[14px] text-ink-2">{receiving}</span>
-          )}
-        </Row>
+      <WhereFilesGo
+        key={`${data.usesBucket}:${data.bucket?.savedAt}`}
+        data={data}
+        owner={role === "owner"}
+      />
+      <Section title="Backends" intro="What this workspace keeps in each.">
         {data.available.map((b) => {
           const used = usedIn(b);
           return (
@@ -1405,7 +1349,7 @@ function Storage({ role }: { role: Role }) {
                 [
                   b === receiving ? "Receives new files" : null,
                   b === data.defaultBackend && b !== receiving ? "The instance default" : null,
-                  used ? `${used.objects} ${used.objects === 1 ? "object" : "objects"}` : null,
+                  used ? objects(used.objects) : null,
                 ]
                   .filter(Boolean)
                   .join(" · ") || undefined
@@ -1417,8 +1361,19 @@ function Storage({ role }: { role: Role }) {
             </Row>
           );
         })}
-        {choose.error && (
-          <p className="px-4 py-2 text-[13px] text-signal">{choose.error.message}</p>
+        {(data.bucket || inBuckets.length > 0) && (
+          <Row
+            name="Your bucket"
+            hint={[
+              data.usesBucket ? "Receives new files" : null,
+              data.bucket ? bucketLine(data.bucket) : null,
+              objects(bucketObjects),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          >
+            <span className="tabular text-[13px] text-ink-2">{formatBytes(bucketBytes)}</span>
+          </Row>
         )}
       </Section>
       {usage && <StorageUsageSections usage={usage} />}
@@ -1927,7 +1882,7 @@ export function WorkspaceSettingsPage({
         )}
         {current.id === "leaks" && <LeakTracingSection />}
         {current.id === "log" && <AccessLog />}
-        {current.id === "operations" && <Operations />}
+        {current.id === "operations" && <Operations role={role} />}
       </SettingsLayout>
     </>
   );

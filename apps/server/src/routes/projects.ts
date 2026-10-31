@@ -5,6 +5,7 @@ import {
   creatorRole,
   type DefaultRoleName,
   defaultProjectRoles,
+  type ProjectPermission,
   type ProjectProfile,
   permissionsFor,
   playerTools,
@@ -36,6 +37,18 @@ import { deletionView } from "./project-deletion.ts";
 import { copyCategories, templateFor } from "./templates.ts";
 
 const { projects, files, users, projectRoles, projectMembers, reviews } = schema;
+
+/** Whoever holds one of these opens the project's settings, as the web app's `mayOpenSettings`. */
+const settingsPermissions: ProjectPermission[] = ["edit_project", "manage_roles", "edit_workflows"];
+
+/** The kinds of file a project holds, each once (decision 287). */
+async function kindsHeld(db: Database, organisationId: string, projectId: string) {
+  const rows = await db
+    .selectDistinct({ kind: files.kind })
+    .from(files)
+    .where(inOrg(files, organisationId, eq(files.projectId, projectId)));
+  return rows.map((r) => r.kind).sort();
+}
 
 /** A project as it leaves the server: its comment references read, its profile's if unset. */
 function shown<
@@ -84,9 +97,18 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean, b
         .select({
           project: projects,
           memberId: projectMembers.id,
+          ownerId: schema.projectOwners.id,
           rolePermissions: projectRoles.permissions,
         })
         .from(projects)
+        .leftJoin(
+          schema.projectOwners,
+          and(
+            eq(schema.projectOwners.projectId, projects.id),
+            eq(schema.projectOwners.organisationId, organisationId),
+            eq(schema.projectOwners.userId, userId),
+          ),
+        )
         .leftJoin(
           projectMembers,
           and(
@@ -113,9 +135,11 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean, b
         .orderBy(desc(projects.createdAt));
       const list = rows.map((r) => ({
         ...shown(r.project),
-        mine: r.memberId !== null,
+        mine: r.memberId !== null || r.ownerId !== null,
         // Archiving is part of running the project: whoever manages its roles and members.
-        mayArchive: permissionsFor(organisationRole, r.rolePermissions).has("delete_project"),
+        mayArchive: permissionsFor(organisationRole, r.rolePermissions, r.ownerId !== null).has(
+          "delete_project",
+        ),
       }));
       if (!figures || list.length === 0) return c.json({ projects: list });
       const counted = await projectFigures(
@@ -272,6 +296,10 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean, b
           userId: c.var.userId,
           roleId: producer.id,
         });
+        // And is its first owner (decision 285): a project is never without one.
+        await tx
+          .insert(schema.projectOwners)
+          .values({ organisationId, projectId: created.id, userId: c.var.userId });
         return created;
       });
       // The creator may do whatever their role allows; a Producer, everything.
@@ -370,6 +398,11 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean, b
           // which the project's own switch can only narrow (decision 257).
           ...(access.permissions.has("edit_project")
             ? { workspaceMarks: await marksAudio(db, c.var.organisationId, billing) }
+            : {}),
+          // For whoever opens its settings: the kinds of file it holds, which open the Asset
+          // security page's sections (decision 287).
+          ...(settingsPermissions.some((p) => access.permissions.has(p))
+            ? { fileKinds: await kindsHeld(db, c.var.organisationId, access.projectId) }
             : {}),
         },
       });

@@ -7,7 +7,7 @@ import { Empty } from "~/components/empty";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Card, Page, SectionHead } from "~/components/page";
-import { Row, Section, SwitchRow } from "~/components/settings";
+import { FoldingSection, Row, Section, SwitchRow } from "~/components/settings";
 import { StatusChipView } from "~/components/status-chip";
 import { Button } from "~/components/ui/button";
 import { Chip, Count, ToggleChip } from "~/components/ui/chip";
@@ -15,7 +15,7 @@ import { Checkbox, Choice, ChoiceCard, Radio } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { ColourInput, InlineInput, Input, Select, Textarea } from "~/components/ui/input";
-import { ActionMenu, Dropdown } from "~/components/ui/menu";
+import { ActionMenu, Dropdown, MenuList } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { Slider } from "~/components/ui/slider";
 import {
@@ -325,6 +325,7 @@ function MarkSlot({ name }: { name: IconName }) {
 
 function Components() {
   const [on, setOn] = useState(true);
+  const [folded, setFolded] = useState(true);
   const [colour, setColour] = useState("#4fb3a9");
   const [view, setView] = useState<"list" | "grid">("list");
   const [mode, setMode] = useState<"light" | "dark" | "text">("light");
@@ -382,6 +383,22 @@ function Components() {
             ]}
           />
           <ActionMenu always label="this file" actions={[{ label: "Details", onSelect: noop }]} />
+        </Spec>
+        <Spec
+          name="Menu with a heading"
+          rule="A quiet heading names a group of items where the group says what they do, such as New role's Copy from over the roles; never over a single item."
+        >
+          <MenuList
+            label="New role"
+            onClose={noop}
+            actions={[
+              { label: "Blank role…", hint: "Sees files, reads comments", onSelect: noop },
+              "divider",
+              { heading: "Copy from" },
+              { label: "Producer", onSelect: noop },
+              { label: "Engineer", onSelect: noop },
+            ]}
+          />
         </Spec>
         <Spec
           name="Dropdown field"
@@ -504,8 +521,22 @@ function Components() {
         </Spec>
         <Spec
           name="Choice cards"
-          rule="A few larger choices with a line each, such as a project's profile."
+          rule="A few larger choices with a line each, such as a project's profile. One the plan leaves out is disabled, its line saying why."
         >
+          <div className="grid w-full gap-2 @3xl/app:grid-cols-2">
+            <ChoiceCard
+              name="reference-storage"
+              defaultChecked
+              title="Instance storage"
+              hint="Kept and backed up by this instance's operators."
+            />
+            <ChoiceCard
+              name="reference-storage"
+              disabled
+              title="Your own S3-compatible bucket"
+              hint="Not on the Studio plan."
+            />
+          </div>
           <div className="grid w-full gap-2 @3xl/app:grid-cols-3">
             {[
               ["music", "Music", "Bars, scores and takes."],
@@ -586,6 +617,25 @@ function Components() {
                 </Button>
               }
             />
+          </div>
+        </Spec>
+        <Spec
+          name="Folding section"
+          rule="Folded to one line, its heading and how it stands, where it matters less; Show opens it."
+        >
+          <div className="w-full max-w-[460px]">
+            <FoldingSection
+              id="reference-folding"
+              title="Video"
+              intro="The visible watermark, laid over the player and burned into each download."
+              summary="Visible watermark · Guests only · Tiled · 30%"
+              open={!folded}
+              onToggle={() => setFolded(!folded)}
+            >
+              <Row name="Visible watermark" hint="Whom it marks.">
+                <span className="text-[13px] text-ink-2">Guests only</span>
+              </Row>
+            </FoldingSection>
           </div>
         </Spec>
         <Spec name="Tabs" rule="A third level of navigation, with the panel they control.">

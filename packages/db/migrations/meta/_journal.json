@@ -1079,6 +1079,20 @@
       "when": 1793276972554,
       "tag": "0153_step_names_project_guests",
       "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1793402955103,
+      "tag": "0154_workspace_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1793405694975,
+      "tag": "0155_project_owners",
+      "breakpoints": true
     }
   ]
 }

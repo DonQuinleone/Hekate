@@ -102,12 +102,12 @@ export function uploadEngine(deps: {
           const [inserted] = await tx
             .insert(uploads)
             .values({
+              ...session,
               organisationId: input.organisationId,
               projectId: input.projectId,
               folderId: input.folderId,
               createdBy: input.createdBy,
               name: input.name,
-              ...session,
               expiresAt: new Date(Date.now() + UPLOAD_LIFETIME_MS),
             })
             .returning();

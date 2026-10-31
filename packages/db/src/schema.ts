@@ -642,6 +642,31 @@ export const projectMembers = pgTable(
   ],
 );
 
+/**
+ * A project's owners (#507, decision 285): fixed above its roles, so an owner may do everything
+ * in it whatever their role says, as the workspace's owners and admins may. Its creator is the
+ * first; there may be several, as a Slack workspace has, and never none: the last steps down
+ * or leaves only by handing it on. An owner usually holds a role too, which they go back to as
+ * a member; one who holds none is given the creator's.
+ */
+export const projectOwners = pgTable(
+  "project_owners",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    projectId: projectId(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** When they became one. */
+    since: timestamp("since", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("project_owners_user_idx").on(t.organisationId, t.projectId, t.userId),
+    index("project_owners_user_lookup_idx").on(t.userId),
+  ],
+);
+
 /** Folders nest; a null parent is the project root. */
 export const folders = pgTable(
   "folders",
@@ -3617,6 +3642,43 @@ export const workspaceMail = pgTable(
     ...timestamps,
   },
   (t) => [uniqueIndex("workspace_mail_organisation_idx").on(t.organisationId)],
+);
+
+/**
+ * A workspace's own S3-compatible bucket (#508), on a plan that includes it: where its new files
+ * go instead of the instance's storage while `organisations.storage_backend` names it
+ * (`bucket:<id>`). Each place (endpoint, bucket, prefix) is a row of its own, kept once
+ * another replaces it (`replaced_at`) for as long as blobs name it, so files stored there keep
+ * reading. The access key and secret are sealed with the workspace's key, as its mail's are,
+ * and never leave the server. The bucket holds ciphertext only, as every backend does.
+ */
+export const workspaceBuckets = pgTable(
+  "workspace_buckets",
+  {
+    id: id(),
+    organisationId: organisationId(),
+    /** Null is Amazon S3 itself, found by region. */
+    endpoint: text("endpoint"),
+    region: text("region").notNull(),
+    bucket: text("bucket").notNull(),
+    /** Keys go under it, for a bucket shared with other things; empty is none. */
+    prefix: text("prefix").notNull().default(""),
+    pathStyle: boolean("path_style").notNull().default(false),
+    /** The access key and secret, as JSON, sealed with the workspace's key. */
+    credentialsSealed: text("credentials_sealed").notNull(),
+    /** The version of the workspace key that sealed them. */
+    keyVersion: integer("key_version").notNull(),
+    /** Another place took its new files; it is kept for the files it still holds. */
+    replacedAt: timestamp("replaced_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    index("workspace_buckets_organisation_idx").on(t.organisationId),
+    // One current place a workspace keeps, however many it has had.
+    uniqueIndex("workspace_buckets_current_idx")
+      .on(t.organisationId)
+      .where(sql`${t.replacedAt} is null`),
+  ],
 );
 
 /**

@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { Agent as HttpAgent } from "node:http";
+import { Agent as HttpsAgent } from "node:https";
+import type { LookupFunction } from "node:net";
 import { Readable, Transform } from "node:stream";
 import {
   AbortMultipartUploadCommand,
@@ -44,6 +47,13 @@ export interface S3BackendOptions {
   secretAccessKey?: string;
   /** Keep Hekate's objects under this prefix in a shared bucket, for example `hekate/`. */
   prefix?: string;
+  /**
+   * How names are resolved for each connection: for a bucket a workspace gave (#508), one that
+   * answers only with public addresses, so the address checked is the address connected to.
+   */
+  lookup?: LookupFunction;
+  /** Give up on a connection that has not opened after this many milliseconds. */
+  connectionTimeoutMs?: number;
 }
 
 /** Multipart part size. S3 allows at most 10,000 parts, so this supports objects up to about 156 GiB. */
@@ -70,6 +80,21 @@ export function s3Backend(options: S3BackendOptions): StorageBackend {
     region: options.region ?? "us-east-1",
     ...(options.endpoint ? { endpoint: options.endpoint } : {}),
     forcePathStyle: options.forcePathStyle ?? false,
+    ...(options.lookup || options.connectionTimeoutMs
+      ? {
+          requestHandler: {
+            ...(options.lookup
+              ? {
+                  httpAgent: new HttpAgent({ keepAlive: true, lookup: options.lookup }),
+                  httpsAgent: new HttpsAgent({ keepAlive: true, lookup: options.lookup }),
+                }
+              : {}),
+            ...(options.connectionTimeoutMs
+              ? { connectionTimeout: options.connectionTimeoutMs }
+              : {}),
+          },
+        }
+      : {}),
     ...(options.accessKeyId && options.secretAccessKey
       ? {
           credentials: {

@@ -66,6 +66,8 @@ export interface Viewer {
   projects: () => Project[];
   canSee: (projectId: string) => boolean;
   can: (projectId: string, permission: ProjectPermission) => boolean;
+  /** Whether this person is one of the project's owners (decision 285). */
+  owns: (projectId: string) => boolean;
   /** The tools this person's role gives them in a project. */
   tools: (projectId: string) => Set<Tool>;
   /** The reviewer row for this person in a review, if they are in it. */
@@ -126,22 +128,29 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
       return roleId ? (project.roles.find((r) => r.id === roleId) ?? null) : null;
     };
     const elevated = persona.organisationRole === "owner" || persona.organisationRole === "admin";
+    // An owner of a project may do everything in it, whatever their role says (decision 285).
+    const owns = (projectId: string) => {
+      const project = projects.find((p) => p.id === projectId);
+      if (!project || isGuest || isInstance) return false;
+      return Boolean(project.members.find((m) => m.personId === persona.personId)?.ownerSince);
+    };
     const canSee = (projectId: string) => {
       const project = projects.find((p) => p.id === projectId);
       if (!project || isGuest || isInstance) return false;
-      if (elevated) return true;
+      if (elevated || owns(projectId)) return true;
       return roleIn(project)?.permissions.includes("view") ?? false;
     };
     const can = (projectId: string, permission: ProjectPermission) => {
       const project = projects.find((p) => p.id === projectId);
       if (!project || !canSee(projectId)) return false;
-      if (elevated) return true;
+      if (elevated || owns(projectId)) return true;
       return roleIn(project)?.permissions.includes(permission) ?? false;
     };
     const tools = (projectId: string): Set<Tool> => {
       const project = projects.find((p) => p.id === projectId);
       if (!project || !canSee(projectId)) return new Set();
-      if (elevated) return new Set(project.roles.find((r) => r.id === "r-producer")?.tools ?? []);
+      if (elevated || owns(projectId))
+        return new Set(project.roles.find((r) => r.id === "r-producer")?.tools ?? []);
       return new Set(roleIn(project)?.tools ?? []);
     };
     const reviewerIn = (review: Review) => {
@@ -224,6 +233,7 @@ export function ViewerProvider({ children }: { children: ReactNode }) {
       projects: () => projects.filter((p) => canSee(p.id) && !p.archived),
       canSee,
       can,
+      owns,
       tools,
       reviewerIn,
       reviews: myReviews,

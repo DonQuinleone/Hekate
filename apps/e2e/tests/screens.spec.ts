@@ -273,9 +273,16 @@ const screens: Screen[] = [
     path: (s) => `/projects/${s.musicProjectId}/settings?section=storage`,
     ready: "main >> text=Used by this project",
   },
+  // Asset security (decision 287): a music project leads with audio, its documents open and its
+  // video folded; a video project leads with video.
   {
     name: "project-settings-security",
     path: (s) => `/projects/${s.musicProjectId}/settings?section=security`,
+    ready: "main >> text=Files in a review cannot be deleted",
+  },
+  {
+    name: "project-settings-security-video",
+    path: (s) => `/projects/${s.videoProjectId}/settings?section=security`,
     ready: "main >> text=Files in a review cannot be deleted",
   },
   {
@@ -544,10 +551,11 @@ const screens: Screen[] = [
     path: () => "/settings/email",
     ready: "main iframe[title*='light mail client']",
   },
+  // Its own bucket shown, disabled, with the plan's name: Studio leaves it out (#508).
   {
     name: "settings-storage",
     path: () => "/settings/storage",
-    ready: "main >> text=Usage by project",
+    ready: "main >> text=Your own storage is not on the Studio plan.",
   },
   {
     name: "settings-notifications",
@@ -593,7 +601,7 @@ const screens: Screen[] = [
   {
     name: "settings-operations",
     path: () => "/settings/operations",
-    ready: "main >> text=How backups work",
+    ready: "main >> text=Run by this instance's operators",
   },
 ];
 
@@ -1000,6 +1008,108 @@ test("project-settings-exception", async ({ page }) => {
   await settle(page, "[role=dialog] >> text=Tools");
   await saveScreen(page, "project-settings-exception");
   await checkScreen(page);
+});
+
+/** The music project's roles' ids, so a screen that adds roles can take them away again. */
+async function musicRoleIds(page: Page): Promise<string[]> {
+  const projectId = seeded().musicProjectId;
+  const { roles } = (await (await page.request.get(`/api/projects/${projectId}/roles`)).json()) as {
+    roles: { id: string }[];
+  };
+  return roles.map((r) => r.id);
+}
+async function removeRolesExcept(page: Page, keep: readonly string[]) {
+  const projectId = seeded().musicProjectId;
+  for (const id of await musicRoleIds(page))
+    if (!keep.includes(id)) await page.request.delete(`/api/projects/${projectId}/roles/${id}`);
+}
+
+// Roles one at a time (#506): a new role copied from Engineer in two clicks (New role, then
+// Engineer under Copy from), a whole area set at once from its header, and Copy from… in the
+// role's menu.
+test("project-settings-roles-copy", async ({ page }) => {
+  const before = await musicRoleIds(page);
+  await page.goto(`/projects/${seeded().musicProjectId}/settings?section=roles`);
+  await settle(page, "main select[aria-label='Files for Producer']");
+  try {
+    await page.getByRole("button", { name: "New role" }).click();
+    await page.getByRole("menuitem", { name: "Engineer", exact: true }).click();
+    await settle(page, "main select[aria-label='Files for Engineer copy']");
+    await expect(page.getByRole("heading", { name: "Engineer copy" })).toBeVisible();
+    // Every level and tool came with it.
+    await expect(page.getByLabel("Files for Engineer copy")).toHaveValue("organise");
+    await expect(page.getByLabel("Downloads for Engineer copy")).toHaveValue("original");
+    await expect(page.getByRole("switch", { name: "Spectrogram" })).toBeChecked();
+    await saveScreen(page, "project-settings-roles-copy");
+    await checkScreen(page);
+
+    // The whole Comments area at once: every row in it goes off.
+    await page.getByLabel("Comments for Engineer copy").selectOption("none");
+    await expect(page.getByRole("switch", { name: "Read comments" })).not.toBeChecked();
+    await expect(
+      page.getByRole("switch", { name: "Triage feedback (resolve, assign)" }),
+    ).not.toBeChecked();
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByLabel("Comments for Engineer copy")).toHaveValue("none");
+    await saveScreen(page, "project-settings-roles-area");
+    await checkScreen(page);
+
+    await page.getByRole("button", { name: "Actions for Engineer copy" }).click();
+    await page.getByRole("menuitem", { name: "Copy from…" }).click();
+    await settle(page, "[role=dialog] >> text=Its name and its people stay");
+    await saveScreen(page, "project-settings-roles-copy-from");
+    await checkScreen(page);
+  } finally {
+    await removeRolesExcept(page, before);
+  }
+});
+
+// Twelve roles (#506): they wrap across the top rather than widen the page, and Compare shows
+// them all at once, a row each.
+test("project-settings-roles-twelve", async ({ page }) => {
+  const projectId = seeded().musicProjectId;
+  const levels = {
+    files: "view",
+    comments: "write",
+    reviews: "respond",
+    downloads: "proxy",
+    takes: "view",
+    production: "none",
+    workflow: "view",
+    people: "view",
+    project: "none",
+  };
+  const before = await musicRoleIds(page);
+  try {
+    for (const name of [
+      "Mixing engineer",
+      "Mastering engineer",
+      "Assistant engineer",
+      "Picture editor",
+      "Colourist",
+      "Conductor",
+      "Label A&R",
+      "Composer",
+      "Stage manager",
+    ].slice(0, 12 - before.length)) {
+      const made = await page.request.post(`/api/projects/${projectId}/roles`, {
+        data: { name, levels },
+      });
+      expect(made.ok()).toBe(true);
+    }
+    await page.goto(`/projects/${projectId}/settings?section=roles`);
+    await settle(page, "main button[aria-pressed]:has-text('Mastering engineer')");
+    await expect(page.locator("main button[aria-pressed]")).toHaveCount(12);
+    await saveScreen(page, "project-settings-roles-twelve");
+    await checkScreen(page);
+
+    await page.getByRole("button", { name: "Compare" }).click();
+    await settle(page, "[role=dialog] >> text=Mastering engineer");
+    await saveScreen(page, "project-settings-roles-compare");
+    await checkScreen(page);
+  } finally {
+    await removeRolesExcept(page, before);
+  }
 });
 
 // A workspace's own delivery profile (#144), with what it asks of a picture (#42).
@@ -1506,6 +1616,73 @@ test("project-people-invite", async ({ page }) => {
   await dialog.getByRole("textbox", { name: /^Note/ }).fill("Conducts the spring programme.");
   await expect(dialog.getByRole("button", { name: "Add reviewer" })).toBeEnabled();
   await saveScreen(page, "project-people-invite");
+  await checkScreen(page);
+});
+
+/**
+ * The project's people as the page has them answered (decision 285), with what it lists amended
+ * in this page alone so no other capture sees it: `owner` is whether Tomas Varga owns the project
+ * beside Alex Rivera, as its Engineer either way; the workspace lists him too.
+ */
+async function withTomas(page: Page, projectId: string, owner: boolean) {
+  const tomas = { userId: "e2e-tomas", name: "Tomas Varga", email: "tomas@endlesshall.example" };
+  await page.route(`**/api/projects/${projectId}/members`, async (route) => {
+    const roles = (await (await page.request.get(`/api/projects/${projectId}/roles`)).json()) as {
+      roles: { id: string; name: string }[];
+    };
+    const response = await route.fetch();
+    const body = (await response.json()) as { members: Record<string, unknown>[] };
+    body.members.push({
+      ...tomas,
+      roleId: roles.roles.find((r) => r.name === "Engineer")?.id ?? null,
+      workspaceRole: "member",
+      ownerSince: owner ? "2026-10-02T09:00:00Z" : null,
+    });
+    await route.fulfill({ response, json: body });
+  });
+  await page.route("**/api/organisation/members", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { members: Record<string, unknown>[] };
+    body.members.push({
+      id: "e2e-tomas-membership",
+      ...tomas,
+      role: "member",
+      joinedAt: "2026-10-01T09:00:00Z",
+    });
+    await route.fulfill({ response, json: body });
+  });
+}
+
+// Two owners (#507): either can be made a member, as long as the other remains. Looked at only.
+test("project-people-owners", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await withTomas(page, seeded().musicProjectId, true);
+  await page.goto(`/projects/${seeded().musicProjectId}/people`);
+  await settle(page, "main >> text=Tomas Varga");
+  await page
+    .getByRole("region", { name: "Owners" })
+    .getByRole("button", { name: "Actions for Tomas Varga" })
+    .click();
+  await expect(page.getByRole("menuitem", { name: /Make a member/ })).toBeVisible();
+  await saveScreen(page, "project-people-owners");
+  await checkScreen(page);
+});
+
+// The last owner leaving (#507): asked who takes over, here a member of the project. Looked at
+// only: nobody leaves.
+test("project-people-leave", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await withTomas(page, seeded().musicProjectId, false);
+  await page.goto(`/projects/${seeded().musicProjectId}/people`);
+  await settle(page, "main >> text=Tomas Varga");
+  await page.getByRole("button", { name: "Actions for Alex Rivera" }).click();
+  await page.getByRole("menuitem", { name: "Leave project…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Leave Joplin Rags?" });
+  const field = dialog.getByRole("combobox", { name: "Who takes over" });
+  await field.click();
+  await page.getByRole("option", { name: /Tomas Varga/ }).click();
+  await expect(dialog.getByRole("button", { name: "Hand over and leave" })).toBeEnabled();
+  await saveScreen(page, "project-people-leave");
   await checkScreen(page);
 });
 
@@ -2328,6 +2505,32 @@ const exportsShown = {
   ],
 };
 
+// A music project's Asset security fits one screen at desktop height, audio first (decision
+// 287); its folded Video opens on Show, with the preview, and says where the mark is set.
+test("project-settings-security-video-opened", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/projects/${seeded().musicProjectId}/settings?section=security`);
+  await settle(page, "main >> text=Files in a review cannot be deleted");
+  const headings = await page.locator("main h2").allTextContents();
+  expect(headings.slice(0, 3)).toEqual(["Audio", "Pictures and documents", "Video"]);
+  if (test.info().project.name === "desktop") {
+    // Its last row ends inside the window: only the page's own margin is below the fold.
+    const overflow = await page.evaluate(() => {
+      const main = document.querySelector("main");
+      const last = [...document.querySelectorAll("main section")].at(-1);
+      return main && last
+        ? last.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom
+        : 0;
+    });
+    expect(overflow, "the page fits one screen").toBeLessThanOrEqual(0);
+  }
+  await page.getByRole("button", { name: "Show video" }).click();
+  await settle(page, "main >> text=The same mark, set under Pictures and documents above.");
+  await showWhole(page);
+  await saveScreen(page, "project-settings-security-video-opened");
+  await checkScreen(page);
+});
+
 // Exporting the workspace (#186): its exports, starting one, and the key shown once. Every
 // answer is amended in the page alone, so nothing is exported. The key is put together here so
 // that no secret scanner mistakes the file for one holding a real key.
@@ -2342,7 +2545,7 @@ test("settings-export", async ({ page }) => {
       },
     });
   });
-  await page.goto("/settings/general");
+  await page.goto("/settings/operations");
   await settle(page, "main >> text=until 2026-10-27");
   await saveScreen(page, "settings-export");
   await checkScreen(page);
@@ -2374,7 +2577,7 @@ test("settings-workspace-deletion", async ({ page }) => {
       },
     });
   });
-  await page.goto("/settings/general");
+  await page.goto("/settings/operations");
   await settle(page, "main >> text=Deletion asked for");
   await saveScreen(page, "settings-workspace-deletion");
   await checkScreen(page);
@@ -2419,6 +2622,53 @@ for (const [name, viewport] of [
     await checkScreen(page);
   });
 }
+
+// A workspace's own bucket (#508), on a plan that includes it: the seeded workspace's plan does
+// not, so the answer is amended in the page alone, with a bucket saved and taking new files;
+// then a test that failed, said in words. The seeded page itself is the disabled state.
+test("settings-storage-own-bucket", async ({ page }) => {
+  await page.route("**/api/organisation/storage", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const response = await route.fetch();
+    const body = (await response.json()) as Record<string, unknown>;
+    await route.fulfill({
+      response,
+      json: {
+        ...body,
+        usesBucket: true,
+        bucket: {
+          id: "01a15000-0000-7000-8000-0000000000b1",
+          endpoint: "https://s3.eu-central-1.amazonaws.com",
+          region: "eu-central-1",
+          bucket: "endless-hall-masters",
+          prefix: "hekate",
+          pathStyle: false,
+          credentialsSet: true,
+          savedAt: "2026-10-14T09:30:00Z",
+        },
+        ownStorage: { entitled: true, plan: "Label" },
+      },
+    });
+  });
+  await page.route("**/api/organisation/storage/bucket/test", (route) =>
+    route.fulfill({
+      json: {
+        ok: false,
+        step: "write",
+        message: "Could not write to the bucket: the access key may not do this in the bucket.",
+      },
+    }),
+  );
+  await page.goto("/settings/storage");
+  await settle(page, "main >> text=Usage by project");
+  await settle(page, "main >> text=Taking new files: endless-hall-masters/hekate");
+  await saveScreen(page, "settings-storage-own-bucket");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Test connection" }).click();
+  await settle(page, "main [role=alert] >> text=the access key may not do this");
+  await saveScreen(page, "settings-storage-bucket-failed");
+  await checkScreen(page);
+});
 
 // Moving a project to another workspace (#240). The answers are amended in the page alone, so
 // nothing ever moves: one waiting on this person's approval, then the asking, with a

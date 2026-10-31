@@ -3,7 +3,7 @@ title: Exporting and deleting a workspace
 description: How a workspace's owners take everything it holds away, and how they delete it.
 ---
 
-A workspace's owners can take away everything it holds, at any time, and can delete it. Both are in **Settings, General**, for owners only; admins and members do not see them.
+A workspace's owners can take away everything it holds, at any time, and can delete it. Both are in **Settings, Operations**, for owners only; admins and members do not see them.
 
 ## Exporting
 

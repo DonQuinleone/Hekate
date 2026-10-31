@@ -112,7 +112,7 @@ Invisible marks that survive re-encoding, so a leaked copy can be traced.
 
 ## Encryption at rest
 
-Envelope encryption: every stored object (an original or a derivative) has its own random data key; data keys are wrapped by a workspace key, which is wrapped by an instance master key. Storage backends (local disk or S3) only ever hold ciphertext. Rotating the master key re-wraps workspace keys without touching files.
+Envelope encryption: every stored object (an original or a derivative) has its own random data key; data keys are wrapped by a workspace key, which is wrapped by an instance master key. Storage backends (local disk or S3, a workspace's own bucket among them) only ever hold ciphertext. Rotating the master key re-wraps workspace keys without touching files.
 
 - **Objects** are encrypted with AES-256-GCM in 64 KiB segments, following the STREAM construction (as in Tink and age). Each nonce is a random 7-byte prefix stored in the object's header, the 32-bit segment index and a final-segment flag, so segments cannot be altered, reordered, dropped or truncated undetected. The blob's id is bound as associated data, so ciphertext cannot be moved between objects. Segments make byte ranges cheap: a seek in a long recording decrypts only the segments it touches.
 - **Data keys** are wrapped with AES-256-GCM by the workspace key, bound to the blob's id, and stored on the blob row.
@@ -121,10 +121,11 @@ Envelope encryption: every stored object (an original or a derivative) has its o
 - **Rotation:** move the current key to `MASTER_KEYS_PREVIOUS`, set a new `MASTER_KEY` and restart. Hekate re-wraps every workspace key with the new key at start-up; the old key can then be removed. Stored objects are never rewritten.
 - **Corrected metadata** (decision 264): a recording's embedded metadata corrected in QA is a record of Hekate's own, never written back into the stored original. A download of the original writes the corrections in as it leaves, from a decrypted copy in the private workspace that is gone when the download ends, under the same one-time link, mark and access log entry as any download; every correction is in the access log (`file.metadata_edit`).
 - **Key management services** (AWS KMS, Vault and so on) can replace the configured master key later behind the same interface.
+- **A workspace's own bucket** (#508, decision 286), on a plan that includes it: its new files go to an S3-compatible bucket it gives instead of the instance's storage, encrypted exactly as above before they leave, so the bucket holds ciphertext and its owner holds no key. Its access key and secret are sealed with the workspace key (AES-256-GCM, bound to the bucket), rewrapped on rotation, never sent back or logged, and used only for that bucket: never the instance's own credentials from its environment. The bucket is reached only at a public address (checked at the connection, as channels are) over HTTPS, unless the operator trusts its origin in `WEBHOOK_TRUSTED_ORIGINS`. Saving it first writes and deletes a probe object; a test or save that fails says why from the error's code and status alone, never its message. Owners choose it; every change is in the access log (`organisation.storage`). Bytes still leave a bucket only through the server, as from any backend.
 
 ## Storage reconciliation
 
-A daily job compares every storage backend with the database, one workspace at a time.
+A daily job compares every storage backend with the database, one workspace at a time; a workspace's own bucket is compared too, for that workspace's objects alone.
 
 - **Orphaned bytes** (objects no blob row accounts for, including those of a deleted workspace) and **unused blobs** (no file, rendition, segment, peak level, loudness series, spectrogram or unfinished upload points at them) are recorded on first sight and removed only when a run at least a day later still finds them. Uploads and jobs in flight are therefore never touched. Each removal is written to the workspace's access log (`storage.remove`).
 - **Missing bytes** (a blob row whose object is gone) mean data loss. They are reported (logged, and `storage.missing` in the access log once) and never changed: a person decides.

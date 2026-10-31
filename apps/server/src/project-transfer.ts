@@ -1,11 +1,13 @@
 import { type Database, uuidv7 } from "@hekate/db";
-import { type Backends, objectKey, unwrapKey, wrapKey } from "@hekate/storage";
+import { bucketIdOf } from "@hekate/shared";
+import { type Backends, objectKey, type StorageBackend, unwrapKey, wrapKey } from "@hekate/storage";
 import { type SQL, sql } from "drizzle-orm";
 import { HTTPException } from "hono/http-exception";
 import { NotFound } from "./errors.ts";
 import type { Jobs } from "./jobs.ts";
 import type { Keyring } from "./keyring.ts";
-import { dataKeyContext } from "./storage.ts";
+import { keepAnOwner } from "./project-owners.ts";
+import { dataKeyContext, type Storage } from "./storage.ts";
 import { assertProjectRoom } from "./usage.ts";
 
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -33,6 +35,7 @@ export const transferTables = {
     "projects",
     "project_roles",
     "project_members",
+    "project_owners",
     "folders",
     "sessions",
     "session_tracks",
@@ -148,6 +151,8 @@ export const transferTables = {
     "event_deliveries",
     "workspace_mail",
     "workspace_mail_suppressions",
+    // A workspace's own buckets (#508): the project's objects leave the losing workspace's.
+    "workspace_buckets",
     "workspace_plans",
     "billing_accounts",
     "api_tokens",
@@ -172,6 +177,11 @@ export interface MoveDeps {
   keyring: Keyring;
   backends: Backends;
   jobs: Pick<Jobs, "send">;
+  /**
+   * Where a workspace keeps its files, its own bucket among them (#508). Without it, objects
+   * stay in the instance backend they are in, as before.
+   */
+  places?: Pick<Storage, "backendFor" | "backendOf">;
 }
 
 export interface MoveResult {
@@ -233,13 +243,43 @@ type StoredObject = {
   unhashed: boolean;
 };
 
-/** Copy an object's ciphertext to where the gaining workspace keeps it. Bound to its id, not to a workspace, it needs no re-encrypting. */
-async function copyObject(backends: Backends, object: StoredObject, to: string) {
-  const backend = backends.get(object.backend);
+/** Where an object goes and comes from, in a move. */
+interface Places {
+  /** The backend a name stands for, in a workspace. */
+  of(organisationId: string, name: string): Promise<StorageBackend>;
+  /** Where the gaining workspace keeps an object that must leave where it is. */
+  destination(object: StoredObject): Promise<string>;
+}
+
+function placesOf(deps: MoveDeps, to: string): Places {
+  const { backends, places } = deps;
+  if (!places)
+    return { of: async (_o, name) => backends.get(name), destination: async (o) => o.backend };
+  let gaining: Promise<string> | null = null;
+  return {
+    of: (organisationId, name) => places.backendOf(organisationId, name),
+    // A workspace's own bucket is its own (#508): an object leaves the losing workspace's, and
+    // goes into the gaining workspace's if it keeps one. Otherwise it stays in its backend.
+    async destination(object) {
+      gaining ??= places.backendFor(to);
+      const target = await gaining;
+      return bucketIdOf(object.backend) || bucketIdOf(target) ? target : object.backend;
+    },
+  };
+}
+
+/**
+ * Copy an object's ciphertext to where the gaining workspace keeps it. Bound to its id, not to
+ * a workspace, it needs no re-encrypting.
+ */
+async function copyObject(places: Places, object: StoredObject, from: string, to: string) {
+  const backend = await places.destination(object);
   const key = objectKey(to, object.id);
-  if (key === object.key) return key;
-  await backend.put(key, await backend.get(object.key));
-  return key;
+  if (key === object.key && backend === object.backend) return { backend, key };
+  const source = await places.of(from, object.backend);
+  const target = await places.of(to, backend);
+  await target.put(key, await source.get(object.key));
+  return { backend, key };
 }
 
 /** Refused while the project still has work under way that names its workspace. */
@@ -294,7 +334,8 @@ async function assertEligible(
  * copied too, every key rewrapped with the gaining workspace's key, every row moved, and what
  * cannot follow it mapped or left behind:
  * - people who are not members of the gaining workspace lose their place in the project, and
- *   the tasks and threads given to them are given to nobody;
+ *   the tasks and threads given to them are given to nobody; one left with no owner is given
+ *   its earliest member there, else the gaining workspace's earliest owner;
  * - guests are matched in the gaining workspace by address, or added to it;
  * - tags and custom delivery profiles are matched by name, or copied;
  * - unfinished uploads, download tickets, calendar links, upload requests and listening rooms
@@ -306,20 +347,25 @@ export async function moveProject(
   deps: MoveDeps,
   input: { projectId: string; from: string; to: string },
 ): Promise<MoveResult> {
-  const { db, keyring, backends } = deps;
+  const { db, keyring } = deps;
   const { projectId, from, to } = input;
   if (from === to) throw new TransferRefused("The project is already in that workspace");
   await assertEligible(db, input, false);
   await assertMovable(db, projectId, from);
 
-  const copied = new Map<string, string>();
+  const places = placesOf(deps, to);
+  const copied = new Map<string, { backend: string; key: string }>();
   const made: { backend: string; key: string }[] = [];
+  const moves = (o: StoredObject) => {
+    const copy = copied.get(o.id);
+    return !!copy && (copy.key !== o.key || copy.backend !== o.backend);
+  };
   const copyAll = async (objects: StoredObject[]) => {
     for (const object of objects) {
       if (copied.has(object.id)) continue;
-      const key = await copyObject(backends, object, to);
-      copied.set(object.id, key);
-      if (key !== object.key) made.push({ backend: object.backend, key });
+      const copy = await copyObject(places, object, from, to);
+      copied.set(object.id, copy);
+      if (moves(object)) made.push(copy);
     }
   };
 
@@ -346,8 +392,10 @@ export async function moveProject(
       for (const object of objects) {
         const older = await keyring.version(from, object.keyVersion);
         const plain = unwrapKey(older, object.wrappedKey, dataKeyContext(object.id));
+        const copy = copied.get(object.id);
         await tx.execute(sql`update blobs set organisation_id = ${to},
-          key = ${copied.get(object.id) ?? object.key},
+          backend = ${copy?.backend ?? object.backend},
+          key = ${copy?.key ?? object.key},
           wrapped_key = ${wrapKey(target.key, plain, dataKeyContext(object.id))},
           key_version = ${target.version}, updated_at = now()
           where id = ${object.id} and organisation_id = ${from}`);
@@ -369,9 +417,11 @@ export async function moveProject(
       await mapTags(tx, projectId, from, to);
       await mapProfiles(tx, projectId, from, to);
       await moveRows(tx, projectId, from, to);
+      // Every owner it had may have stayed behind: it is never without one (decision 285).
+      await keepAnOwner(tx, to, [projectId]);
       return {
         result: { objects: objects.length, leftBehind },
-        old: objects.filter((o) => copied.get(o.id) !== o.key),
+        old: objects.filter(moves),
         uploads,
         unhashed: objects.filter((o) => o.unhashed).map((o) => o.id),
       };
@@ -379,24 +429,24 @@ export async function moveProject(
   } catch (failure) {
     // Nothing moved: the copies made for it are removed again.
     for (const copy of made)
-      await backends
-        .get(copy.backend)
-        .delete(copy.key)
+      await places
+        .of(to, copy.backend)
+        .then((backend) => backend.delete(copy.key))
         .catch(() => undefined);
     throw failure;
   }
   // The old objects belong to nobody now; a delete that fails leaves them to reconciliation.
   for (const object of moved.old)
-    await backends
-      .get(object.backend)
-      .delete(object.key)
+    await places
+      .of(from, object.backend)
+      .then((backend) => backend.delete(object.key))
       .catch((error: unknown) =>
         console.warn(`Could not delete ${object.key} after a move: ${String(error)}`),
       );
   for (const upload of moved.uploads)
-    await backends
-      .get(upload.backend)
-      .abortMultipart(upload.key, upload.backendUploadId)
+    await places
+      .of(from, upload.backend)
+      .then((backend) => backend.abortMultipart(upload.key, upload.backendUploadId))
       .catch(() => undefined);
   for (const blobId of moved.unhashed)
     await deps.jobs
@@ -437,6 +487,9 @@ async function leavePeople(tx: Tx, projectId: string, from: string, to: string) 
   const reviews = idsIn("reviews", from, sql`project_id = ${projectId}`);
   const groups = idsIn("groups", from, sql`project_id = ${projectId}`);
   await tx.execute(sql`delete from project_members where organisation_id = ${from}
+    and project_id = ${projectId} and user_id not in ${kept}`);
+  // Their ownership too; a project left with none is given one once it has moved.
+  await tx.execute(sql`delete from project_owners where organisation_id = ${from}
     and project_id = ${projectId} and user_id not in ${kept}`);
   await tx.execute(sql`delete from group_members where organisation_id = ${from}
     and user_id is not null and user_id not in ${kept} and group_id in ${groups}`);
@@ -653,6 +706,7 @@ async function moveRows(tx: Tx, projectId: string, from: string, to: string) {
     ...[
       "project_roles",
       "project_members",
+      "project_owners",
       "folders",
       "sessions",
       "workflows",

@@ -11,6 +11,7 @@ import {
   type BillingReports,
   type Board,
   type BoardDisplay,
+  type BucketTestResult,
   type CalendarEntry,
   type CalendarEntryChange,
   type CalendarEntryInput,
@@ -96,7 +97,6 @@ import {
   type NotificationPreferences,
   narrowed,
   type OperatorRow,
-  type OrganisationRole,
   type OverviewSection,
   type PatchedChannel,
   type PatchRowChange,
@@ -112,6 +112,7 @@ import {
   type ProfileSource,
   type ProjectDeletion,
   type ProjectGuestInput,
+  type ProjectMember,
   type ProjectPermission,
   type ProjectProfile,
   type ProjectStatus,
@@ -204,6 +205,7 @@ import {
   type WorkflowSummary,
   type WorkInput,
   type WorkspaceBilling,
+  type WorkspaceBucketInput,
   type WorkspaceLimits,
   type WorkspaceMail,
   type WorkspaceMailInput,
@@ -212,6 +214,7 @@ import {
   type WorkspaceSettings,
   type WorkspaceSettingsInput,
   type WorkspaceState,
+  type WorkspaceStorage,
   type WorkspaceUsage,
 } from "@hekate/shared";
 import {
@@ -497,6 +500,8 @@ export interface Project {
   assetPolicy?: AssetPolicy;
   /** For whoever edits it: whether the workspace marks recordings' downloads (decision 239). */
   workspaceMarks?: boolean;
+  /** For whoever opens its settings: the kinds of file it holds (decision 287). */
+  fileKinds?: FileKind[];
   /** Who its workflows tell, and how (decision 259). */
   workflowNotices?: WorkflowNotices;
   /** Whom a new comment is for, unless a track or a stage says otherwise (decision 279). */
@@ -559,14 +564,8 @@ export interface ProjectRole {
   members: number;
 }
 
-export interface ProjectMember {
-  userId: string;
-  name: string;
-  email: string;
-  roleId: string;
-  /** Their role in the workspace: an owner or admin keeps every tool, whatever the project says. */
-  workspaceRole: OrganisationRole | null;
-}
+/** Someone with a place in a project: its owners (decision 285), marked, and its members. */
+export type { ProjectMember } from "@hekate/shared";
 
 export const projectRolesQuery = (projectId: string) =>
   queryOptions({
@@ -671,6 +670,36 @@ export function useProjectAccessMutations(projectId: string) {
           }),
         ),
       onSuccess: refresh,
+    }),
+    // Owners (decision 285): made from members, made members again while another remains.
+    makeOwner: useMutation({
+      mutationFn: async (userId: string) =>
+        ok(
+          await api.projects[":id"].owners[":userId"].$put({
+            param: { id: projectId, userId },
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+    makeMember: useMutation({
+      mutationFn: async (userId: string) =>
+        ok(
+          await api.projects[":id"].owners[":userId"].$delete({
+            param: { id: projectId, userId },
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+    // Leaving: the last owner names who takes over. Everything the project showed may go.
+    leave: useMutation({
+      mutationFn: async (successorId?: string) =>
+        ok(
+          await api.projects[":id"].leave.$post({
+            param: { id: projectId },
+            json: successorId ? { successorId } : {},
+          }),
+        ),
+      onSuccess: () => client.invalidateQueries(),
     }),
   };
 }
@@ -1362,13 +1391,6 @@ export function useSendTestEmail() {
   });
 }
 
-export interface WorkspaceStorage {
-  /** The workspace's choice; null follows the instance default. */
-  backend: string | null;
-  defaultBackend: string;
-  available: string[];
-}
-
 /** What the instance is doing for this workspace (#165), for its owner; read every 15 s. */
 export const workspaceOperationsQuery = queryOptions({
   queryKey: ["organisation", "operations"],
@@ -1385,8 +1407,29 @@ export function useWorkspaceStorage() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async (backend: string | null) =>
-      json(await api.organisation.storage.$put({ json: { backend } })),
-    onSuccess: () => client.invalidateQueries({ queryKey: workspaceStorageQuery.queryKey }),
+      json<WorkspaceStorage>(await api.organisation.storage.$put({ json: { backend } })),
+    onSuccess: (storage) => client.setQueryData(workspaceStorageQuery.queryKey, storage),
+  });
+}
+
+/** Save the workspace's own bucket (#508): tested first, then it takes the new files. */
+export function useSaveBucket() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: WorkspaceBucketInput) =>
+      json<WorkspaceStorage>(await api.organisation.storage.bucket.$put({ json: input })),
+    onSuccess: (storage) => {
+      client.setQueryData(workspaceStorageQuery.queryKey, storage);
+      void client.invalidateQueries({ queryKey: storageUsageQuery.queryKey });
+    },
+  });
+}
+
+/** Write and delete a probe object with a bucket's details, saving nothing. */
+export function useTestBucket() {
+  return useMutation({
+    mutationFn: async (input: WorkspaceBucketInput) =>
+      json<BucketTestResult>(await api.organisation.storage.bucket.test.$post({ json: input })),
   });
 }
 

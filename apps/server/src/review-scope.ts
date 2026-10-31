@@ -3,6 +3,7 @@ import {
   foldersBeneath,
   mayCoverWorkspace,
   type OrganisationRole,
+  projectPermissions,
   type ReviewScope,
 } from "@hekate/shared";
 import { and, asc, desc, eq, inArray, isNull, notExists, sql } from "drizzle-orm";
@@ -186,8 +187,20 @@ export async function workspaceCoverage(
   actor: { userId: string; organisationId: string; organisationRole: OrganisationRole },
 ): Promise<{ allowed: boolean; projects: number }> {
   const rows = await db
-    .select({ id: projects.id, permissions: projectRoles.permissions })
+    .select({
+      id: projects.id,
+      permissions: projectRoles.permissions,
+      ownerId: schema.projectOwners.id,
+    })
     .from(projects)
+    .leftJoin(
+      schema.projectOwners,
+      and(
+        eq(schema.projectOwners.projectId, projects.id),
+        eq(schema.projectOwners.organisationId, actor.organisationId),
+        eq(schema.projectOwners.userId, actor.userId),
+      ),
+    )
     .leftJoin(
       projectMembers,
       and(
@@ -207,7 +220,8 @@ export async function workspaceCoverage(
   return {
     allowed: mayCoverWorkspace(
       actor.organisationRole,
-      rows.map((r) => r.permissions),
+      // A project's owners hold every level in it (decision 285).
+      rows.map((r) => (r.ownerId ? projectPermissions : r.permissions)),
     ),
     projects: rows.length,
   };

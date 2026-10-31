@@ -30,7 +30,7 @@ import type { Keyring } from "../keyring.ts";
 import type { Mailer } from "../mail.ts";
 import { notifyNow } from "../notifications.ts";
 import { zValidator } from "../openapi/validator.ts";
-import { moveProject } from "../project-transfer.ts";
+import { type MoveDeps, moveProject } from "../project-transfer.ts";
 import type { TenantVariables } from "../tenancy.ts";
 
 const { members, organisations, projectMembers, projectRoles, projects, projectTransfers, users } =
@@ -52,6 +52,8 @@ export interface TransferDeps {
   auth: Auth;
   keyring: Keyring;
   backends: Backends;
+  /** Where each workspace keeps its files, its own bucket among them (#508). */
+  places?: MoveDeps["places"];
   jobs: Pick<Jobs, "send">;
   audit: Audit;
   mailer: Mailer;
@@ -72,7 +74,8 @@ async function takers(db: Database, organisationId: string) {
 
 /**
  * Who may approve moving a project out, or withdraw it: the losing workspace's owners and
- * admins, and members whose role in the project may delete it.
+ * admins, the project's own owners (decision 285), and members whose role in the project may
+ * delete it.
  */
 async function approvers(db: Database, organisationId: string, projectId: string) {
   const roles = await db
@@ -89,7 +92,19 @@ async function approvers(db: Database, organisationId: string, projectId: string
   const deleting = roles
     .filter((r) => r.permissions.includes("delete_project"))
     .map((r) => r.userId);
-  return [...new Set([...(await takers(db, organisationId)), ...deleting])];
+  const owners = await db
+    .select({ userId: schema.projectOwners.userId })
+    .from(schema.projectOwners)
+    .where(
+      inOrg(schema.projectOwners, organisationId, eq(schema.projectOwners.projectId, projectId)),
+    );
+  return [
+    ...new Set([
+      ...(await takers(db, organisationId)),
+      ...owners.map((o) => o.userId),
+      ...deleting,
+    ]),
+  ];
 }
 
 /** The workspace role someone holds in a workspace, or null when they are not a member. */
