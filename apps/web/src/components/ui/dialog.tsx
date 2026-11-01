@@ -62,7 +62,7 @@ export function Dialog({
           width === "xl" && "@3xl/app:max-w-[960px]",
         )}
       >
-        <div className="flex items-start gap-3 px-5 pt-4 pb-3">
+        <div className={cn("flex items-start gap-3 px-5 pt-4", children ? "pb-3" : "pb-5")}>
           <div className="min-w-0 flex-1">
             <h2 className="text-[16px] font-medium text-ink">{title}</h2>
             {description && <p className="mt-0.5 text-[13px] text-ink-2">{description}</p>}
@@ -76,7 +76,10 @@ export function Dialog({
             <Icon name="close" size={14} />
           </button>
         </div>
-        <div className="scroll-quiet min-h-0 flex-1 overflow-auto px-5 pb-5">{children}</div>
+        {/* A confirmation that says all it needs in its description has no body. */}
+        {children && (
+          <div className="scroll-quiet min-h-0 flex-1 overflow-auto px-5 pb-5">{children}</div>
+        )}
         {footer && (
           <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
             {footer}
@@ -146,12 +149,16 @@ export function ConfirmDialog({
         </>
       }
     >
-      {children}
-      {failed && (
-        <p role="alert" className="m-0 text-[13px] text-signal">
-          {failed}
-        </p>
-      )}
+      {children || failed ? (
+        <>
+          {children}
+          {failed && (
+            <p role="alert" className="m-0 text-[13px] text-signal">
+              {failed}
+            </p>
+          )}
+        </>
+      ) : null}
     </Dialog>
   );
 }
