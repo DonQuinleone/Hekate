@@ -115,7 +115,11 @@ export function TileGrid({
     <div
       className={cn(
         "grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line",
-        tiles.length === 5 ? "@3xl/app:grid-cols-5" : "@3xl/app:grid-cols-4",
+        tiles.length === 5
+          ? "@3xl/app:grid-cols-5"
+          : tiles.length === 6
+            ? "@3xl/app:grid-cols-3 @5xl/app:grid-cols-6"
+            : "@3xl/app:grid-cols-4",
       )}
     >
       {tiles.map(({ label, value, hint, flag }, i) => (

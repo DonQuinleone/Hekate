@@ -20,6 +20,7 @@ import {
   type InstanceFlag,
   type InstanceMail,
   type InstanceMemberRow,
+  type InstanceOverview,
   type InstanceSection,
   type InstanceSettings,
   type InstanceWorkspace,
@@ -65,8 +66,8 @@ import {
   useState,
 } from "react";
 import { ApiLogEntry } from "~/components/api-tokens";
+import { TileGrid } from "~/components/billing";
 import { Gauge, Spark } from "~/components/charts";
-import { Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
 import { SuppressionsDialog } from "~/components/event-channels";
 import { Icon } from "~/components/icons";
@@ -148,7 +149,7 @@ export function InstancePage({
 }: {
   section: InstanceSection;
   /** A ticket open on the desk (#182), or a workspace (and its tab) opened from one. */
-  search?: { ticket?: string; workspace?: string; tab?: "members"; reference?: string };
+  search?: { ticket?: string; workspace?: string; tab?: "members" | "storage"; reference?: string };
 }) {
   const navigate = useNavigate();
   const { data: access, isPending } = useQuery(instanceAccessQuery);
@@ -274,31 +275,122 @@ function KeyNeeded() {
   );
 }
 
+/** What fixes a need, as a verb that opens it (#599); none where the fix is someone else's. */
+function NeedAction({ need: n }: { need: InstanceOverview["needs"][number] }) {
+  const docs = (path: string, label: string) => (
+    <Button variant="secondary" size="md" asChild>
+      <a href={`${docsUrl}${path}`} target="_blank" rel="noopener noreferrer">
+        {label}
+      </a>
+    </Button>
+  );
+  if (n.kind === "failed_jobs")
+    return (
+      <Button variant="secondary" size="md" asChild>
+        <Link to="/instance/$section" params={{ section: "debug" }}>
+          Look up
+        </Link>
+      </Button>
+    );
+  if (n.kind === "quota_near" && n.workspaceId)
+    return (
+      <Button variant="secondary" size="md" asChild>
+        <Link
+          to="/instance/$section"
+          params={{ section: "workspaces" }}
+          search={{ workspace: n.workspaceId, tab: "storage" }}
+        >
+          Raise the quota
+        </Link>
+      </Button>
+    );
+  if (n.kind === "key_missing" && n.self)
+    return (
+      <Button variant="secondary" size="md" asChild>
+        <Link to="/account/$section" params={{ section: "security" }}>
+          Add a passkey
+        </Link>
+      </Button>
+    );
+  if (n.kind === "release_available") return docs("/operate/upgrades/", "How to upgrade");
+  if (n.kind === "missing_objects") return docs("/operate/backup/#restoring", "How to restore");
+  if (n.kind === "mail_logged") return docs("/install/configuration/#mail", "How to set up mail");
+  return null;
+}
+
+/** The share of the disk stored media takes, in words (#599). */
+const diskShare = (stored: number, disk: { total: number } | null | undefined) => {
+  if (!disk || disk.total <= 0) return "in object storage";
+  const share = stored / disk.total;
+  return share > 0 && share < 0.01
+    ? "under 1% of the disk"
+    : `${Math.round(share * 100)}% of the disk`;
+};
+
+/** Error references since midnight, by where they came from. */
+const errorsHint = (e: { api: number; worker: number }) =>
+  e.api + e.worker === 0
+    ? "none since midnight"
+    : [e.worker > 0 && plural(e.worker, "job"), e.api > 0 && plural(e.api, "request")]
+        .filter(Boolean)
+        .join(", ");
+
+/**
+ * The instance at a glance (#599), as the prototype has it: its figures in one panel, then what
+ * needs an operator, each with the action that opens its fix, then what moved.
+ */
 function Overview() {
   const { data } = useQuery(instanceOverviewQuery);
   if (!data) return null;
   const { queue } = data;
+  const errors = data.errorsToday ?? { api: 0, worker: 0, unknown: 0 };
+  const release = data.release;
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 @3xl/app:grid-cols-4">
-        <Stat label="Workspaces" value={data.workspaces} hint="on this instance" />
-        <Stat label="People" value={data.people} hint="with an account" />
-        <Stat label="Storage" value={formatBytes(data.storageBytes)} hint="before encryption" />
-        <Stat
-          label="Queue"
-          value={queue ? queue.waiting : "?"}
-          hint={
-            !queue
+      <TileGrid
+        tiles={[
+          {
+            label: "Workspaces",
+            value: String(data.workspaces),
+            hint: data.suspended ? `${data.suspended} suspended` : "on this instance",
+          },
+          { label: "People", value: String(data.people), hint: "with an account" },
+          {
+            label: "Storage",
+            value: formatBytes(data.storageBytes),
+            hint: diskShare(data.storageBytes, data.disk),
+          },
+          {
+            label: "Queue",
+            value: queue ? String(queue.waiting) : "?",
+            hint: !queue
               ? "could not be read"
               : queue.failedToday > 0
                 ? `${queue.failedToday} failed today`
                 : queue.active > 0
                   ? `${queue.active} running`
-                  : "nothing running"
-          }
-          flag={!queue || queue.failedToday > 0}
-        />
-      </div>
+                  : "nothing waiting",
+            flag: !queue || queue.failedToday > 0,
+          },
+          {
+            label: "Errors today",
+            value: String(errors.api + errors.worker),
+            hint: errorsHint(errors),
+            flag: errors.unknown > 0,
+          },
+          release?.newest
+            ? {
+                label: "Release available",
+                value: release.newest,
+                hint: `this runs ${release.running}`,
+              }
+            : {
+                label: "Release",
+                value: release?.running ?? "…",
+                hint: release?.checking ? "up to date" : "release checks are off",
+              },
+        ]}
+      />
       <Section title="Needs an operator">
         {data.needs.length === 0 ? (
           <Row
@@ -311,40 +403,20 @@ function Overview() {
               key={n.title}
               name={
                 <span className="flex items-center gap-2">
-                  <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-signal" />
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "size-[7px] shrink-0 rounded-full",
+                      // Advice is no alarm: a hollow ring, as the brand marks what is open.
+                      n.advice ? "border border-ink-3" : "bg-signal",
+                    )}
+                  />
                   {n.title}
                 </span>
               }
               hint={n.detail}
             >
-              {n.kind === "failed_jobs" && (
-                <Button variant="secondary" size="md" asChild>
-                  <Link to="/instance/$section" params={{ section: "debug" }}>
-                    Debug tools
-                  </Link>
-                </Button>
-              )}
-              {n.kind === "release_available" && (
-                <Button variant="secondary" size="md" asChild>
-                  <Link to="/instance/$section" params={{ section: "system" }}>
-                    System information
-                  </Link>
-                </Button>
-              )}
-              {n.kind === "quota_near" && (
-                <Button variant="secondary" size="md" asChild>
-                  <Link to="/instance/$section" params={{ section: "workspaces" }}>
-                    Workspaces
-                  </Link>
-                </Button>
-              )}
-              {n.kind === "key_missing" && (
-                <Button variant="secondary" size="md" asChild>
-                  <Link to="/instance/$section" params={{ section: "operators" }}>
-                    Operators
-                  </Link>
-                </Button>
-              )}
+              <NeedAction need={n} />
             </Row>
           ))
         )}
@@ -2277,7 +2349,7 @@ function Workspaces({
   access: InstanceAccess;
   /** A workspace to open first, as a ticket on the desk does (#182), and its tab. */
   open?: string;
-  tab?: "members";
+  tab?: "members" | "storage";
 }) {
   const operator = access.operator && !access.keyNeeded;
   const [q, setQ] = useState("");
@@ -2534,24 +2606,30 @@ function WorkspaceDetail({
 function WorkspaceOverview({ workspace: w }: { workspace: InstanceWorkspaceDetail }) {
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 @3xl/app:grid-cols-4">
-        <Stat
-          label="People"
-          value={w.members}
-          hint={w.guests > 0 ? `and ${w.guests} ${w.guests === 1 ? "guest" : "guests"}` : "members"}
-        />
-        <Stat
-          label="Projects"
-          value={w.projects}
-          hint={`${w.activeReviews} active ${w.activeReviews === 1 ? "review" : "reviews"}`}
-        />
-        <Stat label="Storage" value={formatBytes(w.storageBytes)} hint="before encryption" />
-        <Stat
-          label="Sign-in"
-          value={w.signIn.method === "sso" ? (w.signIn.provider ?? "SSO") : "Password"}
-          hint={w.signIn.secondFactor ? "second factor required" : "no second factor"}
-        />
-      </div>
+      <TileGrid
+        tiles={[
+          {
+            label: "Members",
+            value: String(w.members),
+            hint: w.guests > 0 ? `and ${plural(w.guests, "guest")}` : "no guests",
+          },
+          {
+            label: "Projects",
+            value: String(w.projects),
+            hint: `${w.activeReviews} active ${w.activeReviews === 1 ? "review" : "reviews"}`,
+          },
+          {
+            label: "Storage",
+            value: formatBytes(w.storageBytes),
+            hint: "stored, with what Hekate made",
+          },
+          {
+            label: "Sign-in",
+            value: w.signIn.method === "sso" ? (w.signIn.provider ?? "SSO") : "Password",
+            hint: w.signIn.secondFactor ? "second factor required" : "no second factor",
+          },
+        ]}
+      />
       {w.invited.length > 0 && (
         <Section title="Waiting to join">
           {w.invited.map((i) => (
@@ -2596,7 +2674,7 @@ const actorName = (label: string) => {
 
 const factorWords: Record<InstanceMemberRow["factor"], string> = {
   key: "passkey or security key",
-  app: "code app",
+  app: "authenticator app",
   none: "none",
 };
 
@@ -2616,7 +2694,7 @@ function WorkspaceMembers({ id, operator }: { id: string; operator: boolean }) {
   });
   return (
     <Section
-      title="People"
+      title="Members"
       intro={
         operator
           ? "Members of this workspace. Operators never sign in as anyone; what you do here is logged against your name."
@@ -2648,11 +2726,21 @@ function WorkspaceMembers({ id, operator }: { id: string; operator: boolean }) {
                   label: "Send a password reset",
                   onSelect: () => help.mutate({ userId: m.userId, action: "password-reset" }),
                 },
-                {
-                  label: "Reset the second factor",
-                  onSelect: () => help.mutate({ userId: m.userId, action: "second-factor" }),
-                },
                 "divider",
+                {
+                  // Their code app and every passkey go at once: it waits on a confirmation.
+                  label: "Reset the second factor…",
+                  danger: true,
+                  onSelect: () =>
+                    confirm({
+                      title: `Reset ${m.name}’s second factor?`,
+                      description:
+                        "Their authenticator app and every passkey are removed. They sign in with their password and set up a second factor again.",
+                      action: "Reset second factor",
+                      onConfirm: () =>
+                        help.mutateAsync({ userId: m.userId, action: "second-factor" }),
+                    }),
+                },
                 {
                   label: "Sign out everywhere…",
                   danger: true,
@@ -3405,6 +3493,9 @@ function Operators() {
   const client = useQueryClient();
   const [confirm, confirmation] = useConfirm();
   const { data: operators = [] } = useQuery(instanceOperatorsQuery);
+  const { data: own } = useQuery(instanceOwnSettingsQuery);
+  // OPERATOR_SECURITY_KEY (#599, #600): what the page says of keys follows the rule as set.
+  const keyRequired = own?.environment.operatorSecurityKey ?? true;
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const refresh = () => client.invalidateQueries({ queryKey: ["instance"] });
@@ -3422,10 +3513,14 @@ function Operators() {
   });
   return (
     <>
-      {adding && <AddOperator onClose={() => setAdding(false)} />}
+      {adding && <AddOperator keyRequired={keyRequired} onClose={() => setAdding(false)} />}
       {/* The page says what operators are; its one list needs no title of its own (#609). */}
       <Section
-        intro="They sign in with a passkey or hardware security key, and what they do is listed under their name."
+        intro={
+          keyRequired
+            ? "They act from a session signed in with a passkey or security key, and what they do is listed under their name."
+            : "What they do is listed under their name. A passkey or security key keeps a stolen password from reaching every workspace."
+        }
         action={
           <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
             <Icon name="plus" size={14} />
@@ -3449,8 +3544,10 @@ function Operators() {
                   ? `${o.keys} ${o.keys === 1 ? "passkey" : "passkeys"}`
                   : "no passkey or security key",
               o.lastSignInAt ? `signed in ${ago(o.lastSignInAt)}` : "never signed in",
-              `operator since ${since.format(new Date(o.since))}`,
-              o.addedBy ? `added by ${o.addedBy}` : "since setup",
+              // The first operator was made at setup: that is when, said once (#697).
+              o.addedBy
+                ? `operator since ${since.format(new Date(o.since))}, added by ${o.addedBy}`
+                : "operator since setup",
             ].join(" · ")}
             inline
           >
@@ -3458,8 +3555,18 @@ function Operators() {
               always
               label={o.name}
               actions={[
-                { label: "Sign out everywhere", onSelect: () => revoke.mutate(o.userId) },
-                "divider",
+                {
+                  label: "Sign out everywhere…",
+                  danger: true,
+                  onSelect: () =>
+                    confirm({
+                      title: `Sign ${o.name} out everywhere?`,
+                      description:
+                        "Every session they have ends now, on each device. They can sign in again.",
+                      action: "Sign out",
+                      onConfirm: () => revoke.mutateAsync(o.userId),
+                    }),
+                },
                 {
                   label: "Remove as operator…",
                   danger: true,
@@ -3482,12 +3589,27 @@ function Operators() {
           {error}
         </p>
       )}
+      {/* The rules the product has (#600), as set; operators never act as anyone else. */}
+      <Section title="Rules">
+        <Row
+          name="Operators sign in with a passkey or security key"
+          hint="Set in the environment (OPERATOR_SECURITY_KEY). Operators never act as anyone else."
+          inline
+        >
+          <span className="text-[13px] text-ink-2">{keyRequired ? "On" : "Off"}</span>
+          <Button variant="ghost" size="md" asChild>
+            <Link to="/instance/$section" params={{ section: "settings" }}>
+              Settings
+            </Link>
+          </Button>
+        </Row>
+      </Section>
       {confirmation}
     </>
   );
 }
 
-function AddOperator({ onClose }: { onClose: () => void }) {
+function AddOperator({ keyRequired, onClose }: { keyRequired: boolean; onClose: () => void }) {
   const client = useQueryClient();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -3506,7 +3628,7 @@ function AddOperator({ onClose }: { onClose: () => void }) {
   return (
     <Dialog
       title="Make someone an operator"
-      description="They manage every workspace on this instance. They need an account here, and sign in with a passkey or hardware security key."
+      description={`They manage every workspace on this instance. They need an account here${keyRequired ? ", and act from a session signed in with a passkey or security key" : ""}.`}
       onClose={onClose}
       width="sm"
       footer={

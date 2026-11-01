@@ -964,7 +964,7 @@ export function InstancePage({ section }: { section: string }) {
             )}
             {orgTab === "members" && (
               <Section
-                title="People"
+                title="Members"
                 intro="Members of this workspace. Operators never sign in as anyone; what you do here is logged against your name."
               >
                 {members.map((m) => (
@@ -1747,7 +1747,7 @@ export function InstancePage({ section }: { section: string }) {
       {sec === "operators" && (
         <>
           <Section
-            intro="A hardware security key is required; everything they do is in the audit log under their name."
+            intro="They act from a session signed in with a passkey or security key; everything they do is in the audit log under their name."
             action={
               <Button variant="secondary" size="md">
                 <Icon name="plus" size={14} />
@@ -1779,18 +1779,14 @@ export function InstancePage({ section }: { section: string }) {
             ))}
           </Section>
           <Section title="Rules">
-            <SwitchRow name="Hardware security key required for operators" checked />
-            <SwitchRow
-              name="Sign in as a member leaves a banner and an audit entry"
-              hint="Cannot be turned off."
-              checked
-            />
             <Row
-              name="Break glass"
-              hint="A one-time operator credential printed at install, for when every operator is locked out. Used: never."
+              name="Operators sign in with a passkey or security key"
+              hint="Set in the environment (OPERATOR_SECURITY_KEY). Operators never act as anyone else."
+              inline
             >
+              <span className="text-[13px] text-ink-2">On</span>
               <Button variant="ghost" size="md">
-                Rotate
+                Settings
               </Button>
             </Row>
           </Section>

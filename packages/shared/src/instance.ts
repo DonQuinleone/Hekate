@@ -113,10 +113,18 @@ export interface OperatorRow {
 
 export interface InstanceOverview {
   workspaces: number;
+  /** Of them, suspended (#599). */
+  suspended?: number;
   people: number;
   storageBytes: number;
+  /** The disk local storage is on, used and total bytes; null where it cannot be read (#599). */
+  disk?: { used: number; total: number } | null;
   /** Null when the queue could not be read. */
   queue: { waiting: number; active: number; failedToday: number } | null;
+  /** Error references since midnight, by where they came from, and how many are not known (#599). */
+  errorsToday?: { api: number; worker: number; unknown: number };
+  /** The release running, and a newer one on the channel; `checking` false when checks are off. */
+  release?: { running: string; newest: string | null; checking: boolean };
   /** What needs an operator, most pressing first. */
   needs: {
     kind:
@@ -125,9 +133,16 @@ export interface InstanceOverview {
       | "key_missing"
       | "queue_unreadable"
       | "quota_near"
-      | "release_available";
+      | "release_available"
+      | "mail_logged";
     title: string;
     detail: string;
+    /** The workspace a quota item is about, to open its Storage tab. */
+    workspaceId?: string;
+    /** A key item about the operator reading it, who can fix it from their account. */
+    self?: boolean;
+    /** A key item that only advises: the rule that operators sign in with a key is off. */
+    advice?: boolean;
   }[];
   recent: { at: string; actor: string | null; action: string; target: string | null }[];
 }

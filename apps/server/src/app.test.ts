@@ -24,6 +24,7 @@ import {
   defaultPlayerViewSettings,
   defaultProjectRoles,
   type InstanceEnvironment,
+  type InstanceOverview,
   type InstanceSettings,
   instanceSettingsOf,
   type LoudnessSummary,
@@ -1187,11 +1188,31 @@ describe.runIf(url)("api", () => {
         // Where keys are not required (testing), the same session acts.
         const overview = await get("/api/instance/overview", first);
         expect(overview.status).toBe(200);
-        expect(await overview.json()).toMatchObject({
+        const body = (await overview.json()) as InstanceOverview;
+        expect(body).toMatchObject({
           workspaces: 1,
+          suspended: 0,
           people: 1,
+          errorsToday: { api: 0, worker: 0, unknown: 0 },
+          release: { newest: null, checking: false },
           recent: [{ action: "operator.added", target: owner.email, actor: null }],
         });
+        // With keys not required, a missing one is advice, told to the operator it is about;
+        // and mail that only reaches the log is flagged (#599).
+        expect(body.needs).toContainEqual(
+          expect.objectContaining({
+            kind: "key_missing",
+            title: "You have no passkey",
+            self: true,
+            advice: true,
+          }),
+        );
+        expect(body.needs).toContainEqual(
+          expect.objectContaining({
+            kind: "mail_logged",
+            title: "Mail is written to the log; nobody receives email",
+          }),
+        );
       });
 
       it("refuses members, and shows an owner only their own workspace", async () => {
