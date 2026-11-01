@@ -7,6 +7,7 @@ import postgres from "postgres";
 import { waveBytes } from "../../../packages/shared/src/fixtures/wave.ts";
 import { croomFixtureBytes } from "../../server/src/croom/fixture.ts";
 import { checkScreen } from "./checks.ts";
+import { onTheFixedClock } from "./clock.ts";
 import { FIXED_TIME, type Seeded, saveScreen, seeded, state } from "./fixtures.ts";
 
 /**
@@ -20,7 +21,9 @@ import { FIXED_TIME, type Seeded, saveScreen, seeded, state } from "./fixtures.t
  * screen that caused it.
  */
 const violations = new WeakMap<Page, string[]>();
-test.beforeEach(({ page }) => {
+test.beforeEach(async ({ page }) => {
+  // Every capture at the fixed time the seed's rows are set to (#543).
+  await onTheFixedClock(page);
   const seen: string[] = [];
   violations.set(page, seen);
   page.on("console", (message) => {
@@ -2602,16 +2605,17 @@ test("file-comment-mention", async ({ page }, info) => {
   await checkScreen(page);
 });
 
-// Deleting a project (#240): asked for by one person, confirmed by a second owner typing its name.
-// The project's answer is amended in this page alone, so nothing is ever deleted.
+// Deleting a project (#240): asked for by one person, confirmed by a second owner typing its name;
+// here the workspace's only owner, who asked yesterday. The project's answer is amended in this
+// page alone, so nothing is ever deleted.
 test("project-settings-deletion", async ({ page }) => {
   await page.route(`**/api/projects/${seeded().musicProjectId}`, async (route) => {
     if (route.request().method() !== "GET") return route.continue();
     const response = await route.fetch();
     const body = (await response.json()) as { project: Record<string, unknown> };
     body.project.deletion = {
-      requestedBy: "Mira Solberg",
-      requestedAt: "2026-10-15T09:30:00Z",
+      requestedBy: "Alex Rivera",
+      requestedAt: "2026-10-13T09:30:00Z",
       mayConfirm: true,
       mayCancel: true,
       confirmableAt: null,
@@ -2639,11 +2643,11 @@ const exportsShown = {
       requestedBy: "Alex Rivera",
       byOperator: false,
       recipient: `age1${"q".repeat(58)}`,
-      createdAt: "2026-10-20T18:04:00Z",
-      finishedAt: "2026-10-20T18:31:00Z",
+      createdAt: "2026-10-12T18:04:00Z",
+      finishedAt: "2026-10-12T18:31:00Z",
       byteSize: 38_200_000_000,
       fileCount: 1204,
-      expiresAt: "2026-10-27T18:31:00Z",
+      expiresAt: "2026-10-19T18:31:00Z",
       error: null,
     },
     {
@@ -2703,7 +2707,7 @@ test("settings-export", async ({ page }) => {
     });
   });
   await page.goto("/settings/operations");
-  await settle(page, "main >> text=until 2026-10-27");
+  await settle(page, "main >> text=until 2026-10-19");
   await saveScreen(page, "settings-export");
   await checkScreen(page);
   await page.getByRole("button", { name: "Start an export…" }).click();
@@ -2716,7 +2720,8 @@ test("settings-export", async ({ page }) => {
   await checkScreen(page);
 });
 
-// Deleting the workspace (#186): asked for by one owner, confirmed by another typing its name.
+// Deleting the workspace (#186): asked for by one owner, confirmed by another typing its name;
+// the seeded workspace has one owner, who asked yesterday and may confirm it now, a day later.
 // The answer is amended in this page alone, so nothing is ever deleted.
 test("settings-workspace-deletion", async ({ page }) => {
   await page.route("**/api/organisation/deletion", async (route) => {
@@ -2724,8 +2729,8 @@ test("settings-workspace-deletion", async ({ page }) => {
     await route.fulfill({
       json: {
         deletion: {
-          requestedBy: "Mira Solberg",
-          requestedAt: "2026-10-15T09:30:00Z",
+          requestedBy: "Alex Rivera",
+          requestedAt: "2026-10-13T09:30:00Z",
           mayConfirm: true,
           mayCancel: true,
           confirmableAt: null,
@@ -2765,7 +2770,7 @@ for (const [name, viewport] of [
           o.suspended = {
             reason: "Its owners are deleting it.",
             payable: false,
-            deleteAfter: "2026-11-22T09:30:00Z",
+            deleteAfter: "2026-11-13T09:30:00Z",
           };
       await route.fulfill({ response, json: body });
     });
@@ -4472,7 +4477,7 @@ const dayThreeFiles = () =>
       mics: ["Mix", "Spot", "Tree"],
     },
     { take: "29", scene: "Pine Apple Rag", day: "2026-10-14", start: 37_571 },
-    { take: "30", scene: "The Entertainer", day: "2026-10-16", start: 50_520 },
+    { take: "30", scene: "The Entertainer", day: "2026-10-12", start: 50_520 },
   ]);
 
 // Takes are added from their track (#490): the Add takes dialog with the track settled, from
@@ -4541,12 +4546,12 @@ test("project-sessions-import-made", async ({ page }) => {
   const cleanUp = async () => {
     await sql`delete from takes where id in (select take_id from files where name in ${sql(names)})`;
     await sql`delete from files where name in ${sql(names)}`;
-    await sql`delete from sessions where name = '2026-10-16'`;
+    await sql`delete from sessions where name = '2026-10-12'`;
   };
   try {
     const files = sessionFiles([
-      { take: "41", scene: "The Entertainer", day: "2026-10-16", start: 40_000 },
-      { take: "42", scene: "The Entertainer", day: "2026-10-16", start: 40_600 },
+      { take: "41", scene: "The Entertainer", day: "2026-10-12", start: 40_000 },
+      { take: "42", scene: "The Entertainer", day: "2026-10-12", start: 40_600 },
     ]);
     const dialog = await openTakeImport(page);
     await dialog.getByLabel("Session files").setInputFiles(files);
@@ -4558,7 +4563,7 @@ test("project-sessions-import-made", async ({ page }) => {
     await expect(dialog.getByText("The Entertainer, 100% sure")).toHaveCount(2);
     await dialog.getByRole("button", { name: "Import 2 takes" }).click();
     // The new session opens with the takes made in it, each its track's next take.
-    await expect(page.getByRole("heading", { name: "2026-10-16" })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "2026-10-12" })).toBeVisible({
       timeout: 30_000,
     });
     const table = page.locator("main table");
@@ -4862,6 +4867,7 @@ test("account-passkeys", async ({ browser }, info) => {
     baseURL: info.project.use.baseURL,
   });
   const page = await context.newPage();
+  await onTheFixedClock(page);
   const cdp = await context.newCDPSession(page);
   await cdp.send("WebAuthn.enable");
   await cdp.send("WebAuthn.addVirtualAuthenticator", {
