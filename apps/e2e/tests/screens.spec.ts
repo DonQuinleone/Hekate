@@ -5131,6 +5131,22 @@ test("file-download-video", async ({ page }) => {
   expect(bytes.toString("latin1", 4, 8)).toBe("ftyp");
 });
 
+// Invite on an open review (#669): the request page's people field in a popover under the
+// button, a new address with its name and "Shown as" beneath. Nothing is sent.
+test("review-invite", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/reviews/${seeded().reviewId}`);
+  await settle(page, "main >> text=Under review");
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
+  const form = page.getByRole("form", { name: "Invite to this review" });
+  const field = form.getByRole("combobox", { name: "Invite to this review" });
+  await field.fill("new.reviewer@example.test");
+  await field.press("Enter");
+  await expect(form.getByLabel("Shown as")).toBeVisible();
+  await saveScreen(page, "review-invite");
+  await checkScreen(page);
+});
+
 // Per-reviewer permissions (#55): a guest's items, earlier versions, tools, download and plays,
 // in the same dialog as the request page's (#670).
 test("review-reviewer-permissions", async ({ page }) => {

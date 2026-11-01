@@ -13,14 +13,23 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  Fragment,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Avatar, personKey } from "~/components/avatar";
 import { kindIcon } from "~/components/files";
 import { FollowButton } from "~/components/follow-button";
-import { GuestFields } from "~/components/guest-fields";
+import { shownAs } from "~/components/guest-fields";
 import { Icon, type IconName } from "~/components/icons";
 import { Card, SectionHead } from "~/components/page";
 import { type Crumb, PageHeader } from "~/components/page-header";
+import { PeoplePicker, type Person } from "~/components/people-picker";
 import { Property } from "~/components/property";
 import { ReviewerPermissionsEditor } from "~/components/reviewer-permissions";
 import { reviewState } from "~/components/reviews";
@@ -28,6 +37,7 @@ import { Button } from "~/components/ui/button";
 import { DateField } from "~/components/ui/date-field";
 import { ConfirmDialog, Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
+import { Floating } from "~/components/ui/floating";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { Loading } from "~/components/ui/states";
@@ -39,14 +49,18 @@ import { formatDates } from "~/lib/locale";
 import { permissionSummary, toLocalInput } from "~/lib/permissions";
 import {
   meQuery,
+  projectGroupsQuery,
+  projectGuestsQuery,
+  projectMembersQuery,
   projectQuery,
+  projectRolesQuery,
   type ReviewActivity,
   type ReviewDetail,
   reviewQuery,
   useProjectCan,
   useReviewActions,
 } from "~/lib/queries";
-import { shareLine, shareNote } from "~/lib/shares";
+import { guestFromEmail, shareLine, shareNote } from "~/lib/shares";
 import { useViewer } from "~/lib/viewer";
 import { PageFailed } from "~/routes/problem";
 
@@ -218,16 +232,15 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
   const { guest } = useViewer();
   const [confirm, confirmation] = useConfirm();
   const actions = useReviewActions(review.id);
-  const { addReviewer, invite, sendLink, revoke, permissions, remind, removeReviewer } = actions;
+  const { sendLink, revoke, permissions, remind, removeReviewer } = actions;
   const [inviting, setInviting] = useState(false);
+  const inviteAnchor = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const editingReviewer = review.reviewers.find((r) => r.id === editing);
   const manage = review.you.canManageReviewers && review.status === "open";
   // A reviewer whose grant allows it invites too, as a guest beside them (#55).
   const mayInvite = manage || review.you.canInvite;
-  const adding = manage ? addReviewer : invite;
-  const error =
-    adding.error ?? sendLink.error ?? revoke.error ?? remind.error ?? removeReviewer.error;
+  const error = sendLink.error ?? revoke.error ?? remind.error ?? removeReviewer.error;
   const steps = reviewSteps(review.order, review.reviewers);
   const responded = review.reviewers.filter((r) => r.state === "submitted").length;
   // A share asks nothing (#138): its people are those it is shared with, opened or not.
@@ -245,10 +258,29 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
         }
         action={
           mayInvite && (
-            <Button variant="ghost" size="sm" onClick={() => setInviting(true)}>
-              <Icon name="userPlus" size={14} />
-              Invite
-            </Button>
+            <div ref={inviteAnchor}>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-expanded={inviting}
+                onClick={() => setInviting(!inviting)}
+              >
+                <Icon name="userPlus" size={14} />
+                Invite
+              </Button>
+              {inviting && (
+                <InvitePopover
+                  review={review}
+                  anchor={inviteAnchor}
+                  members={manage}
+                  onClose={() => setInviting(false)}
+                  onInvited={(names) => {
+                    setInviting(false);
+                    onNotice(`${names} ${names.includes(" and ") ? "are" : "is"} invited.`);
+                  }}
+                />
+              )}
+            </div>
           )
         }
       />
@@ -442,29 +474,182 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
         </Dialog>
       )}
       {error && <p className="m-0 text-[13px] text-signal">{error.message}</p>}
-      {inviting && (
-        <div className="rise-in flex flex-col gap-2 rounded-panel border border-line bg-raised/40 p-3">
-          <span className="label">Invite to this review</span>
-          <GuestFields
-            submitLabel="Send"
-            onAdd={(g) =>
-              adding.mutate(g, {
-                onSuccess: () => {
-                  setInviting(false);
-                  onNotice(`${g.name} is invited.`);
-                },
-              })
-            }
-          />
-          <div className="flex justify-end">
-            <Button variant="ghost" size="sm" onClick={() => setInviting(false)}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
       {confirmation}
     </section>
+  );
+}
+
+/**
+ * Invite, under its button (#669): the request page's people field, offering the project's
+ * members, groups and known guests to whoever manages the review, or an email address to a
+ * reviewer their grant lets invite. A new address shows its name and "Shown as" beneath.
+ */
+function InvitePopover({
+  review,
+  anchor,
+  members: offerMembers,
+  onClose,
+  onInvited,
+}: {
+  review: ReviewDetail;
+  anchor: RefObject<HTMLDivElement | null>;
+  /** Whoever manages the review may add members and groups; a reviewer only guests. */
+  members: boolean;
+  onClose: () => void;
+  onInvited: (names: string) => void;
+}) {
+  const { guest: asGuest } = useViewer();
+  const { addReviewer, invite } = useReviewActions(review.id);
+  const adding = offerMembers ? addReviewer : invite;
+  const enabled = offerMembers && !asGuest;
+  const projectId = review.projectId;
+  const { data: members = [] } = useQuery({ ...projectMembersQuery(projectId), enabled });
+  const { data: roles = [] } = useQuery({ ...projectRolesQuery(projectId), enabled });
+  const { data: groups = [] } = useQuery({ ...projectGroupsQuery(projectId), enabled });
+  const { data: known = [] } = useQuery({ ...projectGuestsQuery(projectId), enabled });
+  const [chosen, setChosen] = useState<Person[]>([]);
+  // What a new address is called, and shown as, typed beneath the field.
+  const [fresh, setFresh] = useState<Record<string, { name: string; label: string }>>({});
+  const [busy, setBusy] = useState(false);
+  const asked = new Set(
+    review.reviewers.flatMap((r) => [
+      ...(r.userId ? [`member:${r.userId}`] : []),
+      ...(r.email ? [`guest:${r.email}`] : []),
+      ...(r.group ? [`group:${r.group.id}`] : []),
+    ]),
+  );
+  const offered: Person[] = enabled
+    ? [
+        ...members.map(
+          (m): Person => ({
+            key: `member:${m.userId}`,
+            name: m.name,
+            hint: m.ownerSince ? "Owner" : (roles.find((r) => r.id === m.roleId)?.name ?? ""),
+            kind: "member",
+          }),
+        ),
+        ...groups.map(
+          (g): Person => ({
+            key: `group:${g.id}`,
+            name: g.name,
+            hint: `${g.members.length} ${g.members.length === 1 ? "person" : "people"}`,
+            kind: "group",
+          }),
+        ),
+        ...known.map(
+          (g): Person => ({
+            key: `guest:${g.email}`,
+            avatar: g.id,
+            name: g.name,
+            hint: g.label ?? g.email,
+            kind: "guest",
+          }),
+        ),
+      ].filter((p) => !asked.has(p.key))
+    : [];
+  const isNew = (p: Person) =>
+    p.kind === "guest" && !known.some((k) => `guest:${k.email}` === p.key);
+  const entryOf = (p: Person) => {
+    const [type, id = ""] = p.key.split(/:(.*)/s) as [string, string];
+    if (type === "member") return { userId: id };
+    if (type === "group") return { groupId: id };
+    const knownGuest = known.find((k) => k.email === id);
+    const typed = fresh[p.key];
+    const named = guestFromEmail(id);
+    return {
+      name: typed?.name.trim() || knownGuest?.name || named.name,
+      email: id,
+      label: typed?.label.trim() || knownGuest?.label || undefined,
+    };
+  };
+  const send = async (event: FormEvent) => {
+    event.preventDefault();
+    if (chosen.length === 0) return;
+    setBusy(true);
+    try {
+      const sent: string[] = [];
+      for (const person of chosen) {
+        const entry = entryOf(person);
+        if ("userId" in entry || "groupId" in entry) {
+          if (!offerMembers) continue;
+          await addReviewer.mutateAsync(entry);
+        } else await adding.mutateAsync(entry);
+        sent.push(("name" in entry ? entry.name : undefined) ?? person.name);
+      }
+      onInvited(
+        sent.length > 1 ? `${sent.slice(0, -1).join(", ")} and ${sent.at(-1)}` : (sent[0] ?? ""),
+      );
+    } catch {
+      // The refusal is said under the field; the popover stays open to change it.
+    } finally {
+      setBusy(false);
+    }
+  };
+  const error = addReviewer.error ?? invite.error;
+  return (
+    <Floating
+      anchor={anchor}
+      align="end"
+      onClose={onClose}
+      className="z-10 flex w-[min(380px,calc(100vw-32px))] flex-col rounded-panel border border-line bg-overlay p-3 shadow-3"
+    >
+      <form aria-label="Invite to this review" onSubmit={send} className="flex flex-col gap-3">
+        <span className="label">Invite to this review</span>
+        <PeoplePicker
+          label="Invite to this review"
+          autoFocus
+          people={offered}
+          chosen={chosen}
+          onChange={setChosen}
+          placeholder={offerMembers ? "Members, groups or an email address" : "An email address"}
+        />
+        {chosen.filter(isNew).map((p) => {
+          const typed = fresh[p.key] ?? {
+            name: guestFromEmail(p.key.slice("guest:".length)).name,
+            label: "",
+          };
+          const set = (field: "name" | "label", value: string) =>
+            setFresh({ ...fresh, [p.key]: { ...typed, [field]: value } });
+          return (
+            <fieldset key={p.key} className="m-0 grid min-w-0 gap-2 border-0 p-0 sm:grid-cols-2">
+              <legend className="mb-1.5 text-[12px] text-ink-3">
+                {p.key.slice("guest:".length)}, a new guest
+              </legend>
+              <Field label="Name">
+                <Input
+                  value={typed.name}
+                  maxLength={120}
+                  autoComplete="off"
+                  onChange={(e) => set("name", e.target.value)}
+                />
+              </Field>
+              <Field label={shownAs.label}>
+                <Input
+                  value={typed.label}
+                  maxLength={60}
+                  autoComplete="off"
+                  placeholder="For example Violin (optional)"
+                  onChange={(e) => set("label", e.target.value)}
+                />
+              </Field>
+            </fieldset>
+          );
+        })}
+        {error && (
+          <p role="alert" className="m-0 text-[13px] text-signal">
+            {error.message}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" type="submit" disabled={chosen.length === 0 || busy}>
+            Invite
+          </Button>
+        </div>
+      </form>
+    </Floating>
   );
 }
 

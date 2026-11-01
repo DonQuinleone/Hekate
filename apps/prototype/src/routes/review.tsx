@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, type RefObject, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { FollowButton } from "~/components/follow-button";
 import { Icon, type IconName } from "~/components/icons";
@@ -8,10 +8,12 @@ import { Card, Page, SectionHead } from "~/components/page";
 import { PageTitle, usePageHeader } from "~/components/page-header";
 import { PermissionsDialog } from "~/components/permissions";
 import { Property } from "~/components/property";
+import { PeopleField, type Person } from "~/components/share";
 import { Dot, reviewDot, reviewerCopy, reviewerDot } from "~/components/status";
 import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
 import { ConfirmDialog, Dialog } from "~/components/ui/dialog";
+import { Floating } from "~/components/ui/floating";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import {
@@ -269,9 +271,9 @@ function Steps({ review }: { review: Review }) {
 
 function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
   const viewer = useViewer();
-  const navigate = useNavigate();
   const [permissionsFor, setPermissionsFor] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
+  const inviteBox = useRef<HTMLDivElement>(null);
   const ids = fileIdsOf(review);
   const base = viewer.isGuest ? "/g/files/$fileId" : "/files/$fileId";
   const steps = [...new Set(review.reviewers.map((r) => r.position))].sort((a, b) => a - b);
@@ -283,10 +285,19 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
         action={
           manage &&
           review.status === "open" && (
-            <Button variant="ghost" size="sm" onClick={() => setInviting(true)}>
-              <Icon name="userPlus" size={14} />
-              Invite
-            </Button>
+            <div ref={inviteBox}>
+              <Button variant="ghost" size="sm" onClick={() => setInviting(!inviting)}>
+                <Icon name="userPlus" size={14} />
+                Invite
+              </Button>
+              {inviting && (
+                <InvitePopover
+                  review={review}
+                  anchor={inviteBox}
+                  onClose={() => setInviting(false)}
+                />
+              )}
+            </div>
           )
         }
       />
@@ -421,51 +432,6 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
           ))}
         </ul>
       </Card>
-      {inviting && (
-        <form
-          className="rise-in flex flex-col gap-2 rounded-panel border border-line bg-raised/40 p-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setInviting(false);
-          }}
-        >
-          <Label>Invite to this review</Label>
-          <div className="grid gap-2 @3xl/app:grid-cols-3">
-            <Input placeholder="Name" className="h-8" />
-            <Input placeholder="Email" type="email" className="h-8" />
-            <Input
-              placeholder="Shown as, for example Violin (optional)"
-              aria-label="Shown as"
-              className="h-8"
-            />
-          </div>
-          <p className="text-[12px] text-ink-3">
-            A member of the project gets a notification; anyone else gets a link, with the
-            permissions set for reviewers in{" "}
-            <button
-              type="button"
-              onClick={() =>
-                navigate({
-                  to: "/projects/$projectId/$view",
-                  params: { projectId: review.projectId, view: "people" },
-                })
-              }
-              className="text-ink-2 hover:text-ink"
-            >
-              People
-            </button>
-            .
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setInviting(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="sm" type="submit">
-              Send
-            </Button>
-          </div>
-        </form>
-      )}
       {permissionsFor && (
         <PermissionsDialog
           personId={permissionsFor}
@@ -476,6 +442,77 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
         />
       )}
     </section>
+  );
+}
+
+/**
+ * Invite, under its button (#669): the request page's people field (members, groups or an
+ * email address), "Shown as" beneath a new address, Cancel and Invite at its foot.
+ */
+function InvitePopover({
+  review,
+  anchor,
+  onClose,
+}: {
+  review: Review;
+  anchor: RefObject<HTMLDivElement | null>;
+  onClose: () => void;
+}) {
+  const project = projectById(review.projectId);
+  const [chosen, setChosen] = useState<Person[]>([]);
+  const asked = new Set(review.reviewers.map((r) => r.personId));
+  const offered: Person[] = [
+    ...(project?.members ?? []).map(
+      (m): Person => ({
+        key: m.personId,
+        personId: m.personId,
+        name: personById(m.personId).name,
+        hint: project?.roles.find((r) => r.id === m.roleId)?.name,
+        kind: "member",
+      }),
+    ),
+    ...groups
+      .filter((g) => g.projectId === review.projectId)
+      .map(
+        (g): Person => ({
+          key: g.id,
+          name: g.name,
+          hint: `${g.personIds.length} people`,
+          kind: "group",
+        }),
+      ),
+  ].filter((p) => !asked.has(p.key));
+  const fresh = chosen.filter((p) => p.kind === "guest" && !p.personId);
+  return (
+    <Floating
+      anchor={anchor}
+      align="end"
+      onClose={onClose}
+      className="flex w-[min(380px,calc(100vw-32px))] flex-col gap-3 rounded-panel border border-line bg-overlay p-3 shadow-3"
+    >
+      <Label>Invite to this review</Label>
+      <PeopleField
+        label="Invite to this review"
+        people={offered}
+        chosen={chosen}
+        onChange={setChosen}
+        placeholder="Members, groups or an email address"
+      />
+      {fresh.map((p) => (
+        <label key={p.key} className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Shown as, beside {p.name}
+          <Input placeholder="For example Violin (optional)" className="h-8" />
+        </label>
+      ))}
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" size="sm" disabled={chosen.length === 0} onClick={onClose}>
+          Invite
+        </Button>
+      </div>
+    </Floating>
   );
 }
 
