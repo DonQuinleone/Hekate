@@ -2453,7 +2453,7 @@ export function InstancePage({ section }: { section: string }) {
           >
             <SwitchRow
               name="Require a second factor for every account"
-              hint="A passkey, a hardware security key or a code app. People without one are asked at their next sign-in."
+              hint="A passkey, a hardware security key or an authenticator app. People without one are asked at their next sign-in."
               checked={false}
             />
             <Row

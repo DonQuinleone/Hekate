@@ -234,7 +234,8 @@ export function Queues() {
               <span className="flex min-w-0 items-center gap-2">
                 <StatusDot state={dotOf(j.state)} />
                 <span className="tabular shrink-0 text-[12px] text-ink-3">{j.queue}</span>
-                <span className="truncate">{j.what ?? stateWords[j.state]}</span>
+                {/* What it worked on; with nothing named, whose work it was, never its state. */}
+                <span className="truncate">{j.what ?? j.workspace?.name ?? "The instance"}</span>
               </span>
             }
             hint={[j.workspace?.name ?? "The instance", stateWords[j.state], ago(j.at), j.reference]

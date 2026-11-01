@@ -317,7 +317,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
     return (
       <Frame
         title="Forgotten your password?"
-        intro="Enter your email. We will send a code, and a link that carries it, to set a new password. Both last ten minutes."
+        intro="Enter your email. We will send a code and a link to set a new password. Both last ten minutes."
       >
         <form
           className="flex flex-col gap-4"
@@ -996,7 +996,7 @@ export function SignUpPage({ view: initial }: { view?: string }) {
         title={view === "invite" ? "Workspaces are by invitation" : "Sign-up is closed"}
         intro={
           view === "invite"
-            ? "Someone the instance's operators invite makes a workspace at the link in their invitation. Ask them for one."
+            ? "The instance's operators invite people to make a workspace. Ask them for an invitation."
             : "The instance's operators make its workspaces. To join one, ask its owner for an invitation."
         }
       >

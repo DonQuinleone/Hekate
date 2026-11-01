@@ -196,8 +196,9 @@ export function Fact({
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 gap-1">
-      <dt className="shrink-0 text-ink-3">{term}</dt>
+    // A label and its value, told apart: "Who: a job", never "Who A job" (#709).
+    <div className="flex min-w-0 gap-1.5">
+      <dt className="shrink-0 text-ink-3 after:content-[':']">{term}</dt>
       <dd className={cn("m-0 min-w-0 [overflow-wrap:anywhere] text-ink-2", tabular && "tabular")}>
         {children}
       </dd>

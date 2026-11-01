@@ -54,6 +54,7 @@ const idsOf = (data: unknown) => {
     deliveryId: text("deliveryId"),
     runId: text("runId"),
     exportId: text("exportId"),
+    alignmentId: text("alignmentId"),
   };
 };
 
@@ -146,6 +147,7 @@ async function describe(db: Database, jobs: JobRecord[]) {
     const blobIds = mine.flatMap((j) => (j.blobId ? [j.blobId] : []));
     const deliveryIds = mine.flatMap((j) => (j.deliveryId ? [j.deliveryId] : []));
     const runIds = mine.flatMap((j) => (j.runId ? [j.runId] : []));
+    const alignmentIds = mine.flatMap((j) => (j.alignmentId ? [j.alignmentId] : []));
     const files = fileIds.length
       ? await db
           .select({ id: schema.files.id, name: schema.files.name })
@@ -174,7 +176,42 @@ async function describe(db: Database, jobs: JobRecord[]) {
           .innerJoin(schema.tracks, eq(schema.tracks.id, schema.workflowRuns.trackId))
           .where(inOrg(schema.workflowRuns, orgId, inArray(schema.workflowRuns.id, runIds)))
       : [];
+    // An alignment (#709) by the two files it lines up: a recording with its score.
+    const aligned = alignmentIds.length
+      ? await db
+          .select({
+            id: schema.alignments.id,
+            from: schema.alignments.fromFileId,
+            to: schema.alignments.toFileId,
+          })
+          .from(schema.alignments)
+          .where(inOrg(schema.alignments, orgId, inArray(schema.alignments.id, alignmentIds)))
+      : [];
+    const alignedFiles = aligned.length
+      ? new Map(
+          (
+            await db
+              .select({ id: schema.files.id, name: schema.files.name })
+              .from(schema.files)
+              .where(
+                inOrg(
+                  schema.files,
+                  orgId,
+                  inArray(
+                    schema.files.id,
+                    aligned.flatMap((a) => [a.from, a.to]),
+                  ),
+                ),
+              )
+          ).map((f) => [f.id, f.name]),
+        )
+      : new Map<string, string>();
     const names = new Map<string, string>([
+      ...aligned.flatMap((a): [string, string][] => {
+        const from = alignedFiles.get(a.from);
+        const to = alignedFiles.get(a.to);
+        return from && to ? [[`alignment:${a.id}`, `${from} with ${to}`]] : [];
+      }),
       ...files.map((f): [string, string] => [`file:${f.id}`, f.name]),
       ...blobs.map((f): [string, string] => [`blob:${f.id}`, f.name]),
       ...channels.map((c): [string, string] => [`delivery:${c.id}`, c.name]),
@@ -186,6 +223,7 @@ async function describe(db: Database, jobs: JobRecord[]) {
         (j.blobId && names.get(`blob:${j.blobId}`)) ||
         (j.deliveryId && names.get(`delivery:${j.deliveryId}`)) ||
         (j.runId && names.get(`run:${j.runId}`)) ||
+        (j.alignmentId && names.get(`alignment:${j.alignmentId}`)) ||
         (j.exportId ? "Workspace export" : null);
       if (found) what.set(j.id, found);
     }

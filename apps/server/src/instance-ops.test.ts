@@ -261,6 +261,30 @@ describe.runIf(url)("the instance's queues and operations (decisions 250 and 251
     );
   });
 
+  it("names an alignment's job by the recording and the score it lines up (#709)", async () => {
+    const operator = await setup();
+    const org = await workspace();
+    const recording = await addFile(org, "Solace - V2 wet.wav", "ready");
+    const score = await addFile(org, "Solace score.pdf", "ready");
+    const [alignment] = await db
+      .insert(schema.alignments)
+      .values({ organisationId: org, fromFileId: recording, toFileId: score })
+      .returning({ id: schema.alignments.id });
+    const align = await jobs.send("media-align", {
+      organisationId: org,
+      alignmentId: alignment?.id,
+    });
+    await failJob(align);
+    const view = await queues(operator);
+    expect(view.recent).toContainEqual(
+      expect.objectContaining({
+        id: align,
+        queue: "media-align",
+        what: "Solace - V2 wet.wav with Solace score.pdf",
+      }),
+    );
+  });
+
   it("runs failures again: a file's by its retry plan, another job with its own id", async () => {
     const operator = await setup();
     const org = await workspace();

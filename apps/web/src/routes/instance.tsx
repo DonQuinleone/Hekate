@@ -525,7 +525,7 @@ function Debug({ initial }: { initial?: string | undefined }) {
             <Input
               value={entered}
               onChange={(e) => setEntered(e.target.value)}
-              placeholder="HK-7F3A-2C"
+              placeholder="HK-…"
               aria-label="Error reference"
               className="tabular w-64 min-w-0"
               autoFocus
@@ -536,7 +536,8 @@ function Debug({ initial }: { initial?: string | undefined }) {
           </form>
           {invalid && (
             <p className="m-0 text-[13px] text-signal">
-              That is not an error reference: they look like HK-7F3A-2C.
+              That is not an error reference: one is HK- and six letters and digits, as the error
+              showed it.
             </p>
           )}
           {report.isError && (
@@ -565,8 +566,8 @@ function Debug({ initial }: { initial?: string | undefined }) {
                   {r.who
                     ? `${r.who.name} · ${r.who.email}`
                     : r.source === "worker"
-                      ? "A job"
-                      : "Nobody signed in"}
+                      ? "a job"
+                      : "nobody signed in"}
                 </Fact>
                 <Fact term="Workspace">{r.workspace ?? "None"}</Fact>
                 {r.requestId && (
@@ -1282,7 +1283,7 @@ function Settings() {
           hint={
             env.requireSecondFactor
               ? "On for the whole instance by REQUIRE_SECOND_FACTOR in the environment."
-              : "A passkey, a security key or a code app. People without one are asked at their next sign-in."
+              : "A passkey, a security key or an authenticator app. People without one are asked at their next sign-in."
           }
           checked={env.requireSecondFactor || settings.security.requireSecondFactor}
           disabled={env.requireSecondFactor || save.isPending}
@@ -2990,7 +2991,7 @@ const helpDone: Record<MemberHelp, string> = {
   sessions: "Signed out everywhere. They sign in again on each device.",
   "password-reset": "A code to set a new password is on its way to them.",
   "second-factor":
-    "Their code app and passkeys are gone. They sign in with their password and add one again.",
+    "Their authenticator app and passkeys are gone. They sign in with their password and add one again.",
 };
 const roleWords: Record<string, string> = { owner: "Owner", admin: "Admin", member: "Member" };
 
