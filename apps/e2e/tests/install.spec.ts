@@ -78,7 +78,7 @@ test("a clean server installs through the browser alone", async ({ page }) => {
   await heading(page, "Storage");
   await page.getByLabel("Path").fill(storagePath);
   await page.getByRole("button", { name: "Write and read a test object" }).click();
-  await expect(page.getByText("Wrote and read a test object")).toBeVisible();
+  await expect(page.getByText(/^Passed · \d+ ms$/)).toBeVisible();
   await capture(page, "install-storage");
   await proceed(page);
 
@@ -100,7 +100,7 @@ test("a clean server installs through the browser alone", async ({ page }) => {
   await page.getByLabel("From").fill("Hekate <hekate@endlesshall.example>");
   await page.getByLabel("Send a test to").fill("mira@endlesshall.example");
   await page.getByRole("button", { name: "Send a test message" }).click();
-  await expect(page.getByText("written to the log", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Written to the log: nobody will receive email/)).toBeVisible();
   await capture(page, "install-mail");
   await proceed(page);
 

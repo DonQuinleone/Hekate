@@ -711,7 +711,7 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
           Write and read a test object
         </Button>
         <span className="flex items-center gap-1.5 text-[13px] text-ink-2">
-          <Dot state="approved" /> OK · 11 ms
+          <Dot state="approved" /> Passed · 11 ms
         </span>
       </div>
       <p className="text-[13px] text-ink-3">
@@ -878,7 +878,19 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
       <div className="flex w-full max-w-[880px] flex-col gap-8 @3xl/app:flex-row @3xl/app:gap-16">
         <div className="flex shrink-0 flex-col gap-6 @3xl/app:w-[220px]">
           <Lockup size={22} />
-          <ol className="flex flex-wrap gap-x-4 gap-y-1 @3xl/app:flex-col">
+          {/* On a phone, a thin bar under the step's own "Step 1 of 7", not a cloud of names. */}
+          <div
+            aria-hidden="true"
+            className="h-0.5 overflow-hidden rounded-full bg-raised @3xl/app:hidden"
+          >
+            <div
+              className="h-full rounded-full bg-ink-2"
+              style={{
+                width: `${(Math.min(step + 1, installSteps.length) / installSteps.length) * 100}%`,
+              }}
+            />
+          </div>
+          <ol className="hidden flex-col gap-y-1 @3xl/app:flex">
             {installSteps.map((s, i) => (
               <li
                 key={s}
@@ -888,14 +900,13 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
                 )}
               >
                 <span className="flex size-5 shrink-0 items-center justify-center">
+                  {/* An ink tick for done, the signal for where you are, a hollow ring to come. */}
                   {i < step ? (
-                    <span className="flex size-5 items-center justify-center rounded-full bg-ok text-ground">
-                      <Icon name="check" size={12} />
-                    </span>
+                    <Icon name="check" size={14} className="text-ink" />
                   ) : i === step ? (
-                    <span className="size-3.5 rounded-full bg-signal shadow-[0_0_0_3px_var(--hk-signal-line)]" />
+                    <span className="size-2.5 rounded-full bg-signal shadow-[0_0_0_3px_var(--hk-signal-line)]" />
                   ) : (
-                    <span className="size-2 rounded-full bg-ink" />
+                    <span className="size-2.5 rounded-full border-[1.5px] border-ink-3" />
                   )}
                 </span>
                 {s}
@@ -951,7 +962,7 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
                   {step === installSteps.length - 1
                     ? "Create and finish"
                     : step === installSteps.length - 2
-                      ? "Save and start Hekate"
+                      ? "Save and continue"
                       : "Continue"}
                 </Button>
               </div>
