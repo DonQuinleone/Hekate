@@ -2997,7 +2997,7 @@ test("file-zoom", async ({ page }) => {
   await surface.focus();
   await page.keyboard.press("ArrowRight");
   await expect.poll(() => surface.evaluate((e) => e.scrollLeft)).toBeGreaterThan(0);
-  await expect(page.getByText("0:00 / 0:40")).toBeVisible();
+  await expect(page.getByText("0:00.000 / 0:40.000")).toBeVisible();
   await page.keyboard.press("Home");
   await expect.poll(() => surface.evaluate((e) => e.scrollLeft)).toBe(0);
   await saveScreen(page, "file-zoom");

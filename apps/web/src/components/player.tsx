@@ -23,7 +23,6 @@ import {
   savePreset,
   spectrogramPlaces,
   type TimeEntryContext,
-  timecodeFor,
   timeEntryHint,
   VIEW_PRESETS_MAX,
   type VideoClock,
@@ -59,7 +58,7 @@ import {
   useChannelMix,
 } from "~/lib/channel-mix";
 import { cn } from "~/lib/cn";
-import type { EditSegment } from "~/lib/edit-decisions";
+import { barAt, type EditSegment, timeOfBar } from "~/lib/edit-decisions";
 import { type Loop, loopEntry, loopFrom, type Rolls, roll, wrapTarget } from "~/lib/loop";
 import { adjacentMarker, markerTimes } from "~/lib/markers";
 import { usePlayerView } from "~/lib/player-view";
@@ -1984,6 +1983,8 @@ export function Player({
   // The transport, directly under the waveform or the picture (#493): to the start, back ten
   // and five seconds, play, the time (a double-click types one), then the speed, the
   // comparison and the volume. The view's controls are in the toolbar at the waveform's edge.
+  /** Whether the version's edit decisions say which bars play when (#633). */
+  const barred = edits.some((e) => e.barRange);
   const transport = (
     <div className="flex min-h-14 flex-wrap items-center gap-x-0.5 gap-y-1 px-2 py-1.5 lg:px-3">
       <button
@@ -2026,11 +2027,15 @@ export function Player({
       >
         <Icon name={playing ? "pause" : "play"} size={16} />
       </button>
+      {/* As precisely as comments are anchored (#633): to the millisecond, with the bar where
+          the version's edit decisions map its bars; a video's two values on its own timecode. */}
       <TimeReadout
-        shown={kind === "video" && clock ? videoTimecode(time, clock) : formatDuration(time)}
-        total={kind === "video" && clock ? timecodeFor(duration, clock) : formatDuration(duration)}
+        shown={kind === "video" && clock ? videoTimecode(time, clock) : formatClock(time)}
+        total={kind === "video" && clock ? videoTimecode(duration, clock) : formatClock(duration)}
+        bar={barred ? barAt(edits, time) : null}
         duration={duration}
         clock={clock}
+        barTime={barred ? (bar, beat) => timeOfBar(edits, bar, beat) : null}
         disabled={!ready}
         onSeek={seek}
       />
@@ -2202,6 +2207,7 @@ function SkipIcon({ seconds }: { seconds: 5 | 10 }) {
 function TimeReadout({
   shown,
   total,
+  bar = null,
   duration,
   clock,
   barTime = null,
@@ -2210,9 +2216,11 @@ function TimeReadout({
 }: {
   shown: string;
   total: string;
+  /** The bar at the playhead, where bars map to time (#633). */
+  bar?: number | null;
   duration: number;
   clock: VideoClock | null;
-  /** Where the project maps bars to time; none does yet. */
+  /** Where bars map to time: the version's edit decisions, where they give bars (#633). */
   barTime?: TimeEntryContext["barTime"];
   disabled?: boolean;
   onSeek: (seconds: number) => void;
@@ -2286,6 +2294,7 @@ function TimeReadout({
       className="tabular ml-1 h-8 cursor-text rounded-control border-0 bg-transparent px-1.5 text-left text-[15px] text-ink hover:bg-raised disabled:cursor-default"
     >
       {shown} <span className="text-[13px] text-ink-3">/ {total}</span>
+      {bar !== null && <span className="ml-2 text-[13px] text-ink-3">bar {bar}</span>}
     </button>
   );
 }

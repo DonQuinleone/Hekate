@@ -1,6 +1,7 @@
 import type { EditDecisions, EdlUse } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import {
+  barAt,
   barsUsedOf,
   decisionsSummary,
   editLine,
@@ -8,6 +9,7 @@ import {
   rateName,
   segmentAt,
   takesUsed,
+  timeOfBar,
   usedAtBar,
 } from "./edit-decisions";
 
@@ -113,8 +115,8 @@ describe("the edit lane", () => {
       numberOf,
     );
     expect(segments).toEqual([
-      { start: 0, end: 10, label: "T12", take: true, bars: "bars 6–12" },
-      { start: 10, end: 20, label: "T3", take: true, bars: "bars 9–16" },
+      { start: 0, end: 10, label: "T12", take: true, bars: "bars 6–12", barRange: [6, 12] },
+      { start: 10, end: 20, label: "T3", take: true, bars: "bars 9–16", barRange: [9, 16] },
     ]);
   });
 
@@ -140,6 +142,7 @@ describe("the edit lane", () => {
       label: "Pick-up, bar 17.wav",
       take: false,
       bars: null,
+      barRange: null,
     });
     expect(editSegments(null, numberOf)).toEqual([]);
   });
@@ -148,5 +151,39 @@ describe("the edit lane", () => {
     const segments = editSegments(decisions([at(0, 10), at(10, 20, { takeId: "b" })]), numberOf);
     expect(segmentAt(segments, 10)?.label).toBe("T3");
     expect(segmentAt(segments, 25)).toBeNull();
+  });
+});
+
+describe("the bar at a moment (#633)", () => {
+  const segments = [
+    {
+      start: 0,
+      end: 10,
+      label: "T1",
+      take: true,
+      bars: "bars 1–4",
+      barRange: [1, 4] as [number, number],
+    },
+    { start: 10, end: 12, label: "Room", take: false, bars: null, barRange: null },
+    {
+      start: 12,
+      end: 20,
+      label: "T3",
+      take: true,
+      bars: "bars 9–12",
+      barRange: [9, 12] as [number, number],
+    },
+  ];
+  it("spreads a stretch's bars evenly over it", () => {
+    expect(barAt(segments, 0)).toBe(1);
+    expect(barAt(segments, 9.9)).toBe(4);
+    expect(barAt(segments, 14.2)).toBe(10);
+    expect(barAt(segments, 11)).toBeNull();
+    expect(barAt([], 3)).toBeNull();
+  });
+  it("finds where a bar starts", () => {
+    expect(timeOfBar(segments, 10)).toBe(14);
+    expect(timeOfBar(segments, 2, 3)).toBeCloseTo(3.75);
+    expect(timeOfBar(segments, 6)).toBeNull();
   });
 });
