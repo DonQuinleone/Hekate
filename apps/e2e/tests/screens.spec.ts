@@ -3119,9 +3119,9 @@ test("file-qa-filtered", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}?view=qa`);
   await settle(page, "section[aria-label=Checks] h2");
   const checks = page.locator("section[aria-label=Checks]");
-  await checks.getByRole("button", { name: /failed$/ }).click();
+  await checks.getByRole("button", { name: /^Fails \d/ }).click();
   await checks.getByRole("combobox", { name: "Check" }).selectOption("clipping");
-  await expect(checks.getByRole("button", { name: /failed$/ })).toHaveAttribute(
+  await expect(checks.getByRole("button", { name: /^Fails \d/ })).toHaveAttribute(
     "aria-pressed",
     "true",
   );

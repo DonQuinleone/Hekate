@@ -1,5 +1,6 @@
 import {
   channelName,
+  findingWords,
   formatClock,
   formatSpan,
   type ProfileRef,
@@ -7,13 +8,15 @@ import {
   type QaCheck,
   type QaFinding,
   type QaSeverity,
+  qaAttention,
   qaCheckNames,
   qaChecks,
   qaSeverityNames,
+  severityCounts,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, MIN_LOOP } from "~/lib/loop";
 import {
@@ -90,6 +93,7 @@ export function FindingRow({
   isNew = false,
   action,
   nested = false,
+  sameCheck = false,
 }: {
   finding: QaFinding;
   onSeek: (t: number) => void;
@@ -103,6 +107,8 @@ export function FindingRow({
   action?: React.ReactNode;
   /** One of a group's, shown under it. */
   nested?: boolean;
+  /** After another finding of the same check: listed under its name, not named again (#564). */
+  sameCheck?: boolean;
 }) {
   const at = where(finding);
   const loop = onLoop ? findingLoop(finding) : null;
@@ -112,16 +118,17 @@ export function FindingRow({
         {!nested && <SeverityDot severity={finding.severity} />}
       </span>
       <span className="label hidden truncate sm:block">
-        {nested ? "" : checkNames[finding.check]}
+        {nested || sameCheck ? "" : checkNames[finding.check]}
       </span>
       <span className="min-w-0 text-[13px] text-ink-2">
         {/* On a phone the check's name heads the line rather than taking a column. */}
-        {!nested && (
+        {!nested && !sameCheck && (
           <span className="label mb-0.5 block sm:hidden">{checkNames[finding.check]}</span>
         )}
         <span className="sr-only">{severityNames[finding.severity]}: </span>
-        {finding.summary}
-        {isNew && <span className="label ml-2 text-signal">new in this version</span>}
+        {/* Under its check's name, the words without it (#564): said once. */}
+        {findingWords(finding)}
+        {isNew && <span className="ml-2 text-[11px] text-ink-2">new in this version</span>}
         {action && <span className="ml-3">{action}</span>}
       </span>
       <span className="flex items-center gap-2">
@@ -197,8 +204,11 @@ function FindingGroup({
   onLoop,
   onComment,
   fresh,
+  sameCheck = false,
 }: {
   group: QaFinding[];
+  /** After a run of the same check: listed under its name (#564). */
+  sameCheck?: boolean;
   /** The problems not found in the previous version, by `findingKey` (#43). */
   fresh: ReadonlySet<string>;
   onSeek: (t: number) => void;
@@ -222,6 +232,7 @@ function FindingGroup({
         onSeek={onSeek}
         // New in this version when any of the places is.
         isNew={group.some((f) => fresh.has(findingKey(f)))}
+        sameCheck={sameCheck}
         action={
           <button
             type="button"
@@ -263,18 +274,13 @@ export const filterFindings = (findings: readonly QaFinding[], filter: FindingFi
       (!filter.check || f.check === filter.check),
   );
 
-/** How the tally counts each severity of problem, as checks rather than findings. */
-const tallyWords: Record<Exclude<QaSeverity, "pass">, (n: number) => string> = {
-  fail: (n) => `${n} failed`,
-  warn: (n) => `${n} to look at`,
-  info: (n) => `${n} ${n === 1 ? "note" : "notes"}`,
-};
-
 /**
- * The quality checks of a recording (#41): problems first, worst first, each playing from
- * where it is; what passed below, folded. Checked against the nearest delivery profile (the
- * file's own, its track's, its project's or the workspace's), and those who shape the
- * project's workflow can give this file one of its own here.
+ * The quality checks of a recording or a video (#41, #42): problems first, worst first, each
+ * check named once with its findings under it, each playing from where it is; what passed
+ * below, folded. The tally counts checks, as the QA badge and the report do (#564), in the
+ * words the report uses. Checked against the nearest delivery profile (the file's own, its
+ * track's, its project's or the workspace's), and those who shape the project's workflow can
+ * give this file one of its own here. The report opens from the heading row (#634).
  */
 export function QualityChecks({
   fileId,
@@ -282,13 +288,10 @@ export function QualityChecks({
   canChoose,
   onLoop,
   onComment,
-  omit,
 }: {
   fileId: string;
   media: HTMLMediaElement | null;
   canChoose: boolean;
-  /** Findings shown elsewhere on the page, left out of this list and its counts. */
-  omit?: (finding: QaFinding) => boolean;
   /** Loop a finding's passage in the player and hear it from its start. */
   onLoop?: (loop: Loop) => void;
   /** Write a comment about a finding, for those who may comment (#43). */
@@ -300,6 +303,8 @@ export function QualityChecks({
   const { data: customs = [] } = useQuery({ ...customProfilesQuery, enabled: canChoose });
   const [showPassed, setShowPassed] = useState(false);
   const [filter, setFilter] = useState<FindingFilter>({ severity: null, check: null });
+  /** Only what is new since the previous version (#564), from the line that says how many. */
+  const [onlyNew, setOnlyNew] = useState(false);
   const { data: changes } = useQuery(qaChangesQuery(fileId));
   // Once this version is measured, what changed since the last can be said at once.
   const client = useQueryClient();
@@ -312,19 +317,18 @@ export function QualityChecks({
   const id = useId();
   const checkId = useId();
   if (!data) return null;
-  const findings = omit ? data.findings.filter((f) => !omit(f)) : data.findings;
-  const problems = findings.filter((f) => f.severity !== "pass");
+  const findings = data.findings;
+  const problems = orderByCheck(findings.filter((f) => f.severity !== "pass"));
   const passed = findings.filter((f) => f.severity === "pass");
-  // Checks, not findings: clipping in twenty places is one check failed.
-  const count = (s: QaSeverity) =>
-    new Set(findings.filter((f) => f.severity === s).map((f) => f.check)).size;
+  // Checks, not findings (#564): clipping in twenty places is one check that fails.
+  const counts = severityCounts(findings);
   const seek = (t: number) => {
     if (!media) return;
     media.currentTime = t;
     void media.play().catch(() => undefined);
   };
   // Each count of a problem narrows the list to it (#43); pressed again, it lets go.
-  const counted = (["fail", "warn", "info"] as const).filter((s) => count(s) > 0);
+  const counted = (["fail", "warn", "info"] as const).filter((s) => counts[s] > 0);
   const tally = (
     <>
       {counted.map((s) => (
@@ -338,21 +342,38 @@ export function QualityChecks({
               filter.severity === s ? "text-ink underline underline-offset-4" : "text-ink-3",
             )}
           >
-            {tallyWords[s](count(s))}
+            {severityNames[s]} {counts[s]}
           </button>
           <span aria-hidden="true">·</span>
         </span>
       ))}
-      <span>{count("pass")} passed</span>
+      <span>
+        {severityNames.pass} {counts.pass}
+      </span>
     </>
   );
   // The checks among the problems, to narrow to one, where there is more than one.
   const problemChecks = qaChecks.filter((c) => problems.some((f) => f.check === c));
-  const shown = filterFindings(problems, filter);
+  const shown = filterFindings(problems, filter).filter(
+    (f) => !onlyNew || fresh.has(findingKey(f)),
+  );
+  const report = (
+    // The report as a document (#515): read here, taken away as PDF, CSV or JSON, in the area
+    // the viewer is in, so a guest whose review grants QA reads it too. In the heading row, as
+    // a page's export is (#634).
+    <Link
+      to={guest ? "/g/files/$fileId/qa-report" : "/files/$fileId/qa-report"}
+      params={{ fileId }}
+      className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "shrink-0")}
+    >
+      <Icon name="text" size={14} />
+      QA report
+    </Link>
+  );
 
   return (
-    <section aria-label="Checks" className="flex flex-col gap-4 border-t border-hairline pt-5">
-      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-2">
+    <section aria-label="Checks" className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h2 className="m-0 text-[15px] font-medium">Checks</h2>
         <span className="tabular flex flex-wrap items-baseline gap-x-1.5 text-xs text-ink-3">
           {data.status === "ready" ? tally : waitingCopy[data.status]}
@@ -385,7 +406,7 @@ export function QualityChecks({
               value={data.profile.source === "file" ? data.profile.id : ""}
               disabled={choose.isPending}
               onChange={(e) => choose.mutate((e.target.value || null) as ProfileRef | null)}
-              className="w-auto"
+              className="w-auto max-w-56"
             >
               <option value="">{`${data.inherited.label} (${inheritedFrom[data.inherited.source]})`}</option>
               <ProfileOptions customs={customs} />
@@ -395,14 +416,26 @@ export function QualityChecks({
               {data.profile.label}
             </span>
           )}
+          {report}
         </span>
       </div>
+      {changes?.previous && changes.measured && (
+        <SincePrevious
+          changes={changes}
+          previous={changes.previous}
+          onlyNew={onlyNew}
+          onOnlyNew={setOnlyNew}
+        />
+      )}
       {problems.length > 0 && shown.length === 0 && (
         <p className="m-0 text-[13px] text-ink-3">
           Nothing found of that kind.{" "}
           <button
             type="button"
-            onClick={() => setFilter({ severity: null, check: null })}
+            onClick={() => {
+              setFilter({ severity: null, check: null });
+              setOnlyNew(false);
+            }}
             className="cursor-pointer border-0 bg-transparent p-0 text-ink-2 underline underline-offset-4 hover:text-ink"
           >
             Show every finding
@@ -411,8 +444,10 @@ export function QualityChecks({
       )}
       {shown.length > 0 && (
         <ul className="m-0 list-none border-t border-hairline p-0" aria-label="Findings">
-          {groupFindings(shown).map((group) =>
-            group.length > 2 ? (
+          {groupFindings(shown).map((group, g, groups) => {
+            // A check named once (#564): a later run of the same check sits under it.
+            const sameCheck = g > 0 && groups[g - 1]?.[0]?.check === group[0]?.check;
+            return group.length > 2 ? (
               <FindingGroup
                 onComment={onComment}
                 key={`${group[0]?.check}-${group[0]?.start}`}
@@ -420,9 +455,10 @@ export function QualityChecks({
                 onSeek={seek}
                 onLoop={onLoop}
                 fresh={fresh}
+                sameCheck={sameCheck}
               />
             ) : (
-              group.map((f) => (
+              group.map((f, i) => (
                 <FindingRow
                   key={findingKey(f)}
                   finding={f}
@@ -430,10 +466,11 @@ export function QualityChecks({
                   onLoop={onLoop}
                   onComment={onComment}
                   isNew={fresh.has(findingKey(f))}
+                  sameCheck={sameCheck || i > 0}
                 />
               ))
-            ),
-          )}
+            );
+          })}
         </ul>
       )}
       {passed.length > 0 && (
@@ -456,82 +493,207 @@ export function QualityChecks({
           )}
         </div>
       )}
-      {changes?.previous && changes.measured && (
-        <SincePrevious changes={changes} previous={changes.previous} />
-      )}
-      {/* The report as a document (#515): read here, taken away as PDF, CSV or JSON, in the
-          area the viewer is in, so a guest whose review grants QA reads it too. */}
-      <Link
-        to={guest ? "/g/files/$fileId/qa-report" : "/files/$fileId/qa-report"}
-        params={{ fileId }}
-        className={cn(buttonVariants({ variant: "secondary", size: "sm" }), "self-start")}
-      >
-        <Icon name="text" size={14} />
-        QA report
-      </Link>
     </section>
   );
 }
 
-/** What the checks found fixed and new against the previous version (#43). */
+const rankOf: Record<QaSeverity, number> = { fail: 0, warn: 1, info: 2, pass: 3 };
+
+/**
+ * Findings by check (#564), the worst checks first, each check's findings together and in
+ * time: so a check is named once with what it found under it.
+ */
+export function orderByCheck(findings: readonly QaFinding[]): QaFinding[] {
+  const worstOf = new Map<QaCheck, number>();
+  const firstAt = new Map<QaCheck, number>();
+  findings.forEach((f, i) => {
+    worstOf.set(f.check, Math.min(worstOf.get(f.check) ?? 3, rankOf[f.severity]));
+    if (!firstAt.has(f.check)) firstAt.set(f.check, i);
+  });
+  return [...findings].sort(
+    (a, b) =>
+      (worstOf.get(a.check) ?? 3) - (worstOf.get(b.check) ?? 3) ||
+      (firstAt.get(a.check) ?? 0) - (firstAt.get(b.check) ?? 0) ||
+      rankOf[a.severity] - rankOf[b.severity] ||
+      (a.start ?? -1) - (b.start ?? -1),
+  );
+}
+
+/**
+ * What changed against the previous version (#43), in one line (#564): how many are new and
+ * how many fixed; the count of new ones narrows the list to them.
+ */
 function SincePrevious({
   changes,
   previous,
+  onlyNew,
+  onOnlyNew,
 }: {
   changes: QaChanges;
   previous: { number: number; name: string };
+  onlyNew: boolean;
+  onOnlyNew: (on: boolean) => void;
 }) {
-  const list = (findings: QaFinding[], fixed: boolean, none: string) =>
-    findings.length === 0 ? (
-      <p className="m-0 text-[13px] text-ink-3">{none}</p>
-    ) : (
-      <ul className="m-0 flex list-none flex-col gap-1 p-0">
-        {findings.map((f) => (
-          <li key={findingKey(f)} className="flex items-start gap-2 text-[13px] text-ink-2">
-            <span className="mt-1.5">
-              <SeverityDot severity={fixed ? "pass" : f.severity} />
-            </span>
-            <span className="min-w-0">
-              {checkNames[f.check]}: {f.summary}
-            </span>
-          </li>
-        ))}
-      </ul>
-    );
+  const fresh = changes.new.length;
+  const fixed = changes.fixed.length;
   return (
     <section
       aria-label="Since the previous version"
-      className="flex flex-col gap-3 border-t border-hairline pt-4"
+      className="tabular m-0 flex flex-wrap items-baseline gap-x-1.5 text-xs text-ink-3"
     >
-      <h3 className="m-0 flex items-baseline gap-2 text-[14px] font-medium text-ink">
-        Since the previous version
-        <span className="text-[13px] font-normal text-ink-3">
-          V{previous.number} · {previous.name}
-        </span>
-      </h3>
-      <div className="grid gap-4 @3xl/app:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <span className="label">Fixed</span>
-          {list(changes.fixed, true, "Nothing fixed.")}
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <span className="label">New</span>
-          {list(changes.new, false, "Nothing new.")}
-        </div>
-      </div>
+      <span>
+        Since V{previous.number} · {previous.name}:
+      </span>
+      {fresh > 0 ? (
+        <button
+          type="button"
+          aria-pressed={onlyNew}
+          onClick={() => onOnlyNew(!onlyNew)}
+          className={cn(
+            "tabular cursor-pointer border-0 bg-transparent p-0 text-xs hover:text-ink",
+            onlyNew ? "text-ink underline underline-offset-4" : "text-ink-2",
+          )}
+        >
+          {fresh} new
+        </button>
+      ) : (
+        <span>nothing new</span>
+      )}
+      <span aria-hidden="true">·</span>
+      <span title={changes.fixed.map((f) => findingWords(f)).join("\n") || undefined}>
+        {fixed > 0 ? `${fixed} fixed` : "nothing fixed"}
+      </span>
     </section>
   );
+}
+
+/**
+ * The figures that matter first, in one hairline row (#634): the same for a recording and a
+ * video, each its label over its value, with what was asked for beneath.
+ */
+export function QaStats({
+  stats,
+}: {
+  stats: { label: string; value: ReactNode; hint?: string }[];
+}) {
+  if (stats.length === 0) return null;
+  return (
+    <dl className="m-0 grid grid-cols-2 gap-x-6 gap-y-4 border-y border-hairline py-4 sm:grid-cols-4">
+      {stats.map((s) => (
+        <div key={s.label} className="flex min-w-0 flex-col gap-0.5">
+          <dt className="text-[12px] text-ink-3">{s.label}</dt>
+          <dd className="tabular m-0 truncate text-[17px] leading-6 font-medium text-ink">
+            {s.value}
+          </dd>
+          {s.hint && <dd className="m-0 truncate text-[12px] text-ink-3">{s.hint}</dd>}
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * QA's one layout, for a recording and a video alike (#634): the figures in a hairline row,
+ * the checks, what the page adds (the frames, the loudness), the format, and the file's own
+ * metadata. Hairlines throughout, never cards.
+ */
+export function QaLayout({
+  stats,
+  checks,
+  format,
+  aside,
+  children,
+}: {
+  stats: { label: string; value: ReactNode; hint?: string }[];
+  checks: ReactNode;
+  /** The format's facts, a row each, said once on the page (#635). */
+  format: [string, ReactNode][];
+  /** Last: the file's embedded metadata. */
+  aside?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-6">
+      <QaStats stats={stats} />
+      {checks}
+      {children}
+      {format.length > 0 && (
+        <section aria-label="Format" className="flex flex-col gap-2">
+          <h2 className="m-0 text-[15px] font-medium">Format</h2>
+          <dl className="m-0 flex flex-col border-t border-hairline">
+            {format.map(([term, value]) => (
+              <div
+                key={term}
+                className="grid grid-cols-[minmax(0,120px)_1fr] gap-x-6 border-b border-hairline py-2.5"
+              >
+                <dt className="text-[13px] text-ink-3">{term}</dt>
+                <dd className="tabular m-0 min-w-0 text-[13px] text-ink-2">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
+      {aside}
+    </div>
+  );
+}
+
+/** A level as engineers write it: one decimal, a true minus sign. */
+const level = (n: number) => n.toFixed(1).replace("-", "−");
+
+/**
+ * Loudness and true peak from the checks themselves, with what the profile asks: QA is all a
+ * viewer needs to see them, without the meters (#240).
+ */
+export function soundStats(findings: readonly QaFinding[]) {
+  const loudness = findings.find((f) => f.check === "loudness");
+  const peak = findings.find((f) => f.check === "true-peak");
+  const integrated = loudness?.details.integrated;
+  const truePeak = peak?.details.truePeak;
+  const target = loudness?.details.target;
+  const ceiling = peak?.details.ceiling;
+  return [
+    {
+      label: "Loudness",
+      value:
+        typeof integrated === "number" ? (
+          <>
+            {level(integrated)}
+            <span className="ml-1 text-[12px] font-normal text-ink-3">LUFS</span>
+          </>
+        ) : (
+          "Not measured"
+        ),
+      hint:
+        typeof target === "number"
+          ? `Target ${level(target)} ± ${loudness?.details.tolerance ?? 0}`
+          : undefined,
+    },
+    {
+      label: "True peak",
+      value:
+        typeof truePeak === "number" ? (
+          <>
+            {level(truePeak)}
+            <span className="ml-1 text-[12px] font-normal text-ink-3">dBTP</span>
+          </>
+        ) : (
+          "Not measured"
+        ),
+      hint: typeof ceiling === "number" ? `Ceiling ${level(ceiling)}` : undefined,
+    },
+  ];
 }
 
 /**
  * On the Review view: one line of what QA found, opening QA. Loudness against its target
  * and how many checks want a look; nothing more, so the review stays on the music.
  */
-/** How many checks found something to look at: each check counted once, however often. */
-export const qaIssues = (findings: readonly Pick<QaFinding, "check" | "severity">[]) =>
-  new Set(
-    findings.filter((f) => f.severity === "fail" || f.severity === "warn").map((f) => f.check),
-  ).size;
+/**
+ * How many checks need attention (#564): each check counted once, at its worst, as the view's
+ * tally and the report count them.
+ */
+export const qaIssues = qaAttention;
 
 export function QaSummary({ fileId, onOpen }: { fileId: string; onOpen: () => void }) {
   const { data } = useQuery(qaQuery(fileId));

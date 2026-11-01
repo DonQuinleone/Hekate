@@ -1,6 +1,7 @@
 import {
+  containerName,
   formatBytes,
-  formatChannels,
+  formatClock,
   formatDuration,
   frameRateName,
   isDeliveryCheck,
@@ -8,6 +9,7 @@ import {
   type QaFinding,
   type QaSeverity,
   qaCheckNames,
+  soundLine,
   type VideoCodec,
   type VideoPrimaries,
   videoClock,
@@ -21,10 +23,7 @@ import { cn } from "~/lib/cn";
 import type { Loop } from "~/lib/loop";
 import { playbackQuery, qaQuery } from "~/lib/queries";
 import { FilmstripFrame, filmstripFrame, useFilmstripPicture } from "./filmstrip";
-import { QualityChecks, SeverityDot } from "./qa";
-
-/** A level as engineers write it: one decimal, a true minus sign. */
-const level = (n: number) => n.toFixed(1).replace("-", "−");
+import { QaLayout, QualityChecks, SeverityDot, soundStats } from "./qa";
 
 const severityOrder: Record<QaSeverity, number> = { fail: 0, warn: 1, info: 2, pass: 3 };
 
@@ -57,21 +56,8 @@ export function framesToLookAt(findings: readonly QaFinding[], max = 8): QaFindi
     .slice(0, max);
 }
 
-/** Containers by the type a file was given, where ffprobe names a family of them. */
-const containers: Record<string, string> = {
-  "video/quicktime": "QuickTime",
-  "video/mp4": "MP4",
-  "video/x-matroska": "Matroska",
-  "video/webm": "WebM",
-  "application/mxf": "MXF",
-  "video/mxf": "MXF",
-  "video/mpeg": "MPEG",
-  "video/x-msvideo": "AVI",
-};
-
-/** A container's name: by the file's type, else the first of ffprobe's names for it. */
-export const containerName = (format: string | undefined, contentType: string) =>
-  containers[contentType] ?? format?.split(",")[0]?.toUpperCase() ?? null;
+/** A container's name (#635): by the file's type, else ffprobe's first name for it. */
+export { containerName };
 
 /** A video's streams, a line each, as an editor reads them off a delivery sheet. */
 export function streamLines(
@@ -97,19 +83,8 @@ export function streamLines(
     ]);
   }
   const a = info.audio;
-  out.push([
-    "Audio",
-    a
-      ? [
-          a.codec,
-          `${a.sampleRate / 1000} kHz`,
-          a.bitDepth ? `${a.bitDepth}-bit` : null,
-          formatChannels(a.channels, a.channelLayout),
-        ]
-          .filter(Boolean)
-          .join(" · ")
-      : "None",
-  ]);
+  // The sound in words (#635), never ffmpeg's id for its codec.
+  out.push(["Audio", a ? soundLine(a) : "None"]);
   const clock = v ? videoClock(v) : null;
   if (v?.timecode && clock)
     out.push([
@@ -123,36 +98,6 @@ export function streamLines(
       .join(" · "),
   ]);
   return out;
-}
-
-function Tile({
-  label,
-  value,
-  unit,
-  hint,
-  flag = false,
-}: {
-  label: string;
-  value: string;
-  unit?: string;
-  hint?: string;
-  flag?: boolean;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col rounded-panel border border-hairline bg-surface px-4 py-3">
-      <span className="text-[13px] text-ink-3">{label}</span>
-      <span
-        className={cn(
-          "tabular mt-1 truncate text-[22px] leading-[28px] font-semibold tracking-[-0.02em]",
-          flag ? "text-signal" : "text-ink",
-        )}
-      >
-        {value}
-        {unit && <span className="ml-1 text-[13px] font-normal text-ink-3">{unit}</span>}
-      </span>
-      {hint && <span className="truncate text-xs text-ink-3">{hint}</span>}
-    </div>
-  );
 }
 
 /**
@@ -177,12 +122,10 @@ export function soundFigures(findings: readonly QaFinding[]): {
 export const frameLabel = (at: number, clock: ReturnType<typeof videoClock>) =>
   clock ? videoTimecode(at, clock).slice(3) : formatDuration(at);
 
-const bad = (f: QaFinding | undefined) => f?.severity === "fail" || f?.severity === "warn";
-
 /**
- * QA for a video (#42), as the prototype lays it out: the numbers that matter first, the
- * measured checks with what the delivery profile asks beside them, and on the right the
- * streams, the frames worth a look and whatever else the page adds.
+ * QA for a video (#42), laid out as a recording's is (#634): the figures that matter first in
+ * one hairline row, the checks (the delivery profile's among them), the frames worth a look,
+ * then whatever the page adds and the streams.
  */
 export function VideoQa({
   fileId,
@@ -194,7 +137,10 @@ export function VideoQa({
   onComment,
   children,
   aside,
+  figures = true,
 }: {
+  /** Whether the row of figures gives loudness and true peak (the meters give them otherwise). */
+  figures?: boolean;
   fileId: string;
   info: MediaInfo;
   file: { byteSize: number; contentType: string };
@@ -216,174 +162,95 @@ export function VideoQa({
   // are listed by name and time, a click away all the same.
   const thumbnails = Boolean(filmstrip) && !failed;
   const findings = data?.findings ?? [];
-  const by = (check: QaFinding["check"]) => findings.find((f) => f.check === check);
-  const summary = soundFigures(findings);
-  const loudness = by("loudness");
-  const peak = by("true-peak");
   const v = info.video;
   const clock = v ? videoClock(v) : null;
   const duration = info.duration ?? 0;
   const seek = (t: number) => {
     if (media) media.currentTime = t;
   };
-  const checklist = deliveryChecklist(findings);
   const frames = framesToLookAt(findings);
   const aspect = v ? v.width / v.height : 16 / 9;
 
+  // The recording's layout (#634): the figures in one hairline row, the checks (the delivery
+  // profile's among them, so the badge and the tally count the same), then the frames, the
+  // loudness and the streams.
   return (
-    <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Tile
-          label="Loudness"
-          value={summary?.integrated != null ? level(summary.integrated) : "—"}
-          unit={summary?.integrated != null ? "LUFS" : undefined}
-          hint={
-            !info.audio
-              ? "No sound"
-              : loudness && typeof loudness.details.target === "number"
-                ? `target ${level(loudness.details.target)} ± ${loudness.details.tolerance}`
-                : undefined
-          }
-          flag={bad(loudness)}
+    <QaLayout
+      stats={[
+        ...(figures ? soundStats(findings) : []),
+        {
+          label: "Length",
+          value: formatClock(duration),
+          hint: clock
+            ? `From ${videoTimecode(0, clock)} · ${Math.round(duration * (v?.fps ?? 0))} frames`
+            : undefined,
+        },
+      ]}
+      checks={
+        <QualityChecks
+          fileId={fileId}
+          media={media}
+          canChoose={canChoose}
+          onLoop={onLoop}
+          onComment={onComment}
         />
-        <Tile
-          label="True peak"
-          value={summary?.truePeak != null ? level(summary.truePeak) : "—"}
-          unit={summary?.truePeak != null ? "dBTP" : undefined}
-          hint={
-            peak && typeof peak.details.ceiling === "number"
-              ? `ceiling ${level(peak.details.ceiling)}`
-              : undefined
-          }
-          flag={bad(peak)}
-        />
-        <Tile
-          label="Picture"
-          value={v ? `${v.width} × ${v.height}` : "—"}
-          hint={
-            v
-              ? [
-                  v.fps ? `${frameRateName(v.fps)} fps` : null,
-                  v.scan,
-                  v.primaries ? (videoPrimaries[v.primaries as VideoPrimaries] ?? null) : null,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")
-              : undefined
-          }
-          flag={bad(by("picture-format"))}
-        />
-        <Tile
-          label="Length"
-          value={formatDuration(duration)}
-          hint={
-            clock
-              ? `${videoTimecode(0, clock)} start · ${Math.round(duration * (v?.fps ?? 0))} frames`
-              : undefined
-          }
-        />
-      </div>
-      <div className="grid grid-cols-1 items-start gap-x-8 gap-y-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="flex min-w-0 flex-col gap-6">
-          <QualityChecks
-            fileId={fileId}
-            media={media}
-            canChoose={canChoose}
-            onLoop={onLoop}
-            onComment={onComment}
-            omit={(f) => isDeliveryCheck(f.check)}
-          />
-          {checklist.length > 0 && data && (
-            <section aria-label="Delivery checklist" className="flex flex-col gap-3">
-              <div className="flex flex-wrap items-baseline gap-x-3">
-                <h2 className="m-0 text-[15px] font-medium">Delivery checklist</h2>
-                <span className="text-xs text-ink-3">what {data.profile.label} asks for</span>
-              </div>
-              <ul className="m-0 grid list-none gap-x-6 border-t border-hairline p-0 md:grid-cols-2">
-                {checklist.map((f) => (
-                  <li
-                    key={f.check}
-                    className="flex items-start gap-3 border-b border-hairline py-2.5"
+      }
+      format={streamLines(info, file)}
+      aside={aside}
+    >
+      {frames.length > 0 && (
+        <section aria-label="Frames to look at" className="flex flex-col gap-2">
+          <h2 className="label m-0">Frames to look at</h2>
+          <ul
+            className={cn(
+              "m-0 list-none p-0",
+              thumbnails
+                ? "grid grid-cols-2 gap-2 sm:grid-cols-4"
+                : "flex flex-col border-t border-hairline",
+            )}
+          >
+            {frames.map((f) => {
+              const at = f.start ?? 0;
+              const label = frameLabel(at, clock);
+              return !thumbnails ? (
+                <li key={`${f.check}-${at}`} className="border-b border-hairline">
+                  <button
+                    type="button"
+                    onClick={() => seek(at)}
+                    className="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-0 py-2 text-left text-[13px] text-ink-2 hover:text-ink"
                   >
-                    <span className="mt-[7px] flex">
+                    <SeverityDot severity={f.severity} />
+                    <span className="truncate">{qaCheckNames[f.check]}</span>
+                    <span className="tabular ml-auto shrink-0 text-ink-3">{label}</span>
+                  </button>
+                </li>
+              ) : (
+                <li key={`${f.check}-${at}`}>
+                  <button
+                    type="button"
+                    onClick={() => seek(at)}
+                    className="group relative block w-full cursor-pointer overflow-hidden rounded-control border border-hairline bg-transparent p-0 hover:border-edge focus-visible:border-edge"
+                  >
+                    <FilmstripFrame
+                      src={src}
+                      frames={filmstrip?.frames ?? 1}
+                      index={filmstrip ? filmstripFrame(at, duration, filmstrip.frames) : 0}
+                      aspect={aspect}
+                      className="w-full"
+                    />
+                    <span className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-ground/75 px-1.5 py-0.5 text-[11px] text-ink">
                       <SeverityDot severity={f.severity} />
+                      <span className="truncate">{qaCheckNames[f.check]}</span>
+                      <span className="tabular ml-auto shrink-0">{label}</span>
                     </span>
-                    <span className="min-w-0">
-                      <span className="block text-[13px] text-ink">{qaCheckNames[f.check]}</span>
-                      <span className="block text-xs text-ink-3">{f.summary}</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-          {children}
-        </div>
-        <aside aria-label="About the video" className="flex min-w-0 flex-col gap-6">
-          <section aria-label="Streams" className="flex flex-col gap-2">
-            <h2 className="label m-0">Streams</h2>
-            <dl className="m-0 flex flex-col gap-2.5 text-[13px]">
-              {streamLines(info, file).map(([term, value]) => (
-                <div key={term} className="flex flex-col gap-0.5">
-                  <dt className="text-ink-3">{term}</dt>
-                  <dd className="m-0 text-ink-2">{value}</dd>
-                </div>
-              ))}
-            </dl>
-          </section>
-          {frames.length > 0 && (
-            <section aria-label="Frames to look at" className="flex flex-col gap-2">
-              <h2 className="label m-0">Frames to look at</h2>
-              <ul
-                className={cn(
-                  "m-0 list-none p-0",
-                  thumbnails ? "grid grid-cols-2 gap-2" : "flex flex-col border-t border-hairline",
-                )}
-              >
-                {frames.map((f) => {
-                  const at = f.start ?? 0;
-                  const label = frameLabel(at, clock);
-                  return !thumbnails ? (
-                    <li key={`${f.check}-${at}`} className="border-b border-hairline">
-                      <button
-                        type="button"
-                        onClick={() => seek(at)}
-                        className="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-0 py-2 text-left text-[13px] text-ink-2 hover:text-ink"
-                      >
-                        <SeverityDot severity={f.severity} />
-                        <span className="truncate">{qaCheckNames[f.check]}</span>
-                        <span className="tabular ml-auto shrink-0 text-ink-3">{label}</span>
-                      </button>
-                    </li>
-                  ) : (
-                    <li key={`${f.check}-${at}`}>
-                      <button
-                        type="button"
-                        onClick={() => seek(at)}
-                        className="group relative block w-full cursor-pointer overflow-hidden rounded-control border border-hairline bg-transparent p-0 hover:border-edge focus-visible:border-edge"
-                      >
-                        <FilmstripFrame
-                          src={src}
-                          frames={filmstrip?.frames ?? 1}
-                          index={filmstrip ? filmstripFrame(at, duration, filmstrip.frames) : 0}
-                          aspect={aspect}
-                          className="w-full"
-                        />
-                        <span className="absolute inset-x-0 bottom-0 flex items-center gap-1 bg-ground/75 px-1.5 py-0.5 text-[11px] text-ink">
-                          <SeverityDot severity={f.severity} />
-                          <span className="truncate">{qaCheckNames[f.check]}</span>
-                          <span className="tabular ml-auto shrink-0">{label}</span>
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          )}
-          {aside}
-        </aside>
-      </div>
-    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+      {children}
+    </QaLayout>
   );
 }

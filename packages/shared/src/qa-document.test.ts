@@ -6,9 +6,12 @@ import {
   cropWindow,
   findingAdvice,
   findingAt,
+  findingLine,
+  findingWords,
   formatDump,
   loudnessCurve,
   loudnessGauge,
+  qaAttention,
   qaDocument,
   qaVerdict,
   reportGroups,
@@ -193,7 +196,32 @@ describe("findings in the report", () => {
     expect(dropout).toMatchObject({ name: "Dropouts", channel: "Channel 2" });
     expect(dropout?.crop).toMatchObject({ markFrom: 31, envelope: null });
     expect(groups[0]?.findings[0]?.crop).toBeNull();
-    expect(severityCounts(findings)).toEqual({ fail: 4, warn: 1, info: 0, pass: 1 });
+    // Checks, not findings (#564): clipping in two places is one check that fails.
+    expect(severityCounts(findings)).toEqual({ fail: 3, warn: 1, info: 0, pass: 1 });
+    expect(qaAttention(findings)).toBe(4);
+  });
+
+  it("counts a check once, at its worst, and a project rule as a check of its own", () => {
+    expect(
+      severityCounts([
+        finding({ severity: "warn" }),
+        finding({ severity: "fail" }),
+        finding({ check: "custom", severity: "warn", details: { name: "ISRC" } }),
+        finding({ check: "custom", severity: "info", details: { name: "Title" } }),
+      ]),
+    ).toEqual({ fail: 1, warn: 1, info: 1, pass: 0 });
+  });
+
+  it("names a finding's check once, before its words or not at all (#564)", () => {
+    const peak = finding({ check: "true-peak", summary: "True peak 0.9 dBTP, over the ceiling" });
+    expect(findingLine(peak)).toBe("True peak 0.9 dBTP, over the ceiling");
+    expect(findingWords(peak)).toBe("0.9 dBTP, over the ceiling");
+    expect(findingLine(finding({}))).toBe("Clipping: Clipped 118 times");
+    expect(findingWords(finding({}))).toBe("Clipped 118 times");
+    // A word that only starts like the name is not it.
+    expect(findingWords(finding({ check: "layout", summary: "Layouts differ" }))).toBe(
+      "Layouts differ",
+    );
   });
 
   it("sets out the first few of a check in full, and the rest a line each", () => {

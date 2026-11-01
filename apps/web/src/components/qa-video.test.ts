@@ -75,7 +75,7 @@ describe("a video's QA (#42)", () => {
       ),
     ).toEqual([
       ["Video", "ProRes HQ · 1920 × 1080 · 25 fps · progressive · Rec. 709 · limited range"],
-      ["Audio", "pcm_s24le · 48 kHz · 24-bit · stereo"],
+      ["Audio", "PCM 24-bit · 48 kHz · stereo"],
       ["Timecode", "10:00:00:00 · 25 fps non-drop"],
       ["Container", "QuickTime · 2.0 MB"],
     ]);
