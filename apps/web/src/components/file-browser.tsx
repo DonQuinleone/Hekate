@@ -258,8 +258,9 @@ function TagPills({ ids, tags }: { ids: string[]; tags: Map<string, Tag> }) {
 const dragType = "application/x-hekate-items";
 
 /**
- * A row's tags edited over the row, floating from its tag cell (or its name, when the list
- * shows no Tags column): the row stays as it is underneath, as Notion's cells do.
+ * A row's tags edited from the row, floating down from its tag cell (or its name, when the
+ * list shows no Tags column), as Notion's multi-select opens from its cell: the row stays in
+ * view and marked as the one being edited, and only the rows after it are covered.
  */
 function TagPopover({
   anchor,
@@ -285,7 +286,7 @@ function TagPopover({
     <Floating
       anchor={anchor}
       align="start"
-      gap={-2}
+      gap={6}
       role="dialog"
       aria-label={label}
       data-e2e-overlap
@@ -338,8 +339,13 @@ function Pick({
 
 function Comments({ n }: { n: number }) {
   return n > 0 ? (
-    <span className="flex items-center gap-0.5" title={`${n} open comments`}>
-      <Icon name="comment" size={11} /> {n}
+    <span
+      className="tabular flex shrink-0 items-center gap-0.5 text-[12px] text-ink-3"
+      title={`${n} open ${n === 1 ? "comment" : "comments"}`}
+    >
+      <Icon name="comment" size={11} aria-hidden="true" />
+      <span className="sr-only">, open comments: </span>
+      {n}
     </span>
   ) : null;
 }
@@ -1327,6 +1333,12 @@ export function FileBrowser({
               <span className="sr-only">, a favourite</span>
             </span>
           )}
+          {/* Open threads beside the name, a mark of their own rather than in a date's column. */}
+          {item.kind === "track" ? (
+            <Comments n={trackComments(item.track)} />
+          ) : item.kind === "file" ? (
+            <Comments n={item.file.openComments ?? 0} />
+          ) : null}
           {!compact && item.kind === "file" && !columns.some((c) => c.id === "tags") && (
             <TagPills ids={item.file.tagIds ?? []} tags={tagById} />
           )}
@@ -1430,12 +1442,7 @@ export function FileBrowser({
         case "people":
           return t.waitingOn?.length ? <AvatarRow people={t.waitingOn} size={22} max={3} /> : "—";
         case "updated":
-          return (
-            <span className="tabular flex items-center gap-1.5">
-              {latest ? ago(latest.createdAt) : ""}
-              <Comments n={trackComments(t)} />
-            </span>
-          );
+          return <span className="tabular">{latest ? ago(latest.createdAt) : ""}</span>;
         default:
           return file ? fileCell(file, id) : null;
       }
@@ -1470,12 +1477,7 @@ export function FileBrowser({
             "—"
           );
         case "updated":
-          return (
-            <span className="tabular flex items-center gap-1.5">
-              {ago(f.createdAt)}
-              <Comments n={f.openComments ?? 0} />
-            </span>
-          );
+          return <span className="tabular">{ago(f.createdAt)}</span>;
         default:
           return fileCell(f, id);
       }
@@ -1676,6 +1678,8 @@ export function FileBrowser({
         className={cn(
           "group border-b border-line last:border-b-0 hover:bg-raised/40",
           selected.has(key) && "bg-raised/60",
+          // The row whose tags are open is marked, so the editor reads as its own.
+          floated && "bg-raised shadow-[inset_0_0_0_1px_var(--hk-edge)]",
           droppedOn(item) && "bg-raised shadow-[inset_0_0_0_1px_var(--hk-edge)]",
           item.kind === "track" &&
             aimed === item.track.id &&

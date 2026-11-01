@@ -301,14 +301,28 @@ export const listMinWidth = (columns: FileColumnLayout) =>
   12 * (columns.length + 3) +
   24;
 
+/** The narrowest a column gives way to before it is left off: three quarters of its width. */
+const floorOf = (c: FileColumnLayout[number]) =>
+  Math.max(minColumnWidth, Math.round(c.width * 0.75));
+
 /**
- * The columns that fit a list of the given width, in the member's order: those at the end are
- * left off until the rest fit beside a readable name. The Columns menu still shows them all.
+ * The columns that fit a list of the given width, in the member's order, the name keeping its
+ * readable width (#623): first every column gives way, down to three quarters of its width,
+ * and only then are those at the end left off. What room is left over goes back to the
+ * columns kept, in proportion to what each gave up. The Columns menu shows the others as off.
  */
 export function fitColumns(columns: FileColumnLayout, width: number): FileColumnLayout {
-  const fitted = [...columns];
-  while (fitted.length > 0 && listMinWidth(fitted) > width) fitted.pop();
-  return fitted;
+  if (listMinWidth(columns) <= width) return columns;
+  const floored = (cols: FileColumnLayout) => cols.map((c) => ({ ...c, width: floorOf(c) }));
+  const kept = [...columns];
+  while (kept.length > 0 && listMinWidth(floored(kept)) > width) kept.pop();
+  const spare = width - listMinWidth(floored(kept));
+  const given = kept.reduce((sum, c) => sum + c.width - floorOf(c), 0);
+  const back = given > 0 ? Math.min(1, spare / given) : 0;
+  return kept.map((c) => ({
+    ...c,
+    width: Math.floor(floorOf(c) + (c.width - floorOf(c)) * back),
+  }));
 }
 
 /** Show a column, at its usual width and in its usual place among those shown, or hide it. */
