@@ -524,7 +524,7 @@ function Items({ review }: { review: ReviewDetail }) {
                       params={{ fileId: item.fileId }}
                       search={{ review: review.id }}
                       aria-label={`Open ${item.name}`}
-                      className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+                      className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised hover:text-ink"
                     >
                       <Icon name="play" size={11} fill="currentColor" strokeWidth={0} />
                     </Link>
@@ -596,6 +596,7 @@ function YourTurn({ review }: { review: ReviewDetail }) {
   const { decide, submit } = useReviewActions(review.id);
   const [note, setNote] = useState("");
   const [again, setAgain] = useState(false);
+  const [asking, setAsking] = useState(false);
   const me = review.reviewers.find((r) => r.id === review.you.reviewerId);
   // A share asks nothing of its people (#138); ShareNote says what it gives them instead.
   if (!me || review.status !== "open" || review.kind === "share") return null;
@@ -682,6 +683,7 @@ function YourTurn({ review }: { review: ReviewDetail }) {
       </div>
     );
   if (!review.you.canDecide) return null;
+  const notOpened = review.items.filter((i) => !review.you.opened.includes(i.id));
   const record = (decision: "approved" | "changes_requested") =>
     decide.mutate(
       { decision, note: note || undefined },
@@ -708,7 +710,8 @@ function YourTurn({ review }: { review: ReviewDetail }) {
           variant="primary"
           size="lg"
           disabled={decide.isPending}
-          onClick={() => record("approved")}
+          // Approving what you have not opened asks first (#665).
+          onClick={() => (notOpened.length > 0 ? setAsking(true) : record("approved"))}
         >
           Approve
         </Button>
@@ -727,6 +730,36 @@ function YourTurn({ review }: { review: ReviewDetail }) {
         )}
         {unopenedCopy}
       </div>
+      {asking && (
+        <Dialog
+          title="Approve anyway?"
+          description={
+            notOpened.length === 1
+              ? `You have not opened ${notOpened[0]?.name} yet.`
+              : `You have not opened ${notOpened.length} of its items yet.`
+          }
+          onClose={() => setAsking(false)}
+          width="sm"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setAsking(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setAsking(false);
+                  record("approved");
+                }}
+              >
+                Approve
+              </Button>
+            </>
+          }
+        >
+          {null}
+        </Dialog>
+      )}
     </section>
   );
 }
@@ -1065,6 +1098,9 @@ export function ReviewBody({
               </ConfirmDialog>
             )}
           </div>
+          {/* Someone asked meets what they are asked about first, then their decision, as
+              Frame.io and Dropbox Replay open on the media (#665); a guest above all. */}
+          {mine && <Items review={review} />}
           <YourTurn review={review} />
           {sharing && mine && review.status === "open" && <ShareNote me={mine} />}
           {!guest && !sharing && (
@@ -1074,7 +1110,7 @@ export function ReviewBody({
             </section>
           )}
           <Reviewers review={review} onNotice={setNotice} />
-          <Items review={review} />
+          {!mine && <Items review={review} />}
           {!guest && !sharing && <Activity review={review} />}
         </div>
         <aside className="flex min-w-0 flex-col gap-6">

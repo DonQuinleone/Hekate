@@ -11,7 +11,7 @@ import { Property } from "~/components/property";
 import { Dot, reviewDot, reviewerCopy, reviewerDot } from "~/components/status";
 import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
-import { ConfirmDialog } from "~/components/ui/dialog";
+import { ConfirmDialog, Dialog } from "~/components/ui/dialog";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import {
@@ -614,7 +614,7 @@ function Items({
                   params={{ fileId: file?.id ?? "" }}
                   search={{ review: review.id }}
                   aria-label="Open"
-                  className="flex size-7 items-center justify-center rounded-control text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-raised hover:text-ink"
+                  className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised hover:text-ink"
                 >
                   <Icon name="play" size={11} fill="currentColor" strokeWidth={0} />
                 </Link>
@@ -638,6 +638,7 @@ function YourTurn({ review, me }: { review: Review; me: Reviewer }) {
   const [recorded, setRecorded] = useState<"approved" | "changes_requested" | "submitted" | null>(
     null,
   );
+  const [asking, setAsking] = useState(false);
   const state = useScreenState();
   const decision = recorded && recorded !== "submitted" ? recorded : latestDecision(me);
   const submitted = recorded === "submitted" || me.state === "submitted";
@@ -656,7 +657,7 @@ function YourTurn({ review, me }: { review: Review; me: Reviewer }) {
     return quiet(
       <>
         Your turn comes after {step.map((r) => personById(r.personId).name).join(" and ")}{" "}
-        {step.length === 1 ? "has" : "have"} responded. You will get an email.
+        {step.length === 1 ? "has" : "have"} responded. You will be told when it is your turn.
       </>,
     );
   }
@@ -695,7 +696,7 @@ function YourTurn({ review, me }: { review: Review; me: Reviewer }) {
           </Button>
           {unopened > 0 && (
             <span className="text-[13px] text-ink-3">
-              {unopened === 1 ? "One item not opened yet" : `${unopened} items not opened yet`}
+              {unopened === 1 ? "1 item not opened yet" : `${unopened} items not opened yet`}
             </span>
           )}
         </div>
@@ -727,7 +728,12 @@ function YourTurn({ review, me }: { review: Review; me: Reviewer }) {
       <Label className="text-ink-2">Your decision</Label>
       <Textarea rows={2} className="mt-2" placeholder="A note with your decision (optional)" />
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button variant="primary" size="lg" onClick={() => setRecorded("approved")}>
+        <Button
+          variant="primary"
+          size="lg"
+          // Approving what you have not opened asks first (#665).
+          onClick={() => (unopened > 0 ? setAsking(true) : setRecorded("approved"))}
+        >
           Approve
         </Button>
         <Button variant="secondary" size="lg" onClick={() => setRecorded("changes_requested")}>
@@ -735,10 +741,39 @@ function YourTurn({ review, me }: { review: Review; me: Reviewer }) {
         </Button>
         {unopened > 0 && (
           <span className="ml-1 text-[13px] text-ink-3">
-            {unopened === 1 ? "One item not opened yet" : `${unopened} items not opened yet`}
+            {unopened === 1 ? "1 item not opened yet" : `${unopened} items not opened yet`}
           </span>
         )}
       </div>
+      {asking && (
+        <Dialog
+          title="Approve anyway?"
+          description={
+            unopened === 1
+              ? "You have not opened Maple Leaf Rag yet."
+              : `You have not opened ${unopened} of its items yet.`
+          }
+          onClose={() => setAsking(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setAsking(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setAsking(false);
+                  setRecorded("approved");
+                }}
+              >
+                Approve
+              </Button>
+            </>
+          }
+        >
+          {null}
+        </Dialog>
+      )}
     </section>
   );
 }
@@ -895,6 +930,8 @@ export function ReviewBody({
             </ConfirmDialog>
           )}
         </div>
+        {/* Someone asked meets the items first, then their decision (#665). */}
+        {me && <Items review={review} me={me} manage={manage} />}
         {me && review.status === "open" && <YourTurn review={review} me={me} />}
         {me && review.kind === "share" && review.status === "open" && (
           <p className="text-[14px] text-ink-2">
@@ -915,7 +952,7 @@ export function ReviewBody({
           </section>
         )}
         <Reviewers review={review} manage={manage} />
-        <Items review={review} me={me} manage={manage} />
+        {!me && <Items review={review} me={me} manage={manage} />}
         {!viewer.isGuest && review.kind !== "share" && <Activity review={review} />}
       </div>
       <aside className="flex min-w-0 flex-col gap-6">

@@ -740,6 +740,32 @@ test.describe("guest", () => {
     await checkScreen(page);
   });
 
+  // A guest meets the items before the decision (#665), and approving what they have not
+  // opened asks first. Nothing is approved: the answer is amended in this page alone, and a
+  // decision would be refused before it left.
+  test("guest-review-approve-unopened", async ({ page }) => {
+    await page.route(`**/api/reviews/${seeded().reviewId}`, async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { review: { you: Record<string, unknown> } };
+      body.review.you.opened = [];
+      await route.fulfill({ response, json: body });
+    });
+    await page.route(`**/api/reviews/${seeded().reviewId}/decisions`, (route) => route.abort());
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto(`/g/reviews/${seeded().reviewId}`);
+    await settle(page, "h1:has-text('Album masters')");
+    // The items come before the decision.
+    const items = page.getByRole("heading", { name: "Under review" });
+    const decision = page.getByRole("region", { name: "Your decision" });
+    const [itemsBox, decisionBox] = [await items.boundingBox(), await decision.boundingBox()];
+    expect(itemsBox && decisionBox && itemsBox.y < decisionBox.y).toBe(true);
+    await decision.getByRole("button", { name: "Approve", exact: true }).click();
+    await settle(page, "[role=dialog] >> text=Approve anyway?");
+    await saveScreen(page, "guest-review-approve-unopened");
+    await checkScreen(page);
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+  });
+
   // A guest their review lets invite others (#55): the Reviewers section's Invite, open. The
   // review's answer is amended in this page alone, so no other capture sees the grant.
   test("guest-review-invite", async ({ page }) => {
