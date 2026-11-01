@@ -3051,12 +3051,16 @@ test("file-channels", async ({ page }) => {
   await expect(menu).toBeVisible();
   if (await menu.getByRole("button", { name: "Solo C" }).count()) {
     await menu.getByRole("button", { name: "Solo C" }).click();
-    await menu.getByRole("switch", { name: "Hear the stereo downmix" }).click();
+    await menu.getByRole("button", { name: "Stereo downmix" }).click();
     await expect(page.getByRole("button", { name: /^Channels: solo c/ })).toBeVisible();
-    // Binaural in its place: one or the other.
-    await menu.getByRole("switch", { name: "Hear it binaurally, on headphones" }).click();
+    // Binaural in its place: one choice of three (#639).
+    await menu.getByRole("button", { name: "Binaural" }).click();
     await expect(page.getByRole("button", { name: "Channels: solo c, binaural" })).toBeVisible();
-    await expect(menu.getByRole("switch", { name: "Hear the stereo downmix" })).not.toBeChecked();
+    await expect(menu.getByRole("button", { name: "Stereo downmix" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    await expect(menu.getByRole("button", { name: "Clear solos" })).toBeVisible();
   }
   await saveScreen(page, "file-channels");
   await checkScreen(page);
