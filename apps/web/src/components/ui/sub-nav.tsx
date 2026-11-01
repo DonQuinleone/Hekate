@@ -13,7 +13,11 @@ export function edgesOf(left: number, width: number, scrollWidth: number): Edges
 }
 
 /** Where to scroll a strip so its current item stands whole in view, as near the middle as it can. */
-export function scrollFor(item: { left: number; width: number }, width: number, scrollWidth: number) {
+export function scrollFor(
+  item: { left: number; width: number },
+  width: number,
+  scrollWidth: number,
+) {
   const centred = item.left - (width - item.width) / 2;
   return Math.max(0, Math.min(centred, scrollWidth - width));
 }
