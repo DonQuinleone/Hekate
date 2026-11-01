@@ -37,13 +37,16 @@ export const kindCopy: Record<Review["kind"], string> = {
   share: "Share",
 };
 
+/** A review's rule, in the words of the request page and the product (#576). */
 export function ruleCopy(review: Review): string {
-  if (review.kind !== "approval")
-    return review.kind === "feedback" ? "comments, no sign-off" : "nothing to submit";
-  if (review.rule === "any") return "any one approves";
-  if (review.rule === "quorum") return `${review.quorum ?? 100}% approve`;
-  return "everyone approves";
+  if (review.kind !== "approval") return "Everyone submits";
+  if (review.rule === "any") return "Any one approves";
+  if (review.rule === "quorum") return `At least ${review.quorum ?? 100}% approve`;
+  return "Everyone approves";
 }
+
+/** Each order as both pages name it. */
+export const orderCopy = { parallel: "All at once", sequence: "In steps" } as const;
 
 /** Whether a reviewer's turn has come, for a review sent in sequence. */
 export const turnHasCome = (review: Review, reviewer: Reviewer) =>

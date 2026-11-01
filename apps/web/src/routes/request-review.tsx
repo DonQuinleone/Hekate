@@ -1,6 +1,7 @@
 import {
   type ApprovalRule,
   applyPermissions,
+  approvalRules,
   type CreateReviewInput,
   capital,
   type DownloadLevel,
@@ -10,6 +11,9 @@ import {
   type ReviewKind,
   type ReviewStepInput,
   reviewerDefaults,
+  reviewOrderNames,
+  ruleChoiceNames,
+  ruleName,
   stepTitle,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -83,12 +87,6 @@ const kinds: { id: ReviewKind; label: string; hint: string }[] = [
     hint: "Comments, then Submit feedback. No formal sign-off.",
   },
 ];
-
-const ruleWords: Record<ApprovalRule, string> = {
-  all: "everyone approves",
-  any: "any one approves",
-  share: "a share approves",
-};
 
 const dueFormat = formatDates({ day: "numeric", month: "long" });
 
@@ -863,8 +861,8 @@ function ReviewForm({
                       label="Order"
                       value={inTurn ? "turn" : "once"}
                       options={[
-                        { value: "once", label: "All at once" },
-                        { value: "turn", label: "In steps" },
+                        { value: "once", label: reviewOrderNames.parallel },
+                        { value: "turn", label: reviewOrderNames.sequence },
                       ]}
                       onChange={(v) => setInTurn(v === "turn")}
                     />
@@ -872,9 +870,9 @@ function ReviewForm({
                   {kind === "approval" && (
                     <fieldset className="m-0 flex flex-wrap items-center gap-1.5 border-0 p-0">
                       <legend className="label float-left mr-1.5">Approved when</legend>
-                      {(Object.keys(ruleWords) as ApprovalRule[]).map((r) => (
+                      {approvalRules.map((r) => (
                         <ToggleChip key={r} pressed={rule === r} onClick={() => setRule(r)}>
-                          {ruleWords[r].replace(" approves", "")}
+                          {ruleChoiceNames[r]}
                         </ToggleChip>
                       ))}
                       {rule === "share" && (
@@ -886,7 +884,7 @@ function ReviewForm({
                             aria-invalid={!shareOk}
                             onChange={(e) => setShare(e.target.value.replace(/\D/g, ""))}
                             className="w-14 text-center"
-                            aria-label="Share that must approve, in per cent"
+                            aria-label="At least this per cent approve"
                           />
                           %
                         </span>
@@ -997,7 +995,7 @@ function ReviewForm({
                         ? `${sent.length}${
                             inTurn
                               ? `, in ${stepsSent} ${stepsSent === 1 ? "step" : "steps"}`
-                              : ", all at once"
+                              : `, ${reviewOrderNames.parallel.toLowerCase()}`
                           }`
                         : "none yet",
                     ],
@@ -1005,9 +1003,9 @@ function ReviewForm({
                       ? [
                           [
                             "Rule",
-                            rule === "share"
-                              ? `${shareOk ? share : "?"}% approve`
-                              : ruleWords[rule],
+                            rule === "share" && !shareOk
+                              ? "At least …% approve"
+                              : ruleName(kind, rule, shareValue),
                           ],
                         ]
                       : []),

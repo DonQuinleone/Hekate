@@ -37,6 +37,7 @@ import { ago, dueIn, formatDate, formatLongDate, formatTime, plural } from "~/li
 import {
   kindCopy,
   latestDecision,
+  orderCopy,
   responded,
   reviewOutcome,
   ruleCopy,
@@ -491,7 +492,7 @@ function Items({
   const passed = outcome === "approved" || outcome === "submitted";
   const gateCopy =
     review.kind === "approval"
-      ? `${ruleCopy(review)[0]?.toUpperCase()}${ruleCopy(review).slice(1)} · ${approved} approved, ${changes} asked for changes, ${counted.length - approved - changes} to come`
+      ? `${ruleCopy(review)} · ${approved} approved, ${changes} asked for changes, ${counted.length - approved - changes} to come`
       : `${responded(review)} of ${review.reviewers.length} submitted`;
   return (
     <section className="flex flex-col gap-3">
@@ -851,8 +852,8 @@ export function ReviewBody({
             </span>
             <span>
               {kindCopy[review.kind]}
-              {review.kind !== "share" && `, ${ruleCopy(review)}`}
-              {review.order === "sequence" && ", in turn"}
+              {review.kind !== "share" && `, ${ruleCopy(review).toLowerCase()}`}
+              {review.order === "sequence" && `, ${orderCopy.sequence.toLowerCase()}`}
             </span>
             {review.dueAt && due && (
               <span className={cn(overdue && "text-signal")}>
@@ -945,10 +946,7 @@ export function ReviewBody({
         )}
         {review.kind !== "share" && !viewer.isGuest && (
           <section className="flex flex-col gap-3">
-            <SectionHead
-              title="Steps"
-              hint={review.order === "sequence" ? "in turn" : "all at once"}
-            />
+            <SectionHead title="Steps" hint={orderCopy[review.order]} />
             <Steps review={review} />
           </section>
         )}
@@ -963,10 +961,8 @@ export function ReviewBody({
             <Dot state={reviewDot(review.status, outcome)} />
             {outcomeCopy(review)}
           </Property>
-          <Property name="Kind">
-            {kindCopy[review.kind]}
-            {review.order === "sequence" && <span className="text-ink-3">in turn</span>}
-          </Property>
+          <Property name="Kind">{kindCopy[review.kind]}</Property>
+          {review.kind !== "share" && <Property name="Order">{orderCopy[review.order]}</Property>}
           {review.kind === "approval" && <Property name="Rule">{ruleCopy(review)}</Property>}
           {review.dueAt && (
             <Property name={review.kind === "share" ? "Until" : "Due"}>

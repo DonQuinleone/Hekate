@@ -746,20 +746,20 @@ export function RequestReviewPage({
                   <div className="flex items-center gap-1.5">
                     <Label>Approved when</Label>
                     <Chip active={rule === "all"} onClick={() => setRule("all")}>
-                      everyone approves
+                      Everyone
                     </Chip>
                     <Chip active={rule === "any"} onClick={() => setRule("any")}>
-                      any one approves
+                      Any one
                     </Chip>
                     <Chip active={rule === "quorum"} onClick={() => setRule("quorum")}>
-                      a share
+                      At least
                     </Chip>
                     {rule === "quorum" && (
                       <span className="flex items-center gap-1 text-[13px] text-ink-3">
                         <Input
                           defaultValue="66"
                           className="h-7 w-14 text-center"
-                          aria-label="Percent"
+                          aria-label="At least this per cent approve"
                         />
                         %
                       </span>
@@ -845,10 +845,10 @@ export function RequestReviewPage({
                         [
                           "Rule",
                           rule === "all"
-                            ? "everyone approves"
+                            ? "Everyone approves"
                             : rule === "any"
-                              ? "any one approves"
-                              : "a share approves",
+                              ? "Any one approves"
+                              : "At least 66% approve",
                         ],
                       ]
                     : []),

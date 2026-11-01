@@ -4,7 +4,9 @@ import {
   itemWords,
   type ReviewerState,
   reviewKindNames,
+  reviewOrderNames,
   reviewSteps,
+  ruleName,
   type StepState,
   stepTitle,
   versionLabel,
@@ -72,14 +74,8 @@ const reviewerCopy: Record<ReviewerState, string> = {
   observing: "Following",
 };
 
-const ruleCopy = (review: ReviewDetail) =>
-  review.kind === "approval"
-    ? review.rule === "any"
-      ? "anyone approves"
-      : review.rule === "share"
-        ? `${review.share ?? 100}% approve`
-        : "everyone approves"
-    : "everyone submits";
+/** The review's rule, in the words the request page uses (#576). */
+const ruleCopy = (review: ReviewDetail) => ruleName(review.kind, review.rule, review.share);
 
 function reviewerDot(r: Reviewer): ReviewerDotState {
   if (r.decision) return r.decision;
@@ -475,7 +471,7 @@ function Items({ review }: { review: ReviewDetail }) {
               </span>
               <span className="block text-[13px] text-ink-3">
                 {review.kind === "approval"
-                  ? `${ruleCopy(review).replace(/^./, (c) => c.toUpperCase())} · ${counts.approved} approved, ${counts.changes} asked for changes, ${counts.toCome} to come`
+                  ? `${ruleCopy(review)} · ${counts.approved} approved, ${counts.changes} asked for changes, ${counts.toCome} to come`
                   : `${counts.submitted} of ${counts.total} submitted`}
               </span>
             </span>
@@ -952,8 +948,8 @@ export function ReviewBody({
               </span>
               <span>
                 {kind}
-                {!sharing && `, ${ruleCopy(review)}`}
-                {review.order === "sequence" && ", in turn"}
+                {!sharing && `, ${ruleCopy(review).toLowerCase()}`}
+                {review.order === "sequence" && `, ${reviewOrderNames.sequence.toLowerCase()}`}
               </span>
               {review.dueAt && due && (
                 <span className={cn("tabular", overdue && "text-signal")}>
@@ -1080,10 +1076,7 @@ export function ReviewBody({
           {sharing && mine && review.status === "open" && <ShareNote me={mine} />}
           {!guest && !sharing && (
             <section className="flex flex-col gap-3">
-              <SectionHead
-                title="Steps"
-                hint={review.order === "sequence" ? "in turn" : "all at once"}
-              />
+              <SectionHead title="Steps" hint={reviewOrderNames[review.order]} />
               <Steps review={review} />
             </section>
           )}
@@ -1101,10 +1094,8 @@ export function ReviewBody({
                   {status}
                 </span>
               </Property>
-              <Property name="Kind">
-                {kind}
-                {review.order === "sequence" && <span className="text-ink-3"> in turn</span>}
-              </Property>
+              <Property name="Kind">{kind}</Property>
+              {!sharing && <Property name="Order">{reviewOrderNames[review.order]}</Property>}
               {review.kind === "approval" && <Property name="Rule">{ruleCopy(review)}</Property>}
               {review.dueAt && (
                 <Property name="Due">
