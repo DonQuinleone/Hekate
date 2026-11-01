@@ -2421,3 +2421,13 @@ Some organisations must keep their material in storage they own, and a workspace
 - **Signing out.** It is in a menu on the guest's avatar, with a confirmation: "You will need a new link from whoever invited you to come back." The page they land on says "You are signed out. Ask whoever invited you for a new link.", never to open a link that is spent.
 - **One frame.** The arrival, the code, the spent link and the signed-out pages are all the standalone `Frame`, aligned alike. Each wears the workspace's logo and accent where the workspace is known (the greeting, the code, after signing out of a session); a spent link opened cold, which may be anyone's, keeps Hekate's lockup. The workspace a guest signed out of is held in memory only, so a fresh load of the signed-out page knows none.
 
+
+## 341. The share sheet says what each control does: how, download, when access ends, and a link for members
+
+#578, revising decision 271's sheet (#489). Its controls did more than they said: "Can comment" and "Can download" turned a share into a feedback review while the hint said no sign-off was asked; "Can download" handed over originals in one click; and the link's dropdown ("Link works for 7 days") set the recipients' access, though the copied address neither lapses nor opens for a guest.
+
+- **How** is *Can view* or *Can comment*. Viewing is a share; commenting is a feedback review, and the hint and the button say so before anything is sent: "They are asked for feedback, without sign-off.", and the button reads *Ask for feedback* (or *Share*). The confirmation repeats it.
+- **Download** is its own choice, apart from how: *No download* (the default), *Review copy*, then *Original*, each with what it costs ("watermarked for each of them. Every download is logged."). A share may hand over a download and still ask nothing, as `shareGrant` already allowed.
+- **Access ends** is the recipients' expiry, labelled for what it is: in 7, 14 or 30 days, or when withdrawn.
+- **Link for members with access** is the item's address in the app, with *Copy link*: it never expires and opens only in a member's session (docs/security.md); recipients get their own links by email.
+- **What is shared.** The subtitle that named the kind ("Audio", "Track") is gone; only a folder keeps a line, its count. From a track's file, Share shares the version, every variant of it, with *This file only* as the other choice (`fileShareTargets`), since a reviewer means the track or version rather than "Dry v2.wav".

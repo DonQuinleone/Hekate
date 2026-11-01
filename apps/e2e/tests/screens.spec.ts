@@ -1611,14 +1611,16 @@ test("score-marking-export-every", async ({ page }) => {
   }
 });
 
-// Sharing one item (#489) from the player's header: the sheet for this file, with someone
-// chosen and the rest offered as you type.
+// Sharing one item (#489) from the player's header: the sheet for the file's version, the
+// file alone offered beside it (#578), with someone chosen and the rest offered as you type.
 test("file-share", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
   await page.getByRole("button", { name: "Share", exact: true }).click();
-  await settle(page, "[role=dialog] >> text=Link works for 7 days");
+  await settle(page, "[role=dialog] >> text=Access ends");
+  await expect(page.getByRole("dialog", { name: /^Share Maple Leaf Rag V\d+$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "This file only" })).toBeVisible();
   const who = page.getByRole("combobox", { name: "Who" });
   const offered = page.getByRole("listbox", { name: "Who" }).getByRole("option");
   await who.fill("mira");
@@ -4065,17 +4067,22 @@ test("project-files-track-actions", async ({ page }, info) => {
   await checkScreen(page);
 });
 
-// Sharing from a row (#489) opens the same sheet for that track: who, how, its link, Send.
+// Sharing from a row (#489) opens the same sheet for that track: who, how, what they may
+// download, when access ends and the members' link, each saying what it does (#578).
 test("files-share", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/files`);
   await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
   await page.getByRole("button", { name: "Actions for Maple Leaf Rag", exact: true }).click();
   await page.getByRole("menuitem", { name: "Share…" }).click();
-  await settle(page, "[role=dialog] >> text=Link works for 7 days");
-  await expect(page.getByRole("dialog", { name: "Share Maple Leaf Rag" })).toBeVisible();
-  await page.getByRole("button", { name: "Can download" }).click();
-  await expect(page.getByRole("dialog")).toContainText("download the original, watermarked");
+  await settle(page, "[role=dialog] >> text=Access ends");
+  const dialog = page.getByRole("dialog", { name: "Share Maple Leaf Rag" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Can comment" }).click();
+  await expect(dialog).toContainText("asked for feedback, without sign-off");
+  await expect(dialog.getByRole("button", { name: "Ask for feedback" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Original" }).click();
+  await expect(dialog).toContainText("watermarked for each of them. Every download is logged.");
   await saveScreen(page, "files-share");
   await checkScreen(page);
 });

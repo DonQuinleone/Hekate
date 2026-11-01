@@ -79,7 +79,7 @@ import {
   usePreferences,
   useProjectCan,
 } from "~/lib/queries";
-import { fileKindWords } from "~/lib/shares";
+import { fileShareTargets } from "~/lib/shares";
 import { useViewer } from "~/lib/viewer";
 import { PageFailed } from "~/routes/problem";
 
@@ -968,9 +968,10 @@ export function FilePage({
       />
       {versioning && <NewVersionDialog file={file} onClose={() => setVersioning(false)} />}
       {sharing && (
+        // A track's file shares its version, with the file alone as the other choice (#578).
         <ShareDialog
           projectId={file.projectId}
-          item={{ kind: "file", id: file.id, name: file.name, what: fileKindWords[file.kind] }}
+          {...fileShareTargets(file)}
           onClose={() => setSharing(false)}
         />
       )}
