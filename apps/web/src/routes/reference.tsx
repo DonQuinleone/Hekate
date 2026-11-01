@@ -8,6 +8,7 @@ import { LinkedFiles } from "~/components/file-picker";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Card, Page, SectionHead } from "~/components/page";
+import { PageHeader } from "~/components/page-header";
 import { Crop, Gauge, Verdict } from "~/components/qa-report";
 import { FoldingSection, Row, Section, SwitchRow } from "~/components/settings";
 import { StatusChipView } from "~/components/status-chip";
@@ -1132,6 +1133,27 @@ function Components() {
             <Card className="w-full">
               <Refused size="panel" />
             </Card>
+          </div>
+        </Spec>
+        <Spec
+          name="Breadcrumb"
+          rule="Starts at the project (the sidebar has Projects) and ends in the page's own name. Every crumb is whole: when they do not fit, the middle folds into one … menu, the first stays, and the page's name is cut only as a last resort. On a phone, the step above as the way back, or its arrow alone."
+        >
+          <div className="flex w-full flex-col gap-2">
+            {[640, 380].map((width) => (
+              <div key={width} style={{ maxWidth: width }}>
+                <Card>
+                  <PageHeader
+                    crumbs={[
+                      { key: "project", link: <a href="#joplin">Joplin Rags</a> },
+                      { key: "track", link: <a href="#maple">Maple Leaf Rag</a> },
+                      { key: "folder", link: <a href="#recordings">Recordings</a> },
+                    ]}
+                    title="Maple Leaf Rag - Dry.wav"
+                  />
+                </Card>
+              </div>
+            ))}
           </div>
         </Spec>
         <Spec

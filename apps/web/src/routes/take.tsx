@@ -85,7 +85,6 @@ export function TakePage({ takeId }: { takeId: string }) {
     <>
       <PageHeader
         crumbs={[
-          { key: "projects", link: <Link to="/projects">Projects</Link> },
           {
             key: "project",
             link: (

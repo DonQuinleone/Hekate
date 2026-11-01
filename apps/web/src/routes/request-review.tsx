@@ -232,7 +232,6 @@ export function RequestReviewPage({
   if (error) return <PageFailed what="This project" error={error} retry={refetch} />;
   if (!project) return <Loading />;
   const crumbs = [
-    { key: "projects", link: <Link to="/projects">Projects</Link> },
     {
       key: "project",
       link: (

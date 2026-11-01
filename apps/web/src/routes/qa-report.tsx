@@ -44,7 +44,6 @@ export function QaReportPage({ fileId }: { fileId: string }) {
       : []),
   ];
   const memberCrumbs = [
-    { key: "projects", link: <Link to="/projects">Projects</Link> },
     ...(file && project
       ? [
           {

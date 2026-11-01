@@ -20,7 +20,6 @@ export function QaReportPage({ fileId }: { fileId: string }) {
   const project = projects.find((p) => p.id === file?.projectId);
   usePageHeader({
     crumbs: [
-      { label: "Projects", to: "/projects" },
       ...(project ? [{ label: project.name, to: `/projects/${project.id}` }] : []),
       ...(file ? [{ label: file.name, to: `/files/${file.id}?view=qa` }] : []),
     ],

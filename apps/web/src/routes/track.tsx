@@ -89,7 +89,6 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
     <>
       <PageHeader
         crumbs={[
-          { key: "projects", link: <Link to="/projects">Projects</Link> },
           {
             key: "project",
             link: (

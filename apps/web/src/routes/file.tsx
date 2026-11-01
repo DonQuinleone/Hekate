@@ -598,7 +598,6 @@ export function FilePage({
   const crumbs: Crumb[] = guest
     ? [{ key: "reviews", link: <Link to="/g">Your reviews</Link> }]
     : [
-        { key: "projects", link: <Link to="/projects">Projects</Link> },
         {
           key: "project",
           link: (

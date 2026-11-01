@@ -189,7 +189,6 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
     <>
       <PageHeader
         crumbs={[
-          { key: "projects", link: <Link to="/projects">Projects</Link> },
           {
             key: "project",
             link: (
