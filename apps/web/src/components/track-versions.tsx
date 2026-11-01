@@ -332,8 +332,7 @@ function NewVersion({
                   value={carryAll(carry.map((t) => choices[t.commentId] ?? "open")) ?? ""}
                   onChange={(e) => {
                     const all = e.target.value as CarryChoice | "";
-                    if (all)
-                      setChoices(Object.fromEntries(carry.map((t) => [t.commentId, all])));
+                    if (all) setChoices(Object.fromEntries(carry.map((t) => [t.commentId, all])));
                   }}
                   className="@3xl/app:w-60"
                 >
@@ -418,7 +417,9 @@ function NewVersion({
         </>
       }
       what={`Uploaded into the ${words.track}'s folder as ${versionLabel(next)}${
-        carry.length > 0 ? `; the open comments from ${versionLabel(next - 1)} follow as chosen` : ""
+        carry.length > 0
+          ? `; the open comments from ${versionLabel(next - 1)} follow as chosen`
+          : ""
       }.`}
       action={(list) =>
         list.some((c) => c.file && c.state !== "sent")

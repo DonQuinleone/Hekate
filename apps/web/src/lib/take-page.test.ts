@@ -111,7 +111,11 @@ describe("takesByTrack", () => {
 });
 
 describe("threadMatches", () => {
-  const thread = { body: "Pedal noise at the join", authorName: "Mira Solberg", anchor: "Bars 9–12" };
+  const thread = {
+    body: "Pedal noise at the join",
+    authorName: "Mira Solberg",
+    anchor: "Bars 9–12",
+  };
   it("finds a thread by its words, its author or its anchor, every word given", () => {
     expect(threadMatches(thread, "")).toBe(true);
     expect(threadMatches(thread, "pedal JOIN")).toBe(true);

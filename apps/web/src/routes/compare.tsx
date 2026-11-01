@@ -212,7 +212,11 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
         actions={
           video ? (
             <Button variant="secondary" size="sm" asChild>
-              <Link to="/files/$fileId" params={{ fileId: data.b.fileId }} search={{ cuts: "side" }}>
+              <Link
+                to="/files/$fileId"
+                params={{ fileId: data.b.fileId }}
+                search={{ cuts: "side" }}
+              >
                 <Icon name="compare" size={14} />
                 Compare the pictures
               </Link>
@@ -277,113 +281,113 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
           )}
         >
           {!video && (
-          <div className="flex min-w-0 flex-col gap-3">
-            {order.map((which) => {
-              const side = data[which];
-              const element = which === lead ? master : follower;
-              const on = heard === which;
-              return (
-                <section
-                  key={which}
-                  aria-label={label(which)}
-                  className={cn(
-                    "rounded-panel-lg border p-2 transition-colors",
-                    on ? "border-signal/50 bg-signal/[0.04]" : "border-line bg-raised/20",
-                  )}
-                >
-                  <div className="flex items-center gap-2 px-1 pb-1 text-[13px]">
-                    <button
-                      type="button"
-                      aria-pressed={on}
-                      aria-label={`Hear ${label(which)}, key ${keyFor(which)}`}
-                      onClick={() => hear(which)}
-                      className={cn(
-                        "flex size-7 cursor-pointer items-center justify-center rounded-full border-0",
-                        on ? "bg-signal text-ground" : "bg-raised text-ink",
+            <div className="flex min-w-0 flex-col gap-3">
+              {order.map((which) => {
+                const side = data[which];
+                const element = which === lead ? master : follower;
+                const on = heard === which;
+                return (
+                  <section
+                    key={which}
+                    aria-label={label(which)}
+                    className={cn(
+                      "rounded-panel-lg border p-2 transition-colors",
+                      on ? "border-signal/50 bg-signal/[0.04]" : "border-line bg-raised/20",
+                    )}
+                  >
+                    <div className="flex items-center gap-2 px-1 pb-1 text-[13px]">
+                      <button
+                        type="button"
+                        aria-pressed={on}
+                        aria-label={`Hear ${label(which)}, key ${keyFor(which)}`}
+                        onClick={() => hear(which)}
+                        className={cn(
+                          "flex size-7 cursor-pointer items-center justify-center rounded-full border-0",
+                          on ? "bg-signal text-ground" : "bg-raised text-ink",
+                        )}
+                      >
+                        <Kbd>{keyFor(which)}</Kbd>
+                      </button>
+                      <span className="font-medium text-ink">{label(which)}</span>
+                      {!blind && (
+                        <span className="min-w-0 truncate text-ink-3">
+                          {side.name}
+                          {side.notes ? ` · ${side.notes}` : ""}
+                        </span>
                       )}
-                    >
-                      <Kbd>{keyFor(which)}</Kbd>
-                    </button>
-                    <span className="font-medium text-ink">{label(which)}</span>
-                    {!blind && (
-                      <span className="min-w-0 truncate text-ink-3">
-                        {side.name}
-                        {side.notes ? ` · ${side.notes}` : ""}
-                      </span>
-                    )}
-                    {/* Only the one turned down says so, and says why (#569). */}
-                    {gainOf(which) < 1 && (
-                      <span className="tabular ml-auto shrink-0 text-ink-3">
-                        Level-matched {gainLabel(gainOf(which))}
-                      </span>
-                    )}
-                  </div>
-                  {element ? (
-                    <Waveform
-                      fileId={side.fileId}
-                      media={element}
-                      duration={duration(side)}
-                      view="combined"
-                    />
-                  ) : (
-                    <div className="flex h-[168px] items-center justify-center rounded-control bg-sunken/40 text-[13px] text-ink-3">
-                      {side.failed
-                        ? `This ${words.version} could not be prepared to play.`
-                        : !side.ready
-                          ? `Preparing this ${words.version} to play`
-                          : null}
+                      {/* Only the one turned down says so, and says why (#569). */}
+                      {gainOf(which) < 1 && (
+                        <span className="tabular ml-auto shrink-0 text-ink-3">
+                          Level-matched {gainLabel(gainOf(which))}
+                        </span>
+                      )}
                     </div>
-                  )}
-                </section>
-              );
-            })}
-            {failed && (
-              <p className="m-0 text-[13px] text-signal">
-                One of the {words.versions} could not be loaded to play.
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-3 px-1 text-[13px] text-ink-3">
-              <button
-                type="button"
-                aria-label={playing ? "Pause" : "Play"}
-                onClick={toggle}
-                disabled={!master}
-                className="flex size-9 cursor-pointer items-center justify-center rounded-full border-0 bg-ink text-ground disabled:opacity-40"
-              >
-                <Icon name={playing ? "pause" : "play"} size={12} />
-              </button>
-              <span className="tabular text-[15px] text-ink">{formatClock(time)}</span>
-              <span>
-                Keys 1 and 2 switch at the same {video ? "moment" : "musical position"}
-                {gains.some((g) => g < 1) ? ", level-matched" : ""}.
-              </span>
-              {blind && (
-                <span className="ml-auto text-ink-2">
-                  Which is which stays hidden until you reveal.
+                    {element ? (
+                      <Waveform
+                        fileId={side.fileId}
+                        media={element}
+                        duration={duration(side)}
+                        view="combined"
+                      />
+                    ) : (
+                      <div className="flex h-[168px] items-center justify-center rounded-control bg-sunken/40 text-[13px] text-ink-3">
+                        {side.failed
+                          ? `This ${words.version} could not be prepared to play.`
+                          : !side.ready
+                            ? `Preparing this ${words.version} to play`
+                            : null}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+              {failed && (
+                <p className="m-0 text-[13px] text-signal">
+                  One of the {words.versions} could not be loaded to play.
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-3 px-1 text-[13px] text-ink-3">
+                <button
+                  type="button"
+                  aria-label={playing ? "Pause" : "Play"}
+                  onClick={toggle}
+                  disabled={!master}
+                  className="flex size-9 cursor-pointer items-center justify-center rounded-full border-0 bg-ink text-ground disabled:opacity-40"
+                >
+                  <Icon name={playing ? "pause" : "play"} size={12} />
+                </button>
+                <span className="tabular text-[15px] text-ink">{formatClock(time)}</span>
+                <span>
+                  Keys 1 and 2 switch at the same {video ? "moment" : "musical position"}
+                  {gains.some((g) => g < 1) ? ", level-matched" : ""}.
                 </span>
+                {blind && (
+                  <span className="ml-auto text-ink-2">
+                    Which is which stays hidden until you reveal.
+                  </span>
+                )}
+              </div>
+              {data[lead].ready && (
+                <StreamSource
+                  key={data[lead].fileId}
+                  fileId={data[lead].fileId}
+                  volume={leadVolume}
+                  onElement={setMaster}
+                  onFail={() => setFailed(true)}
+                />
+              )}
+              {master && data[other].ready && (
+                <FollowerSource
+                  key={data[other].fileId}
+                  fileId={data[other].fileId}
+                  master={master}
+                  volume={(heard === other ? gainOf(other) : 0) * volumeGain(volume)}
+                  follow={toFollower}
+                  onFail={() => setFailed(true)}
+                  onElement={setFollower}
+                />
               )}
             </div>
-            {data[lead].ready && (
-              <StreamSource
-                key={data[lead].fileId}
-                fileId={data[lead].fileId}
-                volume={leadVolume}
-                onElement={setMaster}
-                onFail={() => setFailed(true)}
-              />
-            )}
-            {master && data[other].ready && (
-              <FollowerSource
-                key={data[other].fileId}
-                fileId={data[other].fileId}
-                master={master}
-                volume={(heard === other ? gainOf(other) : 0) * volumeGain(volume)}
-                follow={toFollower}
-                onFail={() => setFailed(true)}
-                onElement={setFollower}
-              />
-            )}
-          </div>
           )}
           <aside className="flex min-w-0 flex-col gap-5">
             {!video && <AlignmentPath comparison={data} label={label} video={video} />}

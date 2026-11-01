@@ -98,7 +98,11 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
       ? // Two cuts are compared in the player, where their pictures are (#569); two versions
         // of a track on the page that aligns them by their audio.
         video && playable
-        ? { to: "/files/$fileId" as const, params: { fileId: playable.fileId }, search: { cuts: "side" as const } }
+        ? {
+            to: "/files/$fileId" as const,
+            params: { fileId: playable.fileId },
+            search: { cuts: "side" as const },
+          }
         : { to: "/tracks/$trackId/compare" as const, params: { trackId: track.id } }
       : null;
   const mayReview = live && can("request_reviews") && Boolean(latest);
@@ -118,10 +122,10 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
       disabled: !follows,
       onSelect: () => (mine ? unfollow.mutate(mine.id) : follow.mutate({ trackId: track.id })),
     },
-    ...(live && compare
-      ? [{ label: "Compare", onSelect: () => void navigate(compare) }]
+    ...(live && compare ? [{ label: "Compare", onSelect: () => void navigate(compare) }] : []),
+    ...(mayReview
+      ? [shareItem, { label: "Request a review", onSelect: () => void navigate(reviewLink) }]
       : []),
-    ...(mayReview ? [shareItem, { label: "Request a review", onSelect: () => void navigate(reviewLink) }] : []),
   ];
   return (
     <>
