@@ -35,7 +35,6 @@ import {
   type WatermarkScope,
   type WatermarkSettings,
   type WorkflowNotices,
-  type WorkflowSummary,
   watermarkPositions,
   watermarkPositionWords,
   watermarkScopes,
@@ -104,7 +103,7 @@ import {
   workspaceSettingsQuery,
 } from "~/lib/queries";
 import { storageName } from "~/lib/storage-names";
-import { basicSteps } from "~/lib/workflow-nodes";
+import { problemsOf, stepsOf } from "~/lib/workflow-summary";
 import { ProjectFrame } from "~/routes/project";
 
 /** The project's settings, grouped as in the prototype; more sections arrive with their issues. */
@@ -1235,24 +1234,6 @@ function useProjectProfile(project: Project) {
   return { customs, own, inherited, effective: own ?? inherited };
 }
 
-/** "4 steps": the steps a workflow takes an item through, as its builder counts them. */
-const stepsOf = (w: WorkflowSummary) => {
-  const n = basicSteps(w.definition).steps.length;
-  return `${n} ${n === 1 ? "step" : "steps"}`;
-};
-
-/** "1 problem", "2 warnings": what a workflow breaks, by level (#582). */
-export const problemsOf = (problems: readonly { level: "error" | "warning" }[]) => {
-  const errors = problems.filter((p) => p.level === "error").length;
-  const warnings = problems.length - errors;
-  return [
-    errors > 0 ? `${errors} ${errors === 1 ? "problem" : "problems"}` : null,
-    warnings > 0 ? `${warnings} ${warnings === 1 ? "warning" : "warnings"}` : null,
-  ]
-    .filter(Boolean)
-    .join(", ");
-};
-
 function Workflow({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
@@ -1294,7 +1275,7 @@ function Workflow({ project }: { project: Project }) {
               key={w.id}
               name={w.name}
               hint={[
-                stepsOf(w),
+                stepsOf(w.definition),
                 w.problems.length > 0 ? problemsOf(w.problems) : null,
                 w.trackId ? `for one ${words.track}` : null,
               ]

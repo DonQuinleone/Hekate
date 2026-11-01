@@ -1,4 +1,5 @@
 import {
+  itemWords,
   type NodeType,
   nodeTypes,
   outcomesOf,
@@ -23,15 +24,18 @@ import { WorkflowCode } from "~/components/workflow-code";
 import { CopyWorkflowDialog } from "~/components/workflow-copy";
 import { Committed, StepField } from "~/components/workflow-fields";
 import { KindTile } from "~/components/workflow-kinds";
+import { WorkflowDot } from "~/components/workflow-state";
+import { NewWorkflowMenu, WorkflowSwitcher } from "~/components/workflow-switcher";
 import { cn } from "~/lib/cn";
 import {
   ApiError,
+  projectQuery,
   projectTracksQuery,
   projectWorkflowsQuery,
   useProjectCan,
   useWorkflowMutations,
 } from "~/lib/queries";
-import { workflowTemplates } from "~/lib/workflow-code";
+import { templatesFor } from "~/lib/workflow-code";
 import {
   basicSteps,
   newWorkflowDefinition,
@@ -39,6 +43,7 @@ import {
   withConfig,
   withConnector,
 } from "~/lib/workflow-nodes";
+import { problemsOf } from "~/lib/workflow-summary";
 import { ProjectFrame } from "~/routes/project";
 
 const body =
@@ -131,11 +136,16 @@ function useDrafts(projectId: string, workflows: WorkflowSummary[] | undefined) 
  */
 export function WorkflowsPage({
   projectId,
-  view = "advanced",
+  view: asked,
 }: {
   projectId: string;
   view?: WorkflowView;
 }) {
+  // A phone opens the builder as lists of steps (#583): the canvas is a pan away from it.
+  const [phone] = useState(
+    () => typeof matchMedia === "function" && matchMedia("(max-width: 767px)").matches,
+  );
+  const view: WorkflowView = asked ?? (phone ? "basic" : "advanced");
   const can = useProjectCan(projectId);
   const navigate = useNavigate();
   const mayEdit = can("edit_workflows");
@@ -175,6 +185,7 @@ export function WorkflowsPage({
         },
       },
     );
+  // A template always makes a new workflow (#587), never one written over the open one.
   const fromTemplate = (text: string) => {
     const read = workflowFromYaml(text);
     if (read.ok)
@@ -188,7 +199,8 @@ export function WorkflowsPage({
     void navigate({
       to: "/projects/$projectId/workflow",
       params: { projectId },
-      search: next === "advanced" ? {} : { view: next },
+      // The view is always said, so a phone keeps the one it was given.
+      search: { view: next },
       replace: true,
     });
   };
@@ -219,16 +231,13 @@ export function WorkflowsPage({
               onChange={(next) => setView(next)}
             />
             {mayEdit && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => newWorkflow()}
-                disabled={create.isPending}
-              >
-                <Icon name="plus" size={13} />
-                <span className="hidden @3xl/app:inline">New workflow</span>
-                <span className="sr-only @3xl/app:hidden">New workflow</span>
-              </Button>
+              <ProjectNewWorkflow
+                projectId={projectId}
+                pending={create.isPending}
+                onBlank={() => newWorkflow()}
+                onTemplate={(t) => fromTemplate(t.text)}
+                onCopy={() => setCopying(true)}
+              />
             )}
           </>
         ) : undefined
@@ -237,14 +246,27 @@ export function WorkflowsPage({
       {(project) => {
         const editing = mayEdit && !project.archivedAt;
         const shown = drafts.shown;
+        const words = itemWords(project.profile);
+        const copyDialog = copying && (
+          <CopyWorkflowDialog
+            projectId={projectId}
+            pending={create.isPending}
+            onCopy={copy}
+            onClose={() => setCopying(false)}
+          />
+        );
         if (mayView && !error && workflows && workflows.length > 0 && view === "code")
           return (
-            <WorkflowCode
-              projectId={projectId}
-              workflows={workflows}
-              editing={editing}
-              focus={focus}
-            />
+            <>
+              <WorkflowCode
+                projectId={projectId}
+                workflows={workflows}
+                editing={editing}
+                focus={focus}
+                onFocus={setFocus}
+              />
+              {copyDialog}
+            </>
           );
         if (mayView && !error && shown && shown.length > 0 && view === "advanced")
           return (
@@ -269,9 +291,12 @@ export function WorkflowsPage({
                 workflows={shown}
                 editing={editing}
                 focus={focus}
+                onFocus={setFocus}
+                words={words}
                 onEdit={drafts.edit}
                 onNew={newWorkflow}
               />
+              {copyDialog}
             </div>
           );
         return (
@@ -289,7 +314,7 @@ export function WorkflowsPage({
               ) : workflows.length === 0 ? (
                 <Empty
                   title="No workflows yet"
-                  text="A workflow carries a track from one stage to the next as versions arrive: who is asked, what is checked, the status it sets, and where it finishes."
+                  text={`A workflow carries a ${words.track} from one step to the next as ${words.versions} arrive: who is asked, what is checked, the status it sets, and where it finishes.`}
                   action={
                     editing ? (
                       <div className="flex flex-wrap items-center justify-center gap-2">
@@ -303,7 +328,7 @@ export function WorkflowsPage({
                         <Dropdown
                           value="From a template"
                           actions={[
-                            ...workflowTemplates.map((t) => ({
+                            ...templatesFor(project.profile).map((t) => ({
                               label: t.name,
                               onSelect: () => fromTemplate(t.text),
                             })),
@@ -320,10 +345,22 @@ export function WorkflowsPage({
                 />
               ) : (
                 <>
-                  <p className="m-0 max-w-[620px] text-[14px] text-ink-2">
-                    Each workflow as a list of steps. Change who, when and what happens on changes;
-                    the advanced view holds the same workflow as a graph for anything beyond that.
-                  </p>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+                    <WorkflowSwitcher
+                      workflows={workflows}
+                      current={focus}
+                      onChoose={(id) => {
+                        setFocus(id);
+                        document
+                          .getElementById(`workflow-${id}`)
+                          ?.scrollIntoView({ block: "start", behavior: "smooth" });
+                      }}
+                    />
+                    <p className="m-0 min-w-0 flex-1 basis-64 text-[13px] text-ink-3">
+                      Each workflow as a list of steps: change who, when and what happens here, and
+                      anything beyond that on the canvas.
+                    </p>
+                  </div>
                   {workflows.map((w) => (
                     <WorkflowSteps
                       key={w.id}
@@ -333,37 +370,47 @@ export function WorkflowsPage({
                       onAdvanced={() => setView("advanced", w.id)}
                     />
                   ))}
-                  {editing && (
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        onClick={() => setCopying(true)}
-                        disabled={create.isPending}
-                      >
-                        Copy from another project
-                      </Button>
-                    </div>
-                  )}
                   {create.error && <p className="m-0 text-signal">{create.error.message}</p>}
                   <p className="m-0 text-[12px] text-ink-3">
-                    A track can follow a workflow of its own instead of the project's; that is set
-                    from the track.
+                    A {words.track} can follow a workflow of its own instead of the project's; that
+                    is set from the {words.track}.
                   </p>
                 </>
               )}
-              {copying && (
-                <CopyWorkflowDialog
-                  projectId={projectId}
-                  pending={create.isPending}
-                  onCopy={copy}
-                  onClose={() => setCopying(false)}
-                />
-              )}
+              {copyDialog}
             </div>
           </div>
         );
       }}
     </ProjectFrame>
+  );
+}
+
+/** The header's New workflow (#587), with the templates the project's profile is offered (#675). */
+function ProjectNewWorkflow({
+  projectId,
+  pending,
+  onBlank,
+  onTemplate,
+  onCopy,
+}: {
+  projectId: string;
+  pending: boolean;
+  onBlank: () => void;
+  onTemplate: (template: { text: string }) => void;
+  onCopy: () => void;
+}) {
+  const { data: project } = useQuery(projectQuery(projectId));
+  const profile = project?.profile ?? "music";
+  return (
+    <NewWorkflowMenu
+      templates={templatesFor(profile)}
+      blankHint={`Starts when a ${itemWords(profile).version} is uploaded`}
+      disabled={pending}
+      onBlank={onBlank}
+      onTemplate={onTemplate}
+      onCopy={onCopy}
+    />
   );
 }
 
@@ -390,36 +437,50 @@ function WorkflowSteps({
       change: (w) => ({ definition: withConfig(w.definition, nodeId, config) }),
     });
   return (
-    <section className="flex flex-col gap-3" aria-labelledby={`workflow-${workflow.id}`}>
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="min-w-0 flex-1">
-          <h2
-            id={`workflow-${workflow.id}`}
-            className="m-0 truncate text-[18px] font-medium tracking-tight text-ink"
+    <section
+      className="flex scroll-mt-4 flex-col gap-3"
+      id={`workflow-${workflow.id}`}
+      aria-labelledby={`workflow-${workflow.id}-name`}
+    >
+      {/* The name whole, a link to its place on the canvas (#582, #583); its state, steps and
+          problems, and the switch labelled Active, on the line under it. */}
+      <div className="flex flex-col gap-1">
+        <h2
+          id={`workflow-${workflow.id}-name`}
+          className="m-0 text-[18px] font-medium tracking-tight text-ink"
+        >
+          <button
+            type="button"
+            onClick={onAdvanced}
+            title="Open on the canvas"
+            className="cursor-pointer text-left underline-offset-4 transition-colors hover:underline"
           >
             {workflow.name}
-          </h2>
-          <p className="m-0 text-[13px] text-ink-3">
+          </button>
+        </h2>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <p className="m-0 flex min-w-0 flex-1 flex-wrap items-center gap-x-1.5 text-[13px] text-ink-3">
+            <WorkflowDot active={workflow.active} />
             {[
               workflow.active ? "Active" : "Draft",
               track ? `for ${track.name}` : null,
               count(steps.length, "step"),
-              workflow.problems.length > 0 ? `${workflow.problems.length} to look at` : null,
+              problemsOf(workflow.problems) || null,
             ]
               .filter(Boolean)
               .join(" · ")}
           </p>
+          <span className="flex items-center gap-2 text-[13px] text-ink-2">
+            <span aria-hidden="true">Active</span>
+            <Switch
+              label={`${workflow.name} active`}
+              checked={workflow.active}
+              // One that breaks a rule cannot run until it is mended.
+              disabled={!editing || (!workflow.active && errors.length > 0) || change.isPending}
+              onChange={(active) => change.mutate({ id: workflow.id, change: () => ({ active }) })}
+            />
+          </span>
         </div>
-        <Switch
-          label={`${workflow.name} active`}
-          checked={workflow.active}
-          // One that breaks a rule cannot run until it is mended.
-          disabled={!editing || (!workflow.active && errors.length > 0) || change.isPending}
-          onChange={(active) => change.mutate({ id: workflow.id, change: () => ({ active }) })}
-        />
-        <Button variant="secondary" size="md" onClick={onAdvanced}>
-          Open in the advanced view
-        </Button>
       </div>
       <ol
         aria-label={`${workflow.name}: its steps`}
@@ -528,7 +589,7 @@ function WorkflowSteps({
       </ol>
       {workflow.problems.length > 0 && (
         <ul
-          aria-label={`${workflow.name}: to look at`}
+          aria-label={`${workflow.name}: problems`}
           className="m-0 flex list-none flex-col gap-1 p-0"
         >
           {workflow.problems.map((p) => (

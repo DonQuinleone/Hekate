@@ -1,7 +1,9 @@
 import {
+  capital,
   completeNode,
   type EventType,
   flowShape,
+  type ItemWords,
   type NodeType,
   nodeTypes,
   outcomesOf,
@@ -23,11 +25,13 @@ import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Button } from "~/components/ui/button";
 import { Choice } from "~/components/ui/choice";
-import { Input, Select } from "~/components/ui/input";
+import { InlineInput, Input, Select } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Committed, StepField } from "~/components/workflow-fields";
 import { GroupLegend, GroupTile, KindTile } from "~/components/workflow-kinds";
+import { WorkflowDot } from "~/components/workflow-state";
 import { StatusesPanel } from "~/components/workflow-statuses";
+import { WorkflowSwitcher } from "~/components/workflow-switcher";
 import { cn } from "~/lib/cn";
 import { useShortcuts } from "~/lib/shortcuts";
 import {
@@ -87,8 +91,10 @@ import {
   withoutNode,
   withStartTrigger,
 } from "~/lib/workflow-nodes";
+import { problemsOf } from "~/lib/workflow-summary";
 
-const eyebrow = "text-[11px] font-medium tracking-wide text-ink-3 uppercase";
+/** Where this browser keeps that the canvas's hints have been seen (#678). */
+const HINTS_KEY = "hekate.workflow-hints";
 
 /** What is chosen: a node or a connector, of a workflow (ids are only unique within one). */
 type Selection = { kind: "node" | "connector"; id: string; flowId: string } | null;
@@ -159,6 +165,8 @@ export function WorkflowCanvas({
   workflows,
   editing,
   focus,
+  onFocus,
+  words,
   onEdit,
   onNew,
 }: {
@@ -167,6 +175,10 @@ export function WorkflowCanvas({
   editing: boolean;
   /** A workflow to land on, once it is there (a new one, say). */
   focus?: string | null;
+  /** The workflow chosen in the toolbar's switcher, the same in every view (#582). */
+  onFocus: (id: string) => void;
+  /** The project's words for what a workflow carries: a track, a deliverable (#675). */
+  words: ItemWords;
   onEdit: (id: string, change: (flow: WorkflowDefinition) => WorkflowDefinition) => void;
   /** A new workflow, begun at the start chosen for it (a version arriving, unless said). */
   onNew: (start?: NodeType) => void;
@@ -247,6 +259,8 @@ export function WorkflowCanvas({
   /* Editing: each change to the workflow it was made in. */
   const edit = (flowId: string, change: (flow: WorkflowDefinition) => WorkflowDefinition) => {
     if (editing && flowById(flowId)) onEdit(flowId, change);
+    // A change made since a deletion leaves nothing to undo it to.
+    setRemoved(null);
   };
   const [notice, setNotice] = useState<string | null>(null);
   /** A node of a kind added at a place, wired from the step (and output) given, if any. */
@@ -350,13 +364,33 @@ export function WorkflowCanvas({
       onPick();
     },
   });
+  /*
+   * Deleting a node or a connector acts at once and offers Undo (#544), as Figma does: the
+   * workflow as it was is kept until the next change, which takes the offer away.
+   */
+  const [removed, setRemoved] = useState<{
+    flowId: string;
+    what: string;
+    before: WorkflowDefinition;
+  } | null>(null);
   const removeNode = (flowId: string, id: string) => {
+    const before = flowById(flowId)?.definition;
+    const name = before?.nodes.find((n) => n.id === id)?.name ?? "the node";
     edit(flowId, (f) => withoutNode(f, id));
     setSelection(null);
+    if (before && editing) setRemoved({ flowId, what: `“${name}”`, before });
   };
   const removeConnector = (flowId: string, id: string) => {
+    const before = flowById(flowId)?.definition;
     edit(flowId, (f) => withoutConnector(f, id));
     setSelection(null);
+    if (before && editing) setRemoved({ flowId, what: "the connector", before });
+  };
+  const undoRemove = () => {
+    if (!removed) return;
+    const { flowId, before } = removed;
+    edit(flowId, () => before);
+    setRemoved(null);
   };
   const duplicateNode = (flowId: string, id: string) => {
     const copy = `n-${Math.random().toString(36).slice(2, 8)}`;
@@ -510,7 +544,34 @@ export function WorkflowCanvas({
     return true;
   };
 
+  /*
+   * The hints (#678): shown until the canvas is first panned or zoomed, then not again for this
+   * person, as Figma shows its hints once. Kept in this browser; without storage they show.
+   */
+  const [hints, setHints] = useState(() => {
+    try {
+      return localStorage.getItem(HINTS_KEY) !== "seen";
+    } catch {
+      return true;
+    }
+  });
+  const learnt = useCallback(() => {
+    setHints(false);
+    try {
+      localStorage.setItem(HINTS_KEY, "seen");
+    } catch {
+      // Without storage the hints come back next time; nothing else depends on them.
+    }
+  }, []);
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el || !hints) return;
+    el.addEventListener("wheel", learnt, { once: true, passive: true });
+    return () => el.removeEventListener("wheel", learnt);
+  }, [hints, learnt]);
+
   const onCanvasPointerDown = (e: React.PointerEvent) => {
+    if (hints && e.button === 0) learnt();
     if (touchDown(e)) return;
     if (e.button !== 0) return;
     setMenu(null);
@@ -614,6 +675,11 @@ export function WorkflowCanvas({
         if (selection.kind === "node") removeNode(selection.flowId, selection.id);
         else removeConnector(selection.flowId, selection.id);
       },
+    },
+    {
+      keys: ["Mod+Z"],
+      label: "Undo the last deletion",
+      run: () => (removed ? undoRemove() : untidy ? undoTidy() : undefined),
     },
     { keys: ["f"], label: "Fit the canvas to the window", run: fitAll },
     {
@@ -837,23 +903,16 @@ export function WorkflowCanvas({
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Toolbar */}
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2 @3xl/app:px-4">
-          <div className="scroll-quiet flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-            {workflows.map((w) => (
-              <button
-                key={w.id}
-                type="button"
-                onClick={() => jumpTo(w.id)}
-                className="flex h-7 shrink-0 items-center gap-1.5 rounded-control border border-line px-2.5 text-[13px] text-ink-2 transition-colors hover:border-edge hover:text-ink"
-              >
-                <span className={cn("size-1.5 rounded-full", w.active ? "bg-ok" : "bg-ink-3")} />
-                {w.name}
-                {w.problems.some((p) => p.level === "error") && (
-                  <span className="text-signal">
-                    !<span className="sr-only">, breaks a rule</span>
-                  </span>
-                )}
-              </button>
-            ))}
+          <div className="flex min-w-0 flex-1 items-center">
+            <WorkflowSwitcher
+              workflows={workflows}
+              current={focus}
+              onChoose={(id) => {
+                landed.current = id;
+                onFocus(id);
+                jumpTo(id);
+              }}
+            />
           </div>
           <Button
             variant={statusesOpen && !walk ? "secondary" : "ghost"}
@@ -938,16 +997,11 @@ export function WorkflowCanvas({
                   <span className="text-[18px] font-medium tracking-tight text-ink">
                     {b.flow.name}
                   </span>
-                  <span
-                    className={cn("mb-1 text-[12px]", b.flow.active ? "text-ok" : "text-ink-3")}
-                  >
-                    {b.flow.active ? "active" : "draft"}
+                  {/* Its state by the dot's shape and fill, never green (#582). */}
+                  <span className="mb-1 flex items-center gap-1.5 text-[12px] text-ink-3">
+                    <WorkflowDot active={b.flow.active} />
+                    {b.flow.active ? "Active" : "Draft"}
                   </span>
-                  {b.flow.problems.length > 0 && (
-                    <span className="mb-1 text-[12px] text-ink-3">
-                      · {b.flow.problems.length} to look at
-                    </span>
-                  )}
                 </div>
                 {b.flow.definition.groups.map((g) => {
                   const members = b.flow.definition.nodes.filter((n) => n.groupId === g.id);
@@ -964,7 +1018,7 @@ export function WorkflowCanvas({
                         height: gb.maxY - gb.minY + 54,
                       }}
                     >
-                      <span className={cn("absolute top-2 left-3", eyebrow)}>{g.name}</span>
+                      <span className={"label absolute top-2 left-3"}>{g.name}</span>
                     </div>
                   );
                 })}
@@ -1244,7 +1298,28 @@ export function WorkflowCanvas({
               </Button>
             </div>
           )}
-          {untidy && !notice && (
+          {removed && !notice && (
+            <div
+              role="status"
+              data-e2e-layer
+              className="absolute top-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-control border border-line bg-overlay py-1 pr-1 pl-3 text-[13px] text-ink-2 shadow-2"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <span className="whitespace-nowrap">Deleted {removed.what}</span>
+              <Button variant="ghost" size="sm" onClick={undoRemove}>
+                Undo
+              </Button>
+              <Button
+                variant="quiet"
+                size="iconSm"
+                aria-label="Dismiss"
+                onClick={() => setRemoved(null)}
+              >
+                <Icon name="close" size={13} />
+              </Button>
+            </div>
+          )}
+          {untidy && !notice && !removed && (
             <div
               role="status"
               className="absolute top-3 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-control border border-line bg-overlay py-1 pr-1 pl-3 text-[13px] text-ink-2 shadow-2"
@@ -1314,11 +1389,12 @@ export function WorkflowCanvas({
               ))}
             </div>
           )}
-          {/* The hints, while the canvas is wide enough for them beside its controls. */}
+          {/* The hints, while the canvas is wide enough for them beside its controls, until
+              it is first used. */}
           <div
             className={cn(
               "pointer-events-none absolute bottom-3 left-1/2 hidden -translate-x-1/2 items-center gap-3 text-[11px] text-ink-3",
-              !inspectorOpen && "@5xl/app:flex",
+              !inspectorOpen && hints && "@5xl/app:flex",
             )}
           >
             <span>Drag to pan</span>
@@ -1453,6 +1529,7 @@ export function WorkflowCanvas({
               projectId={projectId}
               node={selectedNode}
               flow={selectedFlow}
+              words={words}
               editing={editing}
               onChange={(change) =>
                 edit(selection.flowId, (f) => withNodeChange(f, selectedNode.id, change))
@@ -1522,7 +1599,7 @@ export function WorkflowCanvas({
               allProblems.some((p) => p.level === "error") ? "bg-signal" : "bg-ink-3",
             )}
           />
-          {allProblems.length} {allProblems.length === 1 ? "thing" : "things"} to look at
+          {problemsOf(allProblems)}
         </button>
       )}
     </div>
@@ -1752,18 +1829,31 @@ function Minimap({
 function PanelHead({
   title,
   hint,
+  onRename,
+  before,
   onClose,
   children,
 }: {
   title: string;
   hint?: string;
+  /** The title is the thing's name, edited where it is shown (#581), as Figma and Linear do. */
+  onRename?: (name: string) => void;
+  /** Before the title: the way back, where the panel has one. */
+  before?: ReactNode;
   onClose: () => void;
   children?: ReactNode;
 }) {
   return (
     <div className="flex items-start gap-2 border-b border-line px-4 py-3">
+      {before}
       <div className="min-w-0 flex-1">
-        <h2 className="m-0 truncate text-[14px] font-medium text-ink">{title}</h2>
+        {onRename ? (
+          <h2 className="m-0 -ml-1">
+            <NameInput name={title} onRename={onRename} />
+          </h2>
+        ) : (
+          <h2 className="m-0 truncate text-[14px] font-medium text-ink">{title}</h2>
+        )}
         {hint && <p className="m-0 text-[12px] text-ink-3">{hint}</p>}
       </div>
       {children}
@@ -1771,6 +1861,34 @@ function PanelHead({
         <Icon name="close" size={14} />
       </Button>
     </div>
+  );
+}
+
+/** A name edited in place: kept when it is left or Return pressed, put back on Escape. */
+function NameInput({ name, onRename }: { name: string; onRename: (name: string) => void }) {
+  const [draft, setDraft] = useState(name);
+  useEffect(() => setDraft(name), [name]);
+  const commit = () => {
+    const next = draft.trim();
+    if (next && next !== name) onRename(next);
+    else setDraft(name);
+  };
+  return (
+    <InlineInput
+      aria-label="Name"
+      value={draft}
+      maxLength={80}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") {
+          setDraft(name);
+          e.currentTarget.blur();
+        }
+      }}
+      className="w-full text-[14px] font-medium"
+    />
   );
 }
 
@@ -1833,7 +1951,7 @@ function Picker({
         <KindTile type={t} />
         <span className="min-w-0">
           <span className="block truncate text-[13px] text-ink">{nodeTypes[t].label}</span>
-          <span className="block truncate text-[12px] text-ink-3">{nodeLooks[t].hint}</span>
+          <span className="block text-[12px] text-ink-3">{nodeLooks[t].hint}</span>
         </span>
       </button>
     );
@@ -1857,7 +1975,7 @@ function Picker({
         )}
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[13px] text-ink">{type.label}</span>
-          <span className="block truncate text-[12px] text-ink-3">{type.hint}</span>
+          <span className="block text-[12px] text-ink-3">{type.hint}</span>
         </span>
         <span className="tabular shrink-0 text-[12px] text-ink-3">{type.kinds.length}</span>
         <Icon name="chevronRight" size={14} className="shrink-0 text-ink-3" />
@@ -1877,15 +1995,21 @@ function Picker({
               ? "Wired from the selected step. Drag one onto the canvas, or click."
               : "Drag one onto the canvas, or click to add it."
         }
+        // The way back comes before the title it leads from (#678).
+        before={
+          open && !query ? (
+            <Button
+              variant="quiet"
+              size="iconSm"
+              aria-label="Back to every type"
+              onClick={() => setOpen(null)}
+            >
+              <Icon name="chevronLeft" size={14} />
+            </Button>
+          ) : undefined
+        }
         onClose={onClose}
-      >
-        {open && !query && (
-          <Button variant="ghost" size="sm" onClick={() => setOpen(null)}>
-            <Icon name="chevronLeft" size={13} />
-            Types
-          </Button>
-        )}
-      </PanelHead>
+      />
       <div className="px-3 pt-3">
         <Input
           aria-label="Search nodes"
@@ -1904,7 +2028,7 @@ function Picker({
               if (found.length === 0) return null;
               return (
                 <div key={type.key} className="mb-2">
-                  <div className={cn("px-2 pt-2 pb-1", eyebrow)}>{type.label}</div>
+                  <div className={"label px-2 pt-2 pb-1"}>{type.label}</div>
                   {found.map((t) => kindRow(t, type))}
                 </div>
               );
@@ -1915,7 +2039,7 @@ function Picker({
         ) : open === "all" ? (
           types.map((type) => (
             <div key={type.key} className="mb-2">
-              <div className={cn("px-2 pt-2 pb-1", eyebrow)}>{type.label}</div>
+              <div className={"label px-2 pt-2 pb-1"}>{type.label}</div>
               {type.kinds.map((t) => kindRow(t, type))}
             </div>
           ))
@@ -1959,37 +2083,37 @@ function WalkPanel({
     <>
       <PanelHead title="Walk an item through" hint={flow?.name} onClose={onClose} />
       <div className="scroll-quiet flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-        <label className="flex items-center gap-2 text-[12px] text-ink-3">
-          The item is
+        <label className="flex items-center gap-2">
+          <span className="label">Item</span>
           <Select
             className="w-auto"
             size="sm"
             value={walk.kind}
             onChange={(e) => onItem({ kind: e.target.value as ItemKind })}
           >
-            <option value="audio">audio</option>
-            <option value="video">video</option>
-            <option value="document">a document</option>
-            <option value="image">a picture</option>
+            <option value="audio">Audio</option>
+            <option value="video">Video</option>
+            <option value="document">Document</option>
+            <option value="image">Picture</option>
           </Select>
         </label>
         {asks.asksWho && (
-          <label className="flex items-center gap-2 text-[12px] text-ink-3">
-            Decisions are made by
+          <label className="flex items-center gap-2">
+            <span className="label">Decided by</span>
             <Select
               className="w-auto"
               size="sm"
               value={walk.by}
               onChange={(e) => onItem({ by: e.target.value as Decider })}
             >
-              <option value="member">a member</option>
-              <option value="guest">a guest</option>
+              <option value="member">A member</option>
+              <option value="guest">A guest</option>
             </Select>
           </label>
         )}
         {asks.tags.length > 0 && (
           <fieldset className="m-0 flex flex-wrap gap-x-4 gap-y-2 border-0 p-0">
-            <legend className="mb-2 p-0 text-[12px] text-ink-3">It is tagged</legend>
+            <legend className="label mb-2 p-0">Tagged</legend>
             {asks.tags.map((tag) => {
               const on = walk.tags.some((t) => t.toLowerCase() === tag.toLowerCase());
               return (
@@ -2031,7 +2155,7 @@ function WalkPanel({
         )}
         {waiting.map((n) => (
           <div key={n.id} className="flex flex-col gap-1.5">
-            <span className={eyebrow}>What happens at “{n.name}”?</span>
+            <span className="label">What happens at “{n.name}”?</span>
             {outcomesOf(n.type).map((o) => (
               <Button key={o.id} variant="secondary" onClick={() => onAdvance(n.id, o.id)}>
                 {outcomeWords(n.type, o.id)}
@@ -2058,6 +2182,7 @@ function NodeInspector({
   projectId,
   node,
   flow,
+  words,
   editing,
   onChange,
   onConfig,
@@ -2071,6 +2196,7 @@ function NodeInspector({
   projectId: string;
   node: WorkflowNode;
   flow?: WorkflowSummary;
+  words: ItemWords;
   editing: boolean;
   onChange: (change: Partial<Pick<WorkflowNode, "name" | "groupId" | "assign">>) => void;
   onConfig: (config: Record<string, string>) => void;
@@ -2095,11 +2221,15 @@ function NodeInspector({
     <>
       <PanelHead
         title={node.name}
+        // A start says what starts it below; anything else says what kind it is.
         hint={
-          info.kind === "event"
-            ? `${info.label}, ${isTrigger ? "starts the workflow" : "waited for"}`
-            : info.label
+          isStart
+            ? undefined
+            : info.kind === "event"
+              ? `${info.label}, ${isTrigger ? "starts the workflow" : "waited for"}`
+              : info.label
         }
+        onRename={editing ? (name) => onChange({ name }) : undefined}
         onClose={onClose}
       >
         {editing && (
@@ -2124,19 +2254,9 @@ function NodeInspector({
             {p.text}
           </p>
         ))}
-        <div className="flex flex-col gap-1.5 text-[12px] text-ink-3">
-          <span aria-hidden="true">Name</span>
-          <Committed
-            label="Name"
-            value={node.name}
-            size="md"
-            disabled={!editing}
-            onCommit={(name) => name && onChange({ name })}
-          />
-        </div>
         {isStart && (
           <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
-            <legend className="mb-2 p-0 text-[12px] text-ink-3">Starts when</legend>
+            <legend className="label mb-2 p-0">Starts when</legend>
             <div className="flex flex-col gap-1.5">
               {kindsByGroup.start.map((t) => {
                 const own = t === node.type;
@@ -2171,24 +2291,26 @@ function NodeInspector({
           />
         ))}
         {isStage && (
-          <span className="flex flex-col gap-1.5 text-[12px] text-ink-3">
-            <span aria-hidden="true">Assign new comments to</span>
+          <span className="flex flex-col gap-1.5">
+            <span aria-hidden="true" className="label">
+              Assign new comments to
+            </span>
             <AssignmentPicker
               projectId={projectId}
               value={node.assign}
-              inherits="Track or project default"
+              inherits={`${capital(words.track)} or project default`}
               disabled={!editing}
               aria-label={`${node.name}: assign new comments to`}
               onChange={(rule) => onChange({ assign: rule ?? undefined })}
             />
-            <span className="text-[11px]">
-              Whoever a comment opened while the track waits here is for.
+            <span className="text-[12px] text-ink-3">
+              Comments opened while a {words.track} is at this step go to this person or role.
             </span>
           </span>
         )}
         {definition && definition.groups.length > 0 && (
-          <label className="flex flex-col gap-1.5 text-[12px] text-ink-3">
-            Stage
+          <label className="flex flex-col gap-1.5">
+            <span className="label">Stage</span>
             <Select
               value={node.groupId ?? ""}
               disabled={!editing}
@@ -2205,17 +2327,20 @@ function NodeInspector({
         )}
         {outs.length > 0 && (
           <div className="flex flex-col gap-2">
-            <span className={eyebrow}>Then</span>
+            <span className="label">Then</span>
             <div className="flex flex-col gap-1.5">
               {outs.map((o) => {
                 const links =
                   definition?.connectors.filter((c) => c.from === node.id && c.outcome === o.id) ??
                   [];
-                const others = definition?.nodes.filter((n) => n.id !== node.id) ?? [];
+                // Never back to a start (#678): a start only begins a workflow.
+                const starts = new Set(definition ? triggersOf(definition).map((t) => t.id) : []);
+                const others =
+                  definition?.nodes.filter((n) => n.id !== node.id && !starts.has(n.id)) ?? [];
                 return (
                   <div key={o.id} className="rounded-panel border border-line px-3 py-2">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-[12px] text-ink-3">
+                      <span className="label">
                         {o.label
                           ? `When ${o.label}`
                           : info.kind === "event"
@@ -2345,8 +2470,8 @@ function ConnectorInspector({
       </PanelHead>
       <div className="flex flex-col gap-4 p-4">
         {outs.length > 1 && (
-          <label className="flex flex-col gap-1.5 text-[12px] text-ink-3">
-            Leaves “{from?.name}” when
+          <label className="flex flex-col gap-1.5">
+            <span className="label">Leaves “{from?.name}” when</span>
             <Select
               value={connector.outcome}
               disabled={!editing}
@@ -2360,8 +2485,8 @@ function ConnectorInspector({
             </Select>
           </label>
         )}
-        <div className="flex flex-col gap-1.5 text-[12px] text-ink-3">
-          <span>Only if</span>
+        <div className="flex flex-col gap-1.5">
+          <span className="label">Only if</span>
           <div className="flex flex-wrap gap-2">
             <Select
               aria-label="Only if"
@@ -2441,8 +2566,10 @@ function ConnectorInspector({
           </div>
         </div>
         {loop && (
-          <div className="flex flex-col gap-1.5 text-[12px] text-ink-3">
-            <span aria-hidden="true">Way out of the loop: at most, in times</span>
+          <div className="flex flex-col gap-1.5">
+            <span aria-hidden="true" className="label">
+              Way out of the loop: at most, in times
+            </span>
             <Committed
               label="Times round the loop at most"
               value={connector.until ? String(connector.until.times) : ""}

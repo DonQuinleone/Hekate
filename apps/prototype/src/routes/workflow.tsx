@@ -390,21 +390,95 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
+/** A workflow's state by the dot's shape and fill (#582): an ink dot active, a ring a draft. */
+function FlowDot({ active }: { active: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "inline-block size-[7px] shrink-0 rounded-full",
+        active ? "bg-ink" : "border-[1.5px] border-ink-3",
+      )}
+    />
+  );
+}
+
+/** "1 problem", "2 warnings" (#582): what a workflow breaks, by level. */
+const problemWords = (list: readonly { level: string }[]) => {
+  const errors = list.filter((p) => p.level === "error").length;
+  const warnings = list.length - errors;
+  return [
+    errors ? `${errors} ${errors === 1 ? "problem" : "problems"}` : "",
+    warnings ? `${warnings} ${warnings === 1 ? "warning" : "warnings"}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+};
+
+/** The one workflow switcher (#582), in the toolbar of every view, as Figma's page list. */
+function FlowSwitcher({
+  flows,
+  current,
+  onChoose,
+}: {
+  flows: Flow[];
+  current: string | undefined;
+  onChoose: (id: string) => void;
+}) {
+  const chosen = flows.find((f) => f.id === current) ?? flows[0];
+  if (!chosen) return null;
+  return (
+    <Dropdown
+      size="sm"
+      label="Workflow"
+      value={
+        <span className="flex items-center gap-1.5 text-ink">
+          <FlowDot active={chosen.active} />
+          {chosen.name}
+        </span>
+      }
+      actions={flows.map((f) => ({
+        label: f.name,
+        icon: <FlowDot active={f.active} />,
+        hint: f.active ? "Active" : "Draft",
+        checked: f.id === chosen.id,
+        onSelect: () => onChoose(f.id),
+      }))}
+    />
+  );
+}
+
 function PanelHead({
   title,
   hint,
+  onRename,
+  before,
   onClose,
   children,
 }: {
   title: string;
   hint?: string;
+  /** The title is the name, edited where it is shown (#581), as Figma and Linear do. */
+  onRename?: (name: string) => void;
+  /** Before the title: the way back, where the panel has one (#678). */
+  before?: ReactNode;
   onClose?: () => void;
   children?: ReactNode;
 }) {
   return (
     <div className="flex items-start gap-2 border-b border-line px-4 py-3">
+      {before}
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[14px] font-medium text-ink">{title}</div>
+        {onRename ? (
+          <input
+            aria-label="Name"
+            value={title}
+            onChange={(e) => onRename(e.target.value)}
+            className="-ml-1 h-7 w-full rounded-control border border-transparent bg-transparent px-1 text-[14px] font-medium text-ink outline-none transition-colors hover:border-edge focus:border-ink-3"
+          />
+        ) : (
+          <div className="truncate text-[14px] font-medium text-ink">{title}</div>
+        )}
         {hint && <div className="text-[12px] text-ink-3">{hint}</div>}
       </div>
       {children}
@@ -424,7 +498,13 @@ type Panel = "picker" | "statuses" | "walk" | null;
 
 export function WorkflowPage({ project }: { project: Project }) {
   const [flows, setFlows] = useState<Flow[]>(() => flowsFor(project.id));
-  const [mode, setMode] = useState<Mode>("advanced");
+  // A phone opens the builder as lists of steps (#583).
+  const [mode, setMode] = useState<Mode>(() =>
+    typeof matchMedia === "function" && matchMedia("(max-width: 767px)").matches
+      ? "basic"
+      : "advanced",
+  );
+  const [focusFlow, setFocusFlow] = useState<string | undefined>(undefined);
   const [selection, setSelection] = useState<Selection>(null);
   const [panel, setPanel] = useState<Panel>(null);
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -485,10 +565,32 @@ export function WorkflowPage({ project }: { project: Project }) {
             </button>
           ))}
         </div>
-        <Button variant="secondary" size="sm" onClick={() => newFlow()}>
-          <Icon name="plus" size={13} />
-          <span className="hidden @3xl/app:inline">New workflow</span>
-        </Button>
+        {/* New workflow (#587): blank, from a template the profile is offered, or from another
+            project; each a new workflow, never written over the open one. Labelled at every
+            width (#583). */}
+        <Dropdown
+          size="sm"
+          align="right"
+          className="border border-line-strong"
+          value={
+            <span className="flex items-center gap-1.5 text-ink">
+              <Icon name="plus" size={13} />
+              New workflow
+            </span>
+          }
+          actions={[
+            { label: "Blank workflow", onSelect: () => newFlow() },
+            "divider",
+            { heading: "From a template" },
+            { label: "Simple approval", onSelect: () => newFlow() },
+            ...(project.profile === "music"
+              ? [{ label: "Conductor first", onSelect: () => newFlow() }]
+              : []),
+            { label: "Parallel stakeholders", onSelect: () => newFlow() },
+            "divider",
+            { label: "From another project…", onSelect: () => newFlow() },
+          ]}
+        />
       </div>
     ),
     revision: mode,
@@ -1073,7 +1175,6 @@ export function WorkflowPage({ project }: { project: Project }) {
             setMode("advanced");
             requestAnimationFrame(() => jumpTo(id));
           }}
-          onNew={() => newFlow()}
         />
       )}
       {mode === "code" && <CodeView flows={flows} onToast={setToast} />}
@@ -1082,23 +1183,15 @@ export function WorkflowPage({ project }: { project: Project }) {
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
             {/* Toolbar */}
             <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3 py-2 @3xl/app:px-4">
-              <div className="scroll-quiet flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-                {flows.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => jumpTo(f.id)}
-                    className="flex h-7 shrink-0 items-center gap-1.5 rounded-control border border-line px-2.5 text-[13px] text-ink-2 transition-colors hover:border-edge hover:text-ink"
-                  >
-                    <span
-                      className={cn("size-1.5 rounded-full", f.active ? "bg-ok" : "bg-ink-3")}
-                    />
-                    {f.name}
-                    {problemsByFlow[f.id]?.some((p) => p.level === "error") && (
-                      <span className="text-signal">!</span>
-                    )}
-                  </button>
-                ))}
+              <div className="flex min-w-0 flex-1 items-center">
+                <FlowSwitcher
+                  flows={flows}
+                  current={focusFlow}
+                  onChoose={(id) => {
+                    setFocusFlow(id);
+                    jumpTo(id);
+                  }}
+                />
               </div>
               <div className="flex shrink-0 items-center gap-1">
                 <Button
@@ -1201,16 +1294,10 @@ export function WorkflowPage({ project }: { project: Project }) {
                       <span className="text-[18px] font-medium tracking-tight text-ink">
                         {b.flow.name}
                       </span>
-                      <span
-                        className={cn("mb-1 text-[12px]", b.flow.active ? "text-ok" : "text-ink-3")}
-                      >
-                        {b.flow.active ? "active" : "draft"}
+                      <span className="mb-1 flex items-center gap-1.5 text-[12px] text-ink-3">
+                        <FlowDot active={b.flow.active} />
+                        {b.flow.active ? "Active" : "Draft"}
                       </span>
-                      {problemsByFlow[b.flow.id]?.length ? (
-                        <span className="mb-1 text-[12px] text-ink-3">
-                          · {problemsByFlow[b.flow.id]?.length} to look at
-                        </span>
-                      ) : null}
                     </div>
                     {b.flow.groups.map((g) => {
                       const members = b.flow.nodes.filter((n) => n.groupId === g.id);
@@ -1227,9 +1314,7 @@ export function WorkflowPage({ project }: { project: Project }) {
                             height: gb.maxY - gb.minY + 54,
                           }}
                         >
-                          <span className="absolute top-2 left-3 text-[11px] tracking-wide text-ink-3 uppercase">
-                            {g.name}
-                          </span>
+                          <span className="eyebrow absolute top-2 left-3">{g.name}</span>
                         </div>
                       );
                     })}
@@ -1664,7 +1749,7 @@ export function WorkflowPage({ project }: { project: Project }) {
               allProblems.some((p) => p.level === "error") ? "bg-signal" : "bg-ink-3",
             )}
           />
-          {allProblems.length} {allProblems.length === 1 ? "thing" : "things"} to look at
+          {problemWords(allProblems)}
         </button>
       )}
     </div>
@@ -1827,15 +1912,20 @@ function Picker({
       <PanelHead
         title={chosen ? chosen.label : "Add a node"}
         hint={chosen ? chosen.hint : "Drag one onto the canvas, or click to add it."}
+        before={
+          open && !query ? (
+            <Button
+              variant="quiet"
+              size="iconSm"
+              aria-label="Back to every type"
+              onClick={() => setOpen(null)}
+            >
+              <Icon name="chevronLeft" size={14} />
+            </Button>
+          ) : undefined
+        }
         onClose={onClose}
-      >
-        {open && !query && (
-          <Button variant="ghost" size="sm" onClick={() => setOpen(null)}>
-            <Icon name="chevronLeft" size={13} />
-            Types
-          </Button>
-        )}
-      </PanelHead>
+      />
       <div className="px-3 pt-3">
         <Input
           value={q}
@@ -1923,12 +2013,12 @@ function StatusesPanel({
           >
             <span
               className={cn(
-                "size-2 rounded-full",
+                "size-[7px] rounded-full",
                 s.category === "done"
-                  ? "bg-ok"
+                  ? "bg-ink"
                   : s.category === "in_progress"
-                    ? "bg-signal"
-                    : "bg-ink-3",
+                    ? "border-[1.5px] border-ink-3"
+                    : "border-[1.5px] border-dashed border-ink-3",
               )}
             />
             <span className="flex-1 text-[13px] text-ink">{s.name}</span>
@@ -2108,9 +2198,6 @@ function NodeInspector({
             {p.text}
           </p>
         ))}
-        <Field label="Name">
-          <Input value={node.name} onChange={(e) => onChange({ name: e.target.value })} />
-        </Field>
         {isStart && (
           <div className="flex flex-col gap-2">
             <Label>Starts when</Label>
@@ -2206,8 +2293,8 @@ function NodeInspector({
                 ))}
               </optgroup>
             </Select>
-            <span className="text-[11px]">
-              Whoever a comment opened while the track waits here is for.
+            <span className="text-[12px] text-ink-3">
+              Comments opened while a track is at this step go to this person or role.
             </span>
           </Field>
         )}
@@ -2263,7 +2350,10 @@ function NodeInspector({
               {outs.map((o) => {
                 const links =
                   flow?.connectors.filter((c) => c.from === node.id && c.outcome === o.id) ?? [];
-                const others = flow?.nodes.filter((n) => n.id !== node.id) ?? [];
+                // Never back to a start (#678): a start only begins a workflow.
+                const starts = new Set(flow ? triggersOf(flow).map((t) => t.id) : []);
+                const others =
+                  flow?.nodes.filter((n) => n.id !== node.id && !starts.has(n.id)) ?? [];
                 return (
                   <div key={o.id} className="rounded-panel border border-line px-3 py-2">
                     <div className="flex items-center justify-between gap-2">
@@ -2437,21 +2527,22 @@ function BasicView({
   problems,
   onChange,
   onAdvanced,
-  onNew,
 }: {
   flows: Flow[];
   problems: Record<string, Problem[]>;
   onChange: (flowId: string, fn: (f: Flow) => Flow) => void;
   onAdvanced: (flowId: string) => void;
-  onNew: () => void;
 }) {
   return (
     <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto">
       <div className="fade-in mx-auto flex w-full max-w-[860px] flex-col gap-8 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8">
-        <p className="max-w-[620px] text-[14px] text-ink-2">
-          Each workflow as a list of steps. Change who, when and what happens on changes; the
-          advanced view holds the same workflow as a graph for anything beyond that.
-        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <FlowSwitcher flows={flows} current={undefined} onChoose={() => {}} />
+          <p className="min-w-0 flex-1 basis-64 text-[13px] text-ink-3">
+            Each workflow as a list of steps: change who, when and what happens here, and anything
+            beyond that on the canvas.
+          </p>
+        </div>
         {flows.map((f) => {
           const ord = flowOrder(f);
           const nodes = ord
@@ -2469,22 +2560,38 @@ function BasicView({
             }));
           return (
             <section key={f.id} className="flex flex-col gap-3">
-              <div className="flex items-end gap-3">
-                <div className="min-w-0 flex-1">
-                  <h2 className="text-[18px] font-medium tracking-tight text-ink">{f.name}</h2>
-                  <p className="text-[13px] text-ink-3">
-                    {f.active ? "Active" : "Draft"} · {steps.length} steps
-                    {problems[f.id]?.length ? ` · ${problems[f.id]?.length} to look at` : ""}
+              {/* The name whole, a link to its place on the canvas; its state and the switch
+                  labelled Active on the line under it (#582, #583). */}
+              <div className="flex flex-col gap-1">
+                <h2 className="text-[18px] font-medium tracking-tight text-ink">
+                  <button
+                    type="button"
+                    onClick={() => onAdvanced(f.id)}
+                    className="text-left underline-offset-4 hover:underline"
+                  >
+                    {f.name}
+                  </button>
+                </h2>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <p className="flex min-w-0 flex-1 items-center gap-1.5 text-[13px] text-ink-3">
+                    <FlowDot active={f.active} />
+                    {[
+                      f.active ? "Active" : "Draft",
+                      `${steps.length} ${steps.length === 1 ? "step" : "steps"}`,
+                      problemWords(problems[f.id] ?? []),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </p>
+                  <span className="flex items-center gap-2 text-[13px] text-ink-2">
+                    Active
+                    <Switch
+                      label={`${f.name} active`}
+                      checked={f.active}
+                      onChange={(v) => onChange(f.id, (x) => ({ ...x, active: v }))}
+                    />
+                  </span>
                 </div>
-                <Switch
-                  label={`${f.name} active`}
-                  checked={f.active}
-                  onChange={(v) => onChange(f.id, (x) => ({ ...x, active: v }))}
-                />
-                <Button variant="secondary" size="md" onClick={() => onAdvanced(f.id)}>
-                  Open in the advanced view
-                </Button>
               </div>
               <div className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25 shadow-1">
                 <div className="flex items-center gap-3 px-4 py-3">
@@ -2626,12 +2733,6 @@ function BasicView({
             </section>
           );
         })}
-        <div>
-          <Button variant="secondary" onClick={onNew}>
-            <Icon name="plus" size={14} />
-            New workflow
-          </Button>
-        </div>
         <p className="text-[12px] text-ink-3">
           A track can follow a workflow of its own instead of the project's; that is set from the
           track.
@@ -2654,23 +2755,7 @@ function CodeView({ flows, onToast }: { flows: Flow[]; onToast: (t: string) => v
     <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto">
       <div className="fade-in mx-auto flex w-full max-w-[960px] flex-col gap-4 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8">
         <div className="flex flex-wrap items-center gap-2">
-          <div role="tablist" className="flex items-center gap-1">
-            {flows.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                role="tab"
-                aria-selected={f.id === flow?.id}
-                onClick={() => setFlowId(f.id)}
-                className={cn(
-                  "h-8 rounded-control px-2.5 text-[13px] transition-colors",
-                  f.id === flow?.id ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
-                )}
-              >
-                {f.name}
-              </button>
-            ))}
-          </div>
+          <FlowSwitcher flows={flows} current={flow?.id} onChoose={setFlowId} />
           <div className="ml-auto flex items-center gap-1.5">
             <Button
               variant="ghost"
@@ -2704,12 +2789,12 @@ function CodeView({ flows, onToast }: { flows: Flow[]; onToast: (t: string) => v
               size="sm"
               onClick={() =>
                 onToast(
-                  "Read a workflow file, or start from a template (Simple approval, Conductor first, Parallel stakeholders): what applying it changes, and its problems with their lines, show before anything is saved.",
+                  "Read a workflow file: what applying it changes, and its problems beside their lines, show before anything is saved. A template makes a new workflow, from New workflow.",
                 )
               }
             >
               <Icon name="upload" size={13} />
-              Import
+              Import a file…
             </Button>
             <Button
               variant="primary"

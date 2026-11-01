@@ -9,16 +9,11 @@ import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
 import { CodeEditor } from "~/components/ui/code-editor";
 import { FileInput } from "~/components/ui/input";
-import { Dropdown } from "~/components/ui/menu";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
+import { WorkflowSwitcher } from "~/components/workflow-switcher";
 import { cn } from "~/lib/cn";
 import { useWorkflowMutations } from "~/lib/queries";
-import {
-  workflowChanges,
-  workflowTemplates,
-  type YamlPiece,
-  yamlPieces,
-} from "~/lib/workflow-code";
+import { workflowChanges, type YamlPiece, yamlPieces } from "~/lib/workflow-code";
+import { problemsOf } from "~/lib/workflow-summary";
 
 const pieceClass: Record<YamlPiece, string> = {
   space: "",
@@ -56,23 +51,25 @@ interface Draft {
 
 /**
  * The builder's code view (#145): each workflow as its file, to copy, download, or change and
- * apply. A file read in, or a template, is checked before anything is saved: what it would
- * change, and its problems, each at its line.
+ * apply. A file read in is checked before anything is saved: what it would change, and its
+ * problems, each at its line and beside it in the file (#677).
  */
 export function WorkflowCode({
   projectId,
   workflows,
   editing,
   focus,
+  onFocus,
 }: {
   projectId: string;
   workflows: WorkflowSummary[];
   editing: boolean;
+  /** The workflow chosen, the same in every view (#582). */
   focus: string | null;
+  onFocus: (id: string) => void;
 }) {
   const { change } = useWorkflowMutations(projectId);
-  const [chosen, setChosen] = useState(focus);
-  const workflow = workflows.find((w) => w.id === chosen) ?? workflows[0];
+  const workflow = workflows.find((w) => w.id === focus) ?? workflows[0];
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [said, setSaid] = useState<{ text: string; failed?: boolean } | null>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
@@ -94,11 +91,23 @@ export function WorkflowCode({
       : [];
   const stale = dirty && draft.version !== workflow.version;
   const breaks = read.ok && workflow.active && read.problems.some((p) => p.level === "error");
-  const marked = new Set(
-    (read.ok ? read.problems.filter((p) => p.level === "error") : read.errors).flatMap((p) =>
-      p.line === null ? [] : [p.line],
-    ),
-  );
+  const errors = read.ok
+    ? read.problems.filter((p) => p.level === "error").map((p) => ({ line: p.line, text: p.text }))
+    : read.errors.map((e) => ({ line: e.line, text: e.message }));
+  const marked = new Set(errors.flatMap((p) => (p.line === null ? [] : [p.line])));
+  // Each refusal's reason beside its line (#677), as an editor shows it.
+  const notes = new Map<number, string>();
+  for (const e of errors) if (e.line !== null && !notes.has(e.line)) notes.set(e.line, e.text);
+  // Why Apply cannot run, in a few words, where it cannot (#677).
+  const blocked = !dirty
+    ? null
+    : !read.ok || breaks
+      ? `Fix ${errors.length} ${errors.length === 1 ? "problem" : "problems"} to apply`
+      : stale
+        ? "Changed elsewhere since you began"
+        : changes.length === 0
+          ? "Nothing to apply"
+          : null;
 
   const setText = (next: string) => {
     setSaid(null);
@@ -176,26 +185,19 @@ export function WorkflowCode({
 
   return (
     <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto">
-      <Tabs
-        value={workflow.id}
-        onValueChange={setChosen}
-        className="fade-in mx-auto flex w-full max-w-[960px] flex-col gap-4 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8"
-      >
+      <div className="fade-in mx-auto flex w-full max-w-[960px] flex-col gap-4 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <div className="min-w-0 flex-1">
-            <TabsList aria-label="Workflow" className="scroll-quiet overflow-x-auto border-b-0">
-              {workflows.map((w) => (
-                <TabsTrigger key={w.id} value={w.id} className="shrink-0 whitespace-nowrap">
-                  {w.name}
-                  {drafts[w.id] && drafts[w.id]?.text !== workflowToYaml(w.name, w.definition) && (
-                    <>
-                      <span aria-hidden="true" className="size-1.5 rounded-full bg-signal" />
-                      <span className="sr-only">(changed)</span>
-                    </>
-                  )}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <WorkflowSwitcher workflows={workflows} current={workflow.id} onChoose={onFocus} />
+            {dirty && (
+              <span className="shrink-0 text-[12px] text-ink-3">
+                <span
+                  aria-hidden="true"
+                  className="mr-1.5 inline-block size-1.5 rounded-full bg-ink-3 align-middle"
+                />
+                Changed, not applied
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Button variant="ghost" size="sm" onClick={copy}>
@@ -208,30 +210,12 @@ export function WorkflowCode({
             </Button>
             {editing && (
               <>
-                <Dropdown
-                  size="sm"
-                  align="right"
-                  value={
-                    <>
-                      <Icon name="upload" size={13} />
-                      Import
-                    </>
-                  }
-                  actions={[
-                    { label: "A file…", onSelect: () => chooser.current?.click() },
-                    "divider",
-                    ...workflowTemplates.map((t) => ({
-                      label: t.name,
-                      hint: "Template",
-                      onSelect: () => {
-                        setText(t.text);
-                        setSaid({
-                          text: `The ${t.name} template: check what it changes, then apply it.`,
-                        });
-                      },
-                    })),
-                  ]}
-                />
+                {/* A file read in is checked against this workflow before anything is saved;
+                    a template makes a new workflow instead, from New workflow (#587). */}
+                <Button variant="ghost" size="sm" onClick={() => chooser.current?.click()}>
+                  <Icon name="upload" size={13} />
+                  Import a file…
+                </Button>
                 <FileInput
                   ref={chooser}
                   accept=".yaml,.yml,application/yaml,text/yaml"
@@ -245,17 +229,13 @@ export function WorkflowCode({
                     Discard
                   </Button>
                 )}
+                {/* Why it cannot be applied, beside it and as its tooltip (#677). */}
+                {blocked && <span className="text-[12px] text-ink-3">{blocked}</span>}
                 <Button
                   variant="primary"
                   size="sm"
-                  disabled={
-                    !dirty ||
-                    !read.ok ||
-                    stale ||
-                    breaks ||
-                    changes.length === 0 ||
-                    change.isPending
-                  }
+                  title={blocked ?? undefined}
+                  disabled={!dirty || blocked !== null || change.isPending}
                   onClick={apply}
                 >
                   Apply
@@ -264,7 +244,7 @@ export function WorkflowCode({
             )}
           </div>
         </div>
-        <TabsContent value={workflow.id} className="flex flex-col gap-4 focus:outline-none">
+        <div className="flex flex-col gap-4">
           <p className="m-0 max-w-[640px] text-[13px] text-ink-3">
             The whole workflow as a file: keep it in a repository, share it between projects, or
             hand it to another instance. Changes made here are checked, then applied when you
@@ -313,7 +293,7 @@ export function WorkflowCode({
               )}
               {read.problems.length > 0 && (
                 <Findings
-                  title="To look at"
+                  title={problemsOf(read.problems)}
                   items={read.problems.map((p) => ({
                     line: p.line,
                     text: p.text,
@@ -332,9 +312,10 @@ export function WorkflowCode({
             colour={colour}
             marked={marked}
             readOnly={!editing}
+            notes={notes}
           />
-        </TabsContent>
-      </Tabs>
+        </div>
+      </div>
     </div>
   );
 }

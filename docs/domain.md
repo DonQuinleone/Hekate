@@ -45,9 +45,10 @@ The words in this document are used exactly as defined, in code, in the interfac
 | **Guest** | An external reviewer without an account (a conductor, a soloist, a composer). Guests reach material through signed links scoped to the reviews they are part of. |
 | **Group** | A named set of reviewers in a project, for example "Soloists". A review can be sent to groups as well as individuals. |
 | **Workflow** | A graph of nodes and connectors, defined per project and overridable per track (decision 040). Built in the workflow builder; readable and writable as YAML. |
-| **Node** | A step of a workflow: an **event** (something happens) or an **action** (something is done), each with named **outcomes**. |
+| **Node** | A part of a workflow on its canvas: an **event** (something happens) or an **action** (something is done), each with named **outcomes**. |
 | **Connector** | Wires a node's outcome to the next node, optionally with a **condition**; one that runs back is a loop and needs an "until". |
-| **Stage** | A step in a workflow: an approval, a feedback round or a task (triage, editing). Stages have participants and run when their conditions are met. |
+| **Stage** | A workflow's action that waits for people: an approval, a feedback round or a task (triage, editing). Stages have participants and run when their conditions are met. |
+| **Step** | One of a workflow's actions between its start and its finish, as the builder's basic view lists them and every count of a workflow counts them ("4 steps", decision 363). A step that waits for people is a stage; the start, the events waited for and the finish are nodes but not steps. |
 | **Status** | Where a track (or other item) stands in its workflow, for example *Editing*, *With conductor*, *Triage*, *Approved*. Statuses are defined by the workflow, not fixed by Hekate. |
 | **Role** | A named set of permissions within a project, for example Producer, Engineer, Editor, Reviewer. Roles and their permissions are configurable per project. |
 | **Ticket** | A question to the people who run the instance, from a workspace: a thread with a generated reference, a type and a severity limited by the plan. Only with the support module. |
@@ -248,6 +249,7 @@ A workflow is a graph of **nodes** joined by **connectors** (decision 040), plus
 - **Outcomes** are the named ways a node ends: an approval ends *approved* or *changes requested*, a feedback round *submitted*, a task *done*, a check *passed* or *failed*.
 - **Connectors** wire an outcome to the next node and may carry a **condition** (on the item, the decision or who made it). A connector that runs back to an earlier node is a **loop**, and needs a way out: an *until* (for example, until approved, or at most three rounds).
 - **Groups** frame a stage on the canvas ("Conductor rounds"), so a long flow reads as a few steps.
+- **Steps** are the actions between a workflow's start and its finish, as its basic view lists them; a workflow is counted in steps wherever it is counted (decision 363).
 - **Statuses** are where an item stands (*Editing*, *With conductor*, *Triage*, *Approved*), set by actions and shown on the board.
 - **Scope:** a project's workflows share one canvas, each starting from its own event; a track can override them. A new version is itself an event, so a flow decides what happens when one arrives (for example, go back to the conductor's round).
 - **Text:** every workflow can be read and written as YAML, so it can be stored, shared and reviewed.

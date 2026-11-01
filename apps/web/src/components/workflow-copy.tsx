@@ -5,8 +5,7 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Select } from "~/components/ui/input";
 import { projectsQuery, projectWorkflowsQuery } from "~/lib/queries";
-
-const stepsWords = (n: number) => (n === 1 ? "1 step" : `${n} steps`);
+import { stepsOf } from "~/lib/workflow-summary";
 
 /**
  * A workflow copied from another project of the workspace (#26), as the issue asks: chosen from
@@ -77,7 +76,8 @@ export function CopyWorkflowDialog({
                     <span className="flex min-w-0 flex-1 flex-col">
                       <span className="truncate text-[14px] text-ink">{w.name}</span>
                       <span className="text-[12px] text-ink-3">
-                        {stepsWords(w.definition.nodes.length)}
+                        {/* Steps as every view counts them (#582), not every node. */}
+                        {stepsOf(w.definition)}
                         {w.trackId ? ", a track's own" : ""}
                       </span>
                     </span>
