@@ -962,7 +962,7 @@ test("listen-together", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Listen together" })).toBeVisible();
 });
 
-// A listening room's link (#200), as someone about to join sees it.
+// A listening room's link (#200), as its leader sees it (#650): their own room's controls.
 test("listen-room", async ({ page }) => {
   const started = await page.request.fetch(
     `/api/projects/${seeded().musicProjectId}/listening-rooms`,
@@ -972,7 +972,7 @@ test("listen-room", async ({ page }) => {
   const { room } = (await started.json()) as { room: { id: string } };
   try {
     await page.goto(`/listen/${room.id}`);
-    await settle(page, "button:has-text('Join')");
+    await settle(page, "button:has-text('End for everyone')");
     await saveScreen(page, "listen-room");
     await checkScreen(page);
   } finally {
@@ -1238,7 +1238,7 @@ test("stage-plan", async ({ page }) => {
   ]);
   expect(pdf.suggestedFilename()).toBe("Joplin Rags Endless Hall stage plan.pdf");
   // The hall's floor plan under the stage, chosen from the project's documents.
-  await page.getByRole("button", { name: "Stage plan" }).click();
+  await page.getByRole("button", { name: /^Stage plan/ }).click();
   await page.getByRole("menuitem", { name: "Floor plan" }).click();
   const floor = page.getByRole("dialog", { name: "Floor plan" });
   await expect(floor.getByRole("button", { name: "File" })).toHaveText(
@@ -1309,7 +1309,8 @@ test("schedule", async ({ page }) => {
   await checkScreen(page);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Coverage" }).click();
-  await expect(page.getByText(/Day 1 10:00/)).toBeVisible();
+  // Each track's slots by day, each day named once (#651).
+  await expect(page.getByText(/Day 1: 10:00/).first()).toBeVisible();
   await saveScreen(page, "schedule-coverage");
   await checkScreen(page);
 });
@@ -5208,7 +5209,7 @@ test("loading", async ({ page }) => {
 test("project-take-log", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/take-log`);
   await expect(page).toHaveURL(/\/sessions\/[^/]+\/log$/);
-  await settle(page, "main section[aria-label=Transport]");
+  await settle(page, "main >> text=The same take log, a view per person in the room.");
   await saveScreen(page, "project-take-log");
   await checkScreen(page);
 });

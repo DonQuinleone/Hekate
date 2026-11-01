@@ -293,7 +293,7 @@ export function TakeManager({
                           {i === 0 ? "bar 1" : i * 10}
                         </span>
                       ))}
-                      {asked && <BarMark bar={wanted} end={end} />}
+                      {asked && <BarMark bar={wanted} end={end} ruler />}
                       {/* The bars no take covers, marked under the ruler. */}
                       {gaps.map(([from, to]) => (
                         <span
@@ -376,12 +376,16 @@ export const barFound = (n: number, bar: number) =>
     : `${n} ${n === 1 ? "take covers" : "takes cover"} bar ${bar}`;
 
 /** The bar asked for, a line across the ruler and the lanes at its middle. */
-function BarMark({ bar, end }: { bar: number; end: number }) {
+function BarMark({ bar, end, ruler = false }: { bar: number; end: number; ruler?: boolean }) {
   if (bar < 1 || bar > end) return null;
   return (
     <span
       aria-hidden="true"
-      className="pointer-events-none absolute top-0 bottom-0 w-px bg-ink"
+      // On the ruler, under its figures, never through them.
+      className={cn(
+        "pointer-events-none absolute bottom-0 w-px bg-ink",
+        ruler ? "top-[18px]" : "top-0",
+      )}
       style={{ left: `${(bar - 0.5) * (100 / end)}%` }}
     />
   );
@@ -573,8 +577,8 @@ function EditDecisionList({
           // Drop frame exists only at 29.97: nothing to choose.
           <span>Frame rate {rateName(decisions.fps, true)}, as the list says</span>
         ) : (
-          <label className="flex items-center gap-2">
-            Frame rate
+          <label className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="whitespace-nowrap">Frame rate</span>
             <Select
               size="sm"
               value={rate === undefined ? "" : String(rate)}
@@ -590,7 +594,7 @@ function EditDecisionList({
                 </option>
               ))}
             </Select>
-            <span className="text-[12px] text-ink-3">
+            <span className="whitespace-nowrap text-[12px] text-ink-3">
               {rate !== undefined
                 ? "Chosen here"
                 : decisions.fpsGuessed

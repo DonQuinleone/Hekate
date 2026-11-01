@@ -170,10 +170,10 @@ function PatchList({
                       <thead>
                         <tr className="text-left">
                           {[
-                            [words.heading, "w-[72px]"],
-                            ["Source", "w-[30%] @xl/app:w-[22%]"],
-                            ["Device", "w-[24%] @xl/app:w-[22%]"],
-                            ["Cable", "w-[14%] @xl/app:w-[12%]"],
+                            [words.heading, "w-[76px]"],
+                            ["Source", "@xl/app:w-[22%]"],
+                            ["Device", "w-[28%] @xl/app:w-[22%]"],
+                            ["Cable", "w-[56px] @xl/app:w-[12%]"],
                             ["Notes", "hidden @xl/app:table-cell"],
                           ].map(([h, width]) => (
                             <th key={h} className={`px-3 py-2 font-normal ${width}`}>

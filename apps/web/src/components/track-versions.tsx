@@ -148,6 +148,8 @@ function NewVersion({
   const [primary, setPrimary] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [choices, setChoices] = useState<Record<string, CarryChoice>>({});
+  /** Whether each open comment's choice is shown, under the one for them all. */
+  const [each, setEach] = useState(false);
   // Where its workflow starts again from (#25), for those who edit workflows: by default it
   // carries on where it is. The track's own workflows where it has any, else the project's.
   const mayRestart = can("edit_workflows");
@@ -346,56 +348,64 @@ function NewVersion({
                   ))}
                 </Select>
               </Field>
-              <details className="group">
-                <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 text-[13px] text-ink-2 hover:text-ink [&::-webkit-details-marker]:hidden">
+              <div>
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  aria-expanded={each}
+                  onClick={() => setEach(!each)}
+                  className="-ml-2.5"
+                >
                   <Icon
                     name="chevronRight"
                     size={12}
-                    className="transition-transform group-open:rotate-90"
+                    className={cn("transition-transform", each && "rotate-90")}
                   />
                   Choose for each comment
-                </summary>
-                <ul className="mt-2 flex flex-col">
-                  {carry.map((t) => (
-                    <li
-                      key={t.commentId}
-                      className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line py-2 last:border-b-0"
-                    >
-                      <span className="min-w-0 flex-1 basis-48">
-                        <span className="line-clamp-2 text-[14px] text-ink @3xl/app:block @3xl/app:truncate">
-                          {t.body}
-                        </span>
-                        <span className="block truncate text-[12px] text-ink-3">
-                          {[
-                            t.authorName,
-                            t.variant,
-                            t.anchor
-                              ? formatAnchor(t.anchor).replace(/(^|\s)0(\d:)/g, "$1$2")
-                              : null,
-                          ]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
-                      </span>
-                      <Select
-                        size="sm"
-                        value={choices[t.commentId] ?? "open"}
-                        onChange={(e) =>
-                          setChoices({ ...choices, [t.commentId]: e.target.value as CarryChoice })
-                        }
-                        aria-label={`What becomes of "${t.body}"`}
-                        className="w-36"
+                </Button>
+                {each && (
+                  <ul className="mt-2 flex flex-col">
+                    {carry.map((t) => (
+                      <li
+                        key={t.commentId}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line py-2 last:border-b-0"
                       >
-                        {(Object.keys(carryWords) as CarryChoice[]).map((c) => (
-                          <option key={c} value={c}>
-                            {carryWords[c]}
-                          </option>
-                        ))}
-                      </Select>
-                    </li>
-                  ))}
-                </ul>
-              </details>
+                        <span className="min-w-0 flex-1 basis-48">
+                          <span className="line-clamp-2 text-[14px] text-ink @3xl/app:block @3xl/app:truncate">
+                            {t.body}
+                          </span>
+                          <span className="block truncate text-[12px] text-ink-3">
+                            {[
+                              t.authorName,
+                              t.variant,
+                              t.anchor
+                                ? formatAnchor(t.anchor).replace(/(^|\s)0(\d:)/g, "$1$2")
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        </span>
+                        <Select
+                          size="sm"
+                          value={choices[t.commentId] ?? "open"}
+                          onChange={(e) =>
+                            setChoices({ ...choices, [t.commentId]: e.target.value as CarryChoice })
+                          }
+                          aria-label={`What becomes of "${t.body}"`}
+                          className="w-36"
+                        >
+                          {(Object.keys(carryWords) as CarryChoice[]).map((c) => (
+                            <option key={c} value={c}>
+                              {carryWords[c]}
+                            </option>
+                          ))}
+                        </Select>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </fieldset>
           )}
           {mayRestart && stages.length > 0 && (

@@ -9,7 +9,6 @@ import { PageHeader } from "~/components/page-header";
 import { Player } from "~/components/player";
 import { Rating } from "~/components/takes";
 import { Button } from "~/components/ui/button";
-import { Chip } from "~/components/ui/chip";
 import { Radio } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
@@ -395,7 +394,8 @@ function AttachDialog({ take, onClose }: { take: TakeDetail; onClose: () => void
   const [chosen, setChosen] = useState("");
   const [search, setSearch] = useState("");
   const anchorOf = (c: (typeof open)[number]["comment"]) =>
-    c.anchor ? formatAnchor(c.anchor) : null;
+    // As a thread's own line writes it: "Bars 9–12", "0:21.400 – 0:23.000".
+    c.anchor ? formatAnchor(c.anchor).replace(/(^|\s)0(\d:)/g, "$1$2") : null;
   const shown = open.filter((t) =>
     threadMatches(
       { body: t.comment.body, authorName: t.comment.authorName, anchor: anchorOf(t.comment) },
@@ -463,7 +463,11 @@ function AttachDialog({ take, onClose }: { take: TakeDetail; onClose: () => void
                     <span className="flex min-w-0 flex-1 flex-col gap-1">
                       <span className="line-clamp-2 text-[13px] text-ink">{t.comment.body}</span>
                       <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3">
-                        {anchor && <Chip className="tabular">{anchor}</Chip>}
+                        {anchor && (
+                          <span className="tabular rounded-chip border border-line px-1.5 text-ink-2">
+                            {anchor}
+                          </span>
+                        )}
                         <span className="min-w-0 truncate">
                           {[where, t.comment.authorName].filter(Boolean).join(" · ")}
                         </span>

@@ -498,11 +498,9 @@ function WorkDialog({
               <span className="text-center">No.</span>
               <span>Track</span>
               <span className="flex items-center gap-2">
+                {/* One heading over the pair: from, then to. */}
                 {scoreFileId && (
-                  <>
-                    <span className="w-16 text-center">Printed pages from</span>
-                    <span className="w-16 text-center">to</span>
-                  </>
+                  <span className="w-[136px] whitespace-nowrap text-center">Printed pages</span>
                 )}
                 <span className="w-[60px]" />
               </span>
