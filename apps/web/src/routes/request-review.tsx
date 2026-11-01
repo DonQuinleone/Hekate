@@ -693,7 +693,7 @@ function ReviewForm({
                 }}
                 placeholder={
                   people.length === 0
-                    ? "Members, groups, or an email address for a new guest"
+                    ? "Members, groups or an email address"
                     : step.people.length === 0
                       ? "Add someone to this step"
                       : "Add someone"
@@ -727,7 +727,7 @@ function ReviewForm({
               >
                 <Icon name="copy" size={14} className="shrink-0 text-ink-3" />
                 <span className="min-w-0 truncate">
-                  Filled in from {fromTitle}. Nothing is sent until you press Send.
+                  Filled in from {fromTitle}. Nothing is sent until you press Send the review.
                 </span>
               </p>
             )}
@@ -756,6 +756,18 @@ function ReviewForm({
               n={2}
               title="What"
               hint={`${capital(words.tracks)} at their latest ${words.version} or a chosen one, files, or whole folders.`}
+              {/* As the prototype points it out (#664): a share asks nothing. */}
+              <p className="m-0 text-[12px] text-ink-3">
+                Only want someone to listen? That is a{" "}
+                <Link
+                  to="/projects/$projectId/files"
+                  params={{ projectId }}
+                  className="text-ink-2 underline decoration-edge underline-offset-2 hover:text-ink"
+                >
+                  share
+                </Link>
+                , made from the file or track itself, not a review.
+              </p>
             >
               <ItemPicker
                 projectId={projectId}
@@ -796,7 +808,6 @@ function ReviewForm({
                           className="shrink-0 text-ink-3"
                         />
                         <span className="min-w-0 truncate">{name}</span>
-                        {folder && <span className="shrink-0 text-ink-3">everything in it</span>}
                         {track && latest && (
                           <Dropdown
                             size="sm"
@@ -843,18 +854,10 @@ function ReviewForm({
                   Covers every project you may share, now and those made later. The invitation says
                   so.
                 </p>
-              ) : items.some((key) => key.startsWith("folder:")) ? (
-                <p className="text-[12px] text-ink-3">
-                  A folder covers everything in it, files added later included.
-                </p>
               ) : null}
             </Section>
 
-            <Section
-              n={3}
-              title="Reviewers"
-              hint="Members, groups and guests. An address no one here answers to invites a new guest, by link. What they may do follows the workspace's defaults unless you override it here."
-            >
+            <Section n={3} title="Reviewers" hint="Who is asked, and in what order.">
               <div className="flex flex-col gap-1.5">
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                   <div className="flex items-center gap-2.5">
@@ -927,8 +930,9 @@ function ReviewForm({
                 )}
               </ol>
               <p className="m-0 text-[12px] text-ink-3">
-                Guests need no account: each is emailed a link that works once, for{" "}
-                {settings?.guestLinkDays ?? 3} days, and reaches only this review.
+                A new address is a guest, emailed a link that works once, for{" "}
+                {settings?.guestLinkDays ?? 3} days. What anyone may do follows the workspace's
+                defaults unless you override it from their row.
               </p>
             </Section>
 
@@ -1040,9 +1044,7 @@ function ReviewForm({
                   Cancel
                 </Link>
               </Button>
-              <p className="text-[12px] text-ink-3">
-                Invitations go by email when you send. Guests get a link that is theirs alone.
-              </p>
+              <p className="text-[12px] text-ink-3">Invitations go by email when you send.</p>
             </Card>
           </aside>
         </form>

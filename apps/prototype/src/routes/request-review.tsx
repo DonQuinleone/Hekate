@@ -576,7 +576,7 @@ export function RequestReviewPage({
           {original && (
             <p className="flex items-center gap-2 rounded-panel border border-line bg-raised/40 px-3 py-2 text-[13px] text-ink-2">
               <Icon name="copy" size={14} className="text-ink-3" />
-              Filled in from {original.title}. Nothing is sent until you press Send.
+              Filled in from {original.title}. Nothing is sent until you press Send the review.
             </p>
           )}
           <Section n={1} title="Kind">
@@ -656,7 +656,6 @@ export function RequestReviewPage({
                         className="text-ink-3"
                       />
                       {track ? track.name : name.replace(/^file-/, "")}
-                      {folder && <span className="text-ink-3">everything in it</span>}
                       {track && (
                         <Dropdown
                           size="sm"
@@ -697,18 +696,10 @@ export function RequestReviewPage({
                 Covers every project you may share, now and those made later. The invitation says
                 so.
               </p>
-            ) : chosenItems.some((id) => folders.some((f: Folder) => f.id === id)) ? (
-              <p className="text-[12px] text-ink-3">
-                A folder covers everything in it, files added later included.
-              </p>
             ) : null}
           </Section>
 
-          <Section
-            n={3}
-            title="Reviewers"
-            hint="Members, groups and guests. An address no one here answers to invites a new guest, by link. Their usual permissions apply unless you override them here."
-          >
+          <Section n={3} title="Reviewers" hint="Who is asked, and in what order.">
             <div className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <div className="flex items-center gap-2">
@@ -879,9 +870,7 @@ export function RequestReviewPage({
                 Cancel
               </Link>
             </Button>
-            <p className="text-[12px] text-ink-3">
-              Invitations go by email when you send. Guests get a link that is theirs alone.
-            </p>
+            <p className="text-[12px] text-ink-3">Invitations go by email when you send.</p>
           </Card>
         </aside>
       </form>
