@@ -123,13 +123,15 @@ function Node({
   first?: boolean;
 }) {
   return (
-    <li className="flex shrink-0 items-center">
+    <li className="flex shrink-0 flex-col items-start @3xl/app:flex-row @3xl/app:items-center">
       {!first && (
         <span
           aria-hidden="true"
           className={cn(
-            "h-px w-7",
-            state === "ahead" ? "border-t border-dashed border-edge-strong" : "bg-ink-3",
+            "ml-6 h-4 w-px @3xl/app:ml-0 @3xl/app:h-px @3xl/app:w-7",
+            state === "ahead"
+              ? "border-l border-dashed border-edge-strong @3xl/app:border-t @3xl/app:border-l-0"
+              : "bg-ink-3",
           )}
         />
       )}
@@ -170,7 +172,10 @@ function Node({
   );
 }
 
-/** The review's own little workflow: the steps, the gate, and where the items go next. */
+/**
+ * The review's own little workflow: the steps, ending in its outcome named by its rule (#577),
+ * and where the items go next. Top to bottom on a phone, left to right beside.
+ */
 function Steps({ review }: { review: Review }) {
   const outcome = reviewOutcome(review);
   const { next, back } = stagesOf(review);
@@ -181,7 +186,7 @@ function Steps({ review }: { review: Review }) {
     if (rows.some((r) => r.state !== "waiting")) return "current";
     return "ahead";
   };
-  const gateState: StepState =
+  const outcomeState: StepState =
     outcome === "approved" || outcome === "submitted"
       ? "done"
       : outcome === "changes_requested"
@@ -197,7 +202,7 @@ function Steps({ review }: { review: Review }) {
       : rows.map((r) => personById(r.personId).name.split(" ")[0]).join(", ");
   };
   return (
-    <ol className="flex flex-wrap items-center gap-y-2 py-1">
+    <ol className="flex flex-col py-1 @3xl/app:flex-row @3xl/app:flex-wrap @3xl/app:items-center @3xl/app:gap-y-2">
       <Node
         icon="send"
         title="Requested"
@@ -225,9 +230,19 @@ function Steps({ review }: { review: Review }) {
       {review.kind !== "share" && (
         <Node
           icon="gate"
-          title={review.kind === "approval" ? "Gate" : "Feedback in"}
-          sub={review.kind === "approval" ? ruleCopy(review) : "then the producer triages"}
-          state={gateState}
+          title={
+            review.kind === "approval"
+              ? `Approved when ${ruleCopy(review).replace(/^./, (c) => c.toLowerCase())}`
+              : "Feedback in"
+          }
+          sub={
+            outcome === "changes_requested"
+              ? "Changes requested"
+              : review.kind === "approval"
+                ? undefined
+                : "then the producer triages"
+          }
+          state={outcomeState}
         />
       )}
       {next && (
@@ -460,7 +475,7 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
   );
 }
 
-/* ---------- Items and the gate ---------- */
+/* ---------- Items ---------- */
 
 function Items({
   review,
@@ -484,16 +499,7 @@ function Items({
     else n.add(k);
     setSelected(n);
   };
-  const counted = review.reviewers.filter(
-    (r) => r.permissions.decide || review.kind !== "approval",
-  );
-  const approved = counted.filter((r) => latestDecision(r) === "approved").length;
-  const changes = counted.filter((r) => latestDecision(r) === "changes_requested").length;
   const passed = outcome === "approved" || outcome === "submitted";
-  const gateCopy =
-    review.kind === "approval"
-      ? `${ruleCopy(review)} · ${approved} approved, ${changes} asked for changes, ${counted.length - approved - changes} to come`
-      : `${responded(review)} of ${review.reviewers.length} submitted`;
   return (
     <section className="flex flex-col gap-3">
       <SectionHead
@@ -516,7 +522,7 @@ function Items({
                   ? [
                       {
                         label: `Move all ${review.items.length} to ${next.name}`,
-                        hint: passed ? "gate passed" : "gate not passed",
+                        hint: passed ? "the rule is met" : "the rule is not met yet",
                         onSelect: () => setMoved(`all → ${next.name}`),
                       },
                       {
@@ -545,45 +551,6 @@ function Items({
         }
       />
       <Card>
-        {review.kind !== "share" && (
-          <div
-            className={cn(
-              "flex flex-wrap items-center gap-3 border-b border-line px-4 py-3",
-              passed ? "bg-raised/20" : outcome === "changes_requested" ? "bg-signal/5" : "",
-            )}
-          >
-            <span
-              className={cn(
-                "flex size-7 shrink-0 items-center justify-center rounded-full",
-                passed
-                  ? "bg-ink text-ground"
-                  : outcome === "changes_requested"
-                    ? "bg-signal text-ground"
-                    : "border border-line-strong text-ink-3",
-              )}
-            >
-              <Icon
-                name={passed ? "check" : outcome === "changes_requested" ? "close" : "gate"}
-                size={13}
-              />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[14px] text-ink">
-                {passed
-                  ? `Gate passed: ${next ? `the items can move to ${next.name}` : "the review is complete"}`
-                  : outcome === "changes_requested"
-                    ? `Gate not passed: changes requested${back ? `, the items go back to ${back.name}` : ""}`
-                    : "Gate: not yet"}
-              </span>
-              <span className="block text-[13px] text-ink-3">{gateCopy}</span>
-            </span>
-            {moved && (
-              <span className="rise-in flex items-center gap-2 text-[13px] text-ink">
-                <Dot state="approved" /> {moved === "closed" ? "Review closed" : `Moved ${moved}`}
-              </span>
-            )}
-          </div>
-        )}
         <ul className="flex flex-col">
           {review.items.map((item, i) => {
             const { track, version, file } = resolveItem(item);
@@ -653,6 +620,11 @@ function Items({
           })}
         </ul>
       </Card>
+      {moved && (
+        <p role="status" className="rise-in flex items-center gap-2 text-[13px] text-ink">
+          <Dot state="approved" /> {moved === "closed" ? "Review closed" : `Moved ${moved}`}
+        </p>
+      )}
     </section>
   );
 }

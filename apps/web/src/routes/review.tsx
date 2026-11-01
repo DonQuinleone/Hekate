@@ -1,5 +1,4 @@
 import {
-  gateCounts,
   gateState,
   itemWords,
   type ReviewerState,
@@ -105,13 +104,16 @@ function Node({
   first?: boolean;
 }) {
   return (
-    <li className="flex shrink-0 items-center">
+    // Top to bottom on a phone, as Linear's and GitHub's timelines run; left to right beside.
+    <li className="flex shrink-0 flex-col items-start @3xl/app:flex-row @3xl/app:items-center">
       {!first && (
         <span
           aria-hidden="true"
           className={cn(
-            "h-px w-7",
-            state === "ahead" ? "border-t border-dashed border-edge-strong" : "bg-ink-3",
+            "ml-6 h-4 w-px @3xl/app:ml-0 @3xl/app:h-px @3xl/app:w-7",
+            state === "ahead"
+              ? "border-l border-dashed border-edge-strong @3xl/app:border-t @3xl/app:border-l-0"
+              : "bg-ink-3",
           )}
         />
       )}
@@ -151,15 +153,22 @@ function Node({
   );
 }
 
-/** The review's own small workflow: who is asked in what order, then the gate. */
+/**
+ * The review's own small workflow: who is asked in what order, ending in its outcome, named by
+ * its rule (#577): "Approved when everyone approves", or "Feedback in".
+ */
 function Steps({ review }: { review: ReviewDetail }) {
   const steps = reviewSteps(review.order, review.reviewers);
+  const outcome = gateState(review.status, review.outcome, steps);
   const label = (rows: Reviewer[]) => {
     const group = rows.find((r) => r.group)?.group?.name;
     return group ? `${group} group` : rows.map((r) => r.name.split(" ")[0]).join(", ");
   };
   return (
-    <ol aria-label="Steps" className="m-0 flex list-none flex-wrap items-center gap-y-2 p-0 py-1">
+    <ol
+      aria-label="Steps"
+      className="m-0 flex list-none flex-col p-0 py-1 @3xl/app:flex-row @3xl/app:flex-wrap @3xl/app:items-center @3xl/app:gap-y-2"
+    >
       <Node
         icon="send"
         title="Requested"
@@ -182,9 +191,21 @@ function Steps({ review }: { review: ReviewDetail }) {
       ))}
       <Node
         icon="gate"
-        title={review.kind === "approval" ? "Gate" : "Feedback in"}
-        sub={ruleCopy(review)}
-        state={gateState(review.status, review.outcome, steps)}
+        title={
+          review.kind === "approval"
+            ? `Approved when ${ruleCopy(review).replace(/^./, (c) => c.toLowerCase())}`
+            : "Feedback in"
+        }
+        sub={
+          outcome === "failed"
+            ? "Changes requested"
+            : review.status === "cancelled"
+              ? "Closed with the review"
+              : review.kind === "approval"
+                ? undefined
+                : "When everyone submits"
+        }
+        state={outcome}
       />
     </ol>
   );
@@ -422,14 +443,11 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
   );
 }
 
-/* ---------- Items and the gate ---------- */
+/* ---------- Items ---------- */
 
 function Items({ review }: { review: ReviewDetail }) {
   const { guest } = useViewer();
   const fileBase = guest ? "/g/files/$fileId" : "/files/$fileId";
-  const counts = gateCounts(review.kind, review.reviewers);
-  const passed = review.outcome === "approved" || review.outcome === "submitted";
-  const failed = review.outcome === "changes_requested";
   const me = review.you.reviewerId;
   const sharing = review.kind === "share";
   return (
@@ -439,44 +457,6 @@ function Items({ review }: { review: ReviewDetail }) {
         hint={plural(review.items.length, "item")}
       />
       <Card>
-        {/* A share has no gate to pass: it only shares. */}
-        {!sharing && (
-          <div
-            className={cn(
-              "flex flex-wrap items-center gap-3 border-b border-line px-4 py-3",
-              passed ? "bg-raised/20" : failed ? "bg-signal/5" : "",
-            )}
-          >
-            <span
-              className={cn(
-                "flex size-7 shrink-0 items-center justify-center rounded-full",
-                passed
-                  ? "bg-ink text-ground"
-                  : failed
-                    ? "bg-signal text-ground"
-                    : "border border-line-strong text-ink-3",
-              )}
-            >
-              <Icon name={passed ? "check" : failed ? "close" : "gate"} size={13} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[14px] text-ink">
-                {passed
-                  ? "Gate passed: the review is complete"
-                  : failed
-                    ? "Gate not passed: changes requested"
-                    : review.status === "cancelled"
-                      ? "Gate: closed with the review"
-                      : "Gate: not yet"}
-              </span>
-              <span className="block text-[13px] text-ink-3">
-                {review.kind === "approval"
-                  ? `${ruleCopy(review)} · ${counts.approved} approved, ${counts.changes} asked for changes, ${counts.toCome} to come`
-                  : `${counts.submitted} of ${counts.total} submitted`}
-              </span>
-            </span>
-          </div>
-        )}
         <ul className="m-0 flex list-none flex-col p-0">
           {review.items.map((item) => {
             const opened = review.you.opened.includes(item.id);
@@ -848,7 +828,7 @@ export function ReviewPage({ reviewId }: { reviewId: string }) {
 
 /**
  * A review in the order it is read: where it stands and what is asked of you, its steps, who
- * is reviewing and what they said, the items with the gate, then the activity. On its own
+ * is reviewing and what they said, the items, then the activity. On its own
  * page the title goes to the top bar; embedded (the inbox's reading pane) it heads the pane.
  */
 export function ReviewBody({
@@ -895,7 +875,7 @@ export function ReviewBody({
   const overdue = review.status === "open" && due !== null && due.days < 0;
   const manage = review.you.canManage && review.status === "open";
   const kind = reviewKindNames[review.kind];
-  // A share (#138) asks nothing: no steps, gate, decision, reminders or due date.
+  // A share (#138) asks nothing: no steps, outcome, decision, reminders or due date.
   const sharing = review.kind === "share";
   const status = sharing && review.status === "open" ? "Shared" : outcomeCopy[state];
 
