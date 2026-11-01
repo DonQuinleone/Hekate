@@ -88,8 +88,8 @@ const idParam = zValidator("param", z.object({ id: z.uuid() }));
 export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean, billing = false) =>
   new Hono<{ Variables: TenantVariables }>()
     // The projects this member may see: those in use, or (`archived=1`) those archived. With
-    // `figures=1`, each carries what its card shows. Each says whether it is one of yours and
-    // whether you may archive or unarchive it.
+    // `figures=1`, each carries what its card shows. Each says whether it is one of yours (a
+    // member's or an owner's), whether you own it, and whether you may archive or unarchive it.
     .get("/", zValidator("query", projectListQuery), async (c) => {
       const { archived, figures } = c.req.valid("query");
       const { organisationId, userId, organisationRole } = c.var;
@@ -136,6 +136,7 @@ export const projectRoutes = (db: Database, audit: Audit, trustProxy: boolean, b
       const list = rows.map((r) => ({
         ...shown(r.project),
         mine: r.memberId !== null || r.ownerId !== null,
+        owned: r.ownerId !== null,
         // Archiving is part of running the project: whoever manages its roles and members.
         mayArchive: permissionsFor(organisationRole, r.rolePermissions, r.ownerId !== null).has(
           "delete_project",

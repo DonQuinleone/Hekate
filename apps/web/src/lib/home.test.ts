@@ -7,6 +7,7 @@ import {
   figures,
   greeting,
   progress,
+  progressLine,
 } from "./home";
 import type { MyReview } from "./queries";
 
@@ -61,7 +62,7 @@ describe("home", () => {
     expect(list[2]).toMatchObject({ kind: "failed", urgent: true });
   });
 
-  it("counts the week's deadlines and those overdue", () => {
+  it("counts what is due in the next seven days, and what is overdue apart", () => {
     const reviews = [
       review({ id: "a", dueAt: "2026-10-13T00:00:00.000Z", yourTurn: true }),
       review({ id: "b", dueAt: "2026-10-20T00:00:00.000Z" }),
@@ -72,7 +73,7 @@ describe("home", () => {
     expect(figures(reviews, { openComments: 4, newVersions: 2 }, now)).toEqual({
       inReview: 3,
       yourTurn: 1,
-      dueThisWeek: 2,
+      dueSoon: 1,
       overdue: 1,
       openComments: 4,
       newVersions: 2,
@@ -87,6 +88,10 @@ describe("home", () => {
     expect(
       activityText({ ...base, kind: "version", trackId: "t", trackName: "Bethena", number: 3 }),
     ).toBe("added version 3 of Bethena");
+    const cut = { ...base, kind: "version" as const, trackId: "t", trackName: "Titles", number: 2 };
+    expect(activityText(cut, "video")).toBe("added cut 2 of Titles");
+    expect(activityText(cut, "music")).toBe("added version 2 of Titles");
+    expect(activityText(cut, "general")).toBe("added version 2 of Titles");
     expect(
       activityText({
         ...base,
@@ -101,5 +106,19 @@ describe("home", () => {
   it("shows progress only once a track has a version", () => {
     expect(progress(0, 0)).toBeNull();
     expect(progress(1, 3)).toBe(33);
+  });
+
+  it("says a project's progress in its own words, singular for one", () => {
+    const f = (approvedTracks: number, versionedTracks: number, files = 0) => ({
+      approvedTracks,
+      versionedTracks,
+      files,
+    });
+    expect(progressLine(f(0, 1), "video")).toBe("0 of 1 deliverable approved");
+    expect(progressLine(f(1, 2), "video")).toBe("1 of 2 deliverables approved");
+    expect(progressLine(f(0, 1), "music")).toBe("0 of 1 track approved");
+    expect(progressLine(f(3, 8), "music")).toBe("3 of 8 tracks approved");
+    expect(progressLine(f(0, 0, 1), "general")).toBe("1 file");
+    expect(progressLine(f(0, 0, 4), "general")).toBe("4 files");
   });
 });

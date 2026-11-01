@@ -6,7 +6,7 @@ const project = (
   name: string,
   createdAt: string,
   lastActiveAt: string,
-  mine = true,
+  owned = true,
 ): ProjectWithFigures => ({
   id: name,
   name,
@@ -14,7 +14,8 @@ const project = (
   description: null,
   createdAt,
   archivedAt: null,
-  mine,
+  mine: true,
+  owned,
   mayArchive: false,
   figures: {
     files: 0,
@@ -56,9 +57,11 @@ describe("arrangeProjects", () => {
     ]);
   });
 
-  it("puts the newest first, and keeps only yours when asked", () => {
+  it("puts the newest first, and keeps only those you own when asked", () => {
     expect(names(arrangeProjects(list, "all", "newest"))[0]).toBe("joplin rags");
-    expect(names(arrangeProjects(list, "mine", "name"))).not.toContain("Opening titles");
+    // A member of a project, not its owner, finds it under All and not under Owned by you.
+    expect(names(arrangeProjects(list, "owned", "name"))).not.toContain("Opening titles");
+    expect(names(arrangeProjects(list, "all", "name"))).toContain("Opening titles");
   });
 
   it("leaves the list it was given alone", () => {

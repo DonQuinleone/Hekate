@@ -74,7 +74,10 @@ export function ProjectCard({ project, menu }: { project: Project; menu?: React.
   const viewer = useViewer();
   const s = projectSummary(project);
   const waiting = s.open.filter((r) => needsYou(r, viewer.reviewerIn(r))).length;
-  const noun = project.profile === "music" ? "tracks" : "deliverables";
+  // In the project's own words, singular for one: "0 of 1 deliverable approved".
+  const one = s.withVersion.length === 1;
+  const noun =
+    project.profile === "video" ? (one ? "deliverable" : "deliverables") : one ? "track" : "tracks";
   const pct = s.withVersion.length ? Math.round((s.approved / s.withVersion.length) * 100) : 0;
   const card = (
     <Link
@@ -92,8 +95,9 @@ export function ProjectCard({ project, menu }: { project: Project; menu?: React.
             </span>
           </span>
           {waiting > 0 && (
-            <span className="tabular shrink-0 rounded-full bg-signal px-2 text-[12px] leading-[20px] font-medium text-ground">
-              {waiting} on you
+            <span className="tabular inline-flex shrink-0 items-center gap-1.5 rounded-full bg-signal px-2 text-[12px] leading-[20px] font-medium whitespace-nowrap text-ground">
+              Needs you
+              <span>{waiting}</span>
             </span>
           )}
         </span>
@@ -133,21 +137,5 @@ export function ProjectCard({ project, menu }: { project: Project; menu?: React.
         {menu}
       </div>
     </div>
-  );
-}
-
-/** The dashed tile that starts a project. */
-export function NewProjectTile({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-panel-lg border border-dashed border-line-strong text-ink-3 transition-colors hover:border-edge-strong hover:text-ink"
-    >
-      <span className="flex size-9 items-center justify-center rounded-full border border-line-strong">
-        <Icon name="plus" size={16} />
-      </span>
-      <span className="text-[13px]">New project</span>
-    </button>
   );
 }

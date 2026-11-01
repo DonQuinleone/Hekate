@@ -3,13 +3,7 @@ import { Icon } from "~/components/icons";
 import { Count } from "~/components/label";
 import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
-import {
-  NewProjectTile,
-  ProjectCard,
-  ProjectCover,
-  profileIcon,
-  projectSummary,
-} from "~/components/project-card";
+import { ProjectCard, ProjectCover, profileIcon, projectSummary } from "~/components/project-card";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
@@ -19,7 +13,7 @@ import { projects as allProjects } from "~/data";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/format";
 import { useViewer } from "~/viewer/context";
-import { Empty, StateGate } from "~/viewer/state-gate";
+import { Empty, StateGate, useScreenState } from "~/viewer/state-gate";
 
 const profileCopy: Record<ProjectProfile, { label: string; hint: string }> = {
   music: {
@@ -135,7 +129,7 @@ type Sort = keyof typeof sortLabels;
 export function ProjectsPage({ create = false }: { create?: boolean }) {
   const viewer = useViewer();
   const [creating, setCreating] = useState(create);
-  const [filter, setFilter] = useState<"active" | "mine" | "archived">("active");
+  const [filter, setFilter] = useState<"all" | "owned" | "archived">("all");
   const [sort, setSort] = useState<Sort>("recent");
   const [view, setView] = useState<"cards" | "list">("cards");
   const [archiving, setArchiving] = useState<Project | null>(null);
@@ -143,8 +137,10 @@ export function ProjectsPage({ create = false }: { create?: boolean }) {
   const shown = (
     filter === "archived"
       ? allProjects.filter((p) => p.archived && viewer.canSee(p.id))
-      : filter === "mine"
-        ? viewer.projects().filter((p) => p.members.some((m) => m.personId === viewer.personId))
+      : filter === "owned"
+        ? viewer
+            .projects()
+            .filter((p) => p.members.some((m) => m.personId === viewer.personId && m.ownerSince))
         : viewer.projects()
   ).sort((a, b) =>
     sort === "name"
@@ -165,14 +161,17 @@ export function ProjectsPage({ create = false }: { create?: boolean }) {
         ]}
       />
     ) : undefined;
+  // An empty list offers New project itself; the header's would be a second.
+  const empty = useScreenState() === "empty";
   usePageHeader({
     title: "Projects",
-    actions: canCreate ? (
-      <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
-        <Icon name="plus" size={14} />
-        New project
-      </Button>
-    ) : undefined,
+    actions:
+      canCreate && !empty ? (
+        <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
+          <Icon name="plus" size={14} />
+          New project
+        </Button>
+      ) : undefined,
   });
   return (
     <Page>
@@ -192,8 +191,8 @@ export function ProjectsPage({ create = false }: { create?: boolean }) {
         <div className="flex flex-wrap items-center gap-1">
           {(
             [
-              ["active", "Active"],
-              ["mine", "Yours"],
+              ["all", "All"],
+              ["owned", "Owned by you"],
               ["archived", "Archived"],
             ] as const
           ).map(([id, label]) => (
@@ -252,7 +251,10 @@ export function ProjectsPage({ create = false }: { create?: boolean }) {
           filter === "archived" ? (
             <Empty title="Nothing archived" text="Archived projects keep everything, read-only." />
           ) : (
-            <Empty title="None of yours" text="Projects you are a member of show here." />
+            <Empty
+              title="None owned by you"
+              text="Projects you start, or are made an owner of, show here."
+            />
           )
         ) : view === "list" ? (
           <ul className="m-0 flex list-none flex-col p-0">
@@ -278,9 +280,6 @@ export function ProjectsPage({ create = false }: { create?: boolean }) {
             {shown.map((p) => (
               <ProjectCard key={p.id} project={p} menu={menuFor(p)} />
             ))}
-            {canCreate && filter !== "archived" && (
-              <NewProjectTile onClick={() => setCreating(true)} />
-            )}
           </div>
         )}
       </StateGate>

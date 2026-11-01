@@ -4,9 +4,10 @@ import { Link } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
+import { NeedsYou } from "~/components/needs-you";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
-import { NewProjectTile, ProjectCard } from "~/components/project-card";
+import { ProjectCard } from "~/components/project-card";
 import { ProjectCover, profileIcon } from "~/components/project-cover";
 import { Button } from "~/components/ui/button";
 import { ChoiceCard } from "~/components/ui/choice";
@@ -18,16 +19,18 @@ import { Segmented } from "~/components/ui/segmented";
 import { Failed, Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
-import { progress } from "~/lib/home";
+import { progressLine } from "~/lib/home";
 import {
   arrangeProjects,
   type ProjectShow,
   type ProjectSort,
   type ProjectView,
   projectSorts,
+  showLabels,
   sortLabels,
 } from "~/lib/projects";
 import {
+  myReviewsQuery,
   type ProjectWithFigures,
   projectCardsQuery,
   projectsQuery,
@@ -188,14 +191,8 @@ export function NewProject({
   );
 }
 
-const showLabels: Record<ProjectShow, string> = {
-  all: "Active",
-  mine: "Yours",
-  archived: "Archived",
-};
-
 /**
- * Every project the member may see, as cards or a list: those in use, only their own, or
+ * Every project the member may see, as cards or a list: those in use, those they own, or
  * those archived. Sort, view and filter are held in the address.
  */
 export function ProjectsPage({
@@ -229,6 +226,14 @@ export function ProjectsPage({
     if (!open) onCreatingDone?.();
   };
   const list = data ? arrangeProjects(data, show, sort) : [];
+  // Reviews in each project waiting on the viewer, as Home's cards count them.
+  const { data: mine = [] } = useQuery(myReviewsQuery);
+  const waitingBy = new Map<string, number>();
+  for (const r of mine)
+    if (r.yourTurn && r.status === "open")
+      waitingBy.set(r.projectId, (waitingBy.get(r.projectId) ?? 0) + 1);
+  // An empty list offers New project itself; the header's would be a second (#549).
+  const emptyOffersNew = !isPending && !error && show === "all" && list.length === 0;
   const menuFor = (p: ProjectWithFigures) =>
     p.mayArchive ? (
       <ActionMenu
@@ -249,10 +254,12 @@ export function ProjectsPage({
       <PageHeader
         title="Projects"
         actions={
-          <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
-            <Icon name="plus" size={14} />
-            New project
-          </Button>
+          emptyOffersNew ? undefined : (
+            <Button size="sm" variant="primary" onClick={() => setCreating(true)}>
+              <Icon name="plus" size={14} />
+              New project
+            </Button>
+          )
         }
       />
       <Page>
@@ -282,7 +289,6 @@ export function ProjectsPage({
           </span>
           <Segmented
             label="View"
-            className="hidden @3xl/app:flex"
             value={view}
             options={[
               { value: "cards", label: "Cards", icon: <Icon name="grid" size={15} /> },
@@ -307,26 +313,26 @@ export function ProjectsPage({
             />
           ) : (
             <Empty
-              title={archived ? "Nothing archived" : "None of yours"}
+              title={archived ? "Nothing archived" : "None owned by you"}
               text={
                 archived
                   ? "Archived projects keep everything, read-only."
-                  : "Projects you are a member of show here."
+                  : "Projects you start, or are made an owner of, show here."
               }
             />
           )
         ) : view === "list" ? (
-          <ProjectList projects={list} menuFor={menuFor} />
+          <ProjectList projects={list} menuFor={menuFor} waitingBy={waitingBy} />
         ) : (
           <div className="grid gap-4 @3xl/app:grid-cols-2 @6xl/app:grid-cols-3">
             {list.map((p) => (
               <ProjectCard
                 key={p.id}
                 project={{ ...p, ...p.figures, updatedAt: p.figures.lastActiveAt }}
+                waiting={waitingBy.get(p.id) ?? 0}
                 menu={menuFor(p)}
               />
             ))}
-            {!archived && <NewProjectTile onClick={() => setCreating(true)} />}
           </div>
         )}
       </Page>
@@ -373,30 +379,39 @@ export function ProjectsPage({
   );
 }
 
-/** The same projects as rows: denser, for many of them. */
+/**
+ * The same projects as rows: denser, for many of them. The cover already says the profile, so
+ * no column repeats it; progress is a music or video project's, of its tracks or deliverables.
+ */
 function ProjectList({
   projects,
   menuFor,
+  waitingBy,
 }: {
   projects: ProjectWithFigures[];
   menuFor: (p: ProjectWithFigures) => React.ReactNode;
+  waitingBy: Map<string, number>;
 }) {
+  const columns =
+    "grid-cols-[minmax(0,1fr)_auto] @3xl/app:grid-cols-[minmax(0,1fr)_180px_88px_112px_32px]";
   return (
     <ul className="m-0 flex list-none flex-col p-0">
-      <li className="eyebrow grid grid-cols-[1fr_auto] gap-4 border-b border-line px-3 pb-2 @3xl/app:grid-cols-[1fr_96px_160px_72px_96px_32px]">
+      <li className={cn("eyebrow grid gap-4 border-b border-line px-3 pb-2", columns)}>
         <span>Name</span>
-        <span className="hidden @3xl/app:block">Profile</span>
         <span className="hidden @3xl/app:block">Progress</span>
-        <span className="hidden @3xl/app:block">Reviews</span>
-        <span className="text-right">Active</span>
+        <span className="hidden @3xl/app:block">Open</span>
+        <span className="text-right">Last activity</span>
         <span className="hidden @3xl/app:block" />
       </li>
       {projects.map((p) => {
-        const pct = progress(p.figures.approvedTracks, p.figures.versionedTracks);
+        const waiting = waitingBy.get(p.id) ?? 0;
         return (
           <li
             key={p.id}
-            className="group relative grid grid-cols-[1fr_auto] items-center gap-4 border-b border-line px-3 transition-colors hover:bg-raised/40 @3xl/app:grid-cols-[1fr_96px_160px_72px_96px_32px]"
+            className={cn(
+              "group relative grid items-center gap-4 border-b border-line px-3 transition-colors hover:bg-raised/40",
+              columns,
+            )}
           >
             <Link
               to="/projects/$projectId"
@@ -404,24 +419,34 @@ function ProjectList({
               className="flex min-w-0 items-center gap-3 py-row-tight text-ink after:absolute after:inset-0"
             >
               <ProjectCover profile={p.profile} size="sm" />
-              <span className="min-w-0">
-                <span className="block truncate text-[14px] font-medium">{p.name}</span>
+              <span className="min-w-0 flex-1">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-[14px] font-medium">{p.name}</span>
+                  {waiting > 0 && <NeedsYou count={waiting} />}
+                </span>
                 {p.description && (
                   <span className="block truncate text-[13px] text-ink-3">{p.description}</span>
                 )}
               </span>
             </Link>
-            <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
-              <Icon name={profileIcon[p.profile]} size={14} />
-              {profiles[p.profile].label}
+            <span className="tabular hidden truncate text-[13px] text-ink-3 @3xl/app:block">
+              {p.profile === "general" ? "" : progressLine(p.figures, p.profile)}
             </span>
-            <span className="tabular hidden text-[13px] text-ink-3 @3xl/app:block">
-              {pct === null
-                ? `${p.figures.files} file${p.figures.files === 1 ? "" : "s"}`
-                : `${p.figures.approvedTracks} of ${p.figures.versionedTracks} approved`}
-            </span>
-            <span className="tabular hidden text-[13px] text-ink-3 @3xl/app:block">
-              {p.figures.openReviews} open
+            <span className="tabular hidden items-center gap-3 text-[13px] text-ink-3 @3xl/app:flex">
+              <span
+                title={`${p.figures.openReviews} open reviews`}
+                className="flex items-center gap-1"
+              >
+                <Icon name="review" size={12} />
+                {p.figures.openReviews}
+              </span>
+              <span
+                title={`${p.figures.openComments} open comments`}
+                className="flex items-center gap-1"
+              >
+                <Icon name="comment" size={12} />
+                {p.figures.openComments}
+              </span>
             </span>
             <span className="tabular text-right text-[13px] text-ink-3">
               {ago(p.figures.lastActiveAt)}

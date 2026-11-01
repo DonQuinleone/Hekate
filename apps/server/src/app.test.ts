@@ -10224,6 +10224,7 @@ describe.runIf(url)("api", () => {
             id: string;
             name: string;
             mine: boolean;
+            owned: boolean;
             mayArchive: boolean;
             figures?: { files: number };
           }[];
@@ -10321,6 +10322,12 @@ describe.runIf(url)("api", () => {
         const engineerSees = new Map((await list(engineer)).map((p) => [p.name, p.mayArchive]));
         expect(engineerSees.get("Rags")).toBe(false);
         expect(engineerSees.get("Mine now")).toBe(true);
+        // A member of a project is not its owner; its creator is (the list's Owned by you).
+        const engineerOwns = new Map(
+          (await list(engineer)).map((p) => [p.name, [p.mine, p.owned]]),
+        );
+        expect(engineerOwns.get("Rags")).toEqual([true, false]);
+        expect(engineerOwns.get("Mine now")).toEqual([true, true]);
         expect(
           (await list(owner, "?figures=1")).find((p) => p.id === projectId)?.figures?.files,
         ).toBe(1);

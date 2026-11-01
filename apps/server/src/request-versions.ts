@@ -1,5 +1,5 @@
 import { inOrg, schema } from "@hekate/db";
-import { variantNameFrom } from "@hekate/shared";
+import { itemWords, variantNameFrom } from "@hekate/shared";
 import { and, eq, isNotNull, max } from "drizzle-orm";
 import { carryThreads } from "./carry.ts";
 import { emitEvent } from "./events.ts";
@@ -176,7 +176,7 @@ export async function versionFromRequest(
     projectId: track.projectId,
     trackId: track.id,
     fileId,
-    text: `${sent.sender} sent version ${number} of ${track.name}, through ${sent.request.name}`,
+    text: `${sent.sender} sent ${itemWords(project?.profile).version} ${number} of ${track.name}, through ${sent.request.name}`,
     link: `/tracks/${track.id}`,
   }).catch((error: unknown) =>
     console.warn(`Could not tell followers about a version sent in: ${String(error)}`),

@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Avatar } from "~/components/avatar";
@@ -6,7 +7,7 @@ import { SectionHead } from "~/components/page";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
 import { activityText } from "~/lib/home";
-import type { HomeActivity } from "~/lib/queries";
+import { type HomeActivity, meQuery, projectsQuery } from "~/lib/queries";
 
 /** A figure on a dashboard: what it counts, the number, a line of context. */
 export function Stat({
@@ -56,8 +57,15 @@ export function Section({
   );
 }
 
-/** One line of what has happened: who, what, when, opening where it happened. */
+/**
+ * One line of what has happened: who ("You" for the viewer), what, in its project's words, and
+ * when, opening where it happened.
+ */
 export function ActivityRow({ a }: { a: HomeActivity }) {
+  const { data: me } = useQuery(meQuery);
+  const { data: projects } = useQuery(projectsQuery);
+  const profile = projects?.find((p) => p.id === a.projectId)?.profile;
+  const who = a.who && (a.who.id === me?.user.id ? "You" : a.who.name);
   const body = (
     <>
       {a.who ? (
@@ -68,8 +76,8 @@ export function ActivityRow({ a }: { a: HomeActivity }) {
         </span>
       )}
       <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">
-        {a.who && <span className="text-ink">{a.who.name} </span>}
-        {activityText(a)}
+        {who && <span className="text-ink">{who} </span>}
+        {activityText(a, profile)}
       </span>
       <span className="tabular shrink-0 text-[12px] text-ink-3">{ago(a.at)}</span>
     </>

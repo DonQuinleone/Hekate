@@ -78,14 +78,13 @@ async function named<T extends { id: string; name: string }>(rows: Promise<T[]>)
 /** The event's data, its names as they are now; written once, so a later rename leaves it be. */
 async function describe(db: Db, input: EventInput) {
   const org = input.organisationId;
-  const project = input.projectId
-    ? await named(
-        db
-          .select({ id: projects.id, name: projects.name })
-          .from(projects)
-          .where(inOrg(projects, org, eq(projects.id, input.projectId))),
-      )
-    : null;
+  // With its profile, so a video project's event says cut where a music project's says version.
+  const [project = null] = input.projectId
+    ? await db
+        .select({ id: projects.id, name: projects.name, profile: projects.profile })
+        .from(projects)
+        .where(inOrg(projects, org, eq(projects.id, input.projectId)))
+    : [];
   const [review] = input.reviewId
     ? await db
         .select({ id: reviews.id, title: reviews.title, kind: reviews.kind })
