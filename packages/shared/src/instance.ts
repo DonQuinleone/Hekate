@@ -37,7 +37,7 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
   },
   logs: {
     label: "Logs",
-    hint: "What people and operators did, every sign-in, the mail the instance sent and every webhook",
+    hint: "What people and operators did, every sign-in and API call, the mail the instance sent, every webhook and the billing gateway's events",
   },
   health: {
     label: "System health",

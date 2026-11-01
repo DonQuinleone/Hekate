@@ -5237,18 +5237,24 @@ export const instanceSystemQuery = queryOptions({
 });
 
 /** The instance's filters for a log (#157), as the query string has them. */
-export function logQueryString(filters: { q?: string; range: LogRange; workspace?: string }) {
+/** A log's filters; `now` is the viewer's clock, which the range counts back from (#598). */
+export interface InstanceLogFilters {
+  q?: string;
+  range: LogRange;
+  workspace?: string;
+  now?: string;
+}
+
+export function logQueryString(filters: InstanceLogFilters) {
   const query: Record<string, string> = { range: filters.range };
   if (filters.q) query.q = filters.q;
   if (filters.workspace) query.workspace = filters.workspace;
+  if (filters.now) query.now = filters.now;
   return query;
 }
 
 /** One of the instance's logs (#157), newest first, a page at a time. */
-export const instanceLogQuery = <K extends LogKind>(
-  kind: K,
-  filters: { q?: string; range: LogRange; workspace?: string },
-) =>
+export const instanceLogQuery = <K extends LogKind>(kind: K, filters: InstanceLogFilters) =>
   infiniteQueryOptions({
     queryKey: ["instance", "logs", kind, filters],
     initialPageParam: undefined as string | undefined,

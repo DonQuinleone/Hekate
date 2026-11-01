@@ -32,6 +32,7 @@ import {
   instanceFlags,
   instanceSettingsInput,
   instanceWorkspacesQuery,
+  type LogKind,
   logExportQuery,
   logKindParam,
   logQuery,
@@ -346,6 +347,15 @@ const reportRow = {
   knownAt: schema.errorReports.knownAt,
 };
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Each log by name, as its export is recorded. */
+const logNames: Record<LogKind, string> = {
+  audit: "The audit log",
+  auth: "The authentication log",
+  api: "The API log",
+  mail: "The mail log",
+  webhooks: "The webhook log",
+  gateway: "The gateway log",
+};
 /** Enough for a bad day; the lookup reaches any reference still kept. */
 const ERRORS_LISTED = 200;
 
@@ -2310,12 +2320,7 @@ export function instanceRoutes(options: InstanceOptions) {
           await recordInstanceEvent(db, {
             actorId: c.var.userId,
             action: "logs.export",
-            target:
-              kind === "audit"
-                ? "The audit log"
-                : kind === "auth"
-                  ? "The authentication log"
-                  : "The mail log",
+            target: logNames[kind],
             details: { kind, filters },
             ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
           });

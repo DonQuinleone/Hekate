@@ -371,7 +371,7 @@ const logRows: Record<LogKind, string[][]> = {
       "Changed a role",
       "Tomas Varga → Engineer",
     ],
-    ["19:58:30", "Operator: Alex Rivera", "Instance", "Suspended a workspace", "Lantern Pictures"],
+    ["19:58:30", "Alex Rivera · operator", "Instance", "Suspended a workspace", "Lantern Pictures"],
     [
       "19:40:11",
       "Alex Rivera",

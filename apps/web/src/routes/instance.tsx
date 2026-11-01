@@ -65,7 +65,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { ApiLogEntry } from "~/components/api-tokens";
 import { TileGrid } from "~/components/billing";
 import { Gauge, Spark } from "~/components/charts";
 import { Empty } from "~/components/empty";
@@ -824,7 +823,8 @@ function Replay() {
 /** A gateway event taken again (#178), chosen from the last week's. */
 function GatewayReplayDialog({ onClose }: { onClose: () => void }) {
   const client = useQueryClient();
-  const log = useInfiniteQuery(instanceLogQuery("gateway", { range: "7d" }));
+  const [now] = useState(() => new Date().toISOString());
+  const log = useInfiniteQuery(instanceLogQuery("gateway", { range: "7d", now }));
   const [taken, setTaken] = useState<Map<string, string>>(new Map());
   const take = useMutation({
     mutationFn: async (id: string) =>
@@ -882,7 +882,8 @@ function GatewayReplayDialog({ onClose }: { onClose: () => void }) {
 
 function ReplayDialog({ onClose }: { onClose: () => void }) {
   const client = useQueryClient();
-  const log = useInfiniteQuery(instanceLogQuery("webhooks", { range: "7d" }));
+  const [now] = useState(() => new Date().toISOString());
+  const log = useInfiniteQuery(instanceLogQuery("webhooks", { range: "7d", now }));
   const [sent, setSent] = useState<Set<string>>(new Set());
   const replay = useMutation({
     mutationFn: async (id: string) =>
@@ -1789,11 +1790,286 @@ const mailResults: Record<MailLogRow["result"], string> = {
   suppressed: "Not sent: it bounced before",
 };
 
-/** What an audit row did, in words: an operator's action, or a workspace's. */
-const auditAction = (r: AuditLogRow) =>
-  r.source === "instance"
-    ? `${r.target ?? ""} ${instanceActionLabel(r.action, import.meta.env.DEV)}`.trim()
-    : (actionCopy[r.action] ?? r.action);
+/**
+ * A column of a log's table (#692): its heading, its cell, and where the cell goes on a phone,
+ * where each row is stacked: beside the time at the end of the first line, or a line of its own.
+ */
+interface LogColumn<R> {
+  label: string;
+  cell: (row: R) => ReactNode;
+  phone?: "end" | "line";
+  /** Kept to one line on a wide screen; the rest wrap and share what is left. */
+  nowrap?: boolean;
+  className?: string;
+}
+
+/** A log as a table, as the prototype draws it: headed columns, a row a line, nothing cut. */
+function LogTable<R extends { id: string; at: string }>({
+  rows,
+  columns,
+}: {
+  rows: R[];
+  columns: LogColumn<R>[];
+}) {
+  const all: LogColumn<R>[] = [
+    {
+      label: "When",
+      nowrap: true,
+      cell: (r) => <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>,
+    },
+    ...columns,
+  ];
+  // On a phone: the time, the cell that sits beside it, then each other cell a line.
+  const order = (c: LogColumn<R>, i: number) =>
+    i === 0 ? "order-0" : c.phone === "end" ? "order-1 ml-auto" : "order-2 basis-full";
+  return (
+    <table className="block w-full border-collapse text-[13px] @3xl/app:table">
+      <thead className="hidden @3xl/app:table-header-group">
+        <tr>
+          {all.map((c) => (
+            <th
+              key={c.label}
+              scope="col"
+              className="eyebrow px-3 py-2 text-left whitespace-nowrap first:pl-4 last:pr-4"
+            >
+              {c.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody className="block @3xl/app:table-row-group">
+        {rows.map((r) => (
+          <tr
+            key={r.id}
+            data-log-entry
+            className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-line px-4 py-2 not-first:border-t @3xl/app:table-row @3xl/app:border-t @3xl/app:p-0"
+          >
+            {all.map((c, i) => (
+              <td
+                key={c.label}
+                className={cn(
+                  "min-w-0 [overflow-wrap:anywhere] @3xl/app:table-cell @3xl/app:px-3 @3xl/app:py-2 @3xl/app:align-top @3xl/app:first:pl-4 @3xl/app:last:pr-4",
+                  order(c, i),
+                  c.nowrap && "@3xl/app:whitespace-nowrap @3xl/app:[overflow-wrap:normal]",
+                  c.className,
+                )}
+              >
+                {c.cell(r)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** Someone as the log names them: the name, the address kept for a hover (#692). */
+function LogWho({ who, operator, extra }: { who: string; operator?: boolean; extra?: string }) {
+  const at = who.indexOf(" <");
+  const name = (at > 0 ? who.slice(0, at) : who).replace(/^Operator: /, "");
+  return (
+    <span className="text-ink-2" title={[who, extra].filter(Boolean).join(" · ")}>
+      {name}
+      {operator && <span className="text-ink-3"> · operator</span>}
+    </span>
+  );
+}
+
+/** A line under a cell, quieter: the workspace a row came from. */
+const under = (text: string | null | undefined) =>
+  text ? <span className="block text-[12px] text-ink-3">{text}</span> : null;
+
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+const auditColumns: LogColumn<AuditLogRow>[] = [
+  {
+    label: "Who",
+    nowrap: true,
+    cell: (r) => (
+      <LogWho who={r.who} operator={r.source === "instance"} extra={r.ipAddress ?? undefined} />
+    ),
+  },
+  {
+    label: "Workspace",
+    phone: "end",
+    nowrap: true,
+    cell: (r) => <span className="text-ink-3">{r.workspace?.name ?? "Instance"}</span>,
+  },
+  {
+    // The action alone; what it was done to is always On's (#692).
+    label: "Action",
+    cell: (r) => (
+      <span className="text-ink">
+        {r.source === "instance"
+          ? capital(instanceActionLabel(r.action, import.meta.env.DEV))
+          : (actionCopy[r.action] ?? r.action)}
+      </span>
+    ),
+  },
+  { label: "On", cell: (r) => <span className="text-ink-2">{r.target ?? ""}</span> },
+];
+
+const authColumns: LogColumn<AuthLogRow>[] = [
+  {
+    label: "Who",
+    cell: (r) => (
+      <>
+        <span className="text-ink-2">{r.account}</span>
+        {under(r.workspace?.name)}
+      </>
+    ),
+  },
+  {
+    label: "Method",
+    phone: "end",
+    nowrap: true,
+    cell: (r) => <span className="text-ink-3">{authMethodLabels[r.method]}</span>,
+  },
+  {
+    // A refusal's reason wraps; it is never cut while the row has room.
+    label: "Result",
+    cell: (r) => (
+      <span className={r.result === "signed_in" ? "text-ink" : "text-signal"}>{authResult(r)}</span>
+    ),
+  },
+  {
+    label: "From",
+    cell: (r) => (
+      <span className="tabular text-ink-3">
+        {[r.ipAddress, shortAgent(r.userAgent)].filter(Boolean).join(" · ")}
+      </span>
+    ),
+  },
+];
+
+const apiColumns: LogColumn<ApiLogRow>[] = [
+  {
+    label: "Token or client",
+    cell: (r) => (
+      <>
+        <span className="text-ink-2">
+          {r.token.name}
+          {r.token.kind === "service" ? " (service)" : ""}
+        </span>
+        {under(r.workspace.name)}
+      </>
+    ),
+  },
+  {
+    label: "Call",
+    cell: (r) => (
+      <span className="tabular text-ink">
+        {r.method} {r.path}
+      </span>
+    ),
+  },
+  {
+    label: "Status",
+    phone: "end",
+    nowrap: true,
+    cell: (r) => (
+      <span className={cn("tabular", r.status >= 400 ? "text-signal" : "text-ink-3")}>
+        {r.status}
+      </span>
+    ),
+  },
+  {
+    label: "Time",
+    nowrap: true,
+    cell: (r) => <span className="tabular text-ink-3">{r.durationMs} ms</span>,
+  },
+];
+
+const mailColumns: LogColumn<MailLogRow>[] = [
+  { label: "To", cell: (r) => <span className="text-ink-2">{r.to}</span> },
+  { label: "Subject", cell: (r) => <span className="text-ink">{r.subject}</span> },
+  {
+    label: "Result",
+    phone: "end",
+    cell: (r) => (
+      <>
+        <span
+          className={r.result === "failed" || r.result === "bounced" ? "text-signal" : "text-ink-3"}
+        >
+          {mailResults[r.result]}
+        </span>
+        {r.error && <span className="block text-[12px] text-signal">{r.error}</span>}
+      </>
+    ),
+  },
+];
+
+const webhookColumns: LogColumn<WebhookLogRow>[] = [
+  {
+    label: "Channel",
+    cell: (r) => (
+      <>
+        <span className="text-ink-2">
+          {channelKindLabels[r.channel.kind]} {r.channel.name}
+        </span>
+        {under(r.workspace.name)}
+      </>
+    ),
+  },
+  { label: "Event", cell: (r) => <span className="tabular text-ink">{r.event}</span> },
+  {
+    label: "Result",
+    cell: (r) => (
+      <span
+        className={
+          r.status === "failed" || (r.status === "pending" && r.attempts > 0)
+            ? "text-signal"
+            : "text-ink-3"
+        }
+      >
+        {deliveryResult(r)}
+      </span>
+    ),
+  },
+  {
+    label: "Attempt",
+    phone: "end",
+    nowrap: true,
+    cell: (r) => (
+      <span className="tabular text-ink-3">
+        {r.replay ? "Replay · " : ""}
+        {r.attempts === 1 ? "1 attempt" : `${r.attempts} attempts`}
+      </span>
+    ),
+  },
+];
+
+const gatewayColumns: LogColumn<GatewayLogRow>[] = [
+  {
+    label: "Workspace",
+    cell: (r) => <span className="text-ink-2">{r.workspace?.name ?? "Instance"}</span>,
+  },
+  {
+    label: "Event",
+    cell: (r) => (
+      <span className="tabular text-ink">{[r.event, r.summary].filter(Boolean).join(" · ")}</span>
+    ),
+  },
+  {
+    label: "Amount",
+    phone: "end",
+    nowrap: true,
+    cell: (r) => (
+      <span className="tabular text-ink-2">
+        {r.amount === null || !r.currency ? "" : formatMoney(r.amount, r.currency)}
+      </span>
+    ),
+  },
+  {
+    label: "Result",
+    cell: (r) => (
+      <span className={r.result?.startsWith("failed") ? "text-signal" : "text-ink-3"}>
+        {r.result ?? "Being taken"}
+      </span>
+    ),
+  },
+];
 
 /**
  * Logs (#157), as the prototype has them: what people and operators did, and the mail the
@@ -1810,8 +2086,11 @@ function Logs() {
   const search = useDeferredValue(q.trim());
   const [range, setRange] = useState<LogRange>("24h");
   const [workspace, setWorkspace] = useState("");
+  // The range counts back from the viewer's clock, as Debug tools' errors do (#598).
+  const [now] = useState(() => new Date().toISOString());
   const filters = {
     range,
+    now,
     ...(search ? { q: search } : {}),
     ...(kind !== "mail" && workspace ? { workspace } : {}),
   };
@@ -1901,96 +2180,17 @@ function Logs() {
             />
           </div>
         ) : kind === "audit" ? (
-          (rows as AuditLogRow[]).map((r) => (
-            <div
-              key={r.id}
-              data-log-entry
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_170px_minmax(0,1fr)] @6xl/app:grid-cols-[150px_minmax(0,1fr)_170px_minmax(0,1fr)_130px]"
-            >
-              <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>
-              <span className="justify-self-end truncate text-ink-3 @3xl/app:order-3 @3xl/app:justify-self-start">
-                {r.workspace?.name ?? "Instance"}
-              </span>
-              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-2 @3xl/app:col-span-1">
-                <span className="truncate text-ink-2">{r.who}</span>
-              </span>
-              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-4 @3xl/app:col-span-1">
-                <span className="truncate text-ink">{auditAction(r)}</span>
-                {r.source === "workspace" && r.target && (
-                  <span className="truncate text-[12px] text-ink-3">{r.target}</span>
-                )}
-              </span>
-              <span className="tabular hidden truncate text-ink-3 @6xl/app:order-5 @6xl/app:block">
-                {r.ipAddress ?? ""}
-              </span>
-            </div>
-          ))
+          <LogTable rows={rows as AuditLogRow[]} columns={auditColumns} />
         ) : kind === "auth" ? (
-          (rows as AuthLogRow[]).map((r) => (
-            <div
-              key={r.id}
-              data-log-entry
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_130px_minmax(0,1fr)] @6xl/app:grid-cols-[150px_minmax(0,1fr)_130px_minmax(0,1fr)_200px]"
-            >
-              <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>
-              <span className="justify-self-end text-ink-3 @3xl/app:order-3 @3xl/app:justify-self-start">
-                {authMethodLabels[r.method]}
-              </span>
-              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-2 @3xl/app:col-span-1">
-                <span className="truncate text-ink-2">{r.account}</span>
-                {r.workspace && (
-                  <span className="truncate text-[12px] text-ink-3">{r.workspace.name}</span>
-                )}
-              </span>
-              <span
-                className={cn(
-                  "col-span-2 truncate @3xl/app:order-4 @3xl/app:col-span-1",
-                  r.result === "signed_in" ? "text-ink" : "text-signal",
-                )}
-                title={authResult(r)}
-              >
-                {authResult(r)}
-              </span>
-              <span className="tabular hidden truncate text-ink-3 @6xl/app:order-5 @6xl/app:block">
-                {[r.ipAddress, shortAgent(r.userAgent)].filter(Boolean).join(" · ")}
-              </span>
-            </div>
-          ))
+          <LogTable rows={rows as AuthLogRow[]} columns={authColumns} />
         ) : kind === "api" ? (
-          (rows as ApiLogRow[]).map((r) => <ApiLogEntry key={r.id} row={r} workspace />)
+          <LogTable rows={rows as ApiLogRow[]} columns={apiColumns} />
         ) : kind === "webhooks" ? (
-          (rows as WebhookLogRow[]).map((r) => <WebhookEntry key={r.id} row={r} />)
+          <LogTable rows={rows as WebhookLogRow[]} columns={webhookColumns} />
         ) : kind === "gateway" ? (
-          (rows as GatewayLogRow[]).map((r) => <GatewayEntry key={r.id} row={r} />)
+          <LogTable rows={rows as GatewayLogRow[]} columns={gatewayColumns} />
         ) : (
-          (rows as MailLogRow[]).map((r) => (
-            <div
-              key={r.id}
-              data-log-entry
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_minmax(0,1.4fr)_150px]"
-            >
-              <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>
-              <span
-                className={cn(
-                  "justify-self-end @3xl/app:order-4 @3xl/app:justify-self-start",
-                  r.result === "failed" || r.result === "bounced" ? "text-signal" : "text-ink-3",
-                )}
-              >
-                {mailResults[r.result]}
-              </span>
-              <span className="col-span-2 truncate text-ink-2 @3xl/app:order-2 @3xl/app:col-span-1">
-                {r.to}
-              </span>
-              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-3 @3xl/app:col-span-1">
-                <span className="truncate text-ink">{r.subject}</span>
-                {r.error && (
-                  <span className="truncate text-[12px] text-signal" title={r.error}>
-                    {r.error}
-                  </span>
-                )}
-              </span>
-            </div>
-          ))
+          <LogTable rows={rows as MailLogRow[]} columns={mailColumns} />
         )}
         {log.hasNextPage && (
           <div className="px-4 py-2">

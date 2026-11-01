@@ -35,8 +35,12 @@ const ACCESS_ONLY = ["stream.key", "stream.session", "stream.segment", "page.ren
 
 type Filters = Omit<LogQuery, "before" | "limit"> & { before?: string | undefined; limit: number };
 
+/** Where a range starts: its hours back from the viewer's clock, or the server's. */
 const sinceOf = (filters: Filters, now: Date) =>
-  new Date(now.getTime() - logRangeHours[filters.range] * 60 * 60_000);
+  new Date(
+    (filters.now ? Date.parse(filters.now) : now.getTime()) -
+      logRangeHours[filters.range] * 60 * 60_000,
+  );
 
 /**
  * A range on a log's rows: the id first, for the index, then the time it happened. `at` and `id`
