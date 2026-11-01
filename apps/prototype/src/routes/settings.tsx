@@ -4,6 +4,7 @@ import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
+import { Chip } from "~/components/permissions";
 import { Danger, Matrix, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { Dot } from "~/components/status";
 import { StatusRows } from "~/components/status-desk";
@@ -1153,12 +1154,9 @@ export function SettingsPage({
             >
               <span className="flex flex-wrap gap-1.5">
                 {["Password", "Passkey", "Single sign-on", "Directory (LDAP)"].map((m) => (
-                  <span
-                    key={m}
-                    className="rounded-chip bg-raised px-2 text-[12px] leading-6 text-ink-2"
-                  >
+                  <Chip key={m} active={m !== "Directory (LDAP)"}>
                     {m}
-                  </span>
+                  </Chip>
                 ))}
               </span>
             </Row>

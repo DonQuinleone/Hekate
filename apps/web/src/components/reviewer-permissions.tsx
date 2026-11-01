@@ -8,11 +8,12 @@ import {
   reviewerTools,
 } from "@hekate/shared";
 import { type FormEvent, useId, useState } from "react";
-import { cn } from "~/lib/cn";
 import { fromLocalInput, toLocalInput } from "~/lib/permissions";
 import { Button } from "./ui/button";
+import { ToggleChip } from "./ui/chip";
 import { Choice } from "./ui/choice";
 import { Input } from "./ui/input";
+import { Segmented } from "./ui/segmented";
 import { Toggle } from "./ui/toggle";
 
 const scopes: { value: CommentScope; label: string }[] = [
@@ -29,10 +30,6 @@ const toolLabels: Record<ReviewerTool, string> = {
   qa: "QA",
   score: "Score",
 };
-
-const chip = "h-7 cursor-pointer rounded-chip border px-2.5 text-xs";
-const on = "border-edge bg-raised text-ink";
-const off = "border-transparent bg-transparent text-ink-3 hover:text-ink";
 
 /**
  * What one reviewer may do in this review, edited in place: whose comments they see,
@@ -118,19 +115,13 @@ export function ReviewerPermissionsEditor({
       {guest && !share && (
         <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
           <legend className="label mb-2">Comments they see</legend>
-          <div className="flex flex-wrap gap-1">
-            {scopes.map((s) => (
-              <button
-                key={s.value}
-                type="button"
-                aria-pressed={p.comments === s.value}
-                onClick={() => setP({ ...p, comments: s.value })}
-                className={cn(chip, p.comments === s.value ? on : off)}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            label="Comments they see"
+            value={p.comments}
+            options={scopes}
+            onChange={(comments) => setP({ ...p, comments })}
+            className="self-start"
+          />
         </fieldset>
       )}
       <div className="flex max-w-72 flex-col gap-2.5">
@@ -168,15 +159,9 @@ export function ReviewerPermissionsEditor({
           <legend className="label mb-2">Tools</legend>
           <div className="flex flex-wrap gap-1">
             {reviewerTools.map((t) => (
-              <button
-                key={t}
-                type="button"
-                aria-pressed={p.tools.includes(t)}
-                onClick={() => toggleTool(t)}
-                className={cn(chip, p.tools.includes(t) ? on : off)}
-              >
+              <ToggleChip key={t} pressed={p.tools.includes(t)} onClick={() => toggleTool(t)}>
                 {toolLabels[t]}
-              </button>
+              </ToggleChip>
             ))}
           </div>
         </fieldset>
@@ -184,19 +169,13 @@ export function ReviewerPermissionsEditor({
       {guest && (
         <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
           <legend className="label mb-2">Download</legend>
-          <div className="flex flex-wrap gap-1">
-            {downloadChoices.map((d) => (
-              <button
-                key={d.value}
-                type="button"
-                aria-pressed={(p.download ?? "none") === d.value}
-                onClick={() => setP({ ...p, download: d.value })}
-                className={cn(chip, (p.download ?? "none") === d.value ? on : off)}
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
+          <Segmented
+            label="Download"
+            value={p.download ?? "none"}
+            options={downloadChoices}
+            onChange={(download) => setP({ ...p, download })}
+            className="self-start"
+          />
           {(p.download ?? "none") !== "none" && (
             <span className="text-xs text-ink-3">
               Made for them, marked where the file allows, and logged.

@@ -343,6 +343,7 @@ function Components() {
   const [profile, setProfile] = useState("music");
   const [dialog, setDialog] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [chips, setChips] = useState({ loops: true, score: false });
   const noop = () => {};
   return (
     <>
@@ -651,7 +652,10 @@ function Components() {
             </FoldingSection>
           </div>
         </Spec>
-        <Spec name="Tabs" rule="A third level of navigation, with the panel they control.">
+        <Spec
+          name="Tabs"
+          rule="A third level of navigation, with the panel they control. The chosen tab is underlined in ink; the focus ring shows when it is reached with the keyboard, never after a click."
+        >
           <Tabs defaultValue="review" className="w-full max-w-[460px]">
             <TabsList>
               <TabsTrigger value="review">Review</TabsTrigger>
@@ -869,12 +873,26 @@ function Components() {
         </Spec>
         <Spec
           name="Toggle chip"
-          rule="A quick pick beside a field, pressed or not: a due date in a week, the rule an approval settles by."
+          rule="Several things each on or off, such as a guest's tools: on is raised, in ink, with a tick; off is a hairline. One choice among a few is a segmented control instead."
         >
-          <ToggleChip pressed>everyone</ToggleChip>
-          <ToggleChip pressed={false}>any one</ToggleChip>
+          <ToggleChip
+            pressed={chips.loops}
+            onClick={() => setChips({ ...chips, loops: !chips.loops })}
+          >
+            Loops
+          </ToggleChip>
+          <ToggleChip
+            pressed={chips.score}
+            onClick={() => setChips({ ...chips, score: !chips.score })}
+          >
+            Score
+          </ToggleChip>
+          <ToggleChip pressed={false}>Meters</ToggleChip>
+          <ToggleChip pressed disabled>
+            Compare
+          </ToggleChip>
           <ToggleChip pressed={false} disabled>
-            a share
+            QA
           </ToggleChip>
         </Spec>
         <Spec name="Eyebrow" rule="Heads a group; a count follows in small tabular figures.">

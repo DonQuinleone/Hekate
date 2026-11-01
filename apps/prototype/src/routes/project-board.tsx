@@ -5,6 +5,7 @@ import { CalendarSubscribeDialog } from "~/components/calendar-subscribe";
 import { Icon, type IconName } from "~/components/icons";
 import { Label } from "~/components/label";
 import { Card } from "~/components/page";
+import { Chip } from "~/components/permissions";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
@@ -119,22 +120,15 @@ function Customise({ display, set }: { display: Display; set: (d: Display) => vo
                   ["due", "Due"],
                 ] as const
               ).map(([id, label]) => (
-                <button
+                <Chip
                   key={id}
-                  type="button"
-                  aria-pressed={display.fields[id]}
+                  active={display.fields[id]}
                   onClick={() =>
                     set({ ...display, fields: { ...display.fields, [id]: !display.fields[id] } })
                   }
-                  className={cn(
-                    "h-7 rounded-chip border px-2.5 text-[13px]",
-                    display.fields[id]
-                      ? "border-edge bg-raised text-ink"
-                      : "border-line text-ink-3 hover:text-ink",
-                  )}
                 >
                   {label}
-                </button>
+                </Chip>
               ))}
             </div>
           </div>
