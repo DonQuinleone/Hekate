@@ -12,13 +12,17 @@ export interface PanelLayout {
   width: number;
   /** Whether a track's linked score is shown under the player: off until asked for (#15). */
   score: boolean;
+  /** The score's width beside the player on a wide screen, in pixels (#646). */
+  scoreWidth: number;
 }
 
 export const COMMENTS_WIDTH = { min: 300, max: 640, default: 400 } as const;
+export const SCORE_WIDTH = { min: 280, max: 760, default: 420 } as const;
 export const defaultPanelLayout: PanelLayout = {
   comments: "right",
   width: COMMENTS_WIDTH.default,
   score: false,
+  scoreWidth: SCORE_WIDTH.default,
 };
 
 const places: readonly CommentsPlace[] = ["right", "below", "hidden"];
@@ -28,10 +32,16 @@ const KEY = "hekate.file.layout";
 export const commentsWidth = (width: number) =>
   Math.round(Math.min(COMMENTS_WIDTH.max, Math.max(COMMENTS_WIDTH.min, width)));
 
+/** The score's width beside the player, kept between its narrowest and widest (#646). */
+export const scoreWidth = (width: number) =>
+  Math.round(Math.min(SCORE_WIDTH.max, Math.max(SCORE_WIDTH.min, width)));
+
 /** What a browser kept, read safely: anything unreadable or out of range falls back. */
 export function readPanelLayout(stored: unknown): PanelLayout {
   if (!stored || typeof stored !== "object") return defaultPanelLayout;
-  const { comments, width, score } = stored as Partial<Record<keyof PanelLayout, unknown>>;
+  const { comments, width, score, scoreWidth: scored } = stored as Partial<
+    Record<keyof PanelLayout, unknown>
+  >;
   return {
     comments: places.includes(comments as CommentsPlace)
       ? (comments as CommentsPlace)
@@ -41,6 +51,10 @@ export function readPanelLayout(stored: unknown): PanelLayout {
         ? commentsWidth(width)
         : defaultPanelLayout.width,
     score: typeof score === "boolean" ? score : defaultPanelLayout.score,
+    scoreWidth:
+      typeof scored === "number" && Number.isFinite(scored)
+        ? scoreWidth(scored)
+        : defaultPanelLayout.scoreWidth,
   };
 }
 

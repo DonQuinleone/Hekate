@@ -7,6 +7,7 @@ describe("where a file's comments sit (#15)", () => {
       comments: "below",
       width: 420,
       score: false,
+      scoreWidth: 420,
     });
     expect(readPanelLayout(null)).toEqual(defaultPanelLayout);
     expect(readPanelLayout("right")).toEqual(defaultPanelLayout);
@@ -21,6 +22,7 @@ describe("where a file's comments sit (#15)", () => {
       comments: "hidden",
       width: 640,
       score: false,
+      scoreWidth: 420,
     });
   });
 
@@ -28,5 +30,11 @@ describe("where a file's comments sit (#15)", () => {
     expect(defaultPanelLayout.score).toBe(false);
     expect(readPanelLayout({ comments: "right", width: 340, score: true }).score).toBe(true);
     expect(readPanelLayout({ comments: "right", width: 340, score: "yes" }).score).toBe(false);
+  });
+
+  it("keeps the score's width beside the player, remembered and within bounds (#646)", () => {
+    expect(readPanelLayout({ scoreWidth: 500 }).scoreWidth).toBe(500);
+    expect(readPanelLayout({ scoreWidth: 10 }).scoreWidth).toBe(280);
+    expect(readPanelLayout({ scoreWidth: "wide" }).scoreWidth).toBe(420);
   });
 });

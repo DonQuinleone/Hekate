@@ -836,11 +836,23 @@ export function FilePage({
     // the score. More than the frame holds scrolls, the comments staying beside it. QA keeps
     // the player at the top and scrolls what was measured under it. Both views share one tree,
     // so switching between them never remounts the player or stops the music.
-    main = (
+    /** The score beside the player on a wide screen (#646), rather than under its transport. */
+    const scoreBeside =
+      !qaShown && hasScore && layout.score && file.variant?.scoreFileId ? (
+        <ScorePane
+          scoreFileId={file.variant.scoreFileId}
+          guest={guest}
+          onHide={() => setLayout({ score: false })}
+          width={layout.scoreWidth}
+          onWidth={(scoreWidth) => setLayout({ scoreWidth })}
+        />
+      ) : null;
+    const column = (
       <div
         className={cn(
           "flex flex-col lg:min-h-0 lg:flex-1",
           !qaShown && "scroll-quiet lg:overflow-y-auto",
+          scoreBeside && "min-w-0",
         )}
       >
         <ListeningNotice sync={listening} />
@@ -895,18 +907,19 @@ export function FilePage({
               <Compare file={file} media={media} focus={focus} gain={gain} />
             )}
             {!guest && <VersionNote file={file} />}
-            {hasScore && layout.score && file.variant?.scoreFileId && (
-              <ScorePane
-                scoreFileId={file.variant.scoreFileId}
-                guest={guest}
-                onHide={() => setLayout({ score: false })}
-              />
-            )}
             {/* A file's details are the Details sheet's (#635); a guest's fold away here. */}
             {detailList && <div className="px-3 pb-4 lg:px-4">{detailList}</div>}
           </>
         )}
       </div>
+    );
+    main = scoreBeside ? (
+      <div className="flex flex-col lg:min-h-0 lg:flex-1 lg:flex-row">
+        {column}
+        {scoreBeside}
+      </div>
+    ) : (
+      column
     );
   } else if (pages) {
     // A document or picture fills the frame, its pages scrolling inside it; its details
