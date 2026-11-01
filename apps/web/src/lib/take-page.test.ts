@@ -1,6 +1,14 @@
 import type { EditDecisions, EdlUse } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { coverageLabel, falseStartsLabel, takeLoop, timecodeSpan, usedInLabel } from "./take-page";
+import {
+  coverageLabel,
+  falseStartsLabel,
+  takeLoop,
+  takesByTrack,
+  threadMatches,
+  timecodeSpan,
+  usedInLabel,
+} from "./take-page";
 
 const use = (takeId: string | null, bars: [number, number] | null): EdlUse => ({
   event: {
@@ -31,14 +39,13 @@ const decisions = (uses: EdlUse[]): EditDecisions => ({
 });
 
 describe("timecodeSpan", () => {
-  it("writes both ends, the out point's hours left off when asked and the same", () => {
+  it("writes both ends in full, never shortening the out point", () => {
     expect(timecodeSpan("10:14:02:00", "10:19:40:00")).toBe("10:14:02:00 – 10:19:40:00");
-    expect(timecodeSpan("10:14:02:00", "10:19:40:00", true)).toBe("10:14:02:00 – 19:40:00");
-    expect(timecodeSpan("10:58:02:00", "11:01:40:00", true)).toBe("10:58:02:00 – 11:01:40:00");
+    expect(timecodeSpan("10:58:02:00", "11:01:40:00")).toBe("10:58:02:00 – 11:01:40:00");
   });
-  it("writes the one end known, and nothing for neither", () => {
-    expect(timecodeSpan("10:14:02:00", null)).toBe("10:14:02:00 –");
-    expect(timecodeSpan(null, "10:19:40:00")).toBe("– 10:19:40:00");
+  it("marks the end not yet known, as the take log does, and nothing for neither", () => {
+    expect(timecodeSpan("10:14:02:00", null)).toBe("10:14:02:00 – …");
+    expect(timecodeSpan(null, "10:19:40:00")).toBe("… – 10:19:40:00");
     expect(timecodeSpan(null, null)).toBeNull();
   });
 });
@@ -83,5 +90,33 @@ describe("takeLoop", () => {
   });
   it("is null where the length is unknown", () => {
     expect(takeLoop({ inPoint: null, outPoint: null }, null)).toBeNull();
+  });
+});
+
+describe("takesByTrack", () => {
+  const maple = { id: "m", name: "Maple Leaf Rag" };
+  const elite = { id: "e", name: "The Entertainer" };
+  const take = (id: string, track: { id: string; name: string }) => ({ id, track });
+  it("lists the session's tracks in order, each with its takes, and keeps one without", () => {
+    const groups = takesByTrack([maple, elite], [take("t1", maple), take("t2", maple)]);
+    expect(groups.map((g) => [g.track.name, g.takes.map((t) => t.id)])).toEqual([
+      ["Maple Leaf Rag", ["t1", "t2"]],
+      ["The Entertainer", []],
+    ]);
+  });
+  it("adds a track a take belongs to that the session does not name, after its own", () => {
+    const groups = takesByTrack([maple], [take("t1", elite), take("t2", maple)]);
+    expect(groups.map((g) => g.track.id)).toEqual(["m", "e"]);
+  });
+});
+
+describe("threadMatches", () => {
+  const thread = { body: "Pedal noise at the join", authorName: "Mira Solberg", anchor: "Bars 9–12" };
+  it("finds a thread by its words, its author or its anchor, every word given", () => {
+    expect(threadMatches(thread, "")).toBe(true);
+    expect(threadMatches(thread, "pedal JOIN")).toBe(true);
+    expect(threadMatches(thread, "mira")).toBe(true);
+    expect(threadMatches(thread, "bars 9")).toBe(true);
+    expect(threadMatches(thread, "pedal tomas")).toBe(false);
   });
 });

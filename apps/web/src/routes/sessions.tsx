@@ -1,39 +1,43 @@
-import { formatDuration, type SessionSummary, type TakeNumbering } from "@hekate/shared";
+import {
+  type EditDecisions,
+  formatDuration,
+  type SessionDetail,
+  type SessionSummary,
+} from "@hekate/shared";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
+import { useState } from "react";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
 import { ProductionBody } from "~/components/production-nav";
+import { SessionDialog } from "~/components/session-dialog";
 import { TakeImportDialog } from "~/components/take-import";
 import { Rating } from "~/components/takes";
 import { Button } from "~/components/ui/button";
-import { Checkbox } from "~/components/ui/choice";
-import { DateField, TimeField } from "~/components/ui/date-field";
+import { Count } from "~/components/ui/chip";
 import { Dialog } from "~/components/ui/dialog";
-import { Field } from "~/components/ui/field";
-import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { Failed, Loading, Refused } from "~/components/ui/states";
+import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import {
   editDecisionsQuery,
   projectQuery,
   projectSessionsQuery,
-  projectTracksQuery,
   sessionQuery,
   useProjectCan,
   useSessionMutations,
 } from "~/lib/queries";
-import { slotMoment, slotTime } from "~/lib/take-log";
-import { coverageLabel, falseStartsLabel, timecodeSpan, usedInLabel } from "~/lib/take-page";
+import {
+  coverageLabel,
+  falseStartsLabel,
+  takesByTrack,
+  timecodeSpan,
+  usedInLabel,
+} from "~/lib/take-page";
 import { PageFailed } from "~/routes/problem";
 import { ProjectFrame } from "~/routes/project";
-
-/** A session's own page, framed as the other pages of the project are. */
-const body =
-  "fade-in mx-auto flex w-full max-w-[1360px] flex-col gap-6 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8";
 
 const dayFormat = formatDates({ day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
@@ -163,137 +167,6 @@ export function SessionsPage({ projectId }: { projectId: string }) {
   );
 }
 
-/** Making a session, or changing one: its name, day, place and the tracks it recorded. */
-function SessionDialog({
-  projectId,
-  session,
-  onClose,
-}: {
-  projectId: string;
-  session?: SessionSummary;
-  onClose: () => void;
-}) {
-  const { data: tracks = [] } = useQuery(projectTracksQuery(projectId));
-  const { create, change } = useSessionMutations(projectId);
-  const navigate = useNavigate();
-  const [name, setName] = useState(session?.name ?? "");
-  const [recordedOn, setRecordedOn] = useState(session?.recordedOn ?? "");
-  const [venue, setVenue] = useState(session?.venue ?? "");
-  const [numbering, setNumbering] = useState<TakeNumbering>(session?.numbering ?? "per-track");
-  const [slotFrom, setSlotFrom] = useState(slotTime(session?.slotStart ?? null));
-  const [slotTo, setSlotTo] = useState(slotTime(session?.slotEnd ?? null));
-  const [chosen, setChosen] = useState<Set<string>>(
-    new Set(session?.tracks.map((t) => t.id) ?? []),
-  );
-  const saving = create.isPending || change.isPending;
-  const failure = create.error ?? change.error;
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const input = {
-      name: name.trim(),
-      recordedOn: recordedOn || null,
-      venue: venue.trim() || null,
-      trackIds: [...chosen],
-      numbering,
-      slotStart: slotMoment(recordedOn || null, slotFrom),
-      slotEnd: slotMoment(recordedOn || null, slotTo),
-    };
-    if (session) change.mutate({ id: session.id, ...input }, { onSuccess: onClose });
-    else
-      create.mutate(input, {
-        onSuccess: (made) =>
-          void navigate({ to: "/sessions/$sessionId", params: { sessionId: made.id } }),
-      });
-  };
-  const toggle = (id: string) =>
-    setChosen((was) => {
-      const next = new Set(was);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  return (
-    <Dialog
-      title={session ? "Session" : "New session"}
-      onClose={onClose}
-      footer={
-        <>
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            type="submit"
-            form="session"
-            disabled={saving || name.trim() === ""}
-          >
-            {session ? "Save" : "Create session"}
-          </Button>
-        </>
-      }
-    >
-      <form id="session" onSubmit={submit} className="flex flex-col gap-4">
-        <Field label="Name">
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Day 2"
-            maxLength={120}
-            required
-          />
-        </Field>
-        <div className="grid gap-4 @md/app:grid-cols-2">
-          <Field label="Day">
-            <DateField value={recordedOn} onChange={setRecordedOn} />
-          </Field>
-          <Field label="Where">
-            <Input
-              value={venue}
-              onChange={(e) => setVenue(e.target.value)}
-              placeholder="Endless Hall, studio 2"
-              maxLength={200}
-            />
-          </Field>
-        </div>
-        <div className="grid gap-4 @md/app:grid-cols-3">
-          <Field label="Slot from">
-            <TimeField value={slotFrom} onChange={setSlotFrom} />
-          </Field>
-          <Field label="To">
-            <TimeField value={slotTo} onChange={setSlotTo} />
-          </Field>
-          <Field label="Takes numbered">
-            <Select
-              value={numbering}
-              onChange={(e) => setNumbering(e.target.value as TakeNumbering)}
-            >
-              <option value="per-track">Per track</option>
-              <option value="continuous">On through the project</option>
-              <option value="recorder">By the recorder</option>
-            </Select>
-          </Field>
-        </div>
-        {tracks.length > 0 && (
-          <fieldset className="m-0 flex flex-col gap-1.5 border-0 p-0">
-            <legend className="mb-1.5 p-0 text-[13px] text-ink-2">The tracks it recorded</legend>
-            {tracks.map((t) => (
-              <label key={t.id} className="flex items-center gap-2.5 text-[14px] text-ink">
-                <Checkbox checked={chosen.has(t.id)} onChange={() => toggle(t.id)} />
-                {t.name}
-              </label>
-            ))}
-          </fieldset>
-        )}
-        {failure && (
-          <p role="alert" className="m-0 text-[13px] text-signal">
-            {failure.message}
-          </p>
-        )}
-      </form>
-    </Dialog>
-  );
-}
-
 /**
  * One recording session (#21, #45): when and where, the tracks it recorded, and the takes made
  * in it, each with its track, rating, bars and notes. A take belongs to its track; this page
@@ -320,6 +193,7 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
   if (!session || !project) return <Loading />;
   const canEdit = can("edit_takes") && !project.archivedAt;
   const rows = session.takeRows;
+  const groups = takesByTrack(session.tracks, rows);
   return (
     <>
       <PageHeader
@@ -341,7 +215,9 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
             ),
           },
         ]}
+        // Its name is the page's heading (#648), said once.
         title={session.name}
+        heading="page"
         actions={
           <>
             <Button
@@ -371,120 +247,52 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
           </>
         }
       />
-      <div className={body}>
-        <p className="m-0 text-[14px] text-ink-2">
-          {[whenAndWhere(session), count(rows.length, "take")].filter(Boolean).join(" · ")}
-        </p>
-        <section aria-label="Tracks recorded" className="flex flex-wrap items-center gap-2">
-          {session.tracks.length === 0 ? (
-            <span className="text-[13px] text-ink-3">No tracks given for this session.</span>
+      {/* In Production's frame, Sessions current, as the list of sessions is (#648). */}
+      <ProductionBody projectId={project.id} current="sessions" can={can}>
+        <div className="flex min-w-0 flex-col gap-8">
+          <div>
+            <h1 className="title m-0">{session.name}</h1>
+            <p className="m-0 mt-1 text-[14px] text-ink-2">
+              {[whenAndWhere(session), count(rows.length, "take")].filter(Boolean).join(" · ")}
+            </p>
+          </div>
+          {groups.length === 0 ? (
+            <Empty
+              title="No tracks for this session"
+              text="Give the session the tracks it recorded, with Edit; their takes from the day are listed under each."
+            />
           ) : (
-            session.tracks.map((t) => (
-              <Link
-                key={t.id}
-                to="/tracks/$trackId"
-                params={{ trackId: t.id }}
-                search={{ view: "takes" }}
-                className="flex h-7 items-center gap-1.5 rounded-chip border border-line bg-raised/40 px-2.5 text-[13px] text-ink-2 no-underline hover:border-edge hover:text-ink"
+            // The tracks it recorded, and their takes (#652): a take is its track's.
+            groups.map((g) => (
+              <section
+                key={g.track.id}
+                aria-labelledby={`track-${g.track.id}`}
+                className="flex min-w-0 flex-col gap-2"
               >
-                <Icon name="track" size={12} className="text-ink-3" />
-                {t.name}
-              </Link>
+                <h2 id={`track-${g.track.id}`} className="m-0 text-[15px] font-medium">
+                  <Link
+                    to="/tracks/$trackId"
+                    params={{ trackId: g.track.id }}
+                    search={{ view: "takes" }}
+                    className="inline-flex items-center gap-2 text-ink no-underline hover:text-ink-2"
+                  >
+                    <Icon name="track" size={14} className="text-ink-3" />
+                    {g.track.name}
+                  </Link>
+                  {g.takes.length > 0 && <Count>{g.takes.length}</Count>}
+                </h2>
+                {g.takes.length === 0 ? (
+                  <p className="m-0 text-[13px] text-ink-3">
+                    No takes of it from this session yet.
+                  </p>
+                ) : (
+                  <SessionTakes takes={g.takes} decisions={decisions.get(g.track.id) ?? null} />
+                )}
+              </section>
             ))
           )}
-        </section>
-        {rows.length === 0 ? (
-          <Empty
-            title="No takes from this session yet"
-            text="Takes stay with their tracks. To list one here, open it among its track's takes and set its session to this one."
-          />
-        ) : (
-          // A wide table scrolls on its own on a phone; the page does not.
-          <div className="-mx-5 overflow-x-auto px-5 @3xl/app:mx-0 @3xl/app:px-0">
-            <table className="w-full min-w-[960px] border-collapse text-[13px]">
-              <thead>
-                <tr className="text-left text-[12px] text-ink-3">
-                  {[
-                    "Take",
-                    "Rating",
-                    "Track",
-                    "Coverage",
-                    "Notes",
-                    "Timecode",
-                    "Mics",
-                    "Used in",
-                    "",
-                  ].map((h) => (
-                    <th key={h || "length"} className="px-2 py-2 font-normal">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((t) => {
-                  const falseStarts = falseStartsLabel(t.falseStarts);
-                  const coverage = coverageLabel(t);
-                  return (
-                    <tr
-                      key={t.id}
-                      className="border-t border-line transition-colors hover:bg-raised/40"
-                    >
-                      <td className="px-2 py-2">
-                        <Link
-                          to="/takes/$takeId"
-                          params={{ takeId: t.id }}
-                          className="tabular inline-flex items-center gap-1.5 whitespace-nowrap font-medium text-ink no-underline hover:text-ink-2"
-                        >
-                          {t.starred && (
-                            <Icon
-                              name="star"
-                              size={12}
-                              fill="currentColor"
-                              aria-label="Starred"
-                              className="text-ink-2"
-                            />
-                          )}
-                          T{t.number}
-                          {t.lifecycle === "aborted" && (
-                            <span className="text-[12px] font-normal text-ink-3">aborted</span>
-                          )}
-                          {falseStarts && (
-                            <span className="text-[12px] font-normal text-ink-3">
-                              {falseStarts}
-                            </span>
-                          )}
-                        </Link>
-                      </td>
-                      <td className="px-2 py-2">
-                        <Rating value={t.rating} />
-                      </td>
-                      <td className="px-2 py-2 text-ink-2">{t.track.name}</td>
-                      <td className="tabular px-2 py-2 text-ink-2">
-                        {coverage ?? <span className="text-ink-3">none</span>}
-                      </td>
-                      <td className="max-w-[260px] truncate px-2 py-2 text-ink-2">
-                        {t.notes || t.label}
-                      </td>
-                      <td className="tabular whitespace-nowrap px-2 py-2 text-ink-3">
-                        {timecodeSpan(t.timecodeIn, t.timecodeOut, true)}
-                      </td>
-                      {/* A take is its summed mix for now; its microphones follow (decision 246). */}
-                      <td className="px-2 py-2 text-ink-3">{t.file ? "mix" : ""}</td>
-                      <td className="tabular whitespace-nowrap px-2 py-2 text-ink-3">
-                        {usedInLabel(decisions.get(t.track.id), t.id)}
-                      </td>
-                      <td className="tabular px-2 py-2 text-right text-ink-3">
-                        {t.file?.duration != null ? formatDuration(t.file.duration) : ""}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        </div>
+      </ProductionBody>
       {editing && (
         <SessionDialog projectId={project.id} session={session} onClose={() => setEditing(false)} />
       )}
@@ -524,5 +332,134 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
         </Dialog>
       )}
     </>
+  );
+}
+
+type SessionTake = SessionDetail["takeRows"][number];
+
+/**
+ * One track's takes from a session (#652): a table with every column headed on a wide screen,
+ * and on a phone two lines a take (its number, rating, notes and length; then its bars,
+ * timecode and where an edit uses it), so nothing is out of reach.
+ */
+function SessionTakes({
+  takes,
+  decisions,
+}: {
+  takes: SessionTake[];
+  decisions: EditDecisions | null;
+}) {
+  return (
+    <>
+      <table className="hidden w-full border-collapse text-[13px] @3xl/app:table">
+        <thead>
+          <tr className="text-left text-[12px] text-ink-3">
+            {["Take", "Rating", "Coverage", "Notes", "Timecode", "Mics", "Used in", "Length"].map(
+              (h) => (
+                <th
+                  key={h}
+                  className={cn(
+                    "whitespace-nowrap px-2 py-2 font-normal",
+                    h === "Length" && "text-right",
+                  )}
+                >
+                  {h}
+                </th>
+              ),
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {takes.map((t) => {
+            const coverage = coverageLabel(t);
+            return (
+              <tr key={t.id} className="border-t border-line transition-colors hover:bg-raised/40">
+                <td className="px-2 py-2">
+                  <TakeName take={t} />
+                </td>
+                <td className="px-2 py-2">
+                  <Rating value={t.rating} />
+                </td>
+                <td className="tabular whitespace-nowrap px-2 py-2 text-ink-2">
+                  {coverage ?? <span className="text-ink-3">none</span>}
+                </td>
+                <td
+                  className="w-full max-w-0 truncate px-2 py-2 text-ink-2"
+                  title={t.notes ?? undefined}
+                >
+                  {t.notes || t.label}
+                </td>
+                <td className="tabular whitespace-nowrap px-2 py-2 text-ink-3">
+                  {timecodeSpan(t.timecodeIn, t.timecodeOut)}
+                </td>
+                {/* A take is its summed mix for now; its microphones follow (decision 246). */}
+                <td className="px-2 py-2 text-ink-3">{t.file ? "mix" : ""}</td>
+                <td className="tabular whitespace-nowrap px-2 py-2 text-ink-3">
+                  {usedInLabel(decisions, t.id)}
+                </td>
+                <td className="tabular whitespace-nowrap px-2 py-2 text-right text-ink-3">
+                  {t.file?.duration != null ? formatDuration(t.file.duration) : ""}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <ul className="m-0 flex list-none flex-col p-0 @3xl/app:hidden">
+        {takes.map((t) => {
+          const facts = [
+            coverageLabel(t),
+            timecodeSpan(t.timecodeIn, t.timecodeOut),
+            usedInLabel(decisions, t.id),
+          ].filter(Boolean);
+          return (
+            <li key={t.id} className="flex flex-col gap-0.5 border-t border-line py-2 text-[13px]">
+              <span className="flex min-w-0 items-center gap-3">
+                <TakeName take={t} />
+                <Rating value={t.rating} />
+                <span className="min-w-0 flex-1 truncate text-ink-2">{t.notes || t.label}</span>
+                <span className="tabular shrink-0 text-ink-3">
+                  {t.file?.duration != null ? formatDuration(t.file.duration) : ""}
+                </span>
+              </span>
+              {facts.length > 0 && (
+                <span className="tabular pl-[22px] text-[12px] text-ink-3">
+                  {facts.join(" · ")}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
+/** "T3", with room kept for the star whether or not it has one, so the numbers line up. */
+function TakeName({ take: t }: { take: SessionTake }) {
+  const falseStarts = falseStartsLabel(t.falseStarts);
+  return (
+    <Link
+      to="/takes/$takeId"
+      params={{ takeId: t.id }}
+      className="tabular inline-flex items-center gap-1.5 whitespace-nowrap font-medium text-ink no-underline hover:text-ink-2"
+    >
+      <span className="flex w-3 shrink-0 justify-center">
+        {t.starred && (
+          <Icon
+            name="star"
+            size={12}
+            fill="currentColor"
+            aria-label="Starred"
+            className="text-ink-2"
+          />
+        )}
+      </span>
+      T{t.number}
+      {t.lifecycle === "aborted" && (
+        <span className="text-[12px] font-normal text-ink-3">aborted</span>
+      )}
+      {falseStarts && <span className="text-[12px] font-normal text-ink-3">{falseStarts}</span>}
+    </Link>
   );
 }

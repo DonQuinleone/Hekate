@@ -6,9 +6,10 @@ import {
   calendarEntryKinds,
   capital,
 } from "@hekate/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { PeoplePicker, type Person } from "~/components/people-picker";
+import { SessionDialog } from "~/components/session-dialog";
 import { Button } from "~/components/ui/button";
 import { DateField } from "~/components/ui/date-field";
 import { Dialog, useConfirm } from "~/components/ui/dialog";
@@ -72,6 +73,7 @@ export function EntryDialog({
   const kinds = calendarEntryKinds.filter((k) => k !== "session" || can("edit_takes"));
   const pending = create.isPending || change.isPending || remove.isPending;
   const failure = create.error ?? change.error ?? remove.error;
+  const client = useQueryClient();
   const backwards = Boolean(endsOn) && Boolean(startsOn) && endsOn < startsOn;
   const ready = title.trim().length > 0 && startsOn.length > 0 && !backwards;
   const save = () => {
@@ -89,6 +91,20 @@ export function EntryDialog({
     if (entry) change.mutate({ id: entry.id, ...input }, { onSuccess: onClose });
     else create.mutate(input, { onSuccess: onClose });
   };
+  // A new session is made with the one New session form (#652), with what was typed so far;
+  // it is on the calendar on its day. An entry that already booked one stays an entry.
+  if (!entry && kind === "session")
+    return (
+      <SessionDialog
+        projectId={projectId}
+        initial={{ name: title.trim(), recordedOn: startsOn }}
+        stay
+        onClose={() => {
+          void client.invalidateQueries({ queryKey: ["projects", projectId, "calendar"] });
+          onClose();
+        }}
+      />
+    );
   return (
     <Dialog
       title={entry ? "Entry" : "New entry"}
