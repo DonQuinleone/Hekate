@@ -3556,6 +3556,17 @@ describe.runIf(url)("api", () => {
         const page = await read<MailLogRow>("mail?q=598&range=7d&limit=1");
         const next = await read<MailLogRow>(`mail?q=598&range=7d&limit=2&before=${page.next}`);
         expect(next.rows.map((r) => r.subject)).toEqual(["After the fact 598", "Long ago 598"]);
+        // By the viewer's clock, when the page sends it: from a day before it, and since.
+        const then = encodeURIComponent(hoursAgo(40).toISOString());
+        const back = await read<AuditLogRow>(`audit?q=598&range=24h&now=${then}`);
+        expect(back.rows.map((r) => r.target)).toEqual([
+          "recent-598",
+          "after-the-fact-598",
+          "long-ago-598",
+        ]);
+        const before = encodeURIComponent(hoursAgo(-2).toISOString());
+        const ahead = await read<AuditLogRow>(`audit?q=598&range=1h&now=${before}`);
+        expect(ahead.rows).toEqual([]);
       });
 
       it("logs every sign-in, refusal and guest link, and forgets a deleted account's address (#157)", async () => {
