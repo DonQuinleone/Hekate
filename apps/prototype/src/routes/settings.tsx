@@ -1858,7 +1858,7 @@ export function SettingsPage({
               </label>
               <fieldset className="grid gap-4 @md/app:col-span-2 @md/app:grid-cols-3">
                 <legend className="mb-3 text-[13px] text-ink">
-                  Picture <span className="text-ink-3">for videos; any is not checked</span>
+                  Picture, for videos. <span className="text-ink-3">Any is not checked.</span>
                 </legend>
                 {[
                   ["Codec", ["Any codec", "ProRes", "DNxHD or DNxHR", "H.264", "HEVC (H.265)"]],

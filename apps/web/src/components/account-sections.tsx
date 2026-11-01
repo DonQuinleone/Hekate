@@ -20,6 +20,7 @@ import {
 import { applyTheme, themeChoices } from "~/lib/theme";
 import { Avatar } from "./avatar";
 import { useIdentityCheck } from "./identity-check";
+import { Kbd } from "./kbd";
 import { CodeAppSetup, RecoveryCodes } from "./second-factor";
 import { Danger, Row, Section, SwitchRow } from "./settings";
 import { Button } from "./ui/button";
@@ -27,6 +28,7 @@ import { Choice } from "./ui/choice";
 import { Dialog, useConfirm } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
 import { StatusDot } from "./ui/status";
+import { Switch } from "./ui/toggle";
 
 const zones = (() => {
   try {
@@ -723,12 +725,22 @@ export function PlayerSection() {
           checked={preferences.showMetadataEditor}
           onChange={(showMetadataEditor) => save.mutate({ showMetadataEditor })}
         />
-        <SwitchRow
-          name="Keyboard map on ?"
-          hint="Off, open it from the Help menu instead."
-          checked={preferences.keyboardMapOnQuestion}
-          onChange={(keyboardMapOnQuestion) => save.mutate({ keyboardMapOnQuestion })}
-        />
+        {/* The key shown as a key (#595); the switch is named in words for a screen reader. */}
+        <Row
+          name={
+            <>
+              Open the keyboard map with <Kbd>?</Kbd>
+            </>
+          }
+          hint="When off, it opens from the Help menu."
+          inline
+        >
+          <Switch
+            label="Open the keyboard map with ?"
+            checked={preferences.keyboardMapOnQuestion}
+            onChange={(keyboardMapOnQuestion) => save.mutate({ keyboardMapOnQuestion })}
+          />
+        </Row>
       </Section>
       <Section title="Playing">
         <Row

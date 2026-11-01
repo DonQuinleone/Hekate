@@ -357,10 +357,7 @@ function ChannelDialog({ channel, onClose }: { channel: ChannelRow | null; onClo
             </Select>
           </Field>
         )}
-        <Field
-          label="Name"
-          hint="As settings and the webhook log show it: the channel's own name, say."
-        >
+        <Field label="Name" hint="Shown in this list and in the webhook log.">
           <Input
             value={name}
             required

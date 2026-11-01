@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
+import { Kbd } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
 import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { Dot } from "~/components/status";
@@ -717,7 +718,16 @@ export function AccountPage({ section }: { section: string }) {
             <SwitchRow name="Split channels by default" checked={false} />
             <SwitchRow name="Loudness monitoring under the transport" checked />
             <SwitchRow name="Metadata editor in QA" checked={false} />
-            <SwitchRow name="Keyboard map on ?" checked />
+            <Row
+              name={
+                <>
+                  Open the keyboard map with <Kbd>?</Kbd>
+                </>
+              }
+              hint="When off, it opens from the Help menu."
+            >
+              <Switch label="Open the keyboard map with ?" checked onChange={() => {}} />
+            </Row>
           </Section>
           <Section title="Playing">
             <Row name="Skip by">
