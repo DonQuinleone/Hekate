@@ -1089,7 +1089,7 @@ function Members({ role: myRole }: { role: Role }) {
         />
       ) : (
         <Section
-          title="Accounts"
+          title="Joined"
           count={members?.length}
           action={
             elevated && (
