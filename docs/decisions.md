@@ -2422,3 +2422,13 @@ Some organisations must keep their material in storage they own, and a workspace
 - **The address is in General.** "Address", in the interface face, with Copy, beside the name; Transfers' Waiting and the directory's intro say where it is instead of repeating it.
 - **An expired export offers nothing.** A ready export past its week read "until 2026-10-27" and still offered Download, which the server refuses. `exportExpired` in `packages/shared` (tested) reads it as expired until the job that removes it runs, and the row says "Expired: removed after its week".
 - The prototype's settings went first, with the inventory's rows.
+
+## 371. Tokens are made on the API page alone, scopes read in words, and the API log names projects
+
+#590. Notifications and integrations had an "API and MCP" panel whose "API keys" row only navigated to the API page, where the same tokens were "Service tokens"; the API page listed eight read-only scope rows that every token and client dialog explained already; the API log cut paths mid-identifier; and `org:read` put the code's word in front of people.
+
+- **One place, one name.** The "API keys" row is gone. The page is *API*, under *Integrations*, and holds the OAuth clients, the service tokens (made there alone), the MCP endpoint in a section of its own beside the tokens it takes, and the API log.
+- **Scopes in words.** `apiScopeNames` in `packages/shared` names each scope as people read it ("Files: read", "Workspace: read"), with `scopeWords` for a token's or a client's list (tested). Every dialog that offers scopes, the consent page and what a connected app may do show the words, the identifier beside them in the code face (a script needs it), and what the scope allows beneath. A token's and a client's rows say their scopes in words.
+- **What each scope allows is the documentation's.** The read-only list became one row, *Scopes*, under the tokens, linking to the table in *Use, API tokens*.
+- **The log reads.** `readableCall` (shared, tested) folds every identifier in a path to "…", so nothing is cut mid-identifier, and the workspace's own log names the project a call reached beneath it, from the projects the reader can see. The instance's log, which spans workspaces, folds the identifiers alone.
+- The prototype went first.

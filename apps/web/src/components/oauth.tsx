@@ -1,6 +1,5 @@
 import {
   type ApiScope,
-  apiScopeLabels,
   type ConnectedAppRow,
   type CreatedOAuthClient,
   type OAuthClientKind,
@@ -9,6 +8,7 @@ import {
   oauthHint,
   redirectUriProblem,
   scopePhrase,
+  scopeWords,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
@@ -23,7 +23,7 @@ import {
   useDisconnect,
   useOAuthClients,
 } from "~/lib/oauth";
-import { ScopeChoices } from "./api-tokens";
+import { ScopeChoices, ScopeWords } from "./api-tokens";
 import { Icon } from "./icons";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
@@ -43,7 +43,7 @@ export function clientHint(c: OAuthClientRow) {
   return [
     oauthClientKindLabels[c.kind],
     more.length > 0 ? `${first} and ${more.length} more` : first,
-    c.scopes.join(", "),
+    scopeWords(c.scopes),
     people(c.connected),
   ].join(" · ");
 }
@@ -486,7 +486,7 @@ export function ConnectedAppsSection() {
       >
         <Row
           name="Register an application"
-          hint="Client id and secret, redirect addresses, scopes; in Workspace settings under API and OAuth clients."
+          hint="Client id and secret, redirect addresses, scopes; in Workspace settings under API."
         >
           <Button variant="ghost" size="md" asChild>
             <a href={`${docsUrl}/use/oauth/`} target="_blank" rel="noreferrer">
@@ -526,9 +526,8 @@ export function ScopeList({ scopes }: { scopes: readonly ApiScope[] }) {
   return (
     <ul className="m-0 flex list-none flex-col gap-2 p-0 text-[13px]">
       {scopes.map((s) => (
-        <li key={s} className="flex min-w-0 flex-col @md/app:flex-row @md/app:gap-3">
-          <span className="tabular shrink-0 text-ink @md/app:w-28">{s}</span>
-          <span className="text-ink-3">{apiScopeLabels[s]}</span>
+        <li key={s} className="flex min-w-0">
+          <ScopeWords scope={s} />
         </li>
       ))}
     </ul>

@@ -506,7 +506,7 @@ export function AccountPage({ section }: { section: string }) {
           >
             <Row
               name="Register an application"
-              hint="Client id and secret, redirect addresses, scopes; in Workspace settings under API and OAuth clients."
+              hint="Client id and secret, redirect addresses, scopes; in Workspace settings under API."
             >
               <Button variant="ghost" size="md">
                 Open the guide

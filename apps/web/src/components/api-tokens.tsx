@@ -6,13 +6,15 @@ import {
   type ApiTokenRow,
   apiBase,
   apiScopeLabels,
+  apiScopeNames,
   apiScopes,
   apiTokenExpired,
   apiTokenLifetimes,
   MCP_PATH,
+  readableCall,
+  scopeWords,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Loading } from "~/components/ui/states";
 import {
@@ -25,7 +27,7 @@ import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
 import { docsUrl } from "~/lib/links";
 import { formatDates } from "~/lib/locale";
-import { meQuery } from "~/lib/queries";
+import { meQuery, projectsQuery } from "~/lib/queries";
 import { Icon } from "./icons";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
@@ -53,7 +55,7 @@ export function tokenHint(t: ApiTokenRow, now = new Date()) {
       : `expires ${dayFormat.format(new Date(t.expiresAt))}`
     : "never expires";
   return [
-    t.scopes.join(", "),
+    scopeWords(t.scopes),
     `made ${dayFormat.format(new Date(t.createdAt))}${t.kind === "service" && t.createdBy ? ` by ${t.createdBy}` : ""}`,
     t.lastUsedAt ? `last used ${ago(t.lastUsedAt)}` : "never used",
     ends,
@@ -133,6 +135,14 @@ export function TokensSection({ kind }: { kind: ApiTokenKind }) {
             </Row>
           );
         })}
+        {/* Each dialog says what a scope allows; the whole list is the documentation's (#590). */}
+        <Row name="Scopes" hint="Choose the least a token needs when you make it." inline>
+          <Button variant="ghost" size="md" asChild>
+            <a href={`${docsUrl}/use/api-tokens/#scopes`} target="_blank" rel="noreferrer">
+              What each scope allows
+            </a>
+          </Button>
+        </Row>
       </Section>
       {making && <NewTokenDialog kind={kind} onClose={() => setMaking(false)} />}
       {editing && (
@@ -174,13 +184,26 @@ export function ScopeChoices({
               )
             }
           />
-          <span className="flex min-w-0 flex-col @md/app:flex-row @md/app:gap-3">
-            <span className="tabular shrink-0 text-ink @md/app:w-28">{s}</span>
-            <span className="text-ink-3">{apiScopeLabels[s]}</span>
-          </span>
+          <ScopeWords scope={s} />
         </label>
       ))}
     </fieldset>
+  );
+}
+
+/**
+ * A scope in words with its identifier beside it, and what it allows beneath (#590): the words
+ * for people, the identifier for the script it goes into.
+ */
+export function ScopeWords({ scope }: { scope: ApiScope }) {
+  return (
+    <span className="flex min-w-0 flex-col">
+      <span className="flex flex-wrap items-baseline gap-x-2">
+        <span className="text-ink">{apiScopeNames[scope]}</span>
+        <span className="tabular text-[12px] text-ink-3">{scope}</span>
+      </span>
+      <span className="text-ink-3">{apiScopeLabels[scope]}</span>
+    </span>
   );
 }
 
@@ -434,11 +457,11 @@ const addressOf = (path: string) =>
   typeof window === "undefined" ? path : `${window.location.origin}${path}`;
 
 /**
- * Notifications and integrations' "API and MCP", as the prototype has it: where the workspace's
- * keys are made, and the MCP endpoint (decision 231) at this host's own address, to copy into an
- * assistant. The endpoint takes a token, never a session, so the address alone opens nothing.
+ * The MCP endpoint (decision 231) at this host's own address, to copy into an assistant, beside
+ * the tokens it takes (#590). The endpoint takes a token, never a session, so the address alone
+ * opens nothing.
  */
-export function ApiAndMcpSection() {
+export function McpSection() {
   const address = addressOf(MCP_PATH);
   const [copied, setCopied] = useState<"copied" | "failed" | null>(null);
   const copy = () => {
@@ -448,20 +471,13 @@ export function ApiAndMcpSection() {
       .catch(() => setCopied("failed"));
   };
   return (
-    <Section title="API and MCP">
-      <Row name="API keys" hint="Scoped to the workspace; shown once.">
-        <Button variant="secondary" size="md" asChild>
-          <Link to="/settings/$section" params={{ section: "api" }}>
-            New key
-          </Link>
-        </Button>
-      </Row>
+    <Section title="MCP">
       <Row
         name="MCP endpoint"
         hint={
           <>
             <span className="tabular break-all">{address}</span> · tools for what waits on you,
-            reviews, comments, decisions and QA reports
+            reviews, comments, decisions and QA reports, with a token
           </>
         }
       >
@@ -473,28 +489,18 @@ export function ApiAndMcpSection() {
   );
 }
 
-/** The workspace's "Scopes": what a token may be given. */
-export function ScopesSection() {
-  return (
-    <Section
-      title="Scopes"
-      intro="What a token may be given. A token holds the ones it was made with; writing a kind includes reading it."
-    >
-      {apiScopes.map((s) => (
-        <Row key={s} name={<span className="tabular">{s}</span>} hint={apiScopeLabels[s]} />
-      ))}
-    </Section>
-  );
-}
-
 /** One call in the API log: when, which token, the call, its answer and how long it took. */
 export function ApiLogEntry({
   row: r,
   workspace = false,
+  projectName = () => undefined,
 }: {
   row: ApiLogRow;
   workspace?: boolean;
+  /** A project's name by its id, where the reader knows it: the workspace's own log. */
+  projectName?: (id: string) => string | undefined;
 }) {
+  const call = readableCall(r.path, projectName);
   return (
     <div
       data-log-entry
@@ -517,10 +523,13 @@ export function ApiLogEntry({
         {workspace && <span className="truncate text-[12px] text-ink-3">{r.workspace.name}</span>}
       </span>
       <span
-        className="tabular col-span-2 truncate text-ink @3xl/app:order-3 @3xl/app:col-span-1"
+        className="col-span-2 flex min-w-0 flex-col @3xl/app:order-3 @3xl/app:col-span-1"
         title={`${r.method} ${r.path}`}
       >
-        {r.method} {r.path}
+        <span className="tabular truncate text-ink">
+          {r.method} {call.path}
+        </span>
+        {call.project && <span className="truncate text-[12px] text-ink-3">{call.project}</span>}
       </span>
       <span className="tabular hidden text-right text-ink-3 @3xl/app:order-5 @3xl/app:block">
         {r.durationMs} ms
@@ -532,6 +541,8 @@ export function ApiLogEntry({
 /** The workspace's own API log: the latest calls its tokens made, members' own among them. */
 export function WorkspaceApiLogSection() {
   const { data: rows, isPending } = useQuery(workspaceApiLogQuery);
+  const { data: projects = [] } = useQuery(projectsQuery);
+  const projectName = (id: string) => projects.find((p) => p.id === id)?.name;
   return (
     <Section
       title="API log"
@@ -542,7 +553,7 @@ export function WorkspaceApiLogSection() {
       ) : !rows || rows.length === 0 ? (
         <Row name="No calls yet" hint="A call made with any token here shows up at once." />
       ) : (
-        rows.map((r) => <ApiLogEntry key={r.id} row={r} />)
+        rows.map((r) => <ApiLogEntry key={r.id} row={r} projectName={projectName} />)
       )}
     </Section>
   );

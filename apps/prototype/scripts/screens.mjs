@@ -262,8 +262,8 @@ const screens = [
   { name: "org-notifications", route: "/settings/channels" },
   {
     name: "org-mcp",
-    route: "/settings/channels",
-    steps: [{ scroll: "API and MCP" }],
+    route: "/settings/api",
+    steps: [{ scroll: "MCP endpoint" }],
   },
   { name: "org-api", route: "/settings/api" },
   { name: "org-billing", route: "/settings/billing" },

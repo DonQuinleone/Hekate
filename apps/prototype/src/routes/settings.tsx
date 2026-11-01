@@ -62,7 +62,7 @@ const intros: Record<string, string> = {
   security:
     "How members sign in: the ways allowed, the second factor, single sign-on or a directory, and how long a session lasts.",
   channels: "Where the workspace's events go: Slack, Discord, Microsoft Teams and webhooks.",
-  api: "Applications that connect on people's behalf, and tokens that act for the workspace itself.",
+  api: "Applications that connect on people's behalf, tokens that act for the workspace itself, the MCP endpoint, and every call one made.",
   billing: "The plan, what it includes, what it costs, and every invoice.",
   support: "Ask the people who run this instance, with the error reference if there is one.",
   storage: "Where new files are kept. Everything is encrypted before any backend sees it.",
@@ -710,7 +710,7 @@ export function SettingsPage({
                 id: "hk_cli_7f3a…",
                 kind: "Confidential",
                 redirect: "https://slack.endlesshall.example/oauth/callback",
-                scopes: "reviews:read, comments",
+                scopes: "Reviews: read, Comments",
                 users: 4,
                 live: true,
               },
@@ -719,7 +719,7 @@ export function SettingsPage({
                 id: "hk_cli_2c91…",
                 kind: "Public (PKCE)",
                 redirect: "hekate-logic://callback",
-                scopes: "files:write, comments",
+                scopes: "Files: write, Comments",
                 users: 2,
                 live: true,
               },
@@ -728,7 +728,7 @@ export function SettingsPage({
                 id: "hk_cli_a0d4…",
                 kind: "Confidential",
                 redirect: "http://localhost:3000/callback",
-                scopes: "files:read",
+                scopes: "Files: read",
                 users: 0,
                 live: false,
               },
@@ -840,15 +840,21 @@ export function SettingsPage({
           <Section
             title="Service tokens"
             intro="Tokens that act as the workspace rather than a person, for the release pipeline and the like. Scoped and logged like any other."
+            action={
+              <Button variant="secondary" size="md">
+                <Icon name="plus" size={14} />
+                New token
+              </Button>
+            }
           >
             {[
               {
                 name: "Release pipeline",
-                scopes: "files:read, reviews:read",
+                scopes: "Files: read, Reviews: read",
                 used: "2 h ago",
                 expires: "2 Jan 2027",
               },
-              { name: "Archive sync", scopes: "downloads", used: "last night", expires: "Never" },
+              { name: "Archive sync", scopes: "Downloads", used: "last night", expires: "Never" },
             ].map((t) => (
               <Row
                 key={t.name}
@@ -867,28 +873,23 @@ export function SettingsPage({
                 />
               </Row>
             ))}
-            <Row name="New service token" hint="Shown once; owners and admins only.">
-              <Button variant="secondary" size="md">
-                Create
+            {/* #590: each dialog says what a scope allows; the whole list is the documentation's. */}
+            <Row name="Scopes" hint="Choose the least a token needs when you make it.">
+              <Button variant="ghost" size="md">
+                What each scope allows
               </Button>
             </Row>
           </Section>
-          <Section
-            title="Scopes"
-            intro="What a client or token may ask for. People grant them one by one; a token holds the ones it was made with."
-          >
-            {[
-              ["files:read", "List and read files, versions and variants"],
-              ["files:write", "Upload versions and variants, make folders"],
-              ["reviews:read", "Read reviews, reviewers and decisions"],
-              ["reviews:write", "Request reviews and record decisions as the person"],
-              ["comments", "Read and write comments and their anchors"],
-              ["downloads", "Download originals, watermarked and logged"],
-              ["workflows", "Read and change workflows"],
-              ["org:read", "Members, roles and settings, read-only"],
-            ].map(([k, v]) => (
-              <Row key={k} name={<span className="tabular">{k}</span>} hint={v} />
-            ))}
+          {/* #590: the MCP endpoint beside the tokens it takes; tokens are made here alone. */}
+          <Section title="MCP">
+            <Row
+              name="MCP endpoint"
+              hint="https://review.endlesshall.example/api/mcp · tools for what waits on you, reviews, comments, decisions and QA reports, with a token"
+            >
+              <Button variant="secondary" size="md">
+                Copy
+              </Button>
+            </Row>
           </Section>
           {/* The workspace's own API log (#198): what the instance's Logs show operators, for
               this workspace alone. */}
@@ -910,9 +911,10 @@ export function SettingsPage({
                 "POST /api/projects/…/folders",
                 "403",
                 "4 ms",
+                "Joplin Rags",
               ],
               ["14 Oct, 08:41:02", "Logic Pro export", "POST /api/uploads", "201", "112 ms"],
-            ].map(([when, token, call, status, time]) => (
+            ].map(([when, token, call, status, time, project]) => (
               <div
                 key={when}
                 className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_minmax(0,1.4fr)_60px_70px]"
@@ -929,8 +931,9 @@ export function SettingsPage({
                 <span className="col-span-2 truncate text-ink-2 @3xl/app:order-2 @3xl/app:col-span-1">
                   {token}
                 </span>
-                <span className="tabular col-span-2 truncate text-ink @3xl/app:order-3 @3xl/app:col-span-1">
-                  {call}
+                <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-3 @3xl/app:col-span-1">
+                  <span className="tabular truncate text-ink">{call}</span>
+                  {project && <span className="truncate text-[12px] text-ink-3">{project}</span>}
                 </span>
                 <span className="tabular hidden text-right text-ink-3 @3xl/app:order-5 @3xl/app:block">
                   {time}
@@ -1492,22 +1495,6 @@ export function SettingsPage({
               onToggle={() => {}}
             />
           </Section>
-          <Section title="API and MCP">
-            <Row name="API keys" hint="Scoped to the workspace; shown once.">
-              <Button variant="secondary" size="md">
-                New key
-              </Button>
-            </Row>
-            {/* The keys themselves are listed once, under API and OAuth clients, Service tokens. */}
-            <Row
-              name="MCP endpoint"
-              hint="https://review.endlesshall.example/api/mcp · tools for what waits on you, reviews, comments, decisions and QA reports"
-            >
-              <Button variant="secondary" size="md">
-                Copy
-              </Button>
-            </Row>
-          </Section>
         </>
       )}
       {sec === "storage" && (
@@ -1831,16 +1818,16 @@ export function SettingsPage({
               <fieldset className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 <legend className="mb-1.5">Scopes it may ask for</legend>
                 {[
-                  ["files:read", "List and read files and versions"],
-                  ["files:write", "Upload versions and variants"],
-                  ["reviews:read", "Read reviews and their decisions"],
-                  ["reviews:write", "Request reviews and record decisions"],
-                  ["comments", "Read and write comments"],
-                  ["downloads", "Download originals (watermarked, logged)"],
-                  ["workflows", "Read and change workflows"],
-                  ["org:read", "Members, roles and settings, read-only"],
-                ].map(([k, v]) => (
-                  <label key={k} className="flex items-center gap-2">
+                  ["files:read", "Files: read", "List and read files and versions"],
+                  ["files:write", "Files: write", "Upload versions and variants"],
+                  ["reviews:read", "Reviews: read", "Read reviews and their decisions"],
+                  ["reviews:write", "Reviews: write", "Request reviews and record decisions"],
+                  ["comments", "Comments", "Read and write comments"],
+                  ["downloads", "Downloads", "Download originals (watermarked, logged)"],
+                  ["workflows", "Workflows", "Read and change workflows"],
+                  ["org:read", "Workspace: read", "Members, roles and settings, read-only"],
+                ].map(([k, words, v]) => (
+                  <label key={k} className="flex items-start gap-2">
                     <input
                       type="checkbox"
                       checked={clientScopes.includes(k ?? "")}
@@ -1852,8 +1839,13 @@ export function SettingsPage({
                         )
                       }
                     />
-                    <span className="tabular w-28 text-ink">{k}</span>
-                    <span className="text-ink-3">{v}</span>
+                    <span className="flex min-w-0 flex-col">
+                      <span className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-ink">{words}</span>
+                        <span className="tabular text-[12px] text-ink-3">{k}</span>
+                      </span>
+                      <span className="text-ink-3">{v}</span>
+                    </span>
                   </label>
                 ))}
               </fieldset>

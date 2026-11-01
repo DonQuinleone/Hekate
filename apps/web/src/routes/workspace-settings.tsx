@@ -36,12 +36,7 @@ import {
 } from "@hekate/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import {
-  ApiAndMcpSection,
-  ScopesSection,
-  TokensSection,
-  WorkspaceApiLogSection,
-} from "~/components/api-tokens";
+import { McpSection, TokensSection, WorkspaceApiLogSection } from "~/components/api-tokens";
 import { Avatar } from "~/components/avatar";
 import { BillingSection } from "~/components/billing";
 import { BrandingSection } from "~/components/branding";
@@ -253,11 +248,11 @@ const allSections: SectionSpec[] = [
   },
   {
     id: "api",
-    label: "API and OAuth clients",
+    label: "API",
     group: "Integrations",
     from: "admin",
     intro:
-      "Applications that ask people for access, tokens that act for the workspace, what either may be given, and every call one made.",
+      "Applications that ask people for access, tokens that act for the workspace, the MCP endpoint, and every call one made.",
     docs: "/use/oauth/",
   },
   {
@@ -1864,17 +1859,12 @@ export function WorkspaceSettingsPage({
             <DirectorySection />
           </>
         )}
-        {current.id === "channels" && (
-          <>
-            <ChannelsSection />
-            <ApiAndMcpSection />
-          </>
-        )}
+        {current.id === "channels" && <ChannelsSection />}
         {current.id === "api" && (
           <>
             <OAuthClientsSection />
             <TokensSection kind="service" />
-            <ScopesSection />
+            <McpSection />
             <WorkspaceApiLogSection />
           </>
         )}
