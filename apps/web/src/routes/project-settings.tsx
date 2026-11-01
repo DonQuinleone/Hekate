@@ -667,7 +667,6 @@ function ProjectStorageSection({ project }: { project: Project }) {
  * summary where it has none. Then who may download and delete (decision 257), whatever the kind.
  */
 function Watermarks({ project }: { project: Project }) {
-  const update = useUpdateProject(project.id);
   // The sections opened or folded by hand, against how the page first lays them out.
   const [flipped, setFlipped] = useState<ReadonlySet<ProtectionSection>>(new Set());
   const layout = protectionLayout(assetSecurityLayout(project.profile, project.fileKinds)).map(
@@ -693,7 +692,6 @@ function Watermarks({ project }: { project: Project }) {
           />
         ),
       )}
-      {update.error && <p className="-mt-6 text-[13px] text-signal">{update.error.message}</p>}
       <Downloads project={project} />
     </>
   );
@@ -795,6 +793,11 @@ function VisibleWatermark({
             {off ? "Preview: nothing is marked." : "Preview, in your own name."}
           </figcaption>
         </figure>
+        {update.error && (
+          <p role="alert" className="m-0 text-[13px] text-signal @3xl/app:col-span-2">
+            {update.error.message}
+          </p>
+        )}
       </div>
     </FoldingSection>
   );
