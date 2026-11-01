@@ -1695,19 +1695,8 @@ export function FileBrowser({
     <section aria-label="Files" className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <nav aria-label="Folder path" className="flex min-w-0 items-center gap-1 text-[14px]">
-          {filtered ? (
-            <>
-              <button
-                type="button"
-                className="text-ink-3 hover:text-ink"
-                onClick={() => onOpenFolder(null)}
-              >
-                All files
-              </button>
-              <span className="text-edge">/</span>
-              <span className="font-medium text-ink">Filtered</span>
-            </>
-          ) : path.length === 0 ? null : (
+          {/* A filter is not a place: the chips below say what is shown, and clear it. */}
+          {filtered || path.length === 0 ? null : (
             <button
               type="button"
               className={cn(

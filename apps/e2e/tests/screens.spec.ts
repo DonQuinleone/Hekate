@@ -4333,7 +4333,8 @@ test("project-calendar-entry", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/board?view=calendar`);
   await settle(page, 'main >> a:visible:has-text("Re-export the stems at 96 kHz")');
   await page.getByRole("button", { name: "New entry" }).click();
-  const dialog = page.getByRole("dialog", { name: "New entry" });
+  // Titled by its kind, which the dialog changes as it is chosen.
+  const dialog = page.getByRole("dialog", { name: /^New / });
   await expect(dialog.getByRole("button", { name: "Create entry" })).toBeDisabled();
   await dialog.getByLabel("Title").fill("Day 4");
   await dialog.getByRole("button", { name: "Session", exact: true }).click();
@@ -4352,7 +4353,7 @@ test("project-timeline-entry", async ({ page }) => {
     .getByRole("button", { name: /^Listening meeting with the label, / })
     .first()
     .click();
-  const dialog = page.getByRole("dialog", { name: "Entry" });
+  const dialog = page.getByRole("dialog", { name: "Edit meeting" });
   await expect(dialog.getByRole("button", { name: "Remove…", exact: true })).toBeVisible();
   await saveScreen(page, "project-timeline-entry");
   await checkScreen(page);

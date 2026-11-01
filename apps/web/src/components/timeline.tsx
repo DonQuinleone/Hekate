@@ -665,12 +665,18 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
           </div>
         </div>
       </Card>
-      <p className="m-0 text-[12px] text-ink-3">
-        From each {words.track}'s latest {words.version} to its deadline, or to when its review is
-        due, or a week on where neither is set
-        {canDeadline ? "; drag a bar's end to set the deadline" : ""}
-        {canEntries ? "; drag an entry to move it, or its end to change its length" : ""}.
-      </p>
+      <div className="flex flex-col gap-0.5 text-[12px] text-ink-3">
+        <p className="m-0">
+          Each {words.track} runs from its latest {words.version} to its deadline, or to when its
+          review is due. Where neither is set, it runs a week.
+        </p>
+        {(canDeadline || canEntries) && (
+          <p className="m-0 hidden @3xl/app:block">
+            {canDeadline && "Drag a bar's end to set its deadline. "}
+            {canEntries && "Drag an entry to move it, or its end to change its length."}
+          </p>
+        )}
+      </div>
       {opening && (
         <EntryDialog projectId={projectId} entry={opening} onClose={() => setOpening(null)} />
       )}

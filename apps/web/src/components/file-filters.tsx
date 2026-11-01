@@ -190,7 +190,7 @@ export function FilterChips({
           onClick={() => onChange({ show: [], tags: [] })}
           className="px-1.5 text-[12px] text-ink-3 hover:text-ink"
         >
-          Clear
+          Clear filters
         </button>
       </li>
     </ul>

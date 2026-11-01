@@ -91,7 +91,8 @@ export function EntryDialog({
   };
   return (
     <Dialog
-      title={entry ? "Entry" : "New entry"}
+      // Named for what it is: "New session" while one is being made, "Edit delivery" after.
+      title={`${entry ? "Edit" : "New"} ${calendarEntryKindLabels[kind].toLowerCase()}`}
       description={
         entry
           ? undefined

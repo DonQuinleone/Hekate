@@ -20,7 +20,6 @@ import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { Failed, Loading } from "~/components/ui/states";
-import { StatusDot } from "~/components/ui/status";
 import { formatDates } from "~/lib/locale";
 import { standingChange } from "~/lib/permissions";
 import {
@@ -514,8 +513,8 @@ function Reviewers({ projectId }: { projectId: string }) {
                   {g.note ? ` · ${g.note}` : ""}
                 </span>
               </span>
+              {/* Words alone: a review's dots mean a decision, which a link is not. */}
               <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
-                <StatusDot state={g.live ? "approved" : "cancelled"} />
                 {g.live
                   ? g.lastLinkAt
                     ? `Link sent ${dayFormat.format(new Date(g.lastLinkAt))}`

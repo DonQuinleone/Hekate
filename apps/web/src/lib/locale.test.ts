@@ -42,8 +42,13 @@ describe("dates as the member reads them", () => {
   it("writes a range as two dates, or one where they are the same day", () => {
     const span = formatDates({ day: "numeric", month: "short", timeZone: "UTC" });
     expect(span.formatRange(new Date("2026-09-12T12:00Z"), new Date("2026-09-13T12:00Z"))).toBe(
-      "2026-09-12 – 2026-09-13",
+      "2026-09-12–2026-09-13",
     );
+    setDateFormats({ dateFormat: "day-month-year" });
+    expect(span.formatRange(new Date("2026-09-12T12:00Z"), new Date("2026-09-13T12:00Z"))).toBe(
+      "12 Sep – 13 Sep",
+    );
+    setDateFormats({ dateFormat: "iso" });
     expect(span.formatRange(new Date("2026-09-12T12:00Z"), new Date("2026-09-12T18:00Z"))).toBe(
       "2026-09-12",
     );

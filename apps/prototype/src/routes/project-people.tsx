@@ -238,7 +238,6 @@ export function People({ project }: { project: Project }) {
                     <span className="block truncate text-[13px] text-ink-3">{p.email}</span>
                   </span>
                   <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
-                    <Dot state={g.linkSentAt ? "approved" : "cancelled"} />
                     {g.linkSentAt ? `Link sent ${formatDate(g.linkSentAt)}` : "Revoked"}
                   </span>
                   <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
