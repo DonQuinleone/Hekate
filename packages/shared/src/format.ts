@@ -2,15 +2,26 @@ import type { Anchor } from "./anchor.ts";
 
 const pad = (n: number, width = 2) => String(Math.trunc(n)).padStart(width, "0");
 
-/** `04:31.250`, or `1:04:31.250` past an hour. */
+/**
+ * A media position, written one way wherever one is shown (#645): `0:12.000`, `4:31.250`, or
+ * `1:04:31.250` past an hour, to the millisecond, as comments are anchored.
+ */
 export function formatClock(seconds: number): string {
-  const totalMs = Math.round(seconds * 1000);
+  const totalMs = Math.round(Math.max(0, seconds) * 1000);
   const ms = totalMs % 1000;
   const s = Math.floor(totalMs / 1000) % 60;
   const m = Math.floor(totalMs / 60_000) % 60;
   const h = Math.floor(totalMs / 3_600_000);
-  const base = `${pad(m)}:${pad(s)}.${pad(ms, 3)}`;
-  return h > 0 ? `${h}:${base}` : base;
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}.${pad(ms, 3)}` : `${m}:${pad(s)}.${pad(ms, 3)}`;
+}
+
+/** A stretch of media, its two ends joined by an en dash: `0:12.000–0:15.500` (#645). */
+export function formatSpan(
+  start: number,
+  end: number,
+  time: (seconds: number) => string = formatClock,
+): string {
+  return end > start ? `${time(start)}–${time(end)}` : time(start);
 }
 
 /** SMPTE non-drop-frame timecode, `00:01:12:08`. */
@@ -22,7 +33,11 @@ export function formatTimecode(seconds: number, fps: number): string {
   return `${pad(totalSeconds / 3600)}:${pad((totalSeconds / 60) % 60)}:${pad(totalSeconds % 60)}:${pad(f)}`;
 }
 
-/** Labels follow the brand system: upper case, en dash for ranges. */
+/**
+ * Where a comment points, as its chip says it (#645, #702): the moment or stretch as every
+ * media position is written, bars in sentence case with an en dash ("Bars 9–12"), a page
+ * once ("p. 3 · bar 5"). A region says no more than where it is; a drawing says it is one.
+ */
 export function formatAnchor(
   anchor: Anchor,
   options: {
@@ -35,40 +50,36 @@ export function formatAnchor(
     options.time ? options.time(s) : options.fps ? formatTimecode(s, options.fps) : formatClock(s);
   switch (anchor.kind) {
     case "time": {
-      const range =
-        anchor.end > anchor.start
-          ? `${time(anchor.start)} – ${time(anchor.end)}`
-          : time(anchor.start);
-      return anchor.frame === undefined ? range : `${range} · F ${anchor.frame}`;
+      const range = formatSpan(anchor.start, anchor.end, time);
+      return anchor.frame === undefined ? range : `${range} · frame ${anchor.frame}`;
     }
     case "region": {
-      const whole = anchor.x === 0 && anchor.y === 0 && anchor.width === 1 && anchor.height === 1;
-      // A picture is one page: a region on it needs no place.
-      // A drawing says so (#146); any other region is a region.
-      const what = anchor.drawing ? "DRAWING" : "REGION";
-      if (anchor.page === undefined && anchor.at === undefined) return what;
+      if (anchor.page === undefined && anchor.at === undefined)
+        return anchor.drawing ? "Drawing" : "Region";
       const at = anchor.at ?? 0;
       const where =
         anchor.page !== undefined
-          ? `P. ${anchor.page}`
-          : anchor.end !== undefined && anchor.end > at
-            ? `${time(at)} – ${time(anchor.end)}`
-            : time(at);
-      // The whole of a page is simply the page; a whole video frame stays a region.
-      return whole && anchor.page !== undefined && !anchor.drawing ? where : `${where} · ${what}`;
+          ? `p. ${anchor.page}`
+          : formatSpan(at, anchor.end !== undefined ? anchor.end : at, time);
+      // A drawing says so (#146); a region on a page or a frame is simply where it is (#702).
+      return anchor.drawing ? `${where} · drawing` : where;
     }
     case "bar": {
       // The score's page first, when the reviewer gave it (#240).
-      const page = anchor.page === undefined ? "" : `P. ${anchor.page} · `;
-      if (anchor.to && anchor.to.bar !== anchor.from.bar)
-        return `${page}BARS ${anchor.from.bar}–${anchor.to.bar}`;
-      // The beat only when it says something: bar 25 is its first beat.
-      return anchor.from.beat === 1
-        ? `${page}BAR ${anchor.from.bar}`
-        : `${page}BAR ${anchor.from.bar}.${anchor.from.beat}`;
+      const page = anchor.page === undefined ? "" : `p. ${anchor.page} · `;
+      const bars =
+        anchor.to && anchor.to.bar !== anchor.from.bar
+          ? `bars ${anchor.from.bar}–${anchor.to.bar}`
+          : // The beat only when it says something: bar 25 is its first beat.
+            anchor.from.beat === 1
+            ? `bar ${anchor.from.bar}`
+            : `bar ${anchor.from.bar}.${anchor.from.beat}`;
+      return page ? `${page}${bars}` : capitalFirst(bars);
     }
   }
 }
+
+const capitalFirst = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /** File sizes in decimal units, as operating systems show them: `412 KB`, `1.3 GB`. */
 export function formatBytes(bytes: number): string {

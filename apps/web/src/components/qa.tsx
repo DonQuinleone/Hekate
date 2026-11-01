@@ -1,6 +1,7 @@
 import {
   channelName,
   formatClock,
+  formatSpan,
   type ProfileRef,
   type ProfileSource,
   type QaCheck,
@@ -65,16 +66,12 @@ export function SeverityDot({ severity }: { severity: QaSeverity }) {
   );
 }
 
-/** "0:12.4" or "0:12.4 – 0:13.0" for where a finding is. */
+/** "0:12.400" or "0:12.400–0:13.000" for where a finding is: as every media position (#645). */
 const where = (f: QaFinding) => {
   if (f.start === null) return null;
-  const clock = (t: number) =>
-    formatClock(t)
-      .replace(/^0(\d:)/, "$1")
-      .replace(/(\.\d)\d\d$/, "$1");
   return f.end !== null && f.end - f.start >= 0.1
-    ? `${clock(f.start)} – ${clock(f.end)}`
-    : clock(f.start);
+    ? formatSpan(f.start, f.end)
+    : formatClock(f.start);
 };
 
 /** The passage a finding spans, when it is long enough to loop. */

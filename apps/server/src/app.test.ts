@@ -10930,7 +10930,7 @@ describe.runIf(url)("api", () => {
         // The format fails Streaming (48 kHz, no bit depth): the whole file's first, then in time.
         expect(document.groups[0]?.findings.map((f) => [f.name, f.at])).toEqual([
           ["Format", "Whole file"],
-          ["Clipping", "00:12.000–00:12.500"],
+          ["Clipping", "0:12.000–0:12.500"],
         ]);
         expect(document.appendix.link).toMatch(new RegExp(`/files/${s.mix}\\?view=qa$`));
 
@@ -23064,7 +23064,7 @@ describe.runIf(url)("api", () => {
           await exported("target=csv&threads=all&replies=true&time=seconds")
         ).text();
         expect(csv).toContain(
-          "5.000,8.000,Producer: Too loud,Too loud,Producer,00:05.000 – 00:08.000,Resolved",
+          "5.000,8.000,Producer: Too loud,Too loud,Producer,0:05.000–0:08.000,Resolved",
         );
         expect(csv).toContain('"Pedal, again\nReply from Producer: Fixed now"');
         expect(csv).toContain(",,Producer: Lovely overall,Lovely overall,Producer,Whole file,Open");

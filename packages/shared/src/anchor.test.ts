@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { anchor, parseBars } from "./anchor.ts";
-import { formatAnchor, formatClock, formatTimecode } from "./format.ts";
+import { formatAnchor, formatClock, formatSpan, formatTimecode } from "./format.ts";
 import { allowsAnchor } from "./profile.ts";
 
 describe("anchor schema", () => {
@@ -31,31 +31,37 @@ describe("anchor schema", () => {
 });
 
 describe("formatting", () => {
-  it("writes clock times and timecode", () => {
-    expect(formatClock(271.25)).toBe("04:31.250");
+  it("writes media positions one way, to the millisecond (#645)", () => {
+    expect(formatClock(12)).toBe("0:12.000");
+    expect(formatClock(271.25)).toBe("4:31.250");
     expect(formatClock(3871.25)).toBe("1:04:31.250");
+    expect(formatClock(-1)).toBe("0:00.000");
+    expect(formatSpan(12, 15.5)).toBe("0:12.000–0:15.500");
+    expect(formatSpan(12, 12)).toBe("0:12.000");
     expect(formatTimecode(72.32, 25)).toBe("00:01:12:08");
   });
 
-  it("writes anchors the way the brand system does", () => {
-    expect(formatAnchor({ kind: "bar", from: { bar: 112, beat: 1 } })).toBe("BAR 112");
-    expect(formatAnchor({ kind: "bar", from: { bar: 112, beat: 3 } })).toBe("BAR 112.3");
+  it("writes anchors in sentence case, ranges with an en dash, a page once (#702)", () => {
+    expect(formatAnchor({ kind: "bar", from: { bar: 112, beat: 1 } })).toBe("Bar 112");
+    expect(formatAnchor({ kind: "bar", from: { bar: 112, beat: 3 } })).toBe("Bar 112.3");
     expect(formatAnchor({ kind: "bar", from: { bar: 118, beat: 1 }, to: { bar: 124 } })).toBe(
-      "BARS 118–124",
+      "Bars 118–124",
     );
+    expect(formatAnchor({ kind: "bar", page: 3, from: { bar: 5, beat: 1 } })).toBe("p. 3 · bar 5");
     expect(formatAnchor({ kind: "time", start: 72.32, end: 72.32, frame: 1808 }, { fps: 25 })).toBe(
-      "00:01:12:08 · F 1808",
+      "00:01:12:08 · frame 1808",
     );
+    expect(formatAnchor({ kind: "time", start: 14.3, end: 15.1 })).toBe("0:14.300–0:15.100");
+    // A region is where it is: the kind adds nothing.
     expect(formatAnchor({ kind: "region", page: 7, x: 0.1, y: 0.2, width: 0.3, height: 0.1 })).toBe(
-      "P. 7 · REGION",
+      "p. 7",
     );
-    expect(formatAnchor({ kind: "region", page: 7, x: 0, y: 0, width: 1, height: 1 })).toBe("P. 7");
+    expect(formatAnchor({ kind: "region", page: 7, x: 0, y: 0, width: 1, height: 1 })).toBe("p. 7");
     expect(formatAnchor({ kind: "region", x: 0.1, y: 0.1, width: 0.5, height: 0.5 })).toBe(
-      "REGION",
+      "Region",
     );
-    // A whole video frame is still a region, not a time.
     expect(formatAnchor({ kind: "region", at: 12, x: 0, y: 0, width: 1, height: 1 })).toBe(
-      "00:12.000 · REGION",
+      "0:12.000",
     );
   });
 });

@@ -186,10 +186,7 @@ describe("findings in the report", () => {
   it("groups them by severity, then time, the whole file first; passes left out", () => {
     const groups = reportGroups(findings, streaming, 40, null);
     expect(groups.map((g) => [g.label, g.findings.map((f) => f.at)])).toEqual([
-      [
-        "Fails",
-        ["Whole file", "00:12.000–00:12.500", "00:30.000–00:30.200", "00:31.000–00:31.040"],
-      ],
+      ["Fails", ["Whole file", "0:12.000–0:12.500", "0:30.000–0:30.200", "0:31.000–0:31.040"]],
       ["Worth a look", ["Whole file"]],
     ]);
     const dropout = groups[0]?.findings[3];
@@ -217,8 +214,8 @@ describe("findings in the report", () => {
   });
 
   it("writes where each is", () => {
-    expect(findingAt({ start: 12, end: 12.5 })).toBe("00:12.000–00:12.500");
-    expect(findingAt({ start: 12, end: 12.001 })).toBe("00:12.000");
+    expect(findingAt({ start: 12, end: 12.5 })).toBe("0:12.000–0:12.500");
+    expect(findingAt({ start: 12, end: 12.001 })).toBe("0:12.000");
     expect(findingAt({ start: null, end: null })).toBe("Whole file");
   });
 
@@ -368,7 +365,7 @@ describe("the appendices", () => {
       ["Sample rate", "44.1 kHz"],
       ["Bit depth", "16-bit"],
       ["Channels", "2 (stereo)"],
-      ["Duration", "00:40.000"],
+      ["Duration", "0:40.000"],
       ["Bit rate", "1411 kb/s"],
       ["Originator", "Endless Hall Records"],
       ["Title", "Maple Leaf Rag"],

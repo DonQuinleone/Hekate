@@ -100,8 +100,9 @@ const fullTime = formatDates({ dateStyle: "medium", timeStyle: "short" });
 /** Lowercase time labels read better inline than the upper-case anchor labels on markers. */
 // "00:12.500" reads as "0:12.500", at either end of a range.
 // A video's comments read in its own timecode instead (#146).
+/** Where a comment points, written as every anchor is (#645): its own time where it has one. */
 export const anchorLabel = (anchor: Anchor, time?: TimeFormat | null) =>
-  time ? formatAnchor(anchor, { time }) : formatAnchor(anchor).replace(/(^|\s)0(\d:)/g, "$1$2");
+  formatAnchor(anchor, time ? { time } : {});
 
 type TimeFormat = (seconds: number) => string;
 /** How moments read on this file: a video's own timecode, else the clock (#146). */

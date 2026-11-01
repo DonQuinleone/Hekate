@@ -84,6 +84,6 @@ describe("comment references", () => {
         },
       ),
     ).toBeNull();
-    expect(formatAnchor(anchor)).toBe("P. 3 · BAR 9.2");
+    expect(formatAnchor(anchor)).toBe("p. 3 · bar 9.2");
   });
 });

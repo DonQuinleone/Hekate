@@ -1,3 +1,4 @@
+import { formatClock } from "@hekate/shared";
 import { type ReactNode, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, loopFrom, MAX_ROLL, nudge, type Rolls, roll } from "~/lib/loop";
@@ -7,13 +8,8 @@ import { Input, Select } from "./ui/input";
 /** Movement, in pixels, that turns a click into a drag. */
 const DRAG_THRESHOLD = 4;
 
-/** A time to the millisecond: 1:05.250. */
-export function preciseTime(seconds: number) {
-  const whole = Math.max(0, seconds);
-  const minutes = Math.floor(whole / 60);
-  const rest = whole - minutes * 60;
-  return `${minutes}:${rest.toFixed(3).padStart(6, "0")}`;
-}
+/** A time to the millisecond, as every media position is written (#645): 1:05.250. */
+export const preciseTime = (seconds: number) => formatClock(seconds);
 
 /** The shaded passage a loop covers, with its edges. */
 function Band({ loop, duration, draft }: { loop: Loop; duration: number; draft?: boolean }) {
