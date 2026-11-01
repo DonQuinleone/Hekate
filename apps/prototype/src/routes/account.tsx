@@ -193,7 +193,7 @@ export function AccountPage({ section }: { section: string }) {
             </Row>
             <Row
               name="Workspaces"
-              hint="Endless Hall Records (owner), North Choir Collective (member)"
+              hint="Endless Hall Records (owner), North Choir Collective (member). Switch from the menu at the foot of the sidebar."
             />
           </Section>
           <Section title="Password">

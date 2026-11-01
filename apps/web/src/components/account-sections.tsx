@@ -196,9 +196,10 @@ export function ProfileSection() {
             ))}
           </Select>
         </Row>
+        {/* Yours, across workspaces, so here rather than in one workspace's settings (#593). */}
         <Row
           name="Workspaces"
-          hint={me.organisations.map((o) => `${o.name} (${o.role})`).join(", ")}
+          hint={`${me.organisations.map((o) => `${o.name} (${o.role})`).join(", ")}. Switch from the menu at the foot of the sidebar.`}
         />
         {update.error && (
           <div className="px-4 py-2">
