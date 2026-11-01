@@ -88,6 +88,7 @@ import {
 } from "~/components/settings";
 import { InstanceSupport } from "~/components/support-desk";
 import { Button } from "~/components/ui/button";
+import { Count } from "~/components/ui/chip";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
@@ -2475,8 +2476,12 @@ function WorkspaceDetail({
       <Tabs value={tab} onValueChange={(v) => setTab(v as WorkspaceTab)}>
         <TabsList className="overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="members">Members · {w.members}</TabsTrigger>
-          <TabsTrigger value="projects">Projects · {w.projects}</TabsTrigger>
+          <TabsTrigger value="members">
+            Members<Count>{w.members}</Count>
+          </TabsTrigger>
+          <TabsTrigger value="projects">
+            Projects<Count>{w.projects}</Count>
+          </TabsTrigger>
           <TabsTrigger value="storage">Storage</TabsTrigger>
           <TabsTrigger value="billing">Billing</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
@@ -3394,9 +3399,9 @@ function Operators() {
   return (
     <>
       {adding && <AddOperator onClose={() => setAdding(false)} />}
+      {/* The page says what operators are; its one list needs no title of its own (#609). */}
       <Section
-        title="Operators"
-        intro="Accounts that may open this side of the application. They sign in with a passkey or hardware security key, and what they do is listed under their name."
+        intro="They sign in with a passkey or hardware security key, and what they do is listed under their name."
         action={
           <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
             <Icon name="plus" size={14} />

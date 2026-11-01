@@ -1396,7 +1396,6 @@ export function InstancePage({ section }: { section: string }) {
           )}
           {billingTab === "plans" && (
             <Section
-              title="Plans"
               intro="What workspaces can be on. Prices, limits and which support severities each unlocks are the instance's to set."
               action={
                 <Button variant="secondary" size="md">
@@ -1460,7 +1459,6 @@ export function InstancePage({ section }: { section: string }) {
           )}
           {billingTab === "promos" && (
             <Section
-              title="Promo codes"
               intro="A percentage or an amount off, for a number of months, for the first so many who use it, until a date."
               action={
                 <Button variant="secondary" size="md">
@@ -1749,8 +1747,7 @@ export function InstancePage({ section }: { section: string }) {
       {sec === "operators" && (
         <>
           <Section
-            title="Operators"
-            intro="Accounts that may open this side of the application. A hardware security key is required; everything they do is in the audit log under their name."
+            intro="A hardware security key is required; everything they do is in the audit log under their name."
             action={
               <Button variant="secondary" size="md">
                 <Icon name="plus" size={14} />

@@ -173,7 +173,7 @@ const allSections: SectionSpec[] = [
     group: "Workspace",
     from: "admin",
     intro:
-      "The labels a comment can carry, such as Noise or Balance, and where triage sends each kind. Every new project starts with these.",
+      "The labels a comment can carry, such as Noise or Balance, and where triage sends each kind. Every new project starts with these, and may add its own.",
   },
   {
     id: "delivery",
@@ -647,8 +647,6 @@ function WorkspaceCategories() {
   return (
     <>
       <Section
-        title="Comment categories"
-        intro="The set every new project starts with. A project may add its own."
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
             <Icon name="plus" size={14} />
@@ -656,7 +654,7 @@ function WorkspaceCategories() {
           </Button>
         }
       >
-        {!categories && <Row name="Loading" />}
+        {!categories && <Loading size="panel" />}
         {categories?.length === 0 && (
           <Row
             name="No categories"
@@ -760,9 +758,10 @@ function DeliveryProfiles() {
       </Section>
       {error}
       {remove.error && <p className="-mt-6 text-[13px] text-signal">{remove.error.message}</p>}
+      {/* The workspace's own first, then the built-in ones under their own head (#609). */}
       <Section
-        title="Profiles"
-        intro="The built-in ones cannot be changed; add your own."
+        title="Yours"
+        count={customs.length}
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
             <Icon name="plus" size={14} />
@@ -770,6 +769,12 @@ function DeliveryProfiles() {
           </Button>
         }
       >
+        {customs.length === 0 && (
+          <Row
+            name="None yet"
+            hint="A profile of your own sets the loudness, peaks and formats a delivery must meet."
+          />
+        )}
         {customs.map((p) => (
           <Row key={p.id} name={p.label} hint={deliveryHint(p)} inline>
             <ActionMenu
@@ -783,15 +788,14 @@ function DeliveryProfiles() {
             />
           </Row>
         ))}
+      </Section>
+      <Section title="Built in" intro="These cannot be changed.">
         {deliveryProfileIds.map((id) => (
           <Row
             key={id}
             name={deliveryProfiles[id].label}
             hint={deliveryHint(deliveryProfiles[id])}
-            inline
-          >
-            <span className="text-[12px] text-ink-3">Built in</span>
-          </Row>
+          />
         ))}
       </Section>
       {editing && (
@@ -1084,7 +1088,8 @@ function Members({ role: myRole }: { role: Role }) {
         />
       ) : (
         <Section
-          title={`Members${members ? ` · ${members.length}` : ""}`}
+          title="Accounts"
+          count={members?.length}
           action={
             elevated && (
               <Button variant="secondary" onClick={() => setInviting(true)}>
@@ -1162,7 +1167,7 @@ function Members({ role: myRole }: { role: Role }) {
         </Section>
       )}
       {elevated && invitations && invitations.length > 0 && (
-        <Section title={`Invited · ${invitations.length}`}>
+        <Section title="Invited" count={invitations.length}>
           {invitations.map((i) => (
             <div key={i.id} className="group flex items-center gap-3 px-4 py-2.5">
               <Icon name="mail" className="text-ink-3" />
@@ -1190,7 +1195,8 @@ function Guests() {
   if (!guests || guests.length === 0) return null;
   return (
     <Section
-      title={`Guests · ${guests.length}`}
+      title="Guests"
+      count={guests.length}
       intro="Guests are asked from a review and sign in with a link sent to them."
     >
       {revoke.error && <p className="px-4 py-2 text-[13px] text-signal">{revoke.error.message}</p>}

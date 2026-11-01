@@ -141,6 +141,7 @@ export function SettingsLayout({
   );
 }
 
+/** A part of a settings page; a page with one names it in its own heading alone (#609). */
 export function Section({
   title,
   intro,
@@ -148,7 +149,7 @@ export function Section({
   action,
   panelId,
 }: {
-  title: string;
+  title?: string;
   intro?: string;
   /** Its rows; a section without them is its heading alone, as a folded one is. */
   children?: ReactNode;
@@ -157,13 +158,15 @@ export function Section({
 }) {
   return (
     <section className="flex flex-col gap-3">
-      <div className="flex items-end gap-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-[16px] font-medium text-ink">{title}</h2>
-          {intro && <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">{intro}</p>}
+      {(title || intro || action) && (
+        <div className="flex items-end gap-3">
+          <div className="min-w-0 flex-1">
+            {title && <h2 className="text-[16px] font-medium text-ink">{title}</h2>}
+            {intro && <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">{intro}</p>}
+          </div>
+          {action}
         </div>
-        {action}
-      </div>
+      )}
       {children ? (
         <div
           id={panelId}

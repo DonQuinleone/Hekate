@@ -1051,8 +1051,6 @@ export function SettingsPage({
       )}
       {sec === "categories" && (
         <Section
-          title="Comment categories"
-          intro="The set every new project starts with. A project may add its own."
           action={
             <Button variant="secondary" size="md">
               <Icon name="plus" size={14} />

@@ -14,12 +14,23 @@ export function Chip({ className, ...props }: HTMLAttributes<HTMLSpanElement>) {
   );
 }
 
-/** A count that needs someone, such as unread notifications: signal, tabular, round. */
-export function Count({ className, ...props }: HTMLAttributes<HTMLSpanElement>) {
+/**
+ * How many (#609), written one way: after its label, as a number and nothing else ("Works 1",
+ * never "Works · 1" or "1 work"). Quiet by default; `signal` for a count that needs someone,
+ * such as unread notifications: tabular and round.
+ */
+export function Count({
+  className,
+  tone = "quiet",
+  ...props
+}: HTMLAttributes<HTMLSpanElement> & { tone?: "quiet" | "signal" }) {
   return (
     <span
       className={cn(
-        "tabular inline-flex min-w-[18px] items-center justify-center rounded-full bg-signal px-1.5 text-[11px] leading-[18px] font-medium text-ground",
+        "tabular",
+        tone === "signal"
+          ? "inline-flex min-w-[18px] items-center justify-center rounded-full bg-signal px-1.5 text-[11px] leading-[18px] font-medium text-ground"
+          : "ml-1.5 text-[0.875em] font-normal text-ink-3",
         className,
       )}
       {...props}

@@ -6,6 +6,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
+import { Count } from "~/components/ui/chip";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
@@ -116,7 +117,9 @@ function Works({
       ) : (
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2">
-            <span className="label">Works · {works.length}</span>
+            <span className="label">
+              Works<Count>{works.length}</Count>
+            </span>
             <span className="ml-auto flex items-center gap-1">
               <Dropdown
                 value={order === "alphabetical" ? "Alphabetical" : "Schedule order"}
@@ -591,7 +594,9 @@ function Venues({
       ) : (
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2">
-            <span className="label">Venues · {venues.length}</span>
+            <span className="label">
+              Venues<Count>{venues.length}</Count>
+            </span>
             {canEdit && (
               <Button
                 variant="primary"

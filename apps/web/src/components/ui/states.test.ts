@@ -40,7 +40,12 @@ describe("loading, failed and refused (#545)", () => {
       const text = readFileSync(path, "utf8");
       const lines = text.split("\n");
       lines.forEach((line, i) => {
-        if (/>\s*Loading(\s*[.…]*)?\s*</.test(line) || /^\s*Loading\s*$/.test(line))
+        if (
+          />\s*Loading(\s*[.…]*)?\s*</.test(line) ||
+          /^\s*Loading\s*$/.test(line) ||
+          /<\w+\b.*\b(name|hint|title)=["{]+"?Loading[".…]/.test(line) ||
+          /: "Loading"$/.test(line.trim())
+        )
           found.push(`${relative(src, path)}:${i + 1} bare Loading`);
       });
       // Each function on its own: the error it reads from a query is not shown raw.

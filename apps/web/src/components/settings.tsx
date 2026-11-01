@@ -15,6 +15,7 @@ import { cn } from "~/lib/cn";
 import { docsUrl } from "~/lib/links";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
+import { Count } from "./ui/chip";
 import { Switch } from "./ui/toggle";
 
 export interface NavSection {
@@ -166,14 +167,22 @@ export function SettingsLayout({
   );
 }
 
+/**
+ * A part of a settings page: its heading, intro and action, and its rows. A page with one
+ * section names it in its own heading alone (#609): the section then has no title, and only
+ * its action stands above the rows.
+ */
 export function Section({
   title,
+  count,
   intro,
   children,
   action,
   panelId,
 }: {
-  title: string;
+  title?: string;
+  /** How many its rows hold, after its title. */
+  count?: number;
   intro?: string;
   /** Its rows; a section without them is its heading alone, as a folded one is. */
   children?: ReactNode;
@@ -183,13 +192,20 @@ export function Section({
 }) {
   return (
     <section className="flex flex-col gap-3">
-      <div className="flex items-end gap-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-[16px] font-medium text-ink">{title}</h2>
-          {intro && <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">{intro}</p>}
+      {(title || intro || action) && (
+        <div className="flex items-end gap-3">
+          <div className="min-w-0 flex-1">
+            {title && (
+              <h2 className="text-[16px] font-medium text-ink">
+                {title}
+                {count !== undefined && <Count>{count}</Count>}
+              </h2>
+            )}
+            {intro && <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">{intro}</p>}
+          </div>
+          {action}
         </div>
-        {action}
-      </div>
+      )}
       {children ? (
         <div
           id={panelId}

@@ -853,14 +853,17 @@ function Components() {
         </Spec>
         <Spec
           name="Chip and count"
-          rule="A chip for a tag or a filter; a count in signal only when it needs someone."
+          rule="A chip for a tag or a filter. A count follows its label as a quiet number, written one way (Works 1); in signal only when it needs someone."
         >
           <Chip>delivery</Chip>
           <Chip>
             <Icon name="tag" size={11} />
             mix
           </Chip>
-          <Count>2</Count>
+          <span className="text-[14px] text-ink">
+            Works<Count>12</Count>
+          </span>
+          <Count tone="signal">2</Count>
         </Spec>
         <Spec
           name="Linked file"

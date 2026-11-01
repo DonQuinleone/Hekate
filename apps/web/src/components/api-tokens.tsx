@@ -14,6 +14,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { Loading } from "~/components/ui/states";
 import {
   personalTokensQuery,
   serviceTokensQuery,
@@ -537,7 +538,7 @@ export function WorkspaceApiLogSection() {
       intro="The latest calls made with this workspace's tokens, members' own among them, over the last week."
     >
       {isPending ? (
-        <Row name="Loading" />
+        <Loading size="panel" />
       ) : !rows || rows.length === 0 ? (
         <Row name="No calls yet" hint="A call made with any token here shows up at once." />
       ) : (

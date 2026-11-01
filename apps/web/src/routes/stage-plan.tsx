@@ -37,6 +37,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
+import { Count } from "~/components/ui/chip";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
@@ -725,7 +726,9 @@ function Editor({
             aria-label="On the stage"
             className="rounded-panel-lg border border-line bg-raised/25 p-3"
           >
-            <span className="label">On the stage · {items.length}</span>
+            <span className="label">
+              On the stage<Count>{items.length}</Count>
+            </span>
             <ul className="scroll-quiet m-0 mt-2 flex max-h-[240px] list-none flex-col overflow-auto p-0">
               {[...items].reverse().map((i) => (
                 <li key={i.id}>

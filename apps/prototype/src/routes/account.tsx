@@ -460,10 +460,7 @@ export function AccountPage({ section }: { section: string }) {
       )}
       {sec === "apps" && (
         <>
-          <Section
-            title="Connected apps"
-            intro="Applications you have let into this workspace through OAuth. Each sees only what you granted, and only what you can see."
-          >
+          <Section intro="Each sees only what you granted, and only what you can see.">
             {connected.map((a) => (
               <Row
                 key={a.name}

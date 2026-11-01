@@ -1,6 +1,7 @@
 import { type Anchor, type TriageInput, triageQueue } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Count } from "~/components/ui/chip";
 import { Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { ago, passageLoop, type Thread, threadsOf } from "~/lib/comments";
@@ -253,7 +254,9 @@ export function TriageView({
         className="flex w-full shrink-0 flex-col border-b border-line @3xl/app:w-[300px] @3xl/app:border-r @3xl/app:border-b-0"
       >
         <div className="flex h-11 shrink-0 items-center gap-2 px-3">
-          <span className="label">Queue · {list.length}</span>
+          <span className="label">
+            Queue<Count>{list.length}</Count>
+          </span>
           {selected.size > 0 && (
             <span className="ml-auto text-[12px] text-signal">{selected.size} ticked</span>
           )}

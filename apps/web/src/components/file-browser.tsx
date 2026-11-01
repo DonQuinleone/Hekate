@@ -102,6 +102,7 @@ import { ShareDialog } from "./share";
 import { TagInput } from "./tag-input";
 import { TakeImportDialog } from "./take-import";
 import { Button } from "./ui/button";
+import { Count } from "./ui/chip";
 import { Checkbox } from "./ui/choice";
 import { Floating, type Point, withinOrFloatingFrom } from "./ui/floating";
 import { FileInput, Input } from "./ui/input";
@@ -1706,9 +1707,7 @@ export function FileBrowser({
               <span className="text-edge">/</span>
               <span className="font-medium text-ink">Filtered</span>
             </>
-          ) : path.length === 0 ? (
-            <span className="font-medium text-ink">All files</span>
-          ) : (
+          ) : path.length === 0 ? null : (
             <button
               type="button"
               className={cn(
@@ -1741,8 +1740,14 @@ export function FileBrowser({
               )}
             </span>
           ))}
-          <span className="tabular ml-2 shrink-0 text-[13px] text-ink-3">
-            {items.length} {items.length === 1 ? "item" : "items"}
+          {/* The page is named in the trail; at its top only how many it holds (#609). */}
+          <span
+            className={cn(
+              "shrink-0 text-[13px] text-ink-2",
+              path.length > 0 || filtered ? "ml-2" : "",
+            )}
+          >
+            Items<Count>{items.length}</Count>
           </span>
         </nav>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">

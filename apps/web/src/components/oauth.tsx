@@ -12,6 +12,7 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { Loading } from "~/components/ui/states";
 import { ago } from "~/lib/comments";
 import { docsUrl } from "~/lib/links";
 import { formatDates } from "~/lib/locale";
@@ -378,7 +379,7 @@ function ConnectionsDialog({ client, onClose }: { client: OAuthClientRow; onClos
         className="flex flex-col divide-y divide-line rounded-panel border border-line"
       >
         {isPending ? (
-          <Row name="Loading" />
+          <Loading size="panel" />
         ) : !connections || connections.length === 0 ? (
           <Row name="Nobody yet" hint="Someone who connects it from the application shows here." />
         ) : (
@@ -440,10 +441,7 @@ export function ConnectedAppsSection() {
   if (!apps) return null;
   return (
     <>
-      <Section
-        title="Connected apps"
-        intro="Applications you have let into this workspace through OAuth. Each sees only what you granted, and only what you can see."
-      >
+      <Section intro="Each sees only what you granted, and only what you can see.">
         {apps.length === 0 && (
           <Row
             name="No connected apps"

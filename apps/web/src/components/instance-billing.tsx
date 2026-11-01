@@ -682,7 +682,6 @@ function Plans() {
   return (
     <>
       <Section
-        title="Plans"
         intro="What workspaces can be on. Prices, limits and which support severities each unlocks are the instance's to set."
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing({ plan: null })}>
@@ -1083,7 +1082,6 @@ function Promos() {
   return (
     <>
       <Section
-        title="Promo codes"
         intro="A percentage or an amount off, for a number of months, for the first so many who use it, until a date."
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing({ promo: null })}>

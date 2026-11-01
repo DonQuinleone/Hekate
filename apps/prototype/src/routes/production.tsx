@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Icon, type IconName } from "~/components/icons";
-import { Kbd, Label } from "~/components/label";
+import { Count, Kbd, Label } from "~/components/label";
 import { Page } from "~/components/pages";
 import { RecorderControl } from "~/components/recorder";
 import { SideNav, Split } from "~/components/settings";
@@ -64,7 +64,9 @@ function Repertoire() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
-        <Label>Works · {list.length}</Label>
+        <Label>
+          Works<Count>{list.length}</Count>
+        </Label>
         <span className="ml-auto flex items-center gap-1">
           <Dropdown
             value={order === "alpha" ? "Alphabetical" : "Schedule order"}
@@ -171,7 +173,9 @@ function Venues() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Label>Venues · {list.length}</Label>
+        <Label>
+          Venues<Count>{list.length}</Count>
+        </Label>
         <Button variant="primary" size="md" className="ml-auto">
           <Icon name="plus" size={14} />
           New venue
@@ -1597,7 +1601,9 @@ function StagePlan() {
         </section>
         {items.length > 0 && (
           <section className="rounded-panel-lg border border-line bg-raised/25 p-3">
-            <Label>On the stage · {items.length}</Label>
+            <Label>
+              On the stage<Count>{items.length}</Count>
+            </Label>
             <ul className="mt-2 flex max-h-[240px] flex-col overflow-auto">
               {[...items].reverse().map((i) => (
                 <li key={i.id}>
@@ -1645,7 +1651,9 @@ function Patch() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-2">
-        <Label>Stage boxes · {boxes.length}</Label>
+        <Label>
+          Stage boxes<Count>{boxes.length}</Count>
+        </Label>
         <span className="ml-auto flex gap-1">
           <Dropdown
             value="Export"

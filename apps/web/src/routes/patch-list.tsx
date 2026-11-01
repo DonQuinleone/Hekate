@@ -5,6 +5,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
+import { Count } from "~/components/ui/chip";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
@@ -90,7 +91,9 @@ function PatchList({
       ) : (
         <div className="flex flex-col gap-6">
           <div className="flex items-center gap-2">
-            <span className="label">Stage boxes · {boxes.length}</span>
+            <span className="label">
+              Stage boxes<Count>{boxes.length}</Count>
+            </span>
             <span className="ml-auto flex items-center gap-1">
               {/* As the engineer prints it, and as a workbook: made on the server, for this person. */}
               <Dropdown

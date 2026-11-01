@@ -9,6 +9,7 @@ import { PageHeader } from "~/components/page-header";
 import { NewProjectTile, ProjectCard } from "~/components/project-card";
 import { ProjectCover, profileIcon } from "~/components/project-cover";
 import { Button } from "~/components/ui/button";
+import { Count } from "~/components/ui/chip";
 import { ChoiceCard } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
@@ -269,12 +270,10 @@ export function ProjectsPage({
               )}
             >
               {showLabels[id]}
+              {show === id && data && <Count>{list.length}</Count>}
             </button>
           ))}
-          <span className="tabular ml-auto hidden pr-2 text-[13px] text-ink-3 @3xl/app:inline">
-            {list.length} {list.length === 1 ? "project" : "projects"}
-          </span>
-          <span className="ml-auto @3xl/app:ml-0">
+          <span className="ml-auto">
             <Dropdown
               align="right"
               value={sortLabels[sort]}

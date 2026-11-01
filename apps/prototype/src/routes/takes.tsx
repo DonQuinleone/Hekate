@@ -2,7 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Rating } from "~/components/comments/takes";
 import { Icon } from "~/components/icons";
-import { Kbd, Label } from "~/components/label";
+import { Count, Kbd, Label } from "~/components/label";
 import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { PageViewer } from "~/components/pages";
@@ -311,7 +311,9 @@ export function SessionsView({ project }: { project: Project }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Label>Sessions · {list.length}</Label>
+        <Label>
+          Sessions<Count>{list.length}</Count>
+        </Label>
         <span className="ml-auto flex gap-1">
           <Button variant="ghost" size="md" asChild>
             <Link

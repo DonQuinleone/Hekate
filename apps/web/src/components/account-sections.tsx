@@ -2,6 +2,7 @@ import { type Density, locales, preRolls, skipSteps, type Theme } from "@hekate/
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { Loading } from "~/components/ui/states";
 import { shortAgent } from "~/lib/agent";
 import { authClient } from "~/lib/auth";
 import { ago } from "~/lib/comments";
@@ -576,7 +577,7 @@ export function SessionsSection() {
   const others = sessions.filter((s) => !s.current);
   return (
     <Section title="Signed in">
-      {isPending && <Row name="Loading" />}
+      {isPending && <Loading size="panel" />}
       {sessions.map((s) => (
         <Row
           key={s.id}
@@ -641,7 +642,11 @@ export function AppearanceSection() {
   return (
     <>
       <Section title="Theme">
-        <Row name="Theme" hint="The brand in dark and light, and a few others people know." stacked>
+        <Row
+          name="Palette"
+          hint="The brand in dark and light, and a few others people know."
+          stacked
+        >
           <div className="grid w-full grid-cols-1 gap-2 @xl/app:grid-cols-2 @3xl/app:grid-cols-3">
             <ThemeTile
               name="Follow the system"
