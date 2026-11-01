@@ -231,8 +231,8 @@ export const workflowRunRoutes = (runner: RunnerDeps) => {
           outcome,
           userId: c.var.userId,
         },
-        // Only an outcome a person decides (#566): a due date passing or a wait elapsing is the
-        // clock's, and what the checks found is theirs, so neither is ended by hand.
+        // Only an outcome a person decides (#566): a due date passing is the clock's, and what
+        // the checks found is theirs, so neither is ended by hand.
         (locked) => {
           const node = locked.definition.nodes.find((n) => n.id === nodeId);
           const known = node && outcomesOf(node.type).some((o) => o.id === outcome);

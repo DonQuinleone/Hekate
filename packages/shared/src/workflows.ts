@@ -159,13 +159,13 @@ export const nodeTypes: Record<NodeType, NodeTypeInfo> = {
 export const outcomesOf = (type: NodeType) => nodeTypes[type].outcomes;
 
 /**
- * Outcomes only an event raises, never a person (#566): the clock's (a due date passed, a wait
- * elapsed) and what the checks measured. Choosing one by hand would fake a deadline or a result.
+ * Outcomes only an event raises, never a person (#566): a due date passing and what the checks
+ * measured. Choosing one by hand would fake a deadline or a result. A wait may still be ended
+ * early by whoever runs the workflow: that fakes nothing, it only stops waiting.
  */
 const raisedByEvent: Partial<Record<NodeType, readonly string[]>> = {
   feedback: ["overdue"],
   task: ["overdue"],
-  wait: ["elapsed"],
   checks: ["passed", "warnings", "failed"],
 };
 

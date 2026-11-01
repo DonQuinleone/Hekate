@@ -16,7 +16,7 @@ export interface StatusMove {
  * The moves a track's running workflow allows from where it is (#566): each step it waits on
  * that someone ends (a task done, an approval decided), by each outcome a person decides, named
  * by where it leads. Events it waits for and outcomes only an event raises (a due date passed,
- * a wait elapsed, what the checks found) are not chosen by hand.
+ * what the checks found) are not chosen by hand.
  */
 export function movesOf(runs: readonly WorkflowRunSummary[]): StatusMove[] {
   return runs
@@ -31,7 +31,11 @@ export function movesOf(runs: readonly WorkflowRunSummary[]): StatusMove[] {
             .map((o) => ({ outcome: o.id, leadsTo: null }));
         return choices.flatMap((choice) => {
           if (!choosableOutcome(step.type, choice.outcome)) return [];
-          const words = info.outcomes.find((o) => o.id === choice.outcome)?.label || choice.outcome;
+          // A wait ended by hand stops waiting; any other outcome says itself.
+          const words =
+            step.type === "wait"
+              ? "Stop waiting"
+              : info.outcomes.find((o) => o.id === choice.outcome)?.label || choice.outcome;
           return [
             {
               runId: run.id,

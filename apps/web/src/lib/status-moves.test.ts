@@ -73,9 +73,11 @@ describe("movesOf", () => {
     ).toEqual([]);
   });
 
-  it("never offers what only the clock raises", () => {
-    expect(movesOf([run("r1", "running", [{ nodeId: "n1", name: "Hold", type: "wait" }])])).toEqual(
-      [],
-    );
+  it("offers to stop a wait early, in those words", () => {
+    expect(
+      movesOf([run("r1", "running", [{ nodeId: "n1", name: "Hold", type: "wait" }])]).map(
+        (m) => m.label,
+      ),
+    ).toEqual(["Stop waiting"]);
   });
 });

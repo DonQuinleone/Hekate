@@ -562,7 +562,8 @@ describe("the outcomes a person may choose (#566)", () => {
     expect(choosableOutcome("feedback", "done")).toBe(true);
     expect(choosableOutcome("feedback", "overdue")).toBe(false);
     expect(choosableOutcome("approval", "changes")).toBe(true);
-    expect(choosableOutcome("wait", "elapsed")).toBe(false);
+    // Ending a wait early fakes nothing: it only stops waiting.
+    expect(choosableOutcome("wait", "elapsed")).toBe(true);
     expect(choosableOutcome("checks", "passed")).toBe(false);
   });
   it("offers nothing for an event, a step done at once, or an outcome the kind lacks", () => {
