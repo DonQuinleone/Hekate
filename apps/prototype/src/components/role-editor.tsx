@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Icon } from "~/components/icons";
-import { Matrix, Row, Section } from "~/components/settings";
+import { Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { ConfirmDialog, Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
@@ -208,7 +208,7 @@ function NewRoleMenu({
 /**
  * Roles and access (#506): one role at a time, as XenForo edits its user groups. The roles
  * across the top, then the chosen one's permissions by area (each area's level sets every row
- * in it at once), its player tools, and the exceptions (decision 258) below.
+ * in it at once) and its player tools; the exceptions (decision 258) are listed apart, above.
  */
 export function RolesAndAccess({ project, canRoles }: { project: Project; canRoles: boolean }) {
   const [roles, setRoles] = useState<EditedRole[]>(() =>
@@ -220,11 +220,14 @@ export function RolesAndAccess({ project, canRoles }: { project: Project; canRol
   );
   const [copySource, setCopySource] = useState("");
   // Exceptions to the player tools (decision 258): a person's or a group's own.
-  const [exceptions, setExceptions] = useState<{ id: string; label: string; tools: Tool[] }[]>([
-    { id: "x-mira", label: "Mira Solberg (guest)", tools: ["score", "loops"] },
+  const [exceptions] = useState<
+    { id: string; label: string; kind: "Member" | "Guest" | "Group"; tools: Tool[] }[]
+  >([
+    { id: "x-mira", label: "Mira Solberg", kind: "Guest", tools: ["score", "loops"] },
     {
       id: "x-soloists",
-      label: "Soloists (group)",
+      label: "Soloists",
+      kind: "Group",
       tools: ["qa", "meters", "score", "compare", "loops", "normalise"],
     },
   ]);
@@ -263,27 +266,96 @@ export function RolesAndAccess({ project, canRoles }: { project: Project; canRol
 
   return (
     <>
+      {/* The exceptions (decision 258, #585): apart from any role, a row each, captioned by what
+          they are, their tools as chips; changed in the dialog that adds one. */}
+      <Section
+        title="Exceptions"
+        intro="An exception's tools replace the role's for that person or group; a guest's stay within their review's."
+        action={
+          canRoles ? (
+            <Button variant="secondary" size="md">
+              <Icon name="plus" size={14} />
+              Add exception
+            </Button>
+          ) : undefined
+        }
+      >
+        {exceptions.map((x) => (
+          <Row
+            key={x.id}
+            name={
+              <span className="flex flex-wrap items-baseline gap-x-2">
+                {x.label}
+                <span className="text-[12px] text-ink-3">{x.kind}</span>
+              </span>
+            }
+            hint={
+              <span className="mt-1 flex flex-wrap gap-1">
+                {playerTools
+                  .filter((t) => x.tools.includes(t))
+                  .map((t) => (
+                    <span
+                      key={t}
+                      className="inline-flex items-center rounded-chip border border-line px-1.5 text-[11px] leading-5 text-ink-3"
+                    >
+                      {toolCopy[t].label}
+                    </span>
+                  ))}
+              </span>
+            }
+          >
+            {canRoles && (
+              <ActionMenu
+                label={x.label}
+                always
+                actions={[
+                  { label: "Change tools…", onSelect: () => {} },
+                  "divider",
+                  { label: "Remove exception…", danger: true, onSelect: () => {} },
+                ]}
+              />
+            )}
+          </Row>
+        ))}
+      </Section>
+
       <div className="flex flex-col gap-6">
         <div className="flex flex-wrap items-center gap-1.5">
-          <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-1.5 border-0 p-0">
-            <legend className="sr-only">Role</legend>
-            {roles.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                aria-pressed={r.id === role.id}
-                onClick={() => setShownId(r.id)}
-                className={cn(
-                  "inline-flex h-7 max-w-[200px] cursor-pointer items-center rounded-chip border px-2.5 text-[13px] transition-colors",
-                  r.id === role.id
-                    ? "border-edge bg-raised text-ink shadow-1"
-                    : "border-transparent text-ink-3 hover:text-ink",
-                )}
-              >
-                <span className="truncate">{r.name}</span>
-              </button>
-            ))}
-          </fieldset>
+          {/* One line of role chrome however many roles (#673): past six, a choice of role. */}
+          {roles.length > 6 ? (
+            <Select
+              aria-label="Role"
+              value={role.id}
+              onChange={(e) => setShownId(e.target.value)}
+              className="w-full max-w-64 @3xl/app:w-64"
+            >
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-1.5 border-0 p-0">
+              <legend className="sr-only">Role</legend>
+              {roles.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  aria-pressed={r.id === role.id}
+                  onClick={() => setShownId(r.id)}
+                  className={cn(
+                    "inline-flex h-7 max-w-[200px] cursor-pointer items-center rounded-chip border px-2.5 text-[13px] transition-colors",
+                    r.id === role.id
+                      ? "border-edge bg-raised text-ink shadow-1"
+                      : "border-transparent text-ink-3 hover:text-ink",
+                  )}
+                >
+                  <span className="truncate">{r.name}</span>
+                </button>
+              ))}
+            </fieldset>
+          )}
           {canRoles && (
             <NewRoleMenu
               roles={roles}
@@ -405,7 +477,7 @@ export function RolesAndAccess({ project, canRoles }: { project: Project; canRol
 
       <Section
         title="Player tools"
-        intro={`Which tools ${role.name} sees on the recording page. Downloads, takes and the production tools are levels above.`}
+        intro={`Which tools ${role.name} sees in the player. Downloads, takes and the production tools are levels above.`}
       >
         {playerTools.map((t) => (
           <Row key={t} name={toolCopy[t].label} hint={toolCopy[t].hint}>
@@ -421,49 +493,6 @@ export function RolesAndAccess({ project, canRoles }: { project: Project; canRol
             />
           </Row>
         ))}
-      </Section>
-
-      <Section
-        title="Exceptions"
-        intro="An exception's tools replace the role's for that person or group; a guest's stay within their review's."
-        action={
-          canRoles ? (
-            <Button variant="ghost" size="md">
-              Add an exception
-            </Button>
-          ) : undefined
-        }
-      >
-        <Matrix
-          heading="Tool"
-          columns={exceptions.map((x) => ({ id: x.id, label: x.label }))}
-          rows={playerTools.map((t) => ({
-            id: t,
-            label: toolCopy[t].label,
-            hint: toolCopy[t].hint,
-          }))}
-          value={(row, col) =>
-            exceptions.find((x) => x.id === col)?.tools.includes(row as Tool) ?? false
-          }
-          onToggle={
-            canRoles
-              ? (row, col) =>
-                  setExceptions((list) =>
-                    list.map((x) =>
-                      x.id !== col
-                        ? x
-                        : {
-                            ...x,
-                            tools: x.tools.includes(row as Tool)
-                              ? x.tools.filter((t) => t !== row)
-                              : [...x.tools, row as Tool],
-                          },
-                    ),
-                  )
-              : undefined
-          }
-          locked={() => (!canRoles ? "Managed by whoever manages roles" : null)}
-        />
       </Section>
 
       {dialog === "delete" && (
@@ -534,11 +563,14 @@ export function RolesAndAccess({ project, canRoles }: { project: Project; canRol
           onClose={close}
           width="xl"
         >
-          <div className="scroll-quiet overflow-x-auto">
+          {/* On a phone the role column stays put and the far edge fades (#673). */}
+          <div className="scroll-quiet overflow-x-auto [mask-image:linear-gradient(to_right,black_calc(100%-32px),transparent)] @3xl/app:[mask-image:none]">
             <table className="w-full border-collapse text-[13px]">
               <thead>
                 <tr>
-                  <th className="px-2 py-2 text-left font-normal text-ink-3">Role</th>
+                  <th className="sticky left-0 z-10 bg-overlay px-2 py-2 text-left font-normal text-ink-3">
+                    Role
+                  </th>
                   {accessAreas.map((a) => (
                     <th key={a.id} className="px-2 py-2 text-left font-normal text-ink-3">
                       {a.label}
@@ -550,7 +582,9 @@ export function RolesAndAccess({ project, canRoles }: { project: Project; canRol
               <tbody>
                 {roles.map((r) => (
                   <tr key={r.id} className="border-t border-line">
-                    <td className="px-2 py-2 whitespace-nowrap text-ink">{r.name}</td>
+                    <td className="sticky left-0 z-10 bg-overlay px-2 py-2 whitespace-nowrap text-ink">
+                      {r.name}
+                    </td>
                     {accessAreas.map((a) => (
                       <td
                         key={a.id}

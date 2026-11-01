@@ -1149,8 +1149,8 @@ test("project-settings-roles-copy", async ({ page }) => {
   }
 });
 
-// Twelve roles (#506): they wrap across the top rather than widen the page, and Compare shows
-// them all at once, a row each.
+// Twelve roles (#506, #673): one choice of role rather than three lines of chips, and Compare
+// shows them all at once, a row each, its role column held still on a phone.
 test("project-settings-roles-twelve", async ({ page }) => {
   const projectId = seeded().musicProjectId;
   const levels = {
@@ -1183,8 +1183,9 @@ test("project-settings-roles-twelve", async ({ page }) => {
       expect(made.ok()).toBe(true);
     }
     await page.goto(`/projects/${projectId}/settings?section=roles`);
-    await settle(page, "main button[aria-pressed]:has-text('Mastering engineer')");
-    await expect(page.locator("main button[aria-pressed]")).toHaveCount(12);
+    // Past six, the roles are one choice rather than chips (#673): one line of chrome.
+    await settle(page, "main select[aria-label=Role]");
+    await expect(page.locator("main select[aria-label=Role] option")).toHaveCount(12);
     await saveScreen(page, "project-settings-roles-twelve");
     await checkScreen(page);
 
