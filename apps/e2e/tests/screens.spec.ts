@@ -3605,7 +3605,7 @@ test("file-comment-attach-takes", async ({ page }, info) => {
   // The button stayed where it was.
   expect(await attach.boundingBox()).toEqual(before);
   const dialog = page.getByRole("dialog", { name: "Takes from this track" });
-  await expect(dialog.getByRole("listitem").first()).toContainText("Day 2 · bars 1 to 16");
+  await expect(dialog.getByRole("listitem").first()).toContainText("Day 2 · bars 1–16");
   await expect(dialog.getByRole("link", { name: /^Hear take 1 in a new tab/ })).toBeVisible();
   await dialog.getByRole("checkbox", { name: "Attach take 1" }).check();
   await dialog.getByRole("checkbox", { name: "Attach take 2" }).check();

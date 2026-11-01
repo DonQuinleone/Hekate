@@ -84,8 +84,15 @@ export function Thread({
   const carry = comment.carries?.find((c) => c.versionNumber === versionNumber);
   const carriedFrom = comment.carries?.[0]?.versionNumber;
   const reference = formatReference(comment.reference, project.references);
+  // A page is named once (#702): where the reference already gives it, the region adds nothing.
   const anchorText =
-    comment.anchor.kind === "whole" ? "" : formatAnchor(comment.anchor, { video, fps });
+    comment.anchor.kind === "whole" ||
+    (comment.anchor.kind === "region" &&
+      comment.anchor.at === undefined &&
+      comment.reference?.page !== undefined &&
+      project.references.page)
+      ? ""
+      : formatAnchor(comment.anchor, { video, fps });
   // Where it points, in one chip: the bar or page, then the moment it was heard at (#496),
   // then the channel it is about.
   const where = [reference, anchorText, comment.channel].filter(Boolean).join(" · ");

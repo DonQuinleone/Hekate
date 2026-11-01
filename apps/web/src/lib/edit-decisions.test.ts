@@ -56,7 +56,7 @@ describe("edit decisions (#56)", () => {
       take: "T12",
       source: "Take 12.wav",
       place: "0:10–0:23.5 of the take",
-      bars: "bars 6 to 12",
+      bars: "bars 6–12",
     });
     expect(editLine(use({ from: null, to: null, bars: null }, null), number)).toMatchObject({
       source: "TAKE12",
@@ -113,8 +113,8 @@ describe("the edit lane", () => {
       numberOf,
     );
     expect(segments).toEqual([
-      { start: 0, end: 10, label: "T12", take: true, bars: "bars 6 to 12" },
-      { start: 10, end: 20, label: "T3", take: true, bars: "bars 9 to 16" },
+      { start: 0, end: 10, label: "T12", take: true, bars: "bars 6–12" },
+      { start: 10, end: 20, label: "T3", take: true, bars: "bars 9–16" },
     ]);
   });
 

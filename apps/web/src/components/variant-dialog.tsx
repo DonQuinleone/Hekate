@@ -138,7 +138,7 @@ export function VariantDialog({
                 </Field>
                 <label className="flex h-9 cursor-pointer items-center gap-2 text-[14px] text-ink-2">
                   <Checkbox checked={primary} onChange={(e) => setPrimary(e.target.checked)} />
-                  Make it the primary
+                  Make primary variant
                 </label>
               </div>
               {/* The names the project's other variants go by: one press names this one. */}

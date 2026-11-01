@@ -26,7 +26,7 @@ export function formatTimecode(seconds: number, fps = 25): string {
 
 export const frameOf = (seconds: number, fps = 25) => Math.floor(seconds * fps);
 
-/** The typed reference: p. 2 · bar 112.1 · bars 118–124. */
+/** The typed reference: "p. 2 · bar 112.1", or "Bars 118–124" leading. */
 export function formatReference(
   ref: Reference | undefined,
   enabled = { page: true, bar: true, beat: true },
@@ -41,7 +41,9 @@ export function formatReference(
       parts.push(`bar ${ref.bar}.${ref.beat}`);
     else parts.push(`bar ${ref.bar}`);
   }
-  return parts.join(" · ");
+  // Sentence case (#702): "Bars 9–12" leading, "p. 3 · bar 5" after a page.
+  const out = parts.join(" · ");
+  return out.startsWith("bar") ? `B${out.slice(1)}` : out;
 }
 
 export function formatAnchor(anchor: Anchor, opts: { fps?: number; video?: boolean } = {}): string {
@@ -55,7 +57,8 @@ export function formatAnchor(anchor: Anchor, opts: { fps?: number; video?: boole
     case "region":
       if (anchor.at !== undefined)
         return `${formatTimecode(anchor.at, opts.fps)} · frame ${frameOf(anchor.at, opts.fps)}`;
-      return anchor.page !== undefined ? `p. ${anchor.page}` : "region";
+      // A region is where it is (#702): its page, never the word "region" as well.
+      return anchor.page !== undefined ? `p. ${anchor.page}` : "Region";
     case "whole":
       return "Whole file";
   }

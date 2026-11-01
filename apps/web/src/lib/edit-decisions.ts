@@ -75,7 +75,7 @@ export interface EditSegment {
   label: string;
   /** Whether it comes from a take of this track. */
   take: boolean;
-  /** The bars of the take it uses, where they are known: "bars 9 to 16". */
+  /** The bars of the take it uses, where they are known: "bars 9–16". */
   bars: string | null;
 }
 

@@ -667,7 +667,7 @@ export function FilePage({
                 start: (u.barFrom - 1) * 1.2,
                 end: Math.min(duration, u.barTo * 1.2),
                 label: `T${t.number}`,
-                bars: `bars ${u.barFrom} to ${u.barTo}`,
+                bars: `bars ${u.barFrom}–${u.barTo}`,
                 take: true,
               })),
           )
