@@ -1558,10 +1558,6 @@ export function InstancePage({ section }: { section: string }) {
                   </span>
                 </Row>
                 <Row
-                  name="Paddle"
-                  hint="Not connected. A merchant of record, collecting VAT in every country: it follows with the hosted offering."
-                />
-                <Row
                   name={
                     <span className="flex items-center gap-2">
                       <Dot state="approved" />
@@ -1601,7 +1597,7 @@ export function InstancePage({ section }: { section: string }) {
           {billingTab === "reports" && (
             <>
               <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-4">
-                <Tile label="MRR" value="£1,236" hint="+£98 this month" />
+                <Tile label="Monthly revenue" value="£1,236" hint="+£98 this month" />
                 <Tile label="ARR" value="£14.8k" hint="annualised" />
                 <Tile label="Churn" value="0.8%" hint="last 90 days" />
                 <Tile label="Average per workspace" value="£154" hint="paying workspaces" />
@@ -1948,39 +1944,18 @@ export function InstancePage({ section }: { section: string }) {
               </Button>
             </Row>
           </Section>
-          <Section
-            title="Metrics"
-            intro="Everything above, and more, is exported for Prometheus at /metrics, read with the bearer token in METRICS_TOKEN. Grafana dashboards ship in the repository."
-          >
-            {[
-              ["hekate_http_requests_total", "counter · route, method, status"],
-              ["hekate_http_request_duration_seconds", "histogram · route"],
-              ["hekate_http_errors_total", "counter · route, reference"],
-              [
-                "hekate_jobs_waiting · hekate_jobs_active · hekate_jobs_failed_total",
-                "gauge, gauge, counter · queue",
-              ],
-              ["hekate_job_duration_seconds", "histogram · queue"],
-              ["hekate_worker_lanes_busy", "gauge"],
-              [
-                "hekate_uploads_bytes_total · hekate_uploads_refused_total",
-                "counter · workspace, rule",
-              ],
-              ["hekate_storage_bytes", "gauge · backend, workspace"],
-              [
-                "hekate_media_keys_issued_total · hekate_page_renders_total · hekate_downloads_total",
-                "counter · workspace",
-              ],
-              ["hekate_database_up", "gauge"],
-              ["hekate_mail_sent_total · hekate_mail_failed_total", "counter"],
-              ["hekate_webhook_deliveries_total", "counter · channel, status"],
-              ["hekate_signins_total · hekate_signins_refused_total", "counter · method"],
-              ["hekate_billing_events_total", "counter · gateway, event"],
-              ["hekate_build_info", "gauge · version, build, channel"],
-            ].map(([m, k]) => (
-              <Row key={m} name={<span className="tabular text-[13px]">{m}</span>} hint={k} />
-            ))}
-          </Section>
+          {/* The metrics are a reference, not the machine's state: they live in the docs. */}
+          <p className="text-[13px] text-ink-3">
+            Everything above, and more, is exported for Prometheus at /metrics, read with the bearer
+            token in METRICS_TOKEN.{" "}
+            <a
+              href="#metrics"
+              className="text-ink-2 underline-offset-2 hover:text-ink hover:underline"
+            >
+              Every metric, in the docs
+            </a>
+            .
+          </p>
         </>
       )}
       {sec === "queues" && (
@@ -2321,7 +2296,7 @@ export function InstancePage({ section }: { section: string }) {
               </Select>
             </Row>
             <Row
-              name="Last check"
+              name="Release checks"
               hint="Once a day, from the project's public releases, when HEKATE_UPDATE_CHECK is on. Nothing about the instance is sent."
             >
               <span className="text-[13px] text-ink-2">14 minutes ago</span>
@@ -2355,6 +2330,48 @@ export function InstancePage({ section }: { section: string }) {
               hint="Not on this channel yet: expected on Stable in November. Immersive review, score follow, the public API v1."
             >
               <span className="text-[13px] text-ink-3">Beta</span>
+            </Row>
+          </Section>
+          <Section title="Set at start" intro="In the environment; a change takes a restart.">
+            <Row
+              name="Billing"
+              hint="HEKATE_BILLING · off, stripe, paddle or manual · off by default"
+            >
+              <span className="tabular text-[13px] text-ink-2">{env.billing}</span>
+              <Dot state={env.billing === "off" ? "cancelled" : "approved"} />
+            </Row>
+            <Row
+              name="Support desk"
+              hint="HEKATE_SUPPORT · off, app, link or mail · off by default"
+            >
+              <span className="tabular text-[13px] text-ink-2">{env.support}</span>
+              <Dot state={env.support === "off" ? "cancelled" : "approved"} />
+            </Row>
+            <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
+              <span className="tabular text-[13px] text-ink-2">{env.docsUrl}</span>
+            </Row>
+            <Row
+              name="Status page"
+              hint="HEKATE_STATUS_URL · another page to link; unset, the instance’s own at /status"
+            >
+              <span className="tabular text-[13px] text-ink-2">None</span>
+            </Row>
+            <Row name="Address" hint="PUBLIC_URL">
+              <span className="tabular text-[13px] text-ink-2">
+                https://review.endlesshall.example
+              </span>
+            </Row>
+            <Row
+              name="Workspace subdomains"
+              hint="Each workspace answers at its own name under the address; single sign-on picks the workspace from it."
+            >
+              <span className="tabular text-[13px] text-ink-2">*.review.endlesshall.example</span>
+            </Row>
+            <Row
+              name="Telemetry"
+              hint="OTEL_EXPORTER_OTLP_ENDPOINT · names a collector of yours for traces and logs; nothing leaves otherwise."
+            >
+              <span className="text-[13px] text-ink-2">Off</span>
             </Row>
           </Section>
           <Section title="History" intro="Every release this instance has run.">
@@ -2398,32 +2415,21 @@ export function InstancePage({ section }: { section: string }) {
 
       {sec === "settings" && (
         <>
+          {/* Maintenance destroys nothing: its own section, first, apart from anything that does. */}
           <Section
-            title="Modules"
-            intro="Set in the environment at start; shown here so an operator can see what is on."
+            title="Maintenance"
+            intro="While it is on, everyone sees a notice, and uploads and jobs wait until it is over. Nothing is lost."
           >
-            <Row
-              name="Billing"
-              hint="HEKATE_BILLING · off, stripe, paddle or manual · off by default"
-            >
-              <span className="tabular text-[13px] text-ink-2">{env.billing}</span>
-              <Dot state={env.billing === "off" ? "cancelled" : "approved"} />
+            <Row name="Maintenance mode" hint="Off.">
+              <Button variant="secondary" size="md">
+                Turn on
+              </Button>
             </Row>
             <Row
-              name="Support desk"
-              hint="HEKATE_SUPPORT · off, app, link or mail · off by default"
+              name="Notice"
+              hint="Shown to everyone while maintenance mode is on, under the line saying that it is."
             >
-              <span className="tabular text-[13px] text-ink-2">{env.support}</span>
-              <Dot state={env.support === "off" ? "cancelled" : "approved"} />
-            </Row>
-            <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
-              <span className="tabular text-[13px] text-ink-2">{env.docsUrl}</span>
-            </Row>
-            <Row
-              name="Status page"
-              hint="HEKATE_STATUS_URL · another page to link; unset, the instance’s own at /status"
-            >
-              <span className="tabular text-[13px] text-ink-2">None</span>
+              <Input placeholder="Back by 18:00" className="w-full @3xl/app:w-96" />
             </Row>
           </Section>
           {/* #184: one choice, not a choice and a switch that said the same thing twice. */}
@@ -2549,48 +2555,14 @@ export function InstancePage({ section }: { section: string }) {
               </Row>
             ))}
           </Section>
-          {/* #160: set in the environment at start, so shown read-only (decisions 178, 184). */}
-          <Section title="Address and mail" intro="Set in the environment at start.">
-            <Row name="Address" hint="PUBLIC_URL">
-              <span className="tabular text-[13px] text-ink-2">
-                https://review.endlesshall.example
-              </span>
-            </Row>
-            <Row
-              name="Workspace subdomains"
-              hint="Each workspace answers at its own name under the address; single sign-on picks the workspace from it."
-            >
-              <span className="tabular text-[13px] text-ink-2">*.review.endlesshall.example</span>
-            </Row>
+          <Section title="Mail" intro="Set in the environment at start.">
             <Row name="Instance mail" hint="Used when a workspace sets no channel of its own">
               <span className="text-[13px] text-ink-2">SMTP · mail.endlesshall.example</span>
               <Button variant="secondary" size="md">
                 Test
               </Button>
             </Row>
-            <Row
-              name="Telemetry"
-              hint="OTEL_EXPORTER_OTLP_ENDPOINT · names a collector of yours for traces and logs; nothing leaves otherwise."
-            >
-              <span className="text-[13px] text-ink-2">Off</span>
-            </Row>
           </Section>
-          <Danger>
-            <Row
-              name="Maintenance mode"
-              hint="Everyone sees a notice; uploads and jobs wait until it is over. Nothing is lost."
-            >
-              <Button variant="secondary" size="md">
-                Turn on
-              </Button>
-            </Row>
-            <Row
-              name="Notice"
-              hint="Shown to everyone while maintenance mode is on, under the line saying that it is."
-            >
-              <Input placeholder="Back by 18:00" className="w-full @3xl/app:w-96" />
-            </Row>
-          </Danger>
         </>
       )}
 

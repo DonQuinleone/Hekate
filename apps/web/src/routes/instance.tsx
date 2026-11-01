@@ -1218,30 +1218,60 @@ function Settings() {
   const { settings, environment: env } = data;
   const maintenance = settings.maintenance;
   const words = message ?? maintenance.message;
-  const modules = env.modules;
   return (
     <>
+      {/* Maintenance destroys nothing: a section of its own, first, apart from anything that does (#697). */}
       <Section
-        title="Modules"
-        intro="Set in the environment at start; shown here so an operator can see what is on."
+        title="Maintenance"
+        intro="While it is on, everyone sees a notice, and uploads and jobs wait until it is over. Nothing is lost."
       >
-        <Row name="Billing" hint="HEKATE_BILLING · off, stripe, paddle or manual" inline>
-          <span className="tabular text-[13px] text-ink-2">{modules.billing}</span>
-          <StatusDot state={modules.billing === "off" ? "cancelled" : "approved"} />
-        </Row>
-        <Row name="Support desk" hint="HEKATE_SUPPORT · off, app, link or mail" inline>
-          <span className="tabular text-[13px] text-ink-2">{modules.support}</span>
-          <StatusDot state={modules.support === "off" ? "cancelled" : "approved"} />
-        </Row>
-        <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
-          <span className="truncate text-[13px] text-ink-2">{modules.docsUrl}</span>
+        <Row
+          name="Maintenance mode"
+          hint={maintenance.on ? "On: everyone sees the notice." : "Off."}
+        >
+          <Button
+            variant={maintenance.on ? "primary" : "secondary"}
+            size="md"
+            disabled={save.isPending}
+            onClick={() =>
+              save.mutate({
+                ...settings,
+                maintenance: { on: !maintenance.on, message: words.trim() },
+              })
+            }
+          >
+            {maintenance.on ? "Turn off" : "Turn on"}
+          </Button>
         </Row>
         <Row
-          name="Status page"
-          hint="HEKATE_STATUS_URL · another page to link; unset, the instance’s own at /status"
+          name="Notice"
+          hint="Shown to everyone while maintenance mode is on, under the line saying that it is."
+          stacked
         >
-          <span className="truncate text-[13px] text-ink-2">{modules.statusUrl ?? "None"}</span>
+          <div className="flex w-full flex-col gap-2 @xl/app:flex-row">
+            <Input
+              aria-label="Maintenance notice"
+              value={words}
+              maxLength={280}
+              placeholder="Back by 18:00"
+              className="min-w-0 flex-1"
+              onChange={(e) => setMessage(e.target.value)}
+            />
+            {maintenance.on && (
+              <Button
+                variant="secondary"
+                size="md"
+                disabled={save.isPending || words.trim() === maintenance.message}
+                onClick={() =>
+                  save.mutate({ ...settings, maintenance: { on: true, message: words.trim() } })
+                }
+              >
+                Save notice
+              </Button>
+            )}
+          </div>
         </Row>
+        {save.isError && <Row name="Not changed" hint={save.error.message} />}
       </Section>
       <Registration
         mode={settings.registration.mode}
@@ -1439,23 +1469,17 @@ function Settings() {
           </Row>
         ))}
       </Section>
-      <Section title="Address and mail" intro="Set in the environment at start.">
-        <Row name="Address" hint="PUBLIC_URL" inline>
-          <span className="truncate text-[13px] text-ink-2">{env.publicUrl}</span>
-        </Row>
-        <Row
-          name="Workspace subdomains"
-          hint={
-            env.subdomains
-              ? "WORKSPACE_SUBDOMAINS · each workspace answers at its own name; single sign-on reads the workspace from it."
-              : "WORKSPACE_SUBDOMAINS · every workspace is at the address above."
-          }
-          inline
-        >
-          <span className="truncate text-[13px] text-ink-2">{env.subdomains ?? "Off"}</span>
-        </Row>
+      <Section title="Mail" intro="Set in the environment at start.">
         <Row name="Instance mail" hint={mailHints[env.mail]} inline>
-          <span className="text-[13px] text-ink-2">{mailNames[env.mail]}</span>
+          {/* Only to the log, nobody receives mail: a warning, not a quiet row (#689). */}
+          {env.mail === "log" ? (
+            <span className="flex items-center gap-2 text-[13px] text-signal">
+              <StatusDot state="changes_requested" />
+              {mailNames[env.mail]}
+            </span>
+          ) : (
+            <span className="text-[13px] text-ink-2">{mailNames[env.mail]}</span>
+          )}
           <Button
             variant="secondary"
             size="md"
@@ -1490,72 +1514,8 @@ function Settings() {
             </Button>
           </Row>
         )}
-        <Row
-          name="Telemetry"
-          hint={
-            env.telemetry
-              ? "OTEL_EXPORTER_OTLP_ENDPOINT · traces and logs go to this collector of yours, and nowhere else."
-              : "OTEL_EXPORTER_OTLP_ENDPOINT · names a collector of yours for traces and logs; nothing leaves otherwise."
-          }
-          inline
-        >
-          <span className="truncate text-[13px] text-ink-2">{env.telemetry ?? "Off"}</span>
-        </Row>
       </Section>
       {bounced && <SuppressionsDialog scope="instance" onClose={() => setBounced(false)} />}
-      <Danger>
-        <Row
-          name="Maintenance mode"
-          hint={
-            maintenance.on
-              ? "On: everyone sees the notice, and uploads and jobs wait. Nothing is lost."
-              : "Everyone sees a notice; uploads and jobs wait until it is over. Nothing is lost."
-          }
-        >
-          <Button
-            variant={maintenance.on ? "primary" : "secondary"}
-            size="md"
-            disabled={save.isPending}
-            onClick={() =>
-              save.mutate({
-                ...settings,
-                maintenance: { on: !maintenance.on, message: words.trim() },
-              })
-            }
-          >
-            {maintenance.on ? "Turn off" : "Turn on"}
-          </Button>
-        </Row>
-        <Row
-          name="Notice"
-          hint="Shown to everyone while maintenance mode is on, under the line saying that it is."
-          stacked
-        >
-          <div className="flex w-full flex-col gap-2 @xl/app:flex-row">
-            <Input
-              aria-label="Maintenance notice"
-              value={words}
-              maxLength={280}
-              placeholder="Back by 18:00"
-              className="min-w-0 flex-1"
-              onChange={(e) => setMessage(e.target.value)}
-            />
-            {maintenance.on && (
-              <Button
-                variant="secondary"
-                size="md"
-                disabled={save.isPending || words.trim() === maintenance.message}
-                onClick={() =>
-                  save.mutate({ ...settings, maintenance: { on: true, message: words.trim() } })
-                }
-              >
-                Save notice
-              </Button>
-            )}
-          </div>
-        </Row>
-        {save.isError && <Row name="Not changed" hint={save.error.message} />}
-      </Danger>
     </>
   );
 }
@@ -1603,6 +1563,7 @@ function SystemInformation() {
   });
   if (error) return <Failed what="The system" error={error} retry={refetch} />;
   if (!data) return <Loading />;
+  const env = own?.environment;
   const built = data.build === "dev" ? "A development build" : `Build ${data.build.slice(0, 12)}`;
   return (
     <>
@@ -1617,7 +1578,7 @@ function SystemInformation() {
           <Select
             aria-label="Update channel"
             value={own?.settings.updates.channel ?? data.channel}
-            disabled={!own || channel.isPending}
+            disabled={!own || channel.isPending || !data.check.on}
             onChange={(e) => channel.mutate(e.target.value as UpdateChannel)}
             className="w-36"
           >
@@ -1629,7 +1590,7 @@ function SystemInformation() {
           </Select>
         </Row>
         <Row
-          name="Last check"
+          name="Release checks"
           hint={
             !data.check.on
               ? "Off: set HEKATE_UPDATE_CHECK=true to read the project's releases once a day. Nothing about the instance is sent."
@@ -1658,49 +1619,101 @@ function SystemInformation() {
           <Row name="Not done" hint={(channel.error ?? check.error)?.message} />
         )}
       </Section>
-      <Section
-        title="Available"
-        intro="Every release is a new image: pull it and restart, and migrations run on start. Nothing is patched in place."
-      >
-        {data.available.length === 0 ? (
-          <Row
-            name={data.check.on ? "Up to date" : "Not checked"}
-            hint={
-              data.check.on
-                ? `No release on the ${data.channel} channel is newer than ${data.version}.`
-                : "Release checks are off."
-            }
-          />
-        ) : (
-          data.available.map((r) => (
+      {/* With checks off, the row above says so, once (#697): nothing is listed as available. */}
+      {data.check.on && (
+        <Section
+          title="Available"
+          intro="Every release is a new image: pull it and restart, and migrations run on start. Nothing is patched in place."
+        >
+          {data.available.length === 0 ? (
             <Row
-              key={r.version}
-              name={
-                <span className="flex items-center gap-2">
-                  {r.name}
-                  {r.prerelease && (
-                    <span className="rounded-chip border border-line px-1.5 text-[11px] text-ink-3">
-                      candidate
-                    </span>
-                  )}
-                </span>
-              }
-              hint={`${since.format(new Date(r.publishedAt))}${r.notes ? ` · ${r.notes.split("\n")[0]}` : ""}`}
-            >
-              <Button variant="ghost" size="md" asChild>
-                <a href={r.url} target="_blank" rel="noopener noreferrer">
-                  Release notes
-                </a>
-              </Button>
-              <Button variant="secondary" size="md" asChild>
-                <a href={`${docsUrl}/operate/upgrades/`} target="_blank" rel="noopener noreferrer">
-                  How to upgrade
-                </a>
-              </Button>
-            </Row>
-          ))
-        )}
-      </Section>
+              name="Up to date"
+              hint={`No release on the ${data.channel} channel is newer than ${data.version}.`}
+            />
+          ) : (
+            data.available.map((r) => (
+              <Row
+                key={r.version}
+                name={
+                  <span className="flex items-center gap-2">
+                    {r.name}
+                    {r.prerelease && (
+                      <span className="rounded-chip border border-line px-1.5 text-[11px] text-ink-3">
+                        candidate
+                      </span>
+                    )}
+                  </span>
+                }
+                hint={`${since.format(new Date(r.publishedAt))}${r.notes ? ` · ${r.notes.split("\n")[0]}` : ""}`}
+              >
+                <Button variant="ghost" size="md" asChild>
+                  <a href={r.url} target="_blank" rel="noopener noreferrer">
+                    Release notes
+                  </a>
+                </Button>
+                <Button variant="secondary" size="md" asChild>
+                  <a
+                    href={`${docsUrl}/operate/upgrades/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    How to upgrade
+                  </a>
+                </Button>
+              </Row>
+            ))
+          )}
+        </Section>
+      )}
+      {/* What the environment sets at start, read-only, here rather than among the settings (#697). */}
+      {env && (
+        <Section title="Set at start" intro="In the environment; a change takes a restart.">
+          <Row name="Billing" hint="HEKATE_BILLING · off, stripe, paddle or manual" inline>
+            <span className="tabular text-[13px] text-ink-2">{env.modules.billing}</span>
+            <StatusDot state={env.modules.billing === "off" ? "cancelled" : "approved"} />
+          </Row>
+          <Row name="Support desk" hint="HEKATE_SUPPORT · off, app, link or mail" inline>
+            <span className="tabular text-[13px] text-ink-2">{env.modules.support}</span>
+            <StatusDot state={env.modules.support === "off" ? "cancelled" : "approved"} />
+          </Row>
+          <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
+            <span className="truncate text-[13px] text-ink-2">{env.modules.docsUrl}</span>
+          </Row>
+          <Row
+            name="Status page"
+            hint="HEKATE_STATUS_URL · another page to link; unset, the instance’s own at /status"
+          >
+            <span className="truncate text-[13px] text-ink-2">
+              {env.modules.statusUrl ?? "None"}
+            </span>
+          </Row>
+          <Row name="Address" hint="PUBLIC_URL" inline>
+            <span className="truncate text-[13px] text-ink-2">{env.publicUrl}</span>
+          </Row>
+          <Row
+            name="Workspace subdomains"
+            hint={
+              env.subdomains
+                ? "WORKSPACE_SUBDOMAINS · each workspace answers at its own name; single sign-on reads the workspace from it."
+                : "WORKSPACE_SUBDOMAINS · every workspace is at the address above."
+            }
+            inline
+          >
+            <span className="truncate text-[13px] text-ink-2">{env.subdomains ?? "Off"}</span>
+          </Row>
+          <Row
+            name="Telemetry"
+            hint={
+              env.telemetry
+                ? "OTEL_EXPORTER_OTLP_ENDPOINT · traces and logs go to this collector of yours, and nowhere else."
+                : "OTEL_EXPORTER_OTLP_ENDPOINT · names a collector of yours for traces and logs; nothing leaves otherwise."
+            }
+            inline
+          >
+            <span className="truncate text-[13px] text-ink-2">{env.telemetry ?? "Off"}</span>
+          </Row>
+        </Section>
+      )}
       <Section title="History" intro="Every release this instance has run.">
         {data.history.map((h) => (
           <Row
@@ -2276,7 +2289,7 @@ function serviceHint(s: HealthService): string {
         ? "SMTP: the mail server answers"
         : s.state === "failed"
           ? "SMTP: the mail server does not answer"
-          : "Off: messages go to the server's log";
+          : "Off: written to the server's log, so nobody receives email";
   }
 }
 
@@ -2418,8 +2431,9 @@ function SystemHealthPage() {
             points={series.lanesBusy}
             format={figure}
             when={when}
-            max={series.lanes}
-            hint={`hekate_worker_lanes_busy of ${series.lanes}`}
+            // The lanes there are now, as Services and Operations count them (#696).
+            max={Math.max(1, now.lanes.total)}
+            hint={`hekate_worker_lanes_busy of ${now.lanes.total}`}
           />
           <Spark
             label="Uploads"
@@ -2433,7 +2447,12 @@ function SystemHealthPage() {
       <Section title="Services" intro="Every part of the machine, checked every 15 seconds.">
         {data.services.map((s) => (
           <Row key={s.name} name={serviceNames[s.name]} hint={serviceHint(s)} inline>
-            <StatusDot state={serviceDot[s.state]} />
+            {/* Mail only to the log reaches nobody: a warning, not a quiet "off" (#689). */}
+            <StatusDot
+              state={
+                s.name === "mail" && s.state === "off" ? "changes_requested" : serviceDot[s.state]
+              }
+            />
           </Row>
         ))}
       </Section>
@@ -2509,23 +2528,20 @@ function SystemHealthPage() {
         )}
         {reconcile.isError && <Row name="Not run" hint={reconcile.error.message} />}
       </Section>
-      <Section
-        title="Metrics"
-        intro="Everything above, and more, is exported for Prometheus at /metrics, read with the bearer token in METRICS_TOKEN. Grafana dashboards ship in the repository."
-      >
-        {data.metrics.map((m) => (
-          <Row
-            key={m.name}
-            name={<span className="tabular text-[13px]">{m.name}</span>}
-            hint={m.help}
-          >
-            <span className="text-[12px] text-ink-3">
-              {m.type}
-              {m.labels.length > 0 && ` · ${m.labels.join(", ")}`}
-            </span>
-          </Row>
-        ))}
-      </Section>
+      {/* The metrics are a reference, not the machine's state: they live in the docs (#696). */}
+      <p className="m-0 text-[13px] text-ink-3">
+        Everything above, and more, is exported for Prometheus at /metrics, read with the bearer
+        token in METRICS_TOKEN.{" "}
+        <a
+          href={`${docsUrl}/operate/monitoring/#what-it-says`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-ink-2 underline-offset-2 hover:text-ink hover:underline"
+        >
+          Every metric, in the docs
+        </a>
+        .
+      </p>
     </>
   );
 }
@@ -3885,5 +3901,5 @@ const mailHints: Record<InstanceMail, string> = {
   smtp: "Sent over SMTP (SMTP_URL).",
   microsoft: "Sent through Microsoft Graph as the sender's mailbox (MAIL_GRAPH_*).",
   mailcoach: "Sent through Mailcoach's transactional API (MAIL_MAILCOACH_*).",
-  log: "Written to the server's log: set SMTP_URL, or a provider's settings, to send it.",
+  log: "Written to the server's log, so nobody receives email. Set SMTP_URL, or a provider's settings, to send it.",
 };
