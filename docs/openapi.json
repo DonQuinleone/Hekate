@@ -1269,6 +1269,9 @@
                             },
                             "on": {
                               "type": "boolean"
+                            },
+                            "onUpload": {
+                              "type": "boolean"
                             }
                           },
                           "required": [
