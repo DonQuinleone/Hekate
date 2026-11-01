@@ -106,11 +106,13 @@ import {
   type StorageUsage,
   ssoQuery,
   storageUsageQuery,
+  templatesQuery,
   useCustomProfileMutations,
   useOrganisationMutations,
   useRenameWorkspace,
   useRevokeGuest,
   useSaveWorkspaceSettings,
+  useTemplateMutations,
   useWorkspaceCategoryMutations,
   workspaceCategoriesQuery,
   workspaceGuestsQuery,
@@ -934,7 +936,72 @@ function Defaults() {
         />
       </Section>
       <ToolAccess />
+      <ProjectTemplates />
     </>
+  );
+}
+
+/**
+ * The workspace's project templates (#240), listed and removed here (#679): they belong to the
+ * workspace, and a project's General only saves one. Each is a copy of the project it came from.
+ */
+function ProjectTemplates() {
+  const { data: templates } = useQuery(templatesQuery);
+  const [confirm, confirmation] = useConfirm();
+  const { remove } = useTemplateMutations();
+  return (
+    <Section
+      title="Project templates"
+      count={templates?.length || undefined}
+      intro="What a new project can start from. Save one from a project's settings, under General."
+    >
+      {!templates ? (
+        <Loading size="panel" />
+      ) : templates.length === 0 ? (
+        <Row
+          name="None yet"
+          hint="A template keeps a project's roles, categories, delivery profile, QA rules and version checks, without its files."
+        />
+      ) : (
+        templates.map((t) => (
+          <Row
+            key={t.id}
+            inline
+            name={t.name}
+            hint={[
+              t.fromProject ? `From ${t.fromProject}` : null,
+              `${t.roles.length} ${t.roles.length === 1 ? "role" : "roles"}`,
+              `${t.categories} ${t.categories === 1 ? "category" : "categories"}`,
+              t.createdByName ? `saved by ${t.createdByName}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          >
+            {t.removable && (
+              <ActionMenu
+                label={t.name}
+                always
+                actions={[
+                  {
+                    label: "Remove template…",
+                    danger: true,
+                    onSelect: () =>
+                      confirm({
+                        title: `Remove the template ${t.name}?`,
+                        description:
+                          "New projects can no longer start from it. Projects made from it keep what they took.",
+                        action: "Remove template",
+                        onConfirm: () => remove.mutateAsync(t.id),
+                      }),
+                  },
+                ]}
+              />
+            )}
+          </Row>
+        ))
+      )}
+      {confirmation}
+    </Section>
   );
 }
 

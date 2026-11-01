@@ -1125,6 +1125,22 @@ export function SettingsPage({
               onToggle={() => {}}
             />
           </Section>
+          {/* #679: the workspace's templates, here rather than in one project's General. */}
+          <Section
+            title="Project templates"
+            intro="What a new project can start from. Save one from a project's settings, under General."
+          >
+            <Row
+              name="Solo recital"
+              hint="From Joplin Rags · 6 roles · 5 categories · saved by Alex Rivera"
+            >
+              <ActionMenu
+                always
+                label="Solo recital"
+                actions={[{ label: "Remove template…", danger: true, onSelect: () => {} }]}
+              />
+            </Row>
+          </Section>
         </>
       )}
       {sec === "categories" && (
