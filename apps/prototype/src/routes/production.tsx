@@ -1846,6 +1846,7 @@ export function ProductionView({ project, section }: { project: Project; section
       nav={
         <SideNav
           label="Production"
+          phoneLabel="Production"
           sections={productionSections}
           current={sec}
           link={(id) => ({

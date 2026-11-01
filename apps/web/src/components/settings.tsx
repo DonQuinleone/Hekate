@@ -8,7 +8,7 @@ import {
   timeFormatLabels,
   timeFormats,
 } from "@hekate/shared";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Page } from "~/components/page";
 import { cn } from "~/lib/cn";
@@ -16,6 +16,7 @@ import { docsUrl } from "~/lib/links";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
 import { Count } from "./ui/chip";
+import { Dropdown, type MenuItem } from "./ui/menu";
 import { Switch } from "./ui/toggle";
 
 export interface NavSection {
@@ -45,7 +46,10 @@ export function SideNav({
   current,
   link,
   label = "Sections",
+  phoneLabel = "Section",
 }: {
+  /** What the phone's control says before the current section: "Section", or "Production". */
+  phoneLabel?: string;
   sections: NavSection[];
   current: string;
   /** Where each section lives. */
@@ -57,39 +61,72 @@ export function SideNav({
   label?: string;
 }) {
   const groups = [...new Set(sections.map((s) => s.group ?? ""))];
+  const navigate = useNavigate();
+  const here = sections.find((s) => s.id === current);
   return (
-    <nav
-      aria-label={label}
-      className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto @3xl/app:sticky @3xl/app:top-8 @3xl/app:w-[200px] @3xl/app:flex-col @3xl/app:self-start @3xl/app:overflow-visible"
-    >
-      {groups.map((g) => (
-        <div key={g} className="flex shrink-0 gap-1 @3xl/app:mb-4 @3xl/app:flex-col">
-          {g && <span className="eyebrow hidden px-2 pb-1 @3xl/app:block">{g}</span>}
-          {sections
-            .filter((s) => (s.group ?? "") === g)
-            .map((s) => {
-              const l = link(s.id);
-              return (
-                <Link
-                  key={s.id}
-                  to={l.to}
-                  params={l.params}
-                  search={l.search}
-                  aria-current={s.id === current ? "page" : undefined}
-                  className={cn(
-                    "flex h-8 shrink-0 items-center rounded-control px-2.5 text-[14px] whitespace-nowrap transition-colors",
-                    s.id === current
-                      ? "bg-raised text-ink shadow-1"
-                      : "text-ink-2 hover:bg-raised/60 hover:text-ink",
-                  )}
-                >
-                  {s.label}
-                </Link>
-              );
-            })}
-        </div>
-      ))}
-    </nav>
+    <>
+      {/*
+       * On a phone the sections are one control naming where you are, as Stripe's settings
+       * are (#542): a strip would start at the first and cut off where you are.
+       */}
+      <div className="@3xl/app:hidden">
+        <Dropdown
+          variant="field"
+          label={label}
+          value={
+            <span className="min-w-0 truncate">
+              <span className="text-ink-3">{phoneLabel}: </span>
+              {here?.label}
+            </span>
+          }
+          actions={groups.flatMap((g): MenuItem[] => [
+            ...(g ? [{ heading: g }] : []),
+            ...sections
+              .filter((s) => (s.group ?? "") === g)
+              .map((s) => ({
+                label: s.label,
+                checked: s.id === current,
+                onSelect: () => {
+                  const l = link(s.id);
+                  void navigate({ to: l.to, params: l.params, search: l.search });
+                },
+              })),
+          ])}
+        />
+      </div>
+      <nav
+        aria-label={label}
+        className="hidden shrink-0 gap-1 @3xl/app:sticky @3xl/app:top-8 @3xl/app:flex @3xl/app:w-[200px] @3xl/app:flex-col @3xl/app:self-start"
+      >
+        {groups.map((g) => (
+          <div key={g} className="flex shrink-0 gap-1 @3xl/app:mb-4 @3xl/app:flex-col">
+            {g && <span className="eyebrow hidden px-2 pb-1 @3xl/app:block">{g}</span>}
+            {sections
+              .filter((s) => (s.group ?? "") === g)
+              .map((s) => {
+                const l = link(s.id);
+                return (
+                  <Link
+                    key={s.id}
+                    to={l.to}
+                    params={l.params}
+                    search={l.search}
+                    aria-current={s.id === current ? "page" : undefined}
+                    className={cn(
+                      "flex h-8 shrink-0 items-center rounded-control px-2.5 text-[14px] whitespace-nowrap transition-colors",
+                      s.id === current
+                        ? "bg-raised text-ink shadow-1"
+                        : "text-ink-2 hover:bg-raised/60 hover:text-ink",
+                    )}
+                  >
+                    {s.label}
+                  </Link>
+                );
+              })}
+          </div>
+        ))}
+      </nav>
+    </>
   );
 }
 

@@ -81,6 +81,7 @@ export function ProductionBody({
         nav={
           <SideNav
             label="Production"
+            phoneLabel="Production"
             sections={shown.map(({ id, label }) => ({ id, label }))}
             current={current}
             link={(id) => ({

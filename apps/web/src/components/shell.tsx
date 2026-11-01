@@ -47,6 +47,7 @@ import { statusNowQuery } from "~/lib/status";
 import { useThemeSync } from "~/lib/theme";
 import { mayOpenSettings } from "~/routes/project-settings";
 import { openShortcutMap } from "./shortcut-map";
+import { SubNav } from "./ui/sub-nav";
 
 /** Each instance section's mark in the navigation, as in the prototype. */
 const instanceIcons: Record<InstanceSection, IconName> = {
@@ -909,9 +910,9 @@ export function Shell({ children }: { children: ReactNode }) {
           <HeaderSlotsProvider slots={slots}>
             <TopBar onTrail={onTrail} onActions={onActions} onSearch={() => setPalette(true)} />
             {current && (
-              <nav
-                aria-label={current.name}
-                className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3 py-1.5 @3xl/app:hidden"
+              <SubNav
+                label={current.name}
+                className="shrink-0 gap-1 border-b border-line px-3 py-1.5 @3xl/app:hidden"
               >
                 {sectionsHere.map((item) => (
                   <Link
@@ -929,12 +930,12 @@ export function Shell({ children }: { children: ReactNode }) {
                     {item.label}
                   </Link>
                 ))}
-              </nav>
+              </SubNav>
             )}
             {instanceNav.length > 1 && (
-              <nav
-                aria-label="Instance"
-                className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3 py-1.5 @3xl/app:hidden"
+              <SubNav
+                label="Instance"
+                className="shrink-0 gap-1 border-b border-line px-3 py-1.5 @3xl/app:hidden"
               >
                 {instanceNav.map((id) => (
                   <Link
@@ -948,7 +949,7 @@ export function Shell({ children }: { children: ReactNode }) {
                     {instanceSections[id].label}
                   </Link>
                 ))}
-              </nav>
+              </SubNav>
             )}
             {/* A phone has no sidebar foot, so losing the server says so above the page. */}
             {(connection.state === "unreachable" || connection.state === "degraded") && (

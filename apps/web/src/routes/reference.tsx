@@ -30,6 +30,7 @@ import {
   StatusDot,
   StatusPill,
 } from "~/components/ui/status";
+import { SubNav } from "~/components/ui/sub-nav";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Switch } from "~/components/ui/toggle";
 import {
@@ -604,6 +605,51 @@ function Components() {
             ]}
             onChange={setMode}
           />
+        </Spec>
+        <Spec
+          name="Sub-navigation on a phone"
+          rule="A strip of sections scrolls its current item into view and fades the edge that has more. Settings and Production are one control instead, naming where you are."
+        >
+          <div className="flex w-full max-w-[300px] flex-col gap-2">
+            <SubNav
+              label="Joplin Rags"
+              className="gap-1 rounded-panel border border-line px-2 py-1.5"
+            >
+              {[
+                "Overview",
+                "Files",
+                "Reviews",
+                "Board",
+                "Tasks",
+                "People",
+                "Production",
+                "Settings",
+              ].map((name) => (
+                <a
+                  key={name}
+                  href={`#${name.toLowerCase()}`}
+                  aria-current={name === "Production" ? "page" : undefined}
+                  className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 aria-[current=page]:bg-raised aria-[current=page]:text-ink"
+                >
+                  {name}
+                </a>
+              ))}
+            </SubNav>
+            <Dropdown
+              variant="field"
+              label="Production"
+              value={
+                <span className="min-w-0 truncate">
+                  <span className="text-ink-3">Production: </span>Schedule
+                </span>
+              }
+              actions={[
+                { label: "Repertoire", onSelect: () => {} },
+                { label: "Schedule", checked: true, onSelect: () => {} },
+                { label: "Sessions", onSelect: () => {} },
+              ]}
+            />
+          </div>
         </Spec>
         <Spec
           name="Filter tabs"
