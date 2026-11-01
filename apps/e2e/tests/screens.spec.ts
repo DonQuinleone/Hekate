@@ -3902,20 +3902,30 @@ test("files-upload-audio", async ({ page }) => {
     ),
   );
   await settle(page, "[role=dialog] ul[aria-label='Files chosen'] li");
-  // Three choices above the files; a new track by default, each named from its file.
+  // Three choices above the files; a new track by default, and the two versions of one
+  // piece proposed as one track (#631), named without their version marks.
   await expect(dialog.getByRole("radio", { name: "New track" })).toBeChecked();
-  await expect(dialog.getByLabel("Track name for Elite Syncopations.wav")).toHaveValue(
-    "Elite Syncopations",
-  );
-  await expect(dialog).toContainText("3 files become 3 tracks");
-  await expect(dialog.getByRole("button", { name: "Make 3 tracks" })).toBeEnabled();
+  await expect(
+    dialog.getByRole("radio", { name: "A track for each name, 2 tracks" }),
+  ).toBeChecked();
+  const named = dialog.getByRole("textbox", { name: "Track" });
+  await expect(named).toHaveCount(2);
+  await expect(named.nth(0)).toHaveValue("Elite Syncopations");
+  await expect(named.nth(1)).toHaveValue("Pine Apple Rag");
+  await expect(dialog).toContainText("Version 2 of Pine Apple Rag");
+  await expect(dialog).toContainText("3 files become 2 tracks");
+  await expect(dialog.getByRole("button", { name: "Make 2 tracks" })).toBeEnabled();
   await saveScreen(page, "files-upload-audio");
   await checkScreen(page);
-  // One track with a version per file, in name order.
+  // A track each.
+  await dialog.getByRole("radio", { name: "A track each" }).check();
+  await expect(dialog).toContainText("3 files become 3 tracks");
+  await expect(dialog.getByRole("button", { name: "Make 3 tracks" })).toBeEnabled();
+  // One track with a version per file, in order.
   await dialog.getByRole("radio", { name: "One track, 3 versions" }).check();
   await expect(dialog).toContainText("3 files become versions 1 to 3 of one track");
-  // Nothing the three names share: the first file's name, to be typed over.
-  await expect(dialog.getByLabel("Track name")).toHaveValue("Pine Apple Rag - V1 mix");
+  // Nothing the three names share: the first file's track, to be typed over.
+  await expect(dialog.getByRole("textbox", { name: "Track" })).toHaveValue("Pine Apple Rag");
   await expect(dialog.getByRole("button", { name: "Make the track" })).toBeEnabled();
   // A new version of a track that exists: each file a variant, one primary.
   await dialog.getByRole("radio", { name: "New version of" }).check();

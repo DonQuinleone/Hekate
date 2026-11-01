@@ -3,12 +3,15 @@ import {
   actionFor,
   byName,
   defaultChoice,
+  defaultGrouping,
   describePlan,
+  inVersionOrder,
   isAudio,
   planUpload,
   rememberChoice,
   sharedTrackName,
   trackNameFrom,
+  versionNumberFrom,
 } from "./upload-plan";
 
 const file = (name: string, key = name) => ({ key, name });
@@ -25,10 +28,90 @@ describe("what uploaded audio becomes (#485)", () => {
   it("names a track from a file: extension off, separators tidied", () => {
     expect(trackNameFrom("Maple Leaf Rag.wav")).toBe("Maple Leaf Rag");
     expect(trackNameFrom("maple_leaf_rag.flac")).toBe("maple leaf rag");
-    expect(trackNameFrom("maple-leaf-rag  final.aif")).toBe("maple leaf rag final");
-    expect(trackNameFrom("Maple Leaf Rag - Dry mix.wav")).toBe("Maple Leaf Rag - Dry mix");
+    expect(trackNameFrom("maple-leaf-rag  final.aif")).toBe("maple leaf rag");
+    expect(trackNameFrom("Maple Leaf Rag - Dry mix.wav")).toBe("Maple Leaf Rag");
     expect(trackNameFrom("_.wav")).toBe("Untitled");
     expect(trackNameFrom(`${"a".repeat(250)}.wav`)).toHaveLength(200);
+  });
+
+  it("leaves out what says which version or mix a file is (#631)", () => {
+    expect(trackNameFrom("Pine Apple Rag - V1 mix.wav")).toBe("Pine Apple Rag");
+    expect(trackNameFrom("Pine Apple Rag - V2 mix.wav")).toBe("Pine Apple Rag");
+    expect(trackNameFrom("pine_apple_rag_v3.wav")).toBe("pine apple rag");
+    expect(trackNameFrom("Solace version 2 (final).wav")).toBe("Solace");
+    expect(trackNameFrom("The Entertainer 02.wav")).toBe("The Entertainer");
+    expect(trackNameFrom("Solace mix 3.wav")).toBe("Solace");
+    // A catalogue or part number is the piece's own.
+    expect(trackNameFrom("Symphony No 5.wav")).toBe("Symphony No 5");
+    expect(trackNameFrom("Reel 2.wav")).toBe("Reel 2");
+    expect(trackNameFrom("Symphony No 15.wav")).toBe("Symphony No 15");
+    expect(trackNameFrom("Solace 12.wav")).toBe("Solace");
+    // Nothing left: the name as it was.
+    expect(trackNameFrom("V1.wav")).toBe("V1");
+    expect(versionNumberFrom("Pine Apple Rag - V2 mix.wav")).toBe(2);
+    expect(versionNumberFrom("Pine Apple Rag.wav")).toBeNull();
+  });
+
+  it("proposes one track for files that name the same one, else a track each", () => {
+    expect(defaultGrouping(["Pine Apple Rag - V1 mix.wav", "Pine Apple Rag - V2 mix.wav"])).toBe(
+      "one",
+    );
+    expect(defaultGrouping(["Solace.wav", "The Entertainer.wav"])).toBe("each");
+    expect(defaultGrouping(["Solace.wav"])).toBe("each");
+    const plan = planUpload(
+      [file("Pine Apple Rag - V2 mix.wav", "b"), file("Pine Apple Rag - V1 mix.wav", "a")],
+      "track",
+      { grouping: "one" },
+    );
+    expect(plan).toEqual({
+      kind: "one-track",
+      name: "Pine Apple Rag",
+      versions: [
+        { key: "a", number: 1 },
+        { key: "b", number: 2 },
+      ],
+    });
+  });
+
+  it("makes a track for each name, the files that share one its versions", () => {
+    const files = [
+      file("Pine Apple Rag - V2 mix.wav", "b"),
+      file("Elite Syncopations.wav", "c"),
+      file("Pine Apple Rag - V1 mix.wav", "a"),
+    ];
+    expect(defaultGrouping(files.map((f) => f.name))).toBe("name");
+    const plan = planUpload(files, "track", { grouping: "name", names: { c: "Elite" } });
+    expect(plan).toEqual({
+      kind: "by-name",
+      tracks: [
+        { key: "c", name: "Elite", versions: [{ key: "c", number: 1 }] },
+        {
+          key: "a",
+          name: "Pine Apple Rag",
+          versions: [
+            { key: "a", number: 1 },
+            { key: "b", number: 2 },
+          ],
+        },
+      ],
+    });
+    expect(describePlan(plan, null)).toBe(
+      "3 files become 2 tracks at the top of the project, the files that name the same track its versions.",
+    );
+    expect(actionFor(plan)).toBe("Make 2 tracks");
+  });
+
+  it("orders one track's versions by the numbers their names give", () => {
+    expect(
+      inVersionOrder([file("Rag alt V2.wav"), file("Rag V1.wav"), file("Rag final V3.wav")]).map(
+        (f) => f.name,
+      ),
+    ).toEqual(["Rag V1.wav", "Rag alt V2.wav", "Rag final V3.wav"]);
+    // Where they do not all say one, by name.
+    expect(inVersionOrder([file("Rag b.wav"), file("Rag a V1.wav")]).map((f) => f.name)).toEqual([
+      "Rag a V1.wav",
+      "Rag b.wav",
+    ]);
   });
 
   it("names one track for several files from what their names share", () => {
@@ -85,7 +168,7 @@ describe("what uploaded audio becomes (#485)", () => {
       ],
     });
     expect(describePlan(plan, "Mixes")).toBe(
-      "3 files become versions 1 to 3 of one track in Mixes, in name order.",
+      "3 files become versions 1 to 3 of one track in Mixes, in order.",
     );
     expect(actionFor(plan)).toBe("Make the track");
     // A name typed over the shared one.

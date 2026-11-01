@@ -9,8 +9,11 @@ import { variantNameFrom } from "@hekate/shared";
  */
 
 export type UploadChoice = "track" | "version" | "file";
-/** Several files under New track: a track each, or one track with a version per file. */
-export type TrackGrouping = "each" | "one";
+/**
+ * Several files under New track: a track each, one track for the files that name the same
+ * track (its versions, #631), or one track with a version per file.
+ */
+export type TrackGrouping = "each" | "name" | "one";
 
 /** A file chosen, by the key the upload dialog gave it, with its name as the recorder left it. */
 export interface PlannedFile {
@@ -30,6 +33,11 @@ export type UploadPlan =
   | { kind: "tracks"; tracks: { key: string; name: string }[] }
   /** One track, the files its versions 1 to n in name order. */
   | { kind: "one-track"; name: string; versions: { key: string; number: number }[] }
+  /** A track for each name the files give, the files that share it its versions in order. */
+  | {
+      kind: "by-name";
+      tracks: { key: string; name: string; versions: { key: string; number: number }[] }[];
+    }
   /** The files as the variants of the track's next version. */
   | {
       kind: "version";
@@ -59,9 +67,77 @@ const tidy = (name: string) =>
     .replace(/^[\s\-–:.,]+|[\s\-–:.,]+$/g, "")
     .trim();
 
-/** A track's name from a file's: the extension off, the separators tidied, at most 200 characters. */
+/** A version marker in a file's name: V1, v2, ver 3, version 4. */
+const VERSION = /(?:^|[\s([])(?:v|ver|version)\s*(\d+)\b/i;
+/** Words that say how a file was mixed or which go it was, not what the piece is. */
+const TREATMENT =
+  /(?:\s+[-–:]?\s*|^)(?:(?:dry|wet|rough|stereo|mono|main|full|alt|new|old)\s+)?(?:mix|mixdown|master|bounce|print|edit|final|take\s*\d*)\s*$/i;
+/** A number at the end, unless it is a catalogue or part number ("No 5", "Op 10", "Reel 2"). */
+const TRAILING_NUMBER =
+  /(?<!\d)(?<!\b(?:no|nr|op|opus|bwv|k|kv|hob|rv|hwv|wwv|part|act|scene|reel|cue|track|book)\.?\s*[-–:]?\s*\(?)\s*[-–:]?\s*\(?\d+\)?\s*$/i;
+
+/**
+ * A track's name from a file's (#631): the extension off, the separators tidied, and what
+ * says which version or mix it is taken away, so "Pine Apple Rag - V1 mix.wav" and "Pine
+ * Apple Rag - V2 mix.wav" both name "Pine Apple Rag". A marker cuts the name where it stands;
+ * treatment words ("mix", "final", "dry mix") and plain trailing numbers come off the end. At
+ * most 200 characters; where nothing would be left, the name as it was.
+ */
 export function trackNameFrom(fileName: string): string {
-  return tidy(stem(fileName)).slice(0, 200) || "Untitled";
+  const whole = tidy(stem(fileName));
+  const marker = VERSION.exec(whole);
+  let name = marker ? whole.slice(0, marker.index) : whole;
+  for (let before = ""; before !== name; ) {
+    before = name;
+    name = tidy(name.replace(TREATMENT, "").replace(TRAILING_NUMBER, ""));
+  }
+  return (name.length >= 2 ? name : whole).slice(0, 200) || "Untitled";
+}
+
+/** The version a file's name says it is ("Rag - V2 mix.wav" is 2), or null where it says none. */
+export function versionNumberFrom(fileName: string): number | null {
+  const found = VERSION.exec(tidy(stem(fileName)));
+  return found ? Number(found[1]) : null;
+}
+
+/** The files grouped by the track their names give, each group in version order, in name order. */
+export function byTrackName<T extends { name: string }>(
+  files: readonly T[],
+): { name: string; files: T[] }[] {
+  const groups = new Map<string, { name: string; files: T[] }>();
+  for (const f of byName(files)) {
+    const name = trackNameFrom(f.name);
+    const id = name.toLowerCase();
+    const group = groups.get(id) ?? { name, files: [] };
+    group.files.push(f);
+    groups.set(id, group);
+  }
+  return [...groups.values()].map((g) => ({ ...g, files: inVersionOrder(g.files) }));
+}
+
+/**
+ * How several files go into tracks unless someone chooses: one track with a version each
+ * where every file names the same track ("Rag - V1.wav", "Rag - V2.wav"), a track for each
+ * name where some share one, else a track each.
+ */
+export function defaultGrouping(fileNames: readonly string[]): TrackGrouping {
+  if (fileNames.length < 2) return "each";
+  const names = new Set(fileNames.map((n) => trackNameFrom(n).toLowerCase()));
+  return names.size === 1 ? "one" : names.size < fileNames.length ? "name" : "each";
+}
+
+/**
+ * Files becoming one track's versions, in order: by the version each name gives where every
+ * one gives a different one, else naturally by name, so "V2" comes before "V10" either way.
+ */
+export function inVersionOrder<T extends { name: string }>(files: readonly T[]): T[] {
+  const numbers = files.map((f) => versionNumberFrom(f.name));
+  const all = numbers.every((n) => n !== null) && new Set(numbers).size === numbers.length;
+  if (!all) return byName(files);
+  return files
+    .map((f, i) => ({ f, n: numbers[i] ?? 0 }))
+    .sort((a, b) => a.n - b.n)
+    .map(({ f }) => f);
 }
 
 /** Natural order by name, so "V2" comes before "V10". */
@@ -87,8 +163,10 @@ export function sharedTrackName(fileNames: readonly string[]): string {
   // Back to the last whole word, then off any version marker and separator left hanging.
   let prefix = first.slice(0, end);
   if (end < first.length && !/\s/.test(first[end] ?? "")) prefix = prefix.replace(/\S*$/, "");
-  prefix = tidy(prefix.replace(/\b(v|ver|version|take|mix|edit)\s*$/i, ""));
-  return (prefix.length >= 3 ? prefix : trackNameFrom(fileNames[0] ?? "")).slice(0, 200);
+  prefix = trackNameFrom(prefix.replace(/\b(v|ver|version|take|mix|edit)\s*$/i, ""));
+  return (
+    prefix.length >= 3 && prefix !== "Untitled" ? prefix : trackNameFrom(fileNames[0] ?? "")
+  ).slice(0, 200);
 }
 
 export interface PlanOptions {
@@ -128,11 +206,25 @@ export function planUpload(
       })),
     };
   }
+  if (options.grouping === "name" && files.length > 1) {
+    return {
+      kind: "by-name",
+      tracks: byTrackName(files).map((g) => {
+        // A group is known by its first file, so a name typed over it stays with it.
+        const key = g.files[0]?.key ?? g.name;
+        return {
+          key,
+          name: named(options.names, key, g.name),
+          versions: g.files.map((f, i) => ({ key: f.key, number: i + 1 })),
+        };
+      }),
+    };
+  }
   if (options.grouping === "one" && files.length > 1) {
     return {
       kind: "one-track",
       name: named(options.names, "track", sharedTrackName(files.map((f) => f.name))),
-      versions: byName(files).map((f, i) => ({ key: f.key, number: i + 1 })),
+      versions: inVersionOrder(files).map((f, i) => ({ key: f.key, number: i + 1 })),
     };
   }
   return {
@@ -169,7 +261,12 @@ export function describePlan(plan: UploadPlan, folder: string | null, others = 0
     }
     case "one-track": {
       const n = plan.versions.length;
-      return `${n} files become versions 1 to ${n} of one track ${into}, in name order${rest}.`;
+      return `${n} files become versions 1 to ${n} of one track ${into}, in order${rest}.`;
+    }
+    case "by-name": {
+      const n = plan.tracks.reduce((sum, t) => sum + t.versions.length, 0);
+      const k = plan.tracks.length;
+      return `${n} files become ${k === 1 ? "one track" : `${k} tracks`} ${into}, the files that name the same track its versions${rest}.`;
     }
     case "version": {
       const n = plan.variants.length;
@@ -191,6 +288,8 @@ export function actionFor(plan: UploadPlan, others = 0): string {
       return plan.tracks.length === 1 ? "Make a track" : `Make ${plan.tracks.length} tracks`;
     case "one-track":
       return "Make the track";
+    case "by-name":
+      return plan.tracks.length === 1 ? "Make the track" : `Make ${plan.tracks.length} tracks`;
     case "version":
       return `Upload version ${plan.number}`;
     default: {
