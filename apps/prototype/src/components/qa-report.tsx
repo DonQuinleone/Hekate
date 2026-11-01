@@ -75,7 +75,7 @@ export function QaReportDocument({ doc }: { doc: QaDocument }) {
         ) : (
           doc.groups.map((group) => (
             <section key={group.severity} aria-label={group.label} className="flex flex-col">
-              <h3 className="m-0 flex items-center gap-2 border-b border-ink-3/60 pb-2 text-[14px] font-medium text-ink border-solid">
+              <h3 className="m-0 flex items-center gap-2 border-b border-ink-3/60 pb-2 text-[14px] font-medium text-ink">
                 <SeverityDot severity={group.severity} />
                 {group.label}
                 <span className="tabular ml-auto text-[13px] font-normal text-ink-3">
@@ -121,7 +121,7 @@ const counted = (doc: QaDocument) => {
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
     <section aria-label={title} className="flex flex-col gap-4">
-      <div className="flex items-baseline gap-3 border-b border-line pb-2 border-solid">
+      <div className="flex items-baseline gap-3 border-b border-line pb-2">
         <h2 className="m-0 text-[15px] font-medium text-ink">{title}</h2>
         {hint && <span className="ml-auto truncate text-[13px] text-ink-3">{hint}</span>}
       </div>
@@ -132,7 +132,7 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5 border-t border-line pt-2 border-solid">
+    <div className="flex min-w-0 flex-col gap-0.5 border-t border-line pt-2">
       <dt className="text-[12px] text-ink-3">{label}</dt>
       <dd className="m-0 truncate text-[14px] text-ink">{children}</dd>
     </div>
@@ -145,7 +145,7 @@ export function Verdict({ doc }: { doc: Pick<QaDocument, "verdict" | "profile"> 
   return (
     <div
       className={cn(
-        "flex items-start gap-3 border-l-[3px] py-1 pl-4 border-solid",
+        "flex items-start gap-3 border-l-[3px] py-1 pl-4",
         tone === "pass" || tone === "pending" ? "border-ink-3" : "border-signal",
       )}
     >
@@ -184,7 +184,7 @@ function Loudness({ doc }: { doc: QaDocument }) {
         </div>
       )}
       {g && <Gauge gauge={g} />}
-      <dl className="m-0 grid grid-cols-3 border-y border-line border-solid">
+      <dl className="m-0 grid grid-cols-3 border-y border-line">
         <Stat
           label="True peak"
           value={s.truePeak === null ? "Not measured" : `${decibels(s.truePeak)} dBTP`}
@@ -218,7 +218,7 @@ function Stat({
   severity?: QaSeverity | null;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-1 py-3 pr-3 [&+&]:border-l [&+&]:border-line [&+&]:pl-3 @3xl/app:[&+&]:pl-5 border-solid">
+    <div className="flex min-w-0 flex-col gap-1 py-3 pr-3 [&+&]:border-l [&+&]:border-line [&+&]:pl-3 @3xl/app:[&+&]:pl-5">
       <dt className="truncate text-[12px] text-ink-3">{label}</dt>
       <dd className="tabular m-0 truncate text-[17px] font-medium text-ink">{value}</dd>
       <dd className="m-0 flex min-w-0 items-center gap-1.5 text-[12px] text-ink-2">
@@ -323,13 +323,13 @@ function Finding({ doc, f }: { doc: QaDocument; f: ReportFinding }) {
     );
   if (!f.illustrated)
     return (
-      <li className="grid grid-cols-1 gap-x-6 gap-y-0.5 border-b border-line py-2 @3xl/app:grid-cols-[160px_1fr] border-solid">
+      <li className="grid grid-cols-1 gap-x-6 gap-y-0.5 border-b border-line py-2 @3xl/app:grid-cols-[160px_1fr]">
         <span>{at}</span>
         <span className="text-[13px] text-ink-2">{f.heard}</span>
       </li>
     );
   return (
-    <li className="grid grid-cols-1 gap-x-6 gap-y-2 border-b border-line py-4 @3xl/app:grid-cols-[160px_1fr] border-solid">
+    <li className="grid grid-cols-1 gap-x-6 gap-y-2 border-b border-line py-4 @3xl/app:grid-cols-[160px_1fr]">
       <div className="flex flex-wrap items-baseline gap-x-3 @3xl/app:flex-col @3xl/app:gap-0.5">
         {at}
         {f.channel && <span className="text-[12px] text-ink-3">{f.channel}</span>}
@@ -413,12 +413,8 @@ function Table({ rows }: { rows: [string, string][] }) {
     <dl className="m-0 grid grid-cols-[minmax(0,140px)_1fr] text-[13px] @3xl/app:grid-cols-[200px_1fr]">
       {rows.map(([label, value], i) => (
         <div key={i} className="contents">
-          <dt className="truncate border-b border-line py-2 pr-3 text-ink-3 border-solid">
-            {label}
-          </dt>
-          <dd className="m-0 min-w-0 break-words border-b border-line py-2 text-ink border-solid">
-            {value}
-          </dd>
+          <dt className="truncate border-b border-line py-2 pr-3 text-ink-3">{label}</dt>
+          <dd className="m-0 min-w-0 break-words border-b border-line py-2 text-ink">{value}</dd>
         </div>
       ))}
     </dl>
@@ -550,10 +546,7 @@ function Rules({ doc }: { doc: QaDocument }) {
             </thead>
             <tbody>
               {lines.map((line) => (
-                <tr
-                  key={`${line.label}-${line.asked}`}
-                  className="border-b border-line border-solid"
-                >
+                <tr key={`${line.label}-${line.asked}`} className="border-b border-line">
                   <th scope="row" className="py-2 pr-3 text-left font-normal text-ink">
                     {line.label}
                     {/* On a phone what was asked goes under the rule rather than in a column. */}

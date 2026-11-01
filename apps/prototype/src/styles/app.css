@@ -7,6 +7,11 @@
  * reach. The same values again, on the host; keep them in step with apps/web.
  */
 :host {
+  /*
+   * Tailwind gives its border style a default through @property, which a shadow root does not
+   * see, so every border utility drew nothing here. Set on the host, it is inherited by all.
+   */
+  --tw-border-style: solid;
   --hk-ground: #0a0a0b;
   --hk-surface: #111113;
   --hk-raised: #18181b;
