@@ -379,9 +379,10 @@ export function SettingsPage({
               </div>
             ))}
           </div>
+          {/* #592: the plan's name and the usage are the tiles'; the section says what it includes. */}
           <Section
             title="Plan"
-            intro="Studio: 1 TB, 25 members, forensic marking, priority support. Change it any time; the difference is pro-rated. Billing is on because the instance runs with HEKATE_BILLING=stripe."
+            intro="1 TB, 25 members, forensic marking, priority support. Change it any time; the difference is pro-rated."
             action={
               <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
                 Change plan
@@ -401,35 +402,58 @@ export function SettingsPage({
                 Edit
               </Button>
             </Row>
-            <Row
-              name="Usage this month"
-              hint="Storage counts at the month's peak; members at the month's end."
-            >
-              <span className="text-[13px] text-ink-2">Within the plan</span>
-            </Row>
           </Section>
+          {/* #592: a table, as Stripe's customer portal lists them; five, then Show older. */}
           <Section title="Invoices">
-            {[
-              ["1 Oct 2026", "INV-0412", "£49.00", "Paid"],
-              ["1 Sep 2026", "INV-0388", "£49.00", "Paid"],
-              ["1 Aug 2026", "INV-0361", "£0.00", "Trial"],
-            ].map(([when, no, amt, st]) => (
-              <Row
-                key={no}
-                name={
-                  <span className="flex items-center gap-2">
-                    <span className="tabular">{no}</span>
-                    <span className="text-[12px] text-ink-3">{when}</span>
-                  </span>
-                }
-                hint={st}
-              >
-                <span className="tabular text-[13px] text-ink-2">{amt}</span>
-                <Button variant="ghost" size="md">
-                  PDF
-                </Button>
-              </Row>
-            ))}
+            <table className="w-full table-fixed border-collapse text-[13px]">
+              <thead>
+                <tr className="text-left">
+                  <th className="label px-4 py-2 font-normal">Invoice</th>
+                  <th className="label hidden w-32 px-2 py-2 font-normal @3xl/app:table-cell">
+                    Date
+                  </th>
+                  <th className="label w-24 px-2 py-2 text-right font-normal">Amount</th>
+                  <th className="label w-36 px-2 py-2 font-normal @3xl/app:w-44">Status</th>
+                  <th className="w-16 px-4 py-2">
+                    <span className="sr-only">Open</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ["1 Oct 2026", "INV-0412", "£49.00", "Paid"],
+                  ["1 Sep 2026", "INV-0388", "£49.00", "Paid"],
+                  ["1 Aug 2026", "INV-0361", "£49.00", "Paid"],
+                  ["1 Jul 2026", "INV-0337", "£49.00", "Paid"],
+                  ["1 Jun 2026", "INV-0310", "£0.00", "Trial"],
+                ].map(([when, no, amt, st]) => (
+                  <tr key={no} className="border-t border-line">
+                    <td className="px-4 py-row">
+                      <span className="tabular block text-ink">{no}</span>
+                      <span className="block text-[12px] text-ink-3 @3xl/app:hidden">{when}</span>
+                    </td>
+                    <td className="hidden px-2 py-row text-ink-2 @3xl/app:table-cell">{when}</td>
+                    <td className="tabular px-2 py-row text-right text-ink">{amt}</td>
+                    <td className="px-2 py-row">
+                      <span className="inline-flex items-center gap-[7px] rounded-full border border-hairline px-2.5 py-0.5 text-[12px] text-ink-2">
+                        <Dot state={st === "Paid" ? "approved" : "invited"} />
+                        {st}
+                      </span>
+                    </td>
+                    <td className="px-4 py-row text-right">
+                      <Button variant="ghost" size="sm">
+                        PDF
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="px-4 py-2">
+              <Button variant="ghost" size="sm">
+                Show older
+              </Button>
+            </div>
           </Section>
           <Danger>
             <Row
@@ -1463,23 +1487,19 @@ export function SettingsPage({
       )}
       {sec === "storage" && (
         <>
-          <Section
-            title="Usage"
-            intro="Uploads are refused at the storage quota and invitations at the member limit, which the instance’s operators set; this page warns from 90%."
-          >
-            <Row name="Storage" hint="245 GB of 1.0 TB">
-              <span className="block h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
-                <span className="block h-full w-[24.5%] rounded-full bg-ink-2" />
-              </span>
-            </Row>
-            <Row name="Members" hint="12 of 25 · 2 invited, each taking a place">
-              <span className="block h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
-                <span className="block h-full w-[56%] rounded-full bg-ink-2" />
-              </span>
-            </Row>
-            <Row name="Guests and projects" hint="31 guests · 2 projects" />
-            <Row name="This month" hint="184 plays · 12 downloads · storage at its peak 251 GB" />
-          </Section>
+          {/* #592: usage is said once, on Billing; here only where billing is off. */}
+          {env.billing === "off" && (
+            <Section
+              title="Usage"
+              intro="Uploads are refused at the storage quota, which the instance’s operators set; this page warns from 90%."
+            >
+              <Row name="Storage" hint="245 GB of 1.0 TB">
+                <span className="block h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
+                  <span className="block h-full w-[24.5%] rounded-full bg-ink-2" />
+                </span>
+              </Row>
+            </Section>
+          )}
           <StorageChoice notOnPlan={state === "refused"} failed={state === "failed"} />
           <Section title="Backends" intro="What this workspace keeps in each.">
             {/* #589: with the Operations page gone, how the files are encrypted is said here. */}
@@ -1493,35 +1513,9 @@ export function SettingsPage({
                   : "Encrypted, on a key from 2 Oct 2026"}
               </span>
             </Row>
-            <Row
-              name={
-                <span className="flex items-center gap-2">
-                  <Dot state="approved" />
-                  Local disk
-                </span>
-              }
-              hint="/var/lib/hekate/objects · 1.9 TB free of 4 TB"
-            >
-              <span className="text-[12px] text-ink-3">31 GB used</span>
-            </Row>
-            <Row
-              name={
-                <span className="flex items-center gap-2">
-                  <Dot state="approved" />
-                  Hetzner Object Storage (S3)
-                </span>
-              }
-              hint="hekate-endless-hall, eu-central · the instance default"
-            >
-              <span className="text-[12px] text-ink-3">214 GB used</span>
-              <ActionMenu
-                always
-                label="backend"
-                actions={[
-                  { label: "Edit", onSelect: () => {} },
-                  { label: "Make default", onSelect: () => {} },
-                ]}
-              />
+            {/* #592: the instance's storage by the name people here know; its paths are the operators'. */}
+            <Row name="Instance storage" hint="12,840 objects">
+              <span className="text-[12px] text-ink-3">227 GB used</span>
             </Row>
             {state !== "refused" && (
               <Row
@@ -1540,41 +1534,6 @@ export function SettingsPage({
                 </span>
               </Row>
             ))}
-          </Section>
-          <Section
-            title="Reconciliation"
-            intro="Every night the storage is compared with the database. Bytes nothing uses are removed once a second run, a day later, still finds them; missing files wait for a person."
-          >
-            <Row name="Last run">
-              <span className="text-[13px] text-ink-2">Today 03:00</span>
-            </Row>
-            <Row name="Unused bytes" hint="In storage, but no file uses them">
-              <span className="tabular text-[13px] text-ink-2">3</span>
-            </Row>
-            <Row
-              name="Missing files"
-              hint={
-                state === "failed"
-                  ? "Files the database expects that their backend no longer holds. Restore them from a backup."
-                  : "Every file is where the database expects it."
-              }
-            >
-              {state === "failed" ? (
-                <span className="flex items-center gap-1.5 text-[13px] text-signal">
-                  <Icon name="warning" size={13} />2
-                </span>
-              ) : (
-                <span className="text-[13px] text-ink-2">None</span>
-              )}
-            </Row>
-            <Row name="Removed in the last 30 days">
-              <span className="tabular text-[13px] text-ink-2">12</span>
-            </Row>
-            <Row name="Run now" hint="Checks this workspace only.">
-              <Button variant="secondary" size="md">
-                Reconcile
-              </Button>
-            </Row>
           </Section>
         </>
       )}

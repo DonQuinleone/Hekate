@@ -72,7 +72,7 @@ import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
 import { Failed, Loading } from "~/components/ui/states";
-import { UsageRows } from "~/components/usage";
+import { StorageUsageRow } from "~/components/usage";
 import { DeleteWorkspace, WorkspaceExports } from "~/components/workspace-lifecycle";
 import { WhereFilesGo } from "~/components/workspace-storage";
 import {
@@ -107,7 +107,6 @@ import {
   storageUsageQuery,
   useCustomProfileMutations,
   useOrganisationMutations,
-  useReconcile,
   useRenameWorkspace,
   useRevokeGuest,
   useSaveWorkspaceSettings,
@@ -1288,7 +1287,7 @@ function Guests() {
   );
 }
 
-function Storage({ role }: { role: Role }) {
+function Storage({ role, billing }: { role: Role; billing: boolean }) {
   const { data } = useQuery(workspaceStorageQuery);
   const { data: usage } = useQuery(storageUsageQuery);
   // How the files are encrypted is the owners' to read (#165); with Operations gone it is here.
@@ -1303,21 +1302,20 @@ function Storage({ role }: { role: Role }) {
   const inBuckets = (usage?.backends ?? []).filter((b) => bucketIdOf(b.name));
   const bucketBytes = inBuckets.reduce((sum, b) => sum + b.bytes, 0);
   const bucketObjects = inBuckets.reduce((sum, b) => sum + b.objects, 0);
-  const limited =
-    usage && (usage.usage.limits.storageQuota !== null || usage.usage.limits.memberLimit !== null);
   const objects = (n: number) => `${n} ${n === 1 ? "object" : "objects"}`;
   return (
     <>
-      {usage && (
+      {/* Usage is said once (#592): on Billing where billing is on, here where it is not. */}
+      {usage && !billing && (
         <Section
           title="Usage"
           intro={
-            limited
-              ? "Uploads are refused at the storage quota and invitations at the member limit, which the instance’s operators set; this page warns from 90%."
-              : "The instance sets no limits for this workspace. What it uses is counted each hour."
+            usage.usage.limits.storageQuota !== null
+              ? "Uploads are refused at the storage quota, which the instance’s operators set; this page warns from 90%."
+              : "The instance sets no storage quota for this workspace. What it uses is counted each hour."
           }
         >
-          <UsageRows usage={usage.usage} />
+          <StorageUsageRow usage={usage.usage} />
         </Section>
       )}
       <WhereFilesGo
@@ -1341,7 +1339,7 @@ function Storage({ role }: { role: Role }) {
           return (
             <Row
               key={b}
-              name={b}
+              name={backendName(b, data.available.length)}
               hint={
                 [
                   b === receiving ? "Receives new files" : null,
@@ -1378,74 +1376,32 @@ function Storage({ role }: { role: Role }) {
   );
 }
 
-/** Each project's share of the storage, and what the reconciliation found in the workspace. */
+/**
+ * The instance's storage as people here know it (#592): "Instance storage", not the operators'
+ * name for a backend, which shows only when the instance has more than one to choose from.
+ */
+export const backendName = (name: string, available: number) =>
+  available > 1 ? `Instance storage (${name})` : "Instance storage";
+
+/**
+ * Each project's share of the storage. What the nightly reconciliation finds is the operators'
+ * (decision 288), on the instance's pages.
+ */
 function StorageUsageSections({ usage }: { usage: StorageUsage }) {
-  const reconcile = useReconcile();
-  const r = usage.reconciliation;
   return (
-    <>
-      <Section
-        title="Usage by project"
-        intro={`${formatBytes(usage.bytes)} in all: originals, and the renditions, pages and waveforms made from them.`}
-      >
-        {usage.projects.length === 0 && (
-          <Row name="No projects yet" hint="Files a project holds are counted here." />
-        )}
-        {usage.projects.map((p) => (
-          <Row key={p.id} name={p.name}>
-            <span className="tabular text-[14px] text-ink">{formatBytes(p.bytes)}</span>
-          </Row>
-        ))}
-      </Section>
-      <Section
-        title="Reconciliation"
-        intro={
-          r.removing
-            ? "Every night the storage is compared with the database. Bytes nothing uses are removed once a second run, a day later, still finds them; missing files wait for a person."
-            : "Every night the storage is compared with the database. This instance only reports: nothing is removed without a person."
-        }
-      >
-        <Row name="Last run">
-          <span className="text-[13px] text-ink-2">
-            {r.lastRun ? timeFormat.format(new Date(r.lastRun.startedAt)) : "Not yet"}
-          </span>
+    <Section
+      title="Usage by project"
+      intro={`${formatBytes(usage.bytes)} in all: originals, and the renditions, pages and waveforms made from them.`}
+    >
+      {usage.projects.length === 0 && (
+        <Row name="No projects yet" hint="Files a project holds are counted here." />
+      )}
+      {usage.projects.map((p) => (
+        <Row key={p.id} name={p.name}>
+          <span className="tabular text-[14px] text-ink">{formatBytes(p.bytes)}</span>
         </Row>
-        <Row name="Unused bytes" hint="In storage, but no file uses them">
-          <span className="tabular text-[13px] text-ink-2">
-            {r.orphans + r.unused === 0 ? "None" : r.orphans + r.unused}
-          </span>
-        </Row>
-        <Row
-          name="Missing files"
-          hint={
-            r.missing > 0
-              ? "Files the database expects that their backend no longer holds. Restore them from a backup."
-              : "Every file is where the database expects it."
-          }
-        >
-          {r.missing > 0 ? (
-            <span className="flex items-center gap-1.5 text-[13px] text-signal">
-              <Icon name="warning" size={13} />
-              {r.missing}
-            </span>
-          ) : (
-            <span className="text-[13px] text-ink-2">None</span>
-          )}
-        </Row>
-        <Row name="Removed in the last 30 days">
-          <span className="tabular text-[13px] text-ink-2">{r.removed}</span>
-        </Row>
-        <Row name="Run now" hint={reconcile.error?.message ?? "Checks this workspace only."}>
-          <Button
-            variant="secondary"
-            disabled={reconcile.isPending}
-            onClick={() => reconcile.mutate()}
-          >
-            {reconcile.isPending ? "Reconciling" : "Reconcile"}
-          </Button>
-        </Row>
-      </Section>
-    </>
+      ))}
+    </Section>
   );
 }
 
@@ -1869,7 +1825,7 @@ export function WorkspaceSettingsPage({
             <WorkspaceApiLogSection />
           </>
         )}
-        {current.id === "storage" && <Storage role={role} />}
+        {current.id === "storage" && <Storage role={role} billing={Boolean(me.billing)} />}
         {current.id === "transfers" && <TransfersSection />}
         {current.id === "billing" && <BillingSection owner={role === "owner"} />}
         {current.id === "support" && (
