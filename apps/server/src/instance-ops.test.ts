@@ -272,7 +272,7 @@ describe.runIf(url)("the instance's queues and operations (decisions 250 and 251
       .returning({ id: schema.alignments.id });
     const align = await jobs.send("media-align", {
       organisationId: org,
-      alignmentId: alignment?.id,
+      alignmentId: alignment?.id ?? "",
     });
     await failJob(align);
     const view = await queues(operator);
