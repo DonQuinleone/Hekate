@@ -5,7 +5,8 @@ import type { FileKind, SearchKind, SearchRequest, SearchSince } from "@hekate/s
  * search narrowed further). Its value is `kind` or `files:fileKind`.
  */
 export const kindChoices: { value: string; label: string; indent?: boolean }[] = [
-  { value: "", label: "Everything" },
+  // Every label reads "Any …" when nothing is chosen, as the other filters do (#620).
+  { value: "", label: "Any kind" },
   { value: "projects", label: "Projects" },
   { value: "tracks", label: "Tracks" },
   { value: "files", label: "Files" },
@@ -17,6 +18,19 @@ export const kindChoices: { value: string; label: string; indent?: boolean }[] =
   { value: "people", label: "People" },
   { value: "comments", label: "Comments" },
 ];
+
+/** How many of the page's filters (kind, project, person, time, tag) are set, for a phone's Filters. */
+export function filtersSet(
+  search: Pick<SearchRequest, "kind" | "fileKind" | "projectId" | "personId" | "since" | "tagId">,
+): number {
+  return [
+    search.kind || search.fileKind,
+    search.projectId,
+    search.personId,
+    search.since,
+    search.tagId,
+  ].filter(Boolean).length;
+}
 
 /** The menu value for a search's kind and file kind. */
 export function kindChoice(search: Pick<SearchRequest, "kind" | "fileKind">): string {
@@ -105,7 +119,7 @@ export function fieldChips(search: Partial<SearchRequest>): { keys: FieldKey[]; 
   else if (sMax) chips.push({ keys: ["sizeMax"], label: `Under ${formatSize(sMax)}` });
   if (search.frameRate) chips.push({ keys: ["frameRate"], label: `${search.frameRate} fps` });
   if (search.commentText)
-    chips.push({ keys: ["commentText"], label: `Comments say “${search.commentText}”` });
+    chips.push({ keys: ["commentText"], label: `Comment contains “${search.commentText}”` });
   return chips;
 }
 
