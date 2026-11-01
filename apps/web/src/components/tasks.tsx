@@ -656,16 +656,10 @@ export function ProjectTasks({
           title={data.tasks.length === 0 ? "No tasks yet" : "Nothing here"}
           text={
             data.tasks.length === 0
-              ? "Make one by hand, or from a comment's menu; a workflow's task stages make their own. Each has an owner, a priority and a date."
+              ? canMake
+                ? "Use New task to add one. A comment's menu and a workflow's task stages make them too."
+                : "Tasks are made from a comment's menu, by hand or by a workflow's task stages."
               : "No task fits this filter. Try another, or All."
-          }
-          action={
-            data.tasks.length === 0 && canMake ? (
-              <Button variant="secondary" onClick={() => open(undefined, true)}>
-                <Icon name="plus" size={14} />
-                New task
-              </Button>
-            ) : undefined
           }
         />
       ) : (

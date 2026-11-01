@@ -1554,13 +1554,6 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
               ? "Drop files anywhere on this page to upload them here, or use Upload. A track groups a piece's versions."
               : "Files appear here once someone uploads them."
           }
-          action={
-            canUpload ? (
-              <Button variant="primary" onClick={() => setChoosing(true)}>
-                Upload
-              </Button>
-            ) : undefined
-          }
         />
       ) : view === "columns" ? (
         <ColumnBrowser project={project} folderId={folderId} />
