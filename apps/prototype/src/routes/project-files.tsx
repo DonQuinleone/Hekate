@@ -614,16 +614,23 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
           </span>
         </Link>
       )}
+      {/* Its workflow status, the same word as on the board; a dash until it has a version. */}
       <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
-        <Dot state={s.dot} />
-        <span className="truncate">{s.label}</span>
+        {s.version ? (
+          <>
+            <Dot state={s.dot} />
+            <span className="truncate">{s.label}</span>
+          </>
+        ) : (
+          <span className="text-ink-3">—</span>
+        )}
       </span>
       <span className="tabular hidden truncate text-[13px] text-ink-3 @3xl/app:block">
         {s.version
           ? `V${s.version.number}${track.versions.length > 1 ? ` of ${track.versions.length}` : ""}${
               s.version.variants.length > 1 ? ` · ${s.version.variants.length} variants` : ""
             }`
-          : "—"}
+          : "No version yet"}
       </span>
       <span className="hidden items-center @3xl/app:flex">
         {s.waitingOn.length > 0 ? (
@@ -812,10 +819,9 @@ function FolderRow({ folder, project }: { folder: Folder; project: Project }) {
           {folder.name}
         </Link>
       )}
+      {/* No status and no versions: a folder holds them, it has none of its own. */}
       <span className="hidden text-[13px] text-ink-3 @3xl/app:block">—</span>
-      <span className="hidden truncate text-[13px] text-ink-3 @3xl/app:block">
-        {folderCount(project.id, folder.id)}
-      </span>
+      <span className="hidden text-[13px] text-ink-3 @3xl/app:block">—</span>
       <span className="hidden @3xl/app:block" />
       <span className="hidden @3xl/app:block" />
       <span className="hidden @3xl/app:block" />

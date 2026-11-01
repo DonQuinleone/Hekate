@@ -109,7 +109,8 @@ describe("tracks", () => {
   it("sums up versions and finds the latest primary file", () => {
     if (!maple) throw new Error("no track");
     expect(versionSummary(maple)).toBe("V2 of 2 · 2 variants");
-    expect(versionSummary(track("New", null, []))).toBe("—");
+    expect(versionSummary(track("New", null, []))).toBe("No version yet");
+    expect(versionSummary(track("New", null, []), "video")).toBe("No cut yet");
     expect(latestFile(maple)).toBe("dry2");
     expect(versionsOf(maple).map((i) => i.id)).toEqual(["Maple Leaf Rag-v2", "Maple Leaf Rag-v1"]);
   });

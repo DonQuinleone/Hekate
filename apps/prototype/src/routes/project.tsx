@@ -465,7 +465,7 @@ function Overview({ project }: { project: Project }) {
                         {t.name}
                       </span>
                       <span className="block truncate text-[13px] text-ink-3">
-                        {s.version ? `V${s.version.number}` : "No versions yet"}
+                        {s.version ? `V${s.version.number}` : "No version yet"}
                         <span className="@3xl/app:hidden"> · {s.label}</span>
                         {s.stage && (
                           <span className="hidden @3xl/app:inline"> · {s.stage.name}</span>

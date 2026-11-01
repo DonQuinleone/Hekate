@@ -104,13 +104,14 @@ export function freshPath(root: Item[], path: Item[], open: (item: Item) => Item
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 
 /**
- * "V3 of 4 · 2 variants", or a dash for a track with nothing yet; a deliverable's in its own
+ * "V3 of 4 · 2 variants", or "No version yet" for a track with nothing yet; a deliverable's in its own
  * words (#16): "Cut 3 of 4 · 2 renditions".
  */
 export function versionSummary(track: Track, profile?: ProjectProfile): string {
   const latest = track.versions.at(-1);
-  if (!latest) return "—";
   const words = itemWords(profile);
+  // The one wording for a track with nothing yet, on every page (#558).
+  if (!latest) return `No ${words.version} yet`;
   const of = track.versions.length > 1 ? ` of ${track.versions.length}` : "";
   const variants =
     latest.variants.length > 1 ? ` · ${plural(latest.variants.length, words.variant)}` : "";

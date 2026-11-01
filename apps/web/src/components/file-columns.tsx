@@ -32,16 +32,21 @@ export function ColumnsMenu({
   names,
   onChange,
   shown: fitted,
+  unavailable = [],
 }: {
   columns: FileColumnLayout;
   names: Record<FileColumn, string>;
   onChange: (columns: FileColumnLayout) => void;
   /** The columns that fit the list now; the others chosen are left off for lack of room. */
   shown?: FileColumn[];
+  /** Columns no row here can fill (Status without tracks), left out of the menu. */
+  unavailable?: FileColumn[];
 }) {
   const [open, setOpen, box] = usePopover();
   const shown = columns.map((c) => c.id);
-  const listed = [...shown, ...fileColumns.filter((id) => !shown.includes(id))];
+  const listed = [...shown, ...fileColumns.filter((id) => !shown.includes(id))].filter(
+    (id) => !unavailable.includes(id),
+  );
   return (
     <div ref={box} className="relative flex justify-end">
       <button

@@ -67,6 +67,7 @@ import {
   fileColumnsQuery,
   meQuery,
   type ProjectFile,
+  projectBoardQuery,
   projectFilesQuery,
   projectFoldersQuery,
   projectMarksQuery,
@@ -383,6 +384,9 @@ export function FileBrowser({
     ...projectTracksQuery(projectId),
     enabled: withTracks,
   });
+  // Each track's workflow status, as the board and the timeline show it (#558).
+  const { data: board } = useQuery({ ...projectBoardQuery(projectId), enabled: withTracks });
+  const workflowStatus = new Map((board?.cards ?? []).map((c) => [c.id, c.status]));
   const { data: markList } = useQuery(projectMarksQuery(projectId));
   const { data: tagList } = useQuery(tagsQuery);
   const { data: me } = useQuery(meQuery);
@@ -418,8 +422,6 @@ export function FileBrowser({
     );
     watching.current.observe(box);
   }, []);
-  const columns = listWidth === null ? chosenColumns : fitColumns(chosenColumns, listWidth);
-  const gridVars = { "--cols": gridTemplate(columns) } as CSSProperties;
   const names = {
     ...columnNames,
     versions: withTracks ? capital(words.versions) : "Details",
@@ -509,6 +511,14 @@ export function FileBrowser({
     ? filterProject(all, allTracks, allFiles, filters, myId, marks)
     : favouritesFirst(itemsIn(all, allTracks, allFiles, folderId), marks);
   const order = items.map(markKey);
+  // Status is where a track stands in its workflow (docs/domain.md), or a file being prepared:
+  // without tracks, and with nothing being prepared, no row can have one, so the column goes.
+  const statusApplies = withTracks || items.some((i) => i.kind === "file" && processing(i.file));
+  const offeredColumns = statusApplies
+    ? chosenColumns
+    : chosenColumns.filter((c) => c.id !== "status");
+  const columns = listWidth === null ? offeredColumns : fitColumns(offeredColumns, listWidth);
+  const gridVars = { "--cols": gridTemplate(columns) } as CSSProperties;
   /**
    * The columns always start at the top of the project (as the Finder's do), with the open
    * folder's ancestors opened and the folder chosen; choosing another folder in them opens it.
@@ -1417,7 +1427,9 @@ export function FileBrowser({
   const cell = (item: Item, id: FileColumn): ReactNode => {
     if (item.kind === "folder") {
       if (id === "status") return "—";
-      if (id === "versions") return folderCount(all, allTracks, allFiles, item.folder.id);
+      // Among tracks the column counts versions, which a folder has none of.
+      if (id === "versions")
+        return withTracks ? "—" : folderCount(all, allTracks, allFiles, item.folder.id);
       return null;
     }
     if (item.kind === "track") {
@@ -1428,13 +1440,18 @@ export function FileBrowser({
         case "status": {
           // While its latest file is prepared, or after that failed, that is what it says.
           if (file && processing(file)) return statusOf(file);
-          const state = t.state ?? (t.versions.length ? "not_reviewed" : "no_version");
+          // Nothing to stand anywhere yet; the Versions column says "No version yet".
+          if (!t.versions.length) return "—";
+          // The status its workflow gave it, with how its review stands as the dot.
+          const state = t.state ?? "not_reviewed";
           const copy = trackStateCopy[state];
+          const status = workflowStatus.get(t.id) ?? null;
           return (
-            <>
+            <span className="flex min-w-0 items-center gap-2" title={copy.label}>
               {copy.dot && <StatusDot state={copy.dot} />}
-              <span className="truncate text-ink-2">{trackStateLabel(state, profile)}</span>
-            </>
+              <span className="sr-only">{copy.label}: </span>
+              <span className="truncate text-ink-2">{status ?? "—"}</span>
+            </span>
           );
         }
         case "versions":
@@ -1524,10 +1541,13 @@ export function FileBrowser({
   const subOf = (item: Item) => {
     if (item.kind === "folder") return folderCount(all, allTracks, allFiles, item.folder.id);
     if (item.kind === "track") {
-      const state =
-        item.track.state ?? (item.track.versions.length ? "not_reviewed" : "no_version");
       const latest = item.track.versions.at(-1);
-      return `${trackStateLabel(state, profile)}${latest ? ` · ${versionLabel(latest.number)}` : ""}`;
+      if (!latest) return trackStateLabel("no_version", profile);
+      // Its workflow status, as the Status column shows it; how its review stands without one.
+      const status =
+        workflowStatus.get(item.track.id) ??
+        trackStateLabel(item.track.state ?? "not_reviewed", profile);
+      return `${status} · ${versionLabel(latest.number)}`;
     }
     return item.kind === "file" ? fileSummary(item.file) : undefined;
   };
@@ -1989,6 +2009,7 @@ export function FileBrowser({
               ))}
               <span />
               <ColumnsMenu
+                unavailable={statusApplies ? [] : ["status"]}
                 columns={chosenColumns}
                 shown={columns.map((c) => c.id)}
                 names={names}
@@ -2009,7 +2030,7 @@ export function FileBrowser({
                 item.kind === "folder"
                   ? folderCount(all, allTracks, allFiles, item.folder.id)
                   : item.kind === "track"
-                    ? trackStateLabel(item.track.state ?? "no_version", profile)
+                    ? subOf(item)
                     : item.kind === "file"
                       ? details(item.file)
                       : "";
@@ -2535,7 +2556,7 @@ function Preview({
     rows.push(["Holds", folderCount(folders, tracks, files, item.folder.id)]);
   if (item.kind === "track") {
     rows.push([
-      "Status",
+      "Review",
       trackStateLabel(item.track.state ?? "no_version", video ? "video" : undefined),
     ]);
     rows.push([capital(words.versions), String(item.track.versions.length)]);

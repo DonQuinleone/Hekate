@@ -4247,7 +4247,7 @@ test("project-board", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/board`);
   await settle(page, "main >> text=Maple Leaf Rag");
-  await expect(page.getByRole("region", { name: "No version" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "No version yet" })).toBeVisible();
   await saveScreen(page, "project-board");
   await checkScreen(page);
 });

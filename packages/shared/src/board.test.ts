@@ -7,6 +7,7 @@ import {
   defaultBoardDisplay,
   NO_STATUS,
   NO_VERSION,
+  NO_VERSION_NAME,
   NOT_AT_A_STAGE,
   projectStatuses,
   sameBoardDisplay,
@@ -51,7 +52,7 @@ describe("a board's columns", () => {
   it("by status, in the order a run reaches them, with a finish's as done", () => {
     const columns = boardColumns([album], "status");
     expect(columns.map((c) => c.name)).toEqual([
-      NO_VERSION,
+      NO_VERSION_NAME,
       NO_STATUS,
       "With conductor",
       "Editing",
@@ -80,7 +81,7 @@ describe("a board's columns", () => {
 
   it("by stage, every step a track waits at", () => {
     expect(boardColumns([album], "stage").map((c) => c.name)).toEqual([
-      NO_VERSION,
+      NO_VERSION_NAME,
       NOT_AT_A_STAGE,
       "Conductor's notes",
       "Engineer edits",
@@ -95,7 +96,7 @@ describe("a board's columns", () => {
   });
 
   it("are the two fixed ones without a workflow", () => {
-    expect(boardColumns([], "status").map((c) => c.name)).toEqual([NO_VERSION, NO_STATUS]);
+    expect(boardColumns([], "status").map((c) => c.name)).toEqual([NO_VERSION_NAME, NO_STATUS]);
   });
 });
 
@@ -218,7 +219,7 @@ describe("a project's statuses", () => {
     ]);
     // The board's columns follow them.
     expect(boardColumns([album], "status", [], set).map((c) => [c.name, c.category])).toEqual([
-      [NO_VERSION, "todo"],
+      [NO_VERSION_NAME, "todo"],
       [NO_STATUS, "todo"],
       ["Approved", "done"],
       ["Editing", "todo"],

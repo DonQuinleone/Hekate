@@ -291,7 +291,7 @@ export function Board({ project, month }: { project: Project; month?: string }) 
   const columns =
     display.groupBy === "stage"
       ? [
-          { id: "none", name: "No version", category: "todo" as const },
+          { id: "none", name: "No version yet", category: "todo" as const },
           ...(workflow?.stages.map((s) => ({
             id: s.id,
             name: s.name,
@@ -300,7 +300,7 @@ export function Board({ project, month }: { project: Project; month?: string }) 
           { id: "done", name: "Finished", category: "done" as const },
         ]
       : [
-          { id: "none", name: "No version", category: "todo" as const },
+          { id: "none", name: "No version yet", category: "todo" as const },
           ...(workflow?.statuses.map((s) => ({ id: s.name, name: s.name, category: s.category })) ??
             []),
         ];

@@ -40,6 +40,7 @@ import {
   myReviewsQuery,
   type ProjectOverview as OverviewData,
   type Project,
+  projectBoardQuery,
   projectOverviewQuery,
   projectReviewsQuery,
   projectTasksQuery,
@@ -213,6 +214,12 @@ export function ProjectOverview({ project }: { project: Project }) {
   const mine = useQuery(myReviewsQuery);
   const reviews = useQuery(projectReviewsQuery(project.id));
   const tasks = useQuery(projectTasksQuery(project.id));
+  // Each track's workflow status, as Files, the board and the timeline show it (#558).
+  const board = useQuery({
+    ...projectBoardQuery(project.id),
+    enabled: project.profile !== "general",
+  });
+  const workflowStatus = new Map((board.data?.cards ?? []).map((c) => [c.id, c.status]));
   const [allAttention, setAllAttention] = useState(false);
   const layout = useOverviewLayout(project.id);
   const can = useProjectCan(project.id);
@@ -333,6 +340,7 @@ export function ProjectOverview({ project }: { project: Project }) {
           <ul className="m-0 flex list-none flex-col p-1.5">
             {o.tracks.map((t) => {
               const copy = trackStateCopy[t.state];
+              const status = t.version ? (workflowStatus.get(t.id) ?? null) : null;
               const inner = (
                 <>
                   <span className="flex h-9 w-12 shrink-0 items-center justify-center rounded-[5px] border border-line-strong text-ink-3">
@@ -346,12 +354,19 @@ export function ProjectOverview({ project }: { project: Project }) {
                       {t.version
                         ? versionLabel(t.version.number, project.profile)
                         : trackStateLabel("no_version", project.profile)}
-                      {t.version && <span className="@3xl/app:hidden"> · {copy.label}</span>}
+                      {t.version && (
+                        <span className="@3xl/app:hidden"> · {status ?? copy.label}</span>
+                      )}
                     </span>
                   </span>
-                  <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
-                    {copy.dot && <StatusDot state={copy.dot} />}
-                    <span className="truncate">{copy.label}</span>
+                  {/* Its workflow status, with how its review stands as the dot, as on Files. */}
+                  <span
+                    className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex"
+                    title={t.version ? copy.label : undefined}
+                  >
+                    {t.version && copy.dot && <StatusDot state={copy.dot} />}
+                    {t.version && <span className="sr-only">{copy.label}: </span>}
+                    <span className={cn("truncate", !status && "text-ink-3")}>{status ?? "—"}</span>
                   </span>
                   <span className="hidden items-center gap-2 text-[13px] text-ink-3 @3xl/app:flex">
                     {t.waitingOn.length > 0 && (
