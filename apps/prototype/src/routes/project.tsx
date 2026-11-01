@@ -628,10 +628,8 @@ function ProjectReviews({ project }: { project: Project }) {
   ];
   const canRequest = viewer.can(project.id, "request_reviews");
   const toolbar = (
+    // The page is named in the trail, and each section counts its own: no count here.
     <div className="flex items-center gap-2">
-      <span className="text-[13px] text-ink-3">
-        {plural(list.length, "review")}, {plural(shares.length, "share")}
-      </span>
       <span className="ml-auto flex gap-1.5">
         {canRequest && (
           <Button
