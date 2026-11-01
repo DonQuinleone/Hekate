@@ -2400,71 +2400,103 @@ function ColumnBrowser({
   const last = fresh.at(-1);
   const choose = (depth: number, item: Item) => onPath([...fresh.slice(0, depth), item]);
   const fileById = new Map(files.map((f) => [f.id, f]));
+  const previewing = last !== undefined && open(last) === null;
+  // On a phone, one column at a time, as the iOS Files app shows them: the deepest, or the
+  // preview of what is chosen in it, with a way back that names where it leads.
+  const phoneDepth = previewing ? fresh.length : columns.length - 1;
+  const backTo = phoneDepth - 1;
+  const nameAt = (depth: number) => {
+    const at = fresh[depth - 1];
+    return depth <= 0 || !at ? "All files" : itemName(at, versionLabel);
+  };
   return (
-    <Card className="scroll-quiet flex min-h-[420px] overflow-x-auto">
-      {columns.map((col, depth) => (
-        <ul
-          key={String(depth)}
-          aria-label={depth === 0 ? "Contents" : undefined}
-          className="m-0 flex w-[240px] shrink-0 list-none flex-col overflow-y-auto border-r border-line p-0 py-1"
-        >
-          {col.items.map((item) => {
-            const selected = col.selected?.id === item.id;
-            const common = { item, selected, onClick: () => choose(depth, item) };
-            if (item.kind === "folder")
-              return <ColumnRow key={item.id} {...common} name={item.folder.name} container />;
-            if (item.kind === "track") {
-              const state = item.track.state ?? "no_version";
-              const latest = item.track.versions.at(-1);
+    <div className="flex flex-col gap-2">
+      {phoneDepth > 0 && (
+        <div className="flex min-w-0 items-center gap-2 @3xl/app:hidden">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-2 min-w-0"
+            onClick={() => onPath(fresh.slice(0, backTo))}
+          >
+            <Icon name="chevronLeft" size={14} />
+            <span className="truncate">{nameAt(backTo)}</span>
+          </Button>
+          {!previewing && (
+            <span className="min-w-0 truncate text-[14px] font-medium text-ink">
+              {nameAt(phoneDepth)}
+            </span>
+          )}
+        </div>
+      )}
+      <Card className="scroll-quiet flex min-h-[420px] overflow-x-auto">
+        {columns.map((col, depth) => (
+          <ul
+            key={String(depth)}
+            aria-label={depth === 0 ? "Contents" : undefined}
+            className={cn(
+              "m-0 w-full shrink-0 list-none flex-col overflow-y-auto border-line p-0 py-1 @3xl/app:flex @3xl/app:w-[240px] @3xl/app:border-r",
+              depth === phoneDepth ? "flex" : "hidden",
+            )}
+          >
+            {col.items.map((item) => {
+              const selected = col.selected?.id === item.id;
+              const common = { item, selected, onClick: () => choose(depth, item) };
+              if (item.kind === "folder")
+                return <ColumnRow key={item.id} {...common} name={item.folder.name} container />;
+              if (item.kind === "track") {
+                const state = item.track.state ?? "no_version";
+                const latest = item.track.versions.at(-1);
+                return (
+                  <ColumnRow
+                    key={item.id}
+                    {...common}
+                    name={item.track.name}
+                    hint={`${trackStateLabel(state, video ? "video" : undefined)}${latest ? ` · ${versionLabel(latest.number)}` : ""}`}
+                    container={item.track.versions.length > 0}
+                  />
+                );
+              }
+              if (item.kind === "version")
+                return (
+                  <ColumnRow
+                    key={item.id}
+                    {...common}
+                    name={versionLabel(item.version.number)}
+                    hint={`${item.version.variants.length} ${item.version.variants.length === 1 ? words.variant : words.variants} · ${ago(item.version.createdAt)}`}
+                    container={false}
+                  />
+                );
               return (
                 <ColumnRow
                   key={item.id}
                   {...common}
-                  name={item.track.name}
-                  hint={`${trackStateLabel(state, video ? "video" : undefined)}${latest ? ` · ${versionLabel(latest.number)}` : ""}`}
-                  container={item.track.versions.length > 0}
-                />
-              );
-            }
-            if (item.kind === "version")
-              return (
-                <ColumnRow
-                  key={item.id}
-                  {...common}
-                  name={versionLabel(item.version.number)}
-                  hint={`${item.version.variants.length} ${item.version.variants.length === 1 ? words.variant : words.variants} · ${ago(item.version.createdAt)}`}
+                  name={item.file.name}
+                  hint={details(item.file)}
                   container={false}
                 />
               );
-            return (
-              <ColumnRow
-                key={item.id}
-                {...common}
-                name={item.file.name}
-                hint={details(item.file)}
-                container={false}
-              />
-            );
-          })}
-          {col.items.length === 0 && <li className="px-3 py-3 text-[12px] text-ink-3">Empty</li>}
-        </ul>
-      ))}
-      {last && open(last) === null ? (
-        <Preview
-          item={last}
-          folders={folders}
-          tracks={tracks}
-          files={files}
-          fileById={fileById}
-          menu={menu}
-          editor={editor}
-        />
-      ) : (
-        <div className="flex w-[280px] shrink-0 items-center justify-center p-4 text-center text-[12px] text-ink-3">
-          {last ? "Choose something inside" : "Choose something to see its details"}
-        </div>
-      )}
-    </Card>
+            })}
+            {col.items.length === 0 && <li className="px-3 py-3 text-[12px] text-ink-3">Empty</li>}
+          </ul>
+        ))}
+        {last && previewing ? (
+          <Preview
+            item={last}
+            folders={folders}
+            tracks={tracks}
+            files={files}
+            fileById={fileById}
+            menu={menu}
+            editor={editor}
+          />
+        ) : (
+          <div className="hidden w-[280px] shrink-0 items-center justify-center p-4 text-center text-[12px] text-ink-3 @3xl/app:flex">
+            {last ? "Choose something inside" : "Choose something to see its details"}
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }
 
@@ -2520,7 +2552,8 @@ function Preview({
     if (file.uploadedBy) rows.push(["Uploaded by", file.uploadedBy]);
   }
   return (
-    <div className="flex w-[280px] shrink-0 flex-col gap-4 p-4">
+    // As wide as it needs, from 280 to 440 pixels; on a phone, the whole width.
+    <div className="flex w-full min-w-0 shrink-0 flex-col gap-4 p-4 @3xl/app:w-auto @3xl/app:max-w-[440px] @3xl/app:min-w-[280px] @3xl/app:flex-1">
       <span className="flex h-[110px] items-center justify-center rounded-[6px] bg-sunken text-ink-3">
         <Icon name={file ? kindIcon[file.kind] : itemIcon(item)} size={28} />
       </span>
@@ -2540,8 +2573,9 @@ function Preview({
         ))}
       </dl>
       <div className="flex flex-wrap gap-1.5">
+        {/* Secondary: the view's one primary is the toolbar's Upload. */}
         {file && (
-          <Button variant="primary" size="sm" asChild>
+          <Button variant="secondary" size="sm" asChild>
             <Link to="/files/$fileId" params={{ fileId: file.id }}>
               Open
             </Link>
