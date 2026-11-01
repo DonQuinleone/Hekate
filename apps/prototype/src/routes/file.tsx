@@ -13,7 +13,6 @@ import { usePlayback } from "~/components/player/playback";
 import { FrequencyScale, Spectrogram } from "~/components/player/spectrogram";
 import {
   defaultView,
-  LoopBar,
   Seg,
   Transport,
   type View,
@@ -877,12 +876,7 @@ export function FilePage({
             <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
           )}
           {isAudio && !pending && !failed && (
-            <ViewMenu
-              view={view}
-              onView={setView}
-              spectrogramAllowed={tools.has("spectrogram")}
-              normaliseAllowed={tools.has("normalise") && project.normalisation === "optional"}
-            />
+            <ViewMenu view={view} onView={setView} spectrogramAllowed={tools.has("spectrogram")} />
           )}
         </div>
       </div>
@@ -1121,8 +1115,13 @@ export function FilePage({
             zoom={isAudio ? zoom : undefined}
             onZoom={isAudio ? setZoom : undefined}
             marks={marks}
+            normalise={
+              isAudio && tools.has("normalise") && project.normalisation === "optional"
+                ? { on: view.normalised, onChange: (on) => setView({ ...view, normalised: on }) }
+                : null
+            }
+            follow={!viewer.isGuest}
           />
-          <LoopBar playback={playback} />
           {compareOpen && (
             <CompareBar
               sources={sources}
@@ -1326,7 +1325,6 @@ export function FilePage({
               onCompare={() => {}}
               marks={marks}
             />
-            <LoopBar playback={playback} />
           </div>
         </div>
         <div className="scroll-quiet min-h-0 flex-1 overflow-auto p-4 @3xl/app:p-6">

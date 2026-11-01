@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/label";
 import { FollowDaw } from "~/components/recorder";
+import { Floating } from "~/components/ui/floating";
 import { Dropdown, MenuList, usePopover } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
@@ -125,12 +126,10 @@ export function ViewMenu({
   view,
   onView,
   spectrogramAllowed,
-  normaliseAllowed,
 }: {
   view: View;
   onView: (v: View) => void;
   spectrogramAllowed: boolean;
-  normaliseAllowed: boolean;
 }) {
   const [open, setOpen, box] = usePopover();
   const [analysing, setAnalysing] = useState(false);
@@ -373,22 +372,7 @@ export function ViewMenu({
           ) : (
             <p className="text-[13px] text-ink-3">The spectrogram is not among your tools here.</p>
           )}
-          {normaliseAllowed && (
-            <div className={row}>
-              <span>
-                Normalised playback
-                <span className="block text-[12px] text-ink-3">
-                  Level-matched to the project target
-                </span>
-              </span>
-              <Switch
-                label="Normalised playback"
-                checked={view.normalised}
-                onChange={(v) => onView({ ...view, normalised: v })}
-              />
-            </div>
-          )}
-          <FollowDaw />
+          {/* Normalised playback and following the DAW are playback, the transport's (#636). */}
           {/* Views kept with the account under a name; removed from Account, Appearance. */}
           <div className={cn(row, "border-t border-hairline pt-3")}>
             Presets
@@ -404,14 +388,22 @@ export function ViewMenu({
                 <option>Edit</option>
                 <option>Noise hunt</option>
               </select>
-              <button
-                type="button"
-                className="h-7 rounded-control px-2 text-[13px] text-ink-2 hover:bg-raised hover:text-ink"
-              >
-                Save as…
-              </button>
             </span>
           </div>
+          {/* Saved from one field and one Save, in place (#636). */}
+          <form className="flex items-center gap-1.5" onSubmit={(e) => e.preventDefault()}>
+            <input
+              aria-label="Preset name"
+              placeholder="Save this view as…"
+              className="h-7 min-w-0 flex-1 rounded-control border border-line bg-raised/40 px-2 text-[12px] text-ink placeholder:text-ink-3"
+            />
+            <button
+              type="submit"
+              className="h-7 rounded-control bg-raised px-2.5 text-[12px] text-ink hover:bg-overlay"
+            >
+              Save
+            </button>
+          </form>
         </div>
       )}
     </div>
@@ -664,26 +656,8 @@ export function ViewBar({
       aria-label="View"
       className="flex h-8 shrink-0 items-center justify-end gap-0.5 px-3 @3xl/app:px-4"
     >
-      {loopsAllowed && (
-        <button
-          type="button"
-          aria-pressed={playback.looping}
-          title="Loop (shift L); I and O set the points"
-          onClick={() => playback.setLooping(!playback.looping)}
-          className={cn(
-            viewButton,
-            playback.looping && "bg-signal/15 text-signal hover:bg-signal/20 hover:text-signal",
-          )}
-        >
-          <Icon name="loop" size={14} />
-          Loop
-          {playback.loop && playback.looping && (
-            <span className="tabular hidden @3xl/app:inline">
-              {formatClock(playback.loop.start, false)}–{formatClock(playback.loop.end, false)}
-            </span>
-          )}
-        </button>
-      )}
+      {/* Loop keeps its label, pressed when on (#638); its settings open from beside it. */}
+      {loopsAllowed && <LoopButton playback={playback} />}
       {onSpectrogram && (
         <button
           type="button"
@@ -765,7 +739,13 @@ export function Transport({
   zoom,
   onZoom,
   marks = [],
+  normalise = null,
+  follow = false,
 }: {
+  /** Normalised playback beside the volume it sets (#636), where it is each person's choice. */
+  normalise?: { on: boolean; onChange: (on: boolean) => void } | null;
+  /** Following the DAW, in the transport's own menu (#636). */
+  follow?: boolean;
   playback: Playback;
   duration: number;
   video?: boolean;
@@ -954,73 +934,172 @@ export function Transport({
             Compare
           </button>
         )}
+        {normalise && (
+          <button
+            type="button"
+            aria-pressed={normalise.on}
+            title="Level-matched to the project target"
+            onClick={() => normalise.onChange(!normalise.on)}
+            className={cn(
+              "flex h-9 items-center rounded-full px-3 text-[13px] transition-colors",
+              normalise.on ? "bg-raised text-ink" : "text-ink-2 hover:bg-raised hover:text-ink",
+            )}
+          >
+            Normalised
+          </button>
+        )}
         <VolumeControl />
+        {follow && <PlaybackSettings />}
       </div>
     </div>
   );
 }
 
-/** The loop's edges, nudged, with pre-roll and post-roll. */
-export function LoopBar({ playback }: { playback: Playback }) {
+/** Playback's own settings, from the transport (#636): following the DAW. */
+function PlaybackSettings() {
+  const [open, setOpen, box] = usePopover();
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        aria-label="Playback settings"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className={cn(iconButton, open && "bg-raised text-ink")}
+      >
+        <Icon name="more" size={16} />
+      </button>
+      {open && (
+        <Floating
+          anchor={box}
+          align="end"
+          side="top"
+          onClose={() => setOpen(false)}
+          className="rise-in flex w-80 max-w-[calc(100vw-32px)] flex-col gap-3 rounded-panel bg-overlay p-4 shadow-3"
+        >
+          <FollowDaw />
+        </Floating>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Loop, always to be pressed (#638): with no passage it says how to make one; its edges,
+ * step and rolls open in a panel from it, never a row that moves the page.
+ */
+function LoopButton({ playback }: { playback: Playback }) {
+  const [open, setOpen, box] = usePopover();
   const loop = playback.loop;
-  if (!loop || !playback.looping) return null;
   const nudge = (which: "start" | "end", by: number) =>
-    playback.setLoop({ ...loop, [which]: Math.max(0, loop[which] + by) });
+    loop && playback.setLoop({ ...loop, [which]: Math.max(0, loop[which] + by) });
   const small =
     "flex size-6 items-center justify-center rounded-chip border border-line text-ink-2 transition-colors hover:bg-raised hover:text-ink";
   return (
-    <div className="rise-in flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line px-4 py-2 text-[13px] text-ink-2">
-      <span className="font-medium text-signal">Loop</span>
-      {(["start", "end"] as const).map((w) => (
-        <span key={w} className="flex items-center gap-1.5">
-          <span className="text-ink-3">{w === "start" ? "In" : "Out"}</span>
-          <button
-            type="button"
-            aria-label={`${w} earlier`}
-            onClick={() => nudge(w, -0.05)}
-            className={small}
-          >
-            −
-          </button>
-          <span className="tabular text-ink">{formatClock(loop[w])}</span>
-          <button
-            type="button"
-            aria-label={`${w} later`}
-            onClick={() => nudge(w, 0.05)}
-            className={small}
-          >
-            +
-          </button>
-        </span>
-      ))}
-      <span className="flex items-center gap-1.5 text-ink-3">
-        step <Kbd>50 ms</Kbd>
-      </span>
-      {(["pre-roll", "post-roll"] as const).map((k) => (
-        <span key={k} className="flex items-center gap-1.5 text-ink-3">
-          {k}
-          <input
-            type="number"
-            defaultValue={1}
-            min={0}
-            max={10}
-            step={0.5}
-            aria-label={k}
-            className="tabular h-6 w-14 rounded-chip border border-line bg-ground/60 px-1.5 text-[13px] text-ink"
-          />
-          s
-        </span>
-      ))}
+    <div ref={box} className="relative flex items-center">
       <button
         type="button"
-        onClick={() => {
-          playback.setLooping(false);
-          playback.setLoop(null);
-        }}
-        className="ml-auto text-ink-3 hover:text-ink"
+        aria-pressed={Boolean(loop) && playback.looping}
+        title="Loop (shift L); I and O set the points"
+        onClick={() => (loop ? playback.setLooping(!playback.looping) : setOpen(!open))}
+        className={cn(
+          viewButton,
+          "rounded-r-none",
+          loop && playback.looping && "bg-raised text-ink",
+        )}
       >
-        Clear
+        <Icon name="loop" size={14} />
+        Loop
       </button>
+      <button
+        type="button"
+        aria-label="Loop settings"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className={cn(
+          viewButton,
+          "w-6 justify-center rounded-l-none px-0",
+          open && "bg-raised text-ink",
+        )}
+      >
+        <Icon name="chevronDown" size={12} />
+      </button>
+      {open && (
+        <Floating
+          anchor={box}
+          align="end"
+          side="bottom"
+          onClose={() => setOpen(false)}
+          className="rise-in flex w-80 max-w-[calc(100vw-32px)] flex-col gap-3 rounded-panel bg-overlay p-4 text-[13px] text-ink-2 shadow-3"
+        >
+          {loop ? (
+            <>
+              <span className="tabular text-ink">
+                {formatClock(loop.start)}–{formatClock(loop.end)}
+              </span>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                {(["start", "end"] as const).map((w) => (
+                  <span key={w} className="flex items-center gap-1.5">
+                    <span className="text-ink-3">{w === "start" ? "In" : "Out"}</span>
+                    <button
+                      type="button"
+                      aria-label={`${w} earlier`}
+                      onClick={() => nudge(w, -0.05)}
+                      className={small}
+                    >
+                      −
+                    </button>
+                    <span className="tabular text-ink">{formatClock(loop[w])}</span>
+                    <button
+                      type="button"
+                      aria-label={`${w} later`}
+                      onClick={() => nudge(w, 0.05)}
+                      className={small}
+                    >
+                      +
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <span className="flex items-center gap-1.5 text-ink-3">
+                Step <Kbd>50 ms</Kbd>
+              </span>
+            </>
+          ) : (
+            <p>Drag on the waveform to loop, or press I and O at the playhead.</p>
+          )}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {(["Pre-roll", "Post-roll"] as const).map((k) => (
+              <span key={k} className="flex items-center gap-1.5 text-ink-3">
+                {k}
+                <input
+                  type="number"
+                  defaultValue={1}
+                  min={0}
+                  max={10}
+                  step={0.5}
+                  aria-label={k}
+                  className="tabular h-6 w-14 rounded-chip border border-line bg-ground/60 px-1.5 text-[13px] text-ink"
+                />
+                s
+              </span>
+            ))}
+          </div>
+          {loop && (
+            <button
+              type="button"
+              onClick={() => {
+                playback.setLooping(false);
+                playback.setLoop(null);
+                setOpen(false);
+              }}
+              className="w-fit text-ink-3 hover:text-ink"
+            >
+              Clear loop
+            </button>
+          )}
+        </Floating>
+      )}
     </div>
   );
 }
