@@ -60,7 +60,8 @@ const intros: Record<string, string> = {
   workflow: "The stages a track goes through, the statuses they set, and who is told.",
   watermarks:
     "How each kind of file names whoever has it, and who may take files away or delete them.",
-  storage: "Where this project's files live and how much they take.",
+  storage:
+    "Where new files go. Existing files stay where they are. Everything is encrypted at rest with a key per file.",
   delivery: "The numbers the checks measure against: loudness, peaks, formats and lengths.",
   qa: "Every check that runs on a file, by category: plain errors always on, delivery checks and your own rules as you choose.",
 };
@@ -921,17 +922,15 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
       )}
       {sec === "watermarks" && <Watermarks project={project} />}
       {sec === "storage" && (
-        <Section
-          title="Storage"
-          intro="Where new files go. Existing files stay where they are. Everything is encrypted at rest with a key per file."
-        >
-          <Row name="Backend for new files">
+        <Section>
+          <Row name="Where new files are stored">
             <Select defaultValue="s3" className="w-64">
-              <option value="local">Local disk (default)</option>
-              <option value="s3">Hetzner Object Storage (S3)</option>
+              <option value="">As the workspace: Instance storage</option>
+              <option value="local">Instance storage</option>
+              <option value="s3">Your S3 bucket</option>
             </Select>
           </Row>
-          <Row name="Used by this project" hint="Originals, renditions, pages and peaks">
+          <Row name="Used by this project" hint="Originals, proxies, rendered pages and waveforms">
             <span className="tabular text-[14px] text-ink">14.2 GB</span>
           </Row>
         </Section>

@@ -1504,7 +1504,7 @@ export function SettingsPage({
           </Section>
           <Section title="Usage by project">
             {projects.map((p) => (
-              <Row key={p.id} name={p.name} hint="originals, renditions, pages and peaks">
+              <Row key={p.id} name={p.name} hint="Originals, proxies, rendered pages and waveforms">
                 <span className="tabular text-[14px] text-ink">
                   {p.id === "proj-joplin" ? "14.2 GB" : "231 GB"}
                 </span>

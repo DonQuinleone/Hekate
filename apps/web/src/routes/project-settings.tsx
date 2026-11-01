@@ -100,6 +100,7 @@ import {
   useUpdateProject,
   workspaceSettingsQuery,
 } from "~/lib/queries";
+import { storageName } from "~/lib/storage-names";
 import { basicSteps } from "~/lib/workflow-nodes";
 import { ProjectFrame } from "~/routes/project";
 
@@ -632,32 +633,35 @@ function ProjectStorageSection({ project }: { project: Project }) {
   const owner = me?.organisations.find((o) => o.id === me.activeOrganisationId)?.role === "owner";
   const choose = useProjectStorage(project.id);
   if (!data) return null;
+  // Each storage by its name, never its id (#586).
+  const named = (backend: string) => storageName(backend, data.available);
   return (
     <>
-      <Section title="Backend">
+      <Section>
         <Row
-          name="Backend for new files"
+          name="Where new files are stored"
           hint={owner ? undefined : "Only a workspace owner can change it."}
         >
           {owner ? (
             <Select
-              aria-label="Backend for new files"
+              aria-label="Where new files are stored"
               value={data.backend ?? ""}
               onChange={(e) => choose.mutate(e.target.value || null)}
-              className="w-full @3xl/app:w-64"
             >
-              <option value="">Workspace default ({data.workspaceBackend})</option>
+              <option value="">As the workspace: {named(data.workspaceBackend)}</option>
               {data.available.map((b) => (
                 <option key={b} value={b}>
-                  {b}
+                  {named(b)}
                 </option>
               ))}
             </Select>
           ) : (
-            <span className="text-[14px] text-ink-2">{data.backend ?? data.workspaceBackend}</span>
+            <span className="text-[14px] text-ink-2">
+              {named(data.backend ?? data.workspaceBackend)}
+            </span>
           )}
         </Row>
-        <Row name="Used by this project" hint="Originals, renditions, pages and peaks">
+        <Row name="Used by this project" hint="Originals, proxies, rendered pages and waveforms">
           <span className="tabular text-[14px] text-ink">{formatBytes(data.bytes)}</span>
         </Row>
       </Section>
