@@ -1662,24 +1662,24 @@ export function InstancePage({ section }: { section: string }) {
               value={ticketQ}
               onChange={(e) => setTicketQ(e.target.value)}
               placeholder="Search tickets"
-              className="w-64"
+              className="w-full @3xl/app:w-64"
             />
             <Select
               value={ticketState}
               onChange={(e) => setTicketState(e.target.value)}
-              className="w-44"
+              className="min-w-40 flex-1 @3xl/app:w-44 @3xl/app:flex-none"
             >
               <option value="open">Open</option>
               <option value="waiting">Waiting on you</option>
               <option value="all">All</option>
             </Select>
-            <Select defaultValue="" className="w-48">
+            <Select defaultValue="" className="min-w-40 flex-1 @3xl/app:w-48 @3xl/app:flex-none">
               <option value="">Any workspace</option>
               {orgs.map((o) => (
                 <option key={o.id}>{o.name}</option>
               ))}
             </Select>
-            <Select defaultValue="" className="w-36">
+            <Select defaultValue="" className="min-w-40 flex-1 @3xl/app:w-44 @3xl/app:flex-none">
               <option value="">Any severity</option>
               {severities.map((sv) => (
                 <option key={sv.id}>{sv.label}</option>
@@ -2065,7 +2065,7 @@ export function InstancePage({ section }: { section: string }) {
               <option value="7d">Last 7 days</option>
               <option value="30d">Last 30 days</option>
             </Select>
-            <Select defaultValue="" className="w-48">
+            <Select defaultValue="" className="min-w-40 flex-1 @3xl/app:w-48 @3xl/app:flex-none">
               <option value="">Any workspace</option>
               {orgs.map((o) => (
                 <option key={o.id}>{o.name}</option>

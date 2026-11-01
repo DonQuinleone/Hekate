@@ -113,6 +113,7 @@ export function InstanceSupport({
           },
         ]}
       />
+      {/* Each filter is as wide as its longest option, and fills the row on a phone (#601). */}
       <div className="flex flex-wrap items-center gap-2">
         <Input
           value={q}
@@ -125,7 +126,7 @@ export function InstanceSupport({
           value={state}
           onChange={(e) => setState(e.target.value as DeskFilters["state"])}
           aria-label="State"
-          className="w-44"
+          className="min-w-40 flex-1 @3xl/app:w-44 @3xl/app:flex-none"
         >
           <option value="open">Open</option>
           <option value="waiting">Waiting on you</option>
@@ -135,7 +136,7 @@ export function InstanceSupport({
           value={workspace}
           onChange={(e) => setWorkspace(e.target.value)}
           aria-label="Workspace"
-          className="w-48"
+          className="min-w-40 flex-1 @3xl/app:w-48 @3xl/app:flex-none"
         >
           <option value="">Any workspace</option>
           {data?.workspaces.map((w) => (
@@ -148,7 +149,7 @@ export function InstanceSupport({
           value={severity}
           onChange={(e) => setSeverity(e.target.value as SupportSeverity | "")}
           aria-label="Severity"
-          className="w-36"
+          className="min-w-40 flex-1 @3xl/app:w-44 @3xl/app:flex-none"
         >
           <option value="">Any severity</option>
           {supportSeverities.map((s) => (
@@ -316,7 +317,7 @@ function CannedRepliesDialog({ onClose }: { onClose: () => void }) {
             </Button>
             <Button variant="primary" onClick={() => open("new")}>
               <Icon name="plus" size={14} />
-              Reply
+              New canned reply
             </Button>
           </>
         )
@@ -436,10 +437,9 @@ function DeskTicket({ id, onClose }: { id: string; onClose: () => void }) {
                 </option>
               ))}
             </Select>
+            {/* The dialog's own close is its ✕: a Close beside Send would read as closing the
+                ticket (#603). */}
             <span className="flex-1" />
-            <Button variant="ghost" onClick={onClose}>
-              Close
-            </Button>
             <Button variant="primary" disabled={!body.trim() || reply.isPending} onClick={send}>
               {reply.isPending ? "Sending" : "Send"}
             </Button>
@@ -525,7 +525,7 @@ function DeskTicket({ id, onClose }: { id: string; onClose: () => void }) {
                 className="mt-2 w-full"
                 onClick={() => openWorkspace(ticket, "members")}
               >
-                Open the account
+                Show in Members
               </Button>
             </div>
             <div>
@@ -539,7 +539,7 @@ function DeskTicket({ id, onClose }: { id: string; onClose: () => void }) {
                   : `${ticket.place.openReviews} open reviews`}
               </p>
               <Button
-                variant="ghost"
+                variant="secondary"
                 size="sm"
                 className="mt-2 w-full"
                 onClick={() => openWorkspace(ticket)}
