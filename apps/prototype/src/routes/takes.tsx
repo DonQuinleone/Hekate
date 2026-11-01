@@ -327,6 +327,13 @@ export function SessionsView({ project }: { project: Project }) {
               Import takes
             </Button>
           )}
+          {/* The view's one primary, at the right of its content (#548). */}
+          {canUpload && (
+            <Button variant="primary" size="md">
+              <Icon name="plus" size={14} />
+              New session
+            </Button>
+          )}
         </span>
       </div>
       <ul className="-mx-2 flex flex-col">

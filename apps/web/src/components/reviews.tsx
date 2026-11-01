@@ -27,18 +27,12 @@ export function ProjectReviews({ projectId }: { projectId: string }) {
   const shares = all?.filter((r) => r.kind === "share") ?? [];
   return (
     <section aria-label="Reviews" className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="m-0 flex items-baseline gap-2 text-[15px] font-medium">
-          Reviews
-          {all && (
-            <span className="text-[13px] font-normal text-ink-3">
-              {count(reviews?.length ?? 0, "review")}, {count(shares.length, "share", false)}
-            </span>
-          )}
-        </h2>
+      {/* The page is named in the trail; its toolbar holds its one primary action (#548, #609). */}
+      <div className="flex min-h-8 flex-wrap items-center justify-end gap-3">
         {can("request_reviews") && (
-          <Button asChild>
+          <Button variant="primary" asChild>
             <Link to="/projects/$projectId/reviews/new" params={{ projectId }}>
+              <Icon name="plus" size={14} />
               Request a review
             </Link>
           </Button>

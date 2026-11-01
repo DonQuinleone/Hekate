@@ -370,6 +370,23 @@ function Components() {
             With an icon
           </Button>
         </Spec>
+        <Spec
+          name="Create actions"
+          rule="A verb and a noun, never a bare + noun: New for things, Add for rows in a list. The view's one primary at the right of its toolbar (or the top bar outside a project); a settings list's add is secondary, at the right of its section's head."
+        >
+          <Button variant="primary">
+            <Icon name="plus" size={14} />
+            New work
+          </Button>
+          <Button>
+            <Icon name="plus" size={14} />
+            New category
+          </Button>
+          <Button variant="ghost" size="sm">
+            <Icon name="plus" size={13} />
+            Add row
+          </Button>
+        </Spec>
         <Spec name="Disabled" rule="Dimmed and inert; say nearby why, when it is not obvious.">
           <Button variant="primary" disabled>
             Request a review

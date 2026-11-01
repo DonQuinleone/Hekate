@@ -79,9 +79,9 @@ export function OAuthClientsSection() {
         title="OAuth clients"
         intro="Applications registered here can ask people for access with OAuth 2.1 and PKCE. Each gets a client id; confidential clients get a secret shown once."
         action={
-          <Button variant="primary" size="md" onClick={() => setEditing("new")}>
+          <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
             <Icon name="plus" size={14} />
-            Client
+            New client
           </Button>
         }
       >

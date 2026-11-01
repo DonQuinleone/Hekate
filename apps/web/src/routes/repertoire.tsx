@@ -136,9 +136,9 @@ function Works({
                 ]}
               />
               {canEdit && (
-                <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
+                <Button variant="primary" size="md" onClick={() => setEditing("new")}>
                   <Icon name="plus" size={14} />
-                  Work
+                  New work
                 </Button>
               )}
             </span>
@@ -594,13 +594,13 @@ function Venues({
             <span className="label">Venues · {venues.length}</span>
             {canEdit && (
               <Button
-                variant="secondary"
+                variant="primary"
                 size="md"
                 className="ml-auto"
                 onClick={() => setEditing("new")}
               >
                 <Icon name="plus" size={14} />
-                Venue
+                New venue
               </Button>
             )}
           </div>

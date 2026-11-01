@@ -981,7 +981,7 @@ test("instance-operator-new", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/instance/operators");
   await settle(page, "main >> text=producer@example.test");
-  await page.getByRole("button", { name: "Operator", exact: true }).click();
+  await page.getByRole("button", { name: "Add operator", exact: true }).click();
   await settle(page, "[role=dialog] >> text=Their email address");
   // The dialog's own entrance played out (the lamps and the like run for ever).
   await page.waitForFunction(() =>
@@ -1089,7 +1089,7 @@ test("project-settings-exception", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/settings?section=roles`);
   // The seeded group's exception has loaded (on a phone its column waits behind the chooser).
   await settle(page, "main >> text=tools replace the role");
-  await page.getByRole("button", { name: "Add an exception" }).click();
+  await page.getByRole("button", { name: "Add exception" }).click();
   await settle(page, "[role=dialog] >> text=Tools");
   await saveScreen(page, "project-settings-exception");
   await checkScreen(page);
@@ -1201,7 +1201,7 @@ test("project-settings-roles-twelve", async ({ page }) => {
 test("settings-delivery-profile", async ({ page }) => {
   await page.goto("/settings/delivery");
   await settle(page, "main >> text=Built in >> nth=0");
-  await page.getByRole("button", { name: "Profile", exact: true }).click();
+  await page.getByRole("button", { name: "New profile", exact: true }).click();
   await settle(page, "[role=dialog] >> text=Frame rate");
   await page.getByLabel("Size").selectOption("1920x1080");
   await page.getByLabel("Frame rate").selectOption("25");
@@ -1641,7 +1641,7 @@ test("workflows-picker", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
   await settle(page, "main [data-node]:has-text('Label approval')");
-  await page.getByRole("button", { name: "Node", exact: true }).click();
+  await page.getByRole("button", { name: "Add node", exact: true }).click();
   const panel = page.locator("aside[aria-label=Inspector]");
   await settle(page, "aside[aria-label=Inspector] >> text=Add a node");
   // Once a workflow has its start, a start begins a new workflow, offered last (#514).
@@ -2148,7 +2148,7 @@ test("account-token-new", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/account/tokens");
   await settle(page, "main >> text=Logic Pro export");
-  await page.getByRole("button", { name: "Token", exact: true }).click();
+  await page.getByRole("button", { name: "New token", exact: true }).click();
   await settle(page, "[role=dialog] >> text=Pick the least it needs.");
   await saveScreen(page, "account-token-new");
   await checkScreen(page);
@@ -2160,7 +2160,7 @@ test("settings-oauth-clients", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/settings/api");
   await settle(page, "main >> text=Hekate for Slack");
-  await page.getByRole("button", { name: "Client", exact: true }).click();
+  await page.getByRole("button", { name: "New client", exact: true }).click();
   await settle(page, "[role=dialog] >> text=Scopes it may ask for");
   await saveScreen(page, "settings-oauth-client-new");
   await checkScreen(page);
@@ -2280,7 +2280,7 @@ test("settings-notifications-new", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/settings/notifications");
   await settle(page, "main >> text=Release desk >> nth=0");
-  await page.getByRole("button", { name: "Channel", exact: true }).click();
+  await page.getByRole("button", { name: "New channel", exact: true }).click();
   await page.getByLabel("Kind").selectOption("webhook");
   await settle(page, "[role=dialog] >> text=Each event arrives as JSON");
   await saveScreen(page, "settings-notifications-new");
@@ -4312,7 +4312,7 @@ test("project-calendar-subscribe", async ({ page }) => {
   await settle(page, 'main >> a:visible:has-text("Re-export the stems at 96 kHz")');
   await page.getByRole("button", { name: "Add to your calendar" }).click();
   const dialog = page.getByRole("dialog", { name: "Add to your calendar" });
-  await expect(dialog.getByRole("button", { name: "Make my link" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Create link" })).toBeVisible();
   await saveScreen(page, "project-calendar-subscribe");
   await checkScreen(page);
 });
@@ -4324,7 +4324,7 @@ test("project-calendar-entry", async ({ page }) => {
   await settle(page, 'main >> a:visible:has-text("Re-export the stems at 96 kHz")');
   await page.getByRole("button", { name: "New entry" }).click();
   const dialog = page.getByRole("dialog", { name: "New entry" });
-  await expect(dialog.getByRole("button", { name: "Add entry" })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "Create entry" })).toBeDisabled();
   await dialog.getByLabel("Title").fill("Day 4");
   await dialog.getByRole("button", { name: "Session", exact: true }).click();
   await expect(dialog.getByText("Books a recording session under Production")).toBeVisible();
@@ -4414,7 +4414,7 @@ test("project-task-new", async ({ page }) => {
   await page.getByRole("button", { name: "New task" }).click();
   const dialog = page.getByRole("dialog", { name: "New task" });
   await dialog.getByLabel("Title").fill("Book the hall for the patch session");
-  await expect(dialog.getByRole("button", { name: "Add task" })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Create task" })).toBeEnabled();
   await saveScreen(page, "project-task-new");
   await checkScreen(page);
 });
@@ -4428,7 +4428,7 @@ test("project-session-new", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "New session" });
   await dialog.getByLabel("Name").fill("Day 4");
   await dialog.getByRole("checkbox").first().check();
-  await expect(dialog.getByRole("button", { name: "Make the session" })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Create session" })).toBeEnabled();
   await saveScreen(page, "project-session-new");
   await checkScreen(page);
 });
@@ -4882,7 +4882,7 @@ test("account-passkeys", async ({ browser }, info) => {
 
     await page.goto("/account/security");
     await settle(page, "main >> text=Passkeys and hardware security keys");
-    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("button", { name: "Add passkey", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Add a passkey or hardware security key" });
     await dialog.getByLabel("Name").fill("Studio laptop");
     await dialog.getByRole("button", { name: "Add", exact: true }).click();

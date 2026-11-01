@@ -121,7 +121,7 @@ function SubscribeDialog({
             <div className="flex flex-wrap gap-2">
               <Button variant="primary" onClick={() => create.mutate()} disabled={create.isPending}>
                 <Icon name="calendar" size={14} />
-                {feed ? "Make a new link" : "Make my link"}
+                {feed ? "Create a new link" : "Create link"}
               </Button>
               {feed && (
                 <Button variant="ghost" onClick={() => remove.mutate()} disabled={remove.isPending}>

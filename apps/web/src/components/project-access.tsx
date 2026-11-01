@@ -165,7 +165,7 @@ function ExceptionDialog({
   };
   return (
     <Dialog
-      title="Add an exception"
+      title="Add exception"
       description="Their tools in this project, in place of their role's. A guest keeps no tool their review leaves out."
       onClose={onClose}
       width="sm"
@@ -637,7 +637,8 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
           )}
           {manage && (
             <Button variant="secondary" size="md" onClick={() => setDialog("exception")}>
-              Add an exception
+              <Icon name="plus" size={14} />
+              Add exception
             </Button>
           )}
         </div>

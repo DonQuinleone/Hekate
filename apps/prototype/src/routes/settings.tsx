@@ -465,7 +465,7 @@ export function SettingsPage({
             intro="What this workspace has asked the people who run the instance, and their answers."
             action={
               <Button
-                variant="primary"
+                variant="secondary"
                 size="md"
                 onClick={() =>
                   navigate({
@@ -666,9 +666,9 @@ export function SettingsPage({
             title="OAuth clients"
             intro="Applications registered here can ask people for access with OAuth 2.1 and PKCE. Each gets a client id; confidential clients get a secret shown once."
             action={
-              <Button variant="primary" size="md" onClick={() => setAdding(true)}>
+              <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
                 <Icon name="plus" size={14} />
-                Client
+                New client
               </Button>
             }
           >
@@ -1056,7 +1056,7 @@ export function SettingsPage({
           action={
             <Button variant="secondary" size="md">
               <Icon name="plus" size={14} />
-              Category
+              New category
             </Button>
           }
         >
@@ -1109,7 +1109,7 @@ export function SettingsPage({
             action={
               <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
                 <Icon name="plus" size={14} />
-                Profile
+                New profile
               </Button>
             }
           >
@@ -1344,7 +1344,7 @@ export function SettingsPage({
             action={
               <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
                 <Icon name="plus" size={14} />
-                Channel
+                New channel
               </Button>
             }
           >

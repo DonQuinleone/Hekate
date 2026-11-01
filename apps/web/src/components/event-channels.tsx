@@ -88,7 +88,7 @@ export function ChannelsSection() {
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
             <Icon name="plus" size={14} />
-            Channel
+            New channel
           </Button>
         }
       >

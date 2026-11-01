@@ -151,9 +151,9 @@ function Schedule({
                 ]}
               />
               {canEdit && (
-                <Button variant="secondary" size="md" onClick={() => setEditing({ what: "day" })}>
+                <Button variant="primary" size="md" onClick={() => setEditing({ what: "day" })}>
                   <Icon name="plus" size={14} />
-                  Day
+                  New day
                 </Button>
               )}
             </span>
@@ -235,7 +235,7 @@ function Day({
               onClick={() => onEdit({ what: "row", dayId: day.id })}
             >
               <Icon name="plus" size={13} />
-              Row
+              Add row
             </Button>
             <ActionMenu
               always

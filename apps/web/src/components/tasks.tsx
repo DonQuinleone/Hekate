@@ -519,7 +519,7 @@ function NewTaskDialog({
             onClick={() => submit()}
             disabled={!title.trim() || create.isPending}
           >
-            Add task
+            Create task
           </Button>
         </>
       }

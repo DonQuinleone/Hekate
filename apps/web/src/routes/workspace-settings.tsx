@@ -652,7 +652,7 @@ function WorkspaceCategories() {
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
             <Icon name="plus" size={14} />
-            Category
+            New category
           </Button>
         }
       >
@@ -766,7 +766,7 @@ function DeliveryProfiles() {
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
             <Icon name="plus" size={14} />
-            Profile
+            New profile
           </Button>
         }
       >
@@ -1087,7 +1087,7 @@ function Members({ role: myRole }: { role: Role }) {
           title={`Members${members ? ` · ${members.length}` : ""}`}
           action={
             elevated && (
-              <Button variant="primary" onClick={() => setInviting(true)}>
+              <Button variant="secondary" onClick={() => setInviting(true)}>
                 <Icon name="plus" size={14} />
                 Invite
               </Button>

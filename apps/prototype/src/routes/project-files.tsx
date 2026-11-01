@@ -1433,7 +1433,7 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
                 Cancel
               </Button>
               <Button variant="primary" onClick={() => setRequesting(false)}>
-                Create the link
+                Create link
               </Button>
             </>
           }

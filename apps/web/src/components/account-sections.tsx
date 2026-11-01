@@ -104,7 +104,7 @@ function EmailField({ email }: { email: string }) {
     return (
       <span className="flex flex-wrap items-center gap-2">
         <span className="text-[13px] text-ink">{email}</span>
-        <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+        <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
           Change…
         </Button>
         {sent && <Note>{`Check ${sent} for a link. The address changes once you follow it.`}</Note>}

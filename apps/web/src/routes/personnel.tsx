@@ -138,7 +138,7 @@ function PersonnelList({
   const addButton = (
     <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
       <Icon name="plus" size={14} />
-      Person
+      Add person
     </Button>
   );
   const groups = personnelKinds
@@ -578,7 +578,7 @@ function EntryDialog({
                   onClick={() => setSections((all) => [...all, sectionOf()])}
                 >
                   <Icon name="plus" size={12} />
-                  Section
+                  Add section
                 </Button>
               </div>
             </div>

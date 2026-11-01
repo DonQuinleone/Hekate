@@ -65,26 +65,7 @@ export function SessionsPage({ projectId }: { projectId: string }) {
   // Importing uploads the takes' files, which needs the project's upload permission too.
   const canImport = canEdit && can("upload");
   return (
-    <ProjectFrame
-      projectId={projectId}
-      title="Sessions"
-      actions={
-        canEdit && sessions && sessions.length > 0 ? (
-          <>
-            <Button variant="secondary" size="sm" onClick={() => setMaking(true)}>
-              <Icon name="plus" size={14} />
-              New session
-            </Button>
-            {canImport && (
-              <Button variant="secondary" size="sm" onClick={() => setImporting(true)}>
-                <Icon name="upload" size={14} />
-                Import takes
-              </Button>
-            )}
-          </>
-        ) : undefined
-      }
-    >
+    <ProjectFrame projectId={projectId} title="Sessions">
       {(project) => (
         <ProductionBody projectId={projectId} current="sessions" can={can}>
           {!can("view_takes") ? (
@@ -119,40 +100,57 @@ export function SessionsPage({ projectId }: { projectId: string }) {
               }
             />
           ) : (
-            <ul aria-label="Sessions" className="-mx-2 m-0 flex list-none flex-col p-0">
-              {sessions.map((s) => (
-                <li key={s.id}>
-                  <Link
-                    to="/sessions/$sessionId"
-                    params={{ sessionId: s.id }}
-                    className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 rounded-panel px-2 py-2.5 no-underline transition-colors hover:bg-raised/60 @3xl/app:grid-cols-[auto_minmax(0,1fr)_160px_120px_100px]"
-                  >
-                    <span className="flex size-9 items-center justify-center rounded-panel bg-raised text-ink-2">
-                      <Icon name="mic" size={16} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-[14px] font-medium text-ink">
-                        {s.name}
+            <>
+              {/* Inside a project the view's actions sit at the right of its content (#548). */}
+              {canEdit && !project.archivedAt && (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {canImport && (
+                    <Button variant="secondary" size="md" onClick={() => setImporting(true)}>
+                      <Icon name="upload" size={14} />
+                      Import takes
+                    </Button>
+                  )}
+                  <Button variant="primary" size="md" onClick={() => setMaking(true)}>
+                    <Icon name="plus" size={14} />
+                    New session
+                  </Button>
+                </div>
+              )}
+              <ul aria-label="Sessions" className="-mx-2 m-0 flex list-none flex-col p-0">
+                {sessions.map((s) => (
+                  <li key={s.id}>
+                    <Link
+                      to="/sessions/$sessionId"
+                      params={{ sessionId: s.id }}
+                      className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 rounded-panel px-2 py-2.5 no-underline transition-colors hover:bg-raised/60 @3xl/app:grid-cols-[auto_minmax(0,1fr)_160px_120px_100px]"
+                    >
+                      <span className="flex size-9 items-center justify-center rounded-panel bg-raised text-ink-2">
+                        <Icon name="mic" size={16} />
                       </span>
-                      <span className="block truncate text-[13px] text-ink-3">
-                        {whenAndWhere(s) || "No day or place given"}
+                      <span className="min-w-0">
+                        <span className="block truncate text-[14px] font-medium text-ink">
+                          {s.name}
+                        </span>
+                        <span className="block truncate text-[13px] text-ink-3">
+                          {whenAndWhere(s) || "No day or place given"}
+                        </span>
                       </span>
-                    </span>
-                    <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
-                      {s.takes === 0
-                        ? "No takes yet"
-                        : `${count(s.takes, "take")}${s.starred > 0 ? ` · ${s.starred} starred` : ""}`}
-                    </span>
-                    <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
-                      {s.tracks.length === 0 ? "No tracks" : count(s.tracks.length, "track")}
-                    </span>
-                    <span className="tabular text-right text-[13px] text-ink-3">
-                      {s.takes > 0 ? formatDuration(s.duration) : ""}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+                      <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
+                        {s.takes === 0
+                          ? "No takes yet"
+                          : `${count(s.takes, "take")}${s.starred > 0 ? ` · ${s.starred} starred` : ""}`}
+                      </span>
+                      <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
+                        {s.tracks.length === 0 ? "No tracks" : count(s.tracks.length, "track")}
+                      </span>
+                      <span className="tabular text-right text-[13px] text-ink-3">
+                        {s.takes > 0 ? formatDuration(s.duration) : ""}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
           {making && <SessionDialog projectId={project.id} onClose={() => setMaking(false)} />}
           {importing && (
@@ -228,7 +226,7 @@ function SessionDialog({
             form="session"
             disabled={saving || name.trim() === ""}
           >
-            {session ? "Save" : "Make the session"}
+            {session ? "Save" : "Create session"}
           </Button>
         </>
       }

@@ -82,9 +82,9 @@ function Repertoire() {
               },
             ]}
           />
-          <Button variant="secondary" size="md">
+          <Button variant="primary" size="md">
             <Icon name="plus" size={14} />
-            Work
+            New work
           </Button>
         </span>
       </div>
@@ -172,9 +172,9 @@ function Venues() {
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
         <Label>Venues · {list.length}</Label>
-        <Button variant="secondary" size="md" className="ml-auto">
+        <Button variant="primary" size="md" className="ml-auto">
           <Icon name="plus" size={14} />
-          Venue
+          New venue
         </Button>
       </div>
       <ul className="-mx-2 flex flex-col">
@@ -238,7 +238,7 @@ function PersonnelView() {
               {kind === "artist" && (
                 <Button variant="secondary" size="md" className="ml-auto">
                   <Icon name="plus" size={14} />
-                  Person
+                  Add person
                 </Button>
               )}
             </div>
@@ -413,9 +413,9 @@ function Schedule() {
               { label: "XLSX", onSelect: () => {} },
             ]}
           />
-          <Button variant="secondary" size="md">
+          <Button variant="primary" size="md">
             <Icon name="plus" size={14} />
-            Day
+            New day
           </Button>
         </span>
       </div>
@@ -1657,7 +1657,7 @@ function Patch() {
           />
           <Button variant="secondary" size="md">
             <Icon name="plus" size={14} />
-            Stage box
+            Add stage box
           </Button>
         </span>
       </div>

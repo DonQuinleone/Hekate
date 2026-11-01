@@ -599,7 +599,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
             action={
               <Button variant="secondary" size="md">
                 <Icon name="plus" size={14} />
-                Category
+                New category
               </Button>
             }
           >
@@ -798,7 +798,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
                 </label>
                 <Button variant="secondary" size="md" onClick={() => setRuleOpen(true)}>
                   <Icon name="plus" size={14} />
-                  Rule
+                  New rule
                 </Button>
               </span>
             }

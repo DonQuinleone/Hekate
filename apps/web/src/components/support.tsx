@@ -389,7 +389,7 @@ function Tickets({ onNew, onOpen }: { onNew: () => void; onOpen: (id: string) =>
       title="Your tickets"
       intro="What this workspace has asked the people who run the instance, and their answers."
       action={
-        <Button variant="primary" size="md" onClick={onNew}>
+        <Button variant="secondary" size="md" onClick={onNew}>
           <Icon name="plus" size={14} />
           New ticket
         </Button>

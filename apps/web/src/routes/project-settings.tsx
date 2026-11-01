@@ -1015,7 +1015,7 @@ function Comments({ project }: { project: Project }) {
           shape ? (
             <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
               <Icon name="plus" size={14} />
-              Category
+              New category
             </Button>
           ) : undefined
         }

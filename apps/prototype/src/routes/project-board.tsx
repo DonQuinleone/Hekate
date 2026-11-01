@@ -675,7 +675,7 @@ function EntryDialog({
             Cancel
           </Button>
           <Button variant="primary" onClick={onClose}>
-            {entry ? "Save" : "Add entry"}
+            {entry ? "Save" : "Create entry"}
           </Button>
         </>
       }

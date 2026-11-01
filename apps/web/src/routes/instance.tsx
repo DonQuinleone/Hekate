@@ -2299,7 +2299,7 @@ function Workspaces({
           operator ? (
             <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
               <Icon name="plus" size={14} />
-              Workspace
+              New workspace
             </Button>
           ) : undefined
         }
@@ -3398,9 +3398,9 @@ function Operators() {
         title="Operators"
         intro="Accounts that may open this side of the application. They sign in with a passkey or hardware security key, and what they do is listed under their name."
         action={
-          <Button variant="primary" size="md" onClick={() => setAdding(true)}>
+          <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
             <Icon name="plus" size={14} />
-            Operator
+            Add operator
           </Button>
         }
       >

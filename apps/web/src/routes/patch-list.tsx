@@ -105,7 +105,7 @@ function PatchList({
               {canEdit && (
                 <Button variant="secondary" size="md" onClick={() => setEditing({ kind: "box" })}>
                   <Icon name="plus" size={14} />
-                  Stage box
+                  Add stage box
                 </Button>
               )}
             </span>

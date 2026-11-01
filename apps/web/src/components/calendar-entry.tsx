@@ -113,7 +113,7 @@ export function EntryDialog({
             Cancel
           </Button>
           <Button variant="primary" disabled={!ready || pending} onClick={save}>
-            {entry ? "Save" : "Add entry"}
+            {entry ? "Save" : "Create entry"}
           </Button>
         </>
       }
