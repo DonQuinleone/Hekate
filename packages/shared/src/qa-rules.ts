@@ -172,6 +172,11 @@ export const customRule = z
     value: z.string().trim().min(1, "Say what it should be").max(100),
     severity: z.enum(ruleSeverities),
     on: z.boolean(),
+    /**
+     * Checked as a new version arrives too (#584): one that fails holds the version back, as
+     * the true-peak check does. Left out, as rules made before it are, it is not.
+     */
+    onUpload: z.boolean().optional(),
   })
   .superRefine((rule, ctx) => {
     if (!operatorsFor(rule.measure).includes(rule.operator)) {
@@ -211,6 +216,27 @@ export const qaSettings = z.object({
 });
 export type QaSettings = z.infer<typeof qaSettings>;
 export const defaultQaSettings: QaSettings = { delivery: true, checks: {}, rules: [] };
+
+/** Whether a built-in check runs at all: a delivery check only with the delivery checks on and its own. */
+export const checkRuns = (settings: QaSettings, check: BuiltInCheck) =>
+  !isDeliveryCheck(check) || (settings.delivery && settings.checks[check]?.on !== false);
+
+/**
+ * The categories a project's QA rules page opens at first (#584): those of the kinds of file its
+ * profile works with or it holds, and the names and metadata every file has. The others are
+ * folded to their heading, a click away; immersive audio waits for a project that asks for it.
+ */
+export function openQaCategories(
+  profile: "music" | "video" | "general",
+  holds: readonly string[] | null | undefined,
+): Set<QaCategory> {
+  const kinds = new Set(holds ?? []);
+  const open = new Set<QaCategory>(["naming", "metadata"]);
+  if (profile !== "general" || kinds.has("audio")) open.add("audio");
+  if (profile === "video" || kinds.has("video")) open.add("video");
+  if (kinds.has("document") || kinds.has("image")) open.add("artwork");
+  return open;
+}
 
 /** Stored settings read safely: a project without any, or with some no longer valid, gets the defaults. */
 export function qaSettingsOf(stored: unknown): QaSettings {
@@ -350,6 +376,61 @@ export function ruleFindings(
       },
     ];
   });
+}
+
+/** A file of a new version as the rules marked On upload see it (#584). */
+export interface UploadedFile {
+  name: string;
+  info: MediaInfo | null;
+  summary: LoudnessSummary | null;
+  /** Still being probed: what it says of itself is not known yet. */
+  probing: boolean;
+  /** Its loudness still being measured. */
+  measuring: boolean;
+}
+
+/** The measures read from the loudness analysis, which comes after the probe. */
+const loudnessMeasures: readonly RuleMeasure[] = ["integrated", "truePeak", "range"];
+
+/** Why a rule marked On upload holds a new version back (#584), file by file. */
+export type UploadRuleRefusal =
+  | { check: "rule"; rule: string; file: string; message: string }
+  | { check: "measuring"; file: string; message: string };
+
+/**
+ * The project's own rules marked On upload (#584) against a new version's files: a refusal for
+ * each that fails, saying why, and one for a file whose measure is not known yet, as the
+ * true-peak check has. A rule that does not apply to a file, or one switched off, says nothing.
+ */
+export function uploadRuleRefusals(
+  rules: readonly CustomRule[],
+  files: readonly UploadedFile[],
+): UploadRuleRefusal[] {
+  const asked = rules.filter((r) => r.on && r.onUpload);
+  const out: UploadRuleRefusal[] = [];
+  for (const file of files) {
+    const waiting = asked.some((r) =>
+      loudnessMeasures.includes(r.measure) ? file.probing || file.measuring : file.probing,
+    );
+    if (waiting) {
+      out.push({
+        check: "measuring",
+        file: file.name,
+        message: `${file.name} is still being measured; the project's rules are checked once that finishes.`,
+      });
+      continue;
+    }
+    for (const finding of ruleFindings(asked, file, file.info, file.summary)) {
+      if (finding.severity === "pass") continue;
+      out.push({
+        check: "rule",
+        rule: String(finding.details.name ?? ""),
+        file: file.name,
+        message: `The upload workflow refused ${file.name}: ${finding.summary}. Fix the export and upload again, or ask a producer to let it through.`,
+      });
+    }
+  }
+  return out;
 }
 
 const immersiveChecks: readonly BuiltInCheck[] = ["dead-channel", "layout", "atmos", "lfe"];

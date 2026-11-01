@@ -18941,6 +18941,36 @@ describe.runIf(url)("api", () => {
           "true peak +0.2 dBTP is over the \u22121.0 dBTP ceiling of Apple Digital Masters",
         );
         expect(why.message).toContain("asks for an edit decision list");
+        // A rule of the project's own marked On upload (#584) holds it back too, saying why;
+        // one not marked is only reported.
+        const masters = {
+          id: "0190a6f0-0000-7000-8000-0000000000ab",
+          name: "Masters at 96 kHz",
+          appliesTo: "audio",
+          measure: "sampleRate",
+          operator: "is",
+          value: "96",
+          severity: "fail",
+          on: true,
+        };
+        const rules = async (onUpload: boolean) =>
+          expect(
+            (
+              await send(
+                "PATCH",
+                `/api/projects/${s.projectId}`,
+                { qaSettings: { delivery: true, checks: {}, rules: [{ ...masters, onUpload }] } },
+                s.owner,
+              )
+            ).status,
+          ).toBe(200);
+        await rules(true);
+        const ruled = ((await (await add({})).json()) as { error: { message: string } }).error;
+        expect(ruled.message).toContain("Masters at 96 kHz: 48 kHz, not is 96");
+        await rules(false);
+        expect(
+          ((await (await add({})).json()) as { error: { message: string } }).error.message,
+        ).not.toContain("Masters at 96 kHz");
         // The list is read too (#56): one with no edits, or one running past the end of the
         // version (60 seconds here), is refused, saying which.
         const reasonFor = async (edlFileId: string) =>

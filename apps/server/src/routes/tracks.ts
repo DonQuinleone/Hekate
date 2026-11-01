@@ -1,6 +1,7 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
   addVariantInput,
+  checkRuns,
   createTrackInput,
   createVersionInput,
   deliveryProfileChoice,
@@ -9,12 +10,14 @@ import {
   isPdf,
   type ProjectPermission,
   parseCmx3600,
+  qaSettingsOf,
   replaceVariantInput,
   trackCommentAssignmentInput,
   trackNormalisationInput,
   trackReferencesInput,
   updateTrackInput,
   updateVariantInput,
+  uploadRuleRefusals,
   versionEdlInput,
   versionRefusals,
   withPrimary,
@@ -241,6 +244,7 @@ export async function versionChecksOf(
       deliveryProfile: projects.deliveryProfile,
       checkTruePeak: projects.checkTruePeak,
       requireEdl: projects.requireEdl,
+      qaSettings: projects.qaSettings,
     })
     .from(projects)
     .where(inOrg(projects, organisationId, eq(projects.id, track.projectId)));
@@ -287,7 +291,14 @@ export async function versionChecksOf(
     };
   }
   const refusals = versionRefusals(
-    { truePeak: Boolean(project?.checkTruePeak), edl: Boolean(project?.requireEdl) },
+    {
+      // The true-peak check on upload is the QA rule's own (#672): it holds a version back only
+      // while that rule runs.
+      truePeak:
+        Boolean(project?.checkTruePeak) &&
+        checkRuns(qaSettingsOf(project?.qaSettings), "true-peak"),
+      edl: Boolean(project?.requireEdl),
+    },
     // Each file against its own profile, else this track's, the project's or the workspace's.
     (f) => {
       const file = measured.find((m) => m.id === f.id);
@@ -335,7 +346,24 @@ export async function versionChecksOf(
     })),
     given,
   );
-  return { project, refusals };
+  // The project's own rules marked On upload (#584), each file as far as it is known; a file
+  // the true-peak check already waits for is said once.
+  const waiting = new Set(refusals.flatMap((r) => (r.check === "measuring" ? [r.file] : [])));
+  const ruled = uploadRuleRefusals(
+    qaSettingsOf(project?.qaSettings).rules,
+    measured.map((f) => {
+      const media = f.kind === "audio" || f.kind === "video";
+      const failed = f.streamStatus === "failed" || f.analysisStatus === "failed";
+      return {
+        name: f.name,
+        info: f.mediaInfo,
+        summary: f.summary,
+        probing: media && !f.mediaInfo && !failed,
+        measuring: media && !f.summary && !failed && f.analysisStatus !== "none",
+      };
+    }),
+  ).filter((r) => r.check !== "measuring" || !waiting.has(r.file));
+  return { project, refusals: [...refusals, ...ruled] };
 }
 
 async function oneTrack(db: Database, organisationId: string, id: string) {

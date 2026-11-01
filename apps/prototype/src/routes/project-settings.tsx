@@ -14,7 +14,7 @@ import {
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
-import { Input, Select } from "~/components/ui/input";
+import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import {
@@ -32,6 +32,7 @@ import {
   type QaRuleKind,
   qaRules,
   rulePacks,
+  type Track,
   tracks,
   workflows,
 } from "~/data";
@@ -54,16 +55,18 @@ const sections = [
 
 const intros: Record<string, string> = {
   general: "The project's name, what it is for, and what new projects copy from it.",
-  comments: "How comments are anchored, categorised and carried between versions.",
+  comments:
+    "What comments may refer to, how they are categorised and carried between versions, and whom new ones are given to.",
   roles:
     "Who may do what, one role at a time: a level in each area, each including the ones before it, and the tools it is given.",
-  workflow: "The stages a track goes through, the statuses they set, and who is told.",
+  workflow: "Its workflows, and who they tell.",
   watermarks:
     "How each kind of file names whoever has it, and who may take files away or delete them.",
   storage:
     "Where new files go. Existing files stay where they are. Everything is encrypted at rest with a key per file.",
-  delivery: "The numbers the checks measure against: loudness, peaks, formats and lengths.",
-  qa: "Every check that runs on a file, by category: plain errors always on, delivery checks and your own rules as you choose.",
+  delivery:
+    "What QA measures every recording against, and plays it back level with: loudness, peaks, formats and lengths. The project default applies to every track and file unless one has its own.",
+  qa: "Every check that runs on a file, by category, and what a new version must pass before it lands.",
 };
 
 const kindCopy: Record<QaRuleKind, { label: string; hint: string }> = {
@@ -92,67 +95,82 @@ export const permissionCopy: Record<ProjectPermission, { label: string; hint: st
   delete: { label: "Delete", hint: "Files, versions and the project" },
 };
 
+const categoryTones = [
+  "bg-category-1",
+  "bg-category-2",
+  "bg-category-3",
+  "bg-category-4",
+  "bg-category-5",
+  "bg-category-6",
+];
+
 const severityLabel: Record<QaRule["severity"], string> = {
   fail: "Issue",
   warn: "Warning",
   info: "Advisory",
 };
 
-/** One rule in a category: on or off, how hard it bites, whether it runs on upload. Dense on purpose. */
-function RuleRow({
-  rule,
-  fixed = false,
-  tag,
-}: {
-  rule: QaRule;
-  fixed?: boolean;
-  /** Where the rule came from, when it is not built in. */
-  tag?: string;
-}) {
+/**
+ * One rule in a category (#584): its name and what it checks, whole at every width; how hard it
+ * bites; On upload where it can be known as a version arrives (the true peak, and your own
+ * rules); on or off, or always on with a fixed switch. On a phone the controls take a second line.
+ */
+function RuleRow({ rule, fixed = false }: { rule: QaRule; fixed?: boolean }) {
   const [on, setOn] = useState(rule.on);
   const [upload, setUpload] = useState(rule.onUpload);
+  const uploadable = rule.id === "tp" || rule.id.startsWith("custom-");
   return (
-    <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2 text-[13px]">
-          <span className={cn("truncate", on ? "text-ink" : "text-ink-3")}>{rule.name}</span>
-          {tag && (
-            <span className="shrink-0 rounded-chip border border-line px-1.5 text-[11px] text-ink-3">
-              {tag}
-            </span>
-          )}
-        </div>
-        {rule.hint && <div className="truncate text-[12px] text-ink-3">{rule.hint}</div>}
+    <div className="flex flex-col gap-2 px-4 py-2.5 @3xl/app:flex-row @3xl/app:items-center @3xl/app:gap-3">
+      <div className="min-w-0 flex-1">
+        <div className={cn("text-[13px]", on ? "text-ink" : "text-ink-3")}>{rule.name}</div>
+        {rule.hint && <div className="text-[12px] text-ink-3">{rule.hint}</div>}
       </div>
       <div className="flex items-center gap-3">
         <Select
-          defaultValue={rule.severity}
+          defaultValue={fixed ? "" : rule.severity}
           aria-label={`Severity of ${rule.name}`}
-          className="h-7 w-28 text-[12px]"
+          className="h-7 w-40 text-[12px]"
           disabled={!on}
         >
+          {fixed && <option value="">Default (as found)</option>}
           {(Object.keys(severityLabel) as QaRule["severity"][]).map((sv) => (
             <option key={sv} value={sv}>
               {severityLabel[sv]}
             </option>
           ))}
         </Select>
-        <label
-          className={cn("flex items-center gap-1.5 text-[12px]", on ? "text-ink-2" : "text-ink-3")}
-        >
-          <input
-            type="checkbox"
-            checked={upload}
+        {uploadable ? (
+          <button
+            type="button"
+            aria-pressed={upload && on}
+            aria-label={`${rule.name}: checked on upload`}
+            title="Checked as a new version arrives: one that fails is held back, saying why."
             disabled={!on}
-            onChange={(e) => setUpload(e.target.checked)}
-          />
-          On upload
-        </label>
-        {fixed ? (
-          <span className="w-9 text-right text-[12px] text-ink-3">always</span>
+            onClick={() => setUpload(!upload)}
+            className={cn(
+              "inline-flex h-7 w-[6.5rem] shrink-0 items-center justify-center gap-1 rounded-chip border text-[13px] transition-colors disabled:opacity-50",
+              upload && on
+                ? "border-edge-strong bg-raised text-ink"
+                : "border-line text-ink-3 hover:border-edge hover:text-ink",
+            )}
+          >
+            {upload && on && <Icon name="check" size={13} />}
+            On upload
+          </button>
         ) : (
-          <Switch label={rule.name} checked={on} onChange={setOn} />
+          <span aria-hidden="true" className="hidden w-[6.5rem] shrink-0 @3xl/app:block" />
         )}
+        <span
+          className="ml-auto @3xl/app:ml-0"
+          title={fixed ? "Always runs: a plain error is never switched off." : undefined}
+        >
+          <Switch
+            label={fixed ? `${rule.name} always runs` : rule.name}
+            checked={fixed || on}
+            onChange={fixed ? () => {} : setOn}
+            disabled={fixed}
+          />
+        </span>
       </div>
     </div>
   );
@@ -246,6 +264,51 @@ function AssigneeSelect({ project, inherits }: { project: Project; inherits?: st
         ))}
       </optgroup>
     </Select>
+  );
+}
+
+/**
+ * The tracks that differ from the project in one setting (#671), listed only where they do,
+ * under a heading naming the setting, with "Override for a track…" to give another its own.
+ */
+function TrackOverrides({
+  title,
+  tracks: listed,
+  control,
+}: {
+  title: string;
+  tracks: Track[];
+  control: (track: Track) => ReactNode;
+}) {
+  return (
+    <Section
+      title={title}
+      intro={listed.length === 0 ? "Every track follows the project's choice." : undefined}
+      action={
+        <Button variant="secondary" size="md">
+          Override for a track…
+        </Button>
+      }
+    >
+      {listed.length > 0
+        ? listed.map((t) => (
+            <Row
+              key={t.id}
+              name={
+                <Link
+                  to="/tracks/$trackId"
+                  params={{ trackId: t.id }}
+                  className="hover:text-signal"
+                >
+                  {t.name}
+                </Link>
+              }
+            >
+              {control(t)}
+            </Row>
+          ))
+        : null}
+    </Section>
   );
 }
 
@@ -377,6 +440,8 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
   const [profileOpen, setProfileOpen] = useState(false);
   const [ruleOpen, setRuleOpen] = useState(false);
   const [packsOn, setPacksOn] = useState<Set<string>>(new Set(projectPacks[project.id] ?? []));
+  const [opened, setOpened] = useState<Set<QaRuleKind>>(new Set(["naming", "metadata"]));
+  const [folded, setFolded] = useState<Set<QaRuleKind>>(new Set());
   const [confirm, setConfirm] = useState<"archive" | "delete" | "move" | null>(null);
   const canRoles = viewer.can(project.id, "manage_roles");
   const canWorkflows = viewer.can(project.id, "edit_workflows");
@@ -408,20 +473,24 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
         <>
           <Section title="Project">
             <Row name="Name">
-              <Input defaultValue={project.name} className="w-64" />
+              <Input defaultValue={project.name} className="w-full @3xl/app:w-72" />
             </Row>
             <Row
               name="Profile"
               hint="Only decides which tools appear; files of any kind are welcome in any project."
             >
-              <Select defaultValue={project.profile} className="w-40">
+              <Select defaultValue={project.profile} className="w-full @3xl/app:w-72">
                 <option value="music">Music</option>
                 <option value="video">Video</option>
                 <option value="general">General</option>
               </Select>
             </Row>
             <Row name="Description">
-              <Input defaultValue={project.description} className="w-full @3xl/app:w-80" />
+              <Textarea
+                defaultValue={project.description}
+                rows={2}
+                className="w-full @3xl/app:w-72"
+              />
             </Row>
           </Section>
           <Section title="Templates">
@@ -478,22 +547,24 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
       )}
       {sec === "delivery" && (
         <>
-          <Section
-            title="Delivery profile"
-            intro="What QA measures against. The project default applies to every track and file unless one overrides it."
-          >
+          {/* One intro, the page's own; Custom… is the select's last choice (#672). */}
+          <Section>
             <Row name="Project default">
-              <Select defaultValue={project.deliveryProfile ?? ""} className="w-56">
+              <Select
+                defaultValue={project.deliveryProfile ?? ""}
+                className="w-56"
+                onChange={(e) => {
+                  if (e.target.value === "custom") setProfileOpen(true);
+                }}
+              >
                 <option value="">Workspace default</option>
                 {deliveryProfiles.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
                   </option>
                 ))}
+                <option value="custom">Custom…</option>
               </Select>
-              <Button variant="ghost" size="md" onClick={() => setProfileOpen(true)}>
-                Custom…
-              </Button>
             </Row>
             {deliveryProfiles
               .filter((p) => p.id === (project.deliveryProfile ?? "streaming"))
@@ -514,33 +585,47 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
                 />
               ))}
           </Section>
-          <Section title="Overrides" intro="Tracks that measure against a different profile.">
-            {tracks
+          <TrackOverrides
+            title="Tracks with their own profile"
+            tracks={tracks
               .filter((t) => t.projectId === project.id)
-              .map((t) => (
-                <Row
-                  key={t.id}
-                  name={
-                    <Link
-                      to="/tracks/$trackId"
-                      params={{ trackId: t.id }}
-                      className="hover:text-signal"
-                    >
-                      {t.name}
-                    </Link>
-                  }
-                >
-                  <Select defaultValue={t.deliveryProfile ?? ""} className="w-56">
-                    <option value="">Project default</option>
-                    {deliveryProfiles.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </Select>
-                </Row>
-              ))}
+              .filter((t) => t.deliveryProfile)}
+            control={(t) => (
+              <Select defaultValue={t.deliveryProfile ?? ""} className="w-56">
+                <option value="">Project default</option>
+                {deliveryProfiles.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          />
+          {/* A listening setting, matched to this profile's target (moved from Comments, #672). */}
+          <Section title="Playback">
+            <Row
+              name="Normalised playback"
+              hint="Level-matched to the delivery profile's target, so a louder version is not mistaken for a better one."
+            >
+              <Select defaultValue={project.normalisation} className="w-40">
+                <option value="off">Off</option>
+                <option value="optional">Each person's choice</option>
+                <option value="forced">Always</option>
+              </Select>
+            </Row>
           </Section>
+          <TrackOverrides
+            title="Tracks with their own normalisation"
+            tracks={[]}
+            control={() => (
+              <Select defaultValue="" className="w-56">
+                <option value="">Project default</option>
+                <option value="off">Off</option>
+                <option value="optional">Each person's choice</option>
+                <option value="forced">Always</option>
+              </Select>
+            )}
+          />
         </>
       )}
       {sec === "comments" && (
@@ -557,35 +642,20 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
             />
             <SwitchRow name="Beats" checked={project.references.beat} />
           </Section>
-          {tracks.some((t) => t.projectId === project.id) && (
-            <Section title="Overrides" intro="Tracks whose comments name other references.">
-              {tracks
-                .filter((t) => t.projectId === project.id)
-                .map((t) => (
-                  <Row
-                    key={t.id}
-                    name={
-                      <Link
-                        to="/tracks/$trackId"
-                        params={{ trackId: t.id }}
-                        className="hover:text-signal"
-                      >
-                        {t.name}
-                      </Link>
-                    }
-                  >
-                    <Select defaultValue="" className="w-56">
-                      <option value="">Project default</option>
-                      <option value="none">None</option>
-                      <option value="bars">Bars</option>
-                      <option value="bars-beats">Bars and beats</option>
-                      <option value="pages-bars">Pages and bars</option>
-                      <option value="pages-bars-beats">Pages, bars and beats</option>
-                    </Select>
-                  </Row>
-                ))}
-            </Section>
-          )}
+          <TrackOverrides
+            title="Tracks with their own references"
+            tracks={[]}
+            control={() => (
+              <Select defaultValue="" className="w-56">
+                <option value="">Project default</option>
+                <option value="none">None</option>
+                <option value="bars">Bars</option>
+                <option value="bars-beats">Bars and beats</option>
+                <option value="pages-bars">Pages and bars</option>
+                <option value="pages-bars-beats">Pages, bars and beats</option>
+              </Select>
+            )}
+          />
           <Section
             title="Categories"
             intro="Producers mark comments so each kind goes where it belongs."
@@ -597,39 +667,45 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
             }
           >
             {categories.map((c, i) => (
-              <Row
-                key={c.id}
-                name={
-                  <span className="flex items-center gap-2">
-                    <span
-                      className="size-2.5 rounded-full"
-                      style={{ background: `oklch(0.7 0.12 ${(i * 70) % 360})` }}
-                    />
-                    {c.name}
-                    <kbd className="rounded-chip border border-line-strong px-1 text-[11px] text-ink-3">
-                      {String(i + 1)}
-                    </kbd>
-                  </span>
-                }
-                hint={
-                  c.handling === "deferred"
-                    ? `Deferred to the ${c.stage} stage`
-                    : c.handling === "information"
-                      ? "Information only: no action expected"
-                      : "Handled on this version"
-                }
-              >
-                <ActionMenu
-                  always
-                  label={c.name}
-                  actions={[
-                    { label: "Rename", onSelect: () => {} },
-                    { label: "Change handling…", onSelect: () => {} },
-                    "divider",
-                    { label: "Delete", danger: true, onSelect: () => {} },
-                  ]}
+              // Each in its colour, by its place among the categories (#706): the bar a thread
+              // carries at its left edge.
+              <div key={c.id} className="relative">
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute inset-y-2.5 left-0 w-[3px] rounded-r-full",
+                    categoryTones[i % categoryTones.length],
+                  )}
                 />
-              </Row>
+                <Row
+                  name={
+                    <span className="flex items-center gap-2">
+                      {c.name}
+                      <kbd className="rounded-chip border border-line-strong px-1 text-[11px] text-ink-3">
+                        {String(i + 1)}
+                      </kbd>
+                    </span>
+                  }
+                  hint={
+                    c.handling === "deferred"
+                      ? `Deferred to the ${c.stage} stage`
+                      : c.handling === "information"
+                        ? "Information only: no action expected"
+                        : "Handled on this version"
+                  }
+                >
+                  <ActionMenu
+                    always
+                    label={c.name}
+                    actions={[
+                      { label: "Rename", onSelect: () => {} },
+                      { label: "Change handling…", onSelect: () => {} },
+                      "divider",
+                      { label: "Delete…", danger: true, onSelect: () => {} },
+                    ]}
+                  />
+                </Row>
+              </div>
             ))}
           </Section>
           <Section title="Versions">
@@ -638,45 +714,24 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
               hint="Open comments travel to the next version with their anchors mapped; off keeps them until triage shows them."
               checked={project.carriedCommentsShown}
             />
+          </Section>
+          {/* Whom new comments are for (moved here from Workflow, #672). */}
+          <Section
+            title="New comments"
+            intro="Whom a comment is given to as it is opened, unless the step the track waits at says otherwise. They are told, as of comments sent to them."
+          >
             <Row
-              name="Normalised playback"
-              hint="Level-matched to the delivery profile's target, so a louder version is not mistaken for a better one."
+              name="Assign new comments to"
+              hint="A member, or whoever has held a role the longest"
             >
-              <Select defaultValue={project.normalisation} className="w-40">
-                <option value="off">Off</option>
-                <option value="optional">Each person's choice</option>
-                <option value="forced">Always</option>
-              </Select>
+              <AssigneeSelect project={project} />
             </Row>
           </Section>
-          <Section
-            title="Normalised playback by track"
-            intro="Tracks with a normalisation of their own, in place of the project's: a set heard together can play as one."
-          >
-            {tracks
-              .filter((t) => t.projectId === project.id)
-              .map((t) => (
-                <Row
-                  key={t.id}
-                  name={
-                    <Link
-                      to="/tracks/$trackId"
-                      params={{ trackId: t.id }}
-                      className="hover:text-signal"
-                    >
-                      {t.name}
-                    </Link>
-                  }
-                >
-                  <Select defaultValue="" className="w-56">
-                    <option value="">Project default</option>
-                    <option value="off">Off</option>
-                    <option value="optional">Each person's choice</option>
-                    <option value="forced">Always</option>
-                  </Select>
-                </Row>
-              ))}
-          </Section>
+          <TrackOverrides
+            title="Tracks whose new comments go to someone else"
+            tracks={[]}
+            control={() => <AssigneeSelect project={project} inherits="Project default" />}
+          />
         </>
       )}
       {sec === "roles" && <RolesAndAccess project={project} canRoles={canRoles} />}
@@ -732,70 +787,31 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
             <SwitchRow name="Participants, by mail" checked />
             <SwitchRow name="Everyone in the project, on a status change" checked={false} />
           </Section>
-          <Section
-            title="New comments"
-            intro="Whom a comment is given to as it is opened, unless the stage the track waits at says otherwise. They are told, as of comments sent to them."
-          >
-            <Row
-              name="Assign new comments to"
-              hint="A member, or whoever has held a role the longest"
-            >
-              <AssigneeSelect project={project} />
-            </Row>
-          </Section>
-          <Section title="Overrides" intro="Tracks whose new comments go to someone else.">
-            {tracks
-              .filter((t) => t.projectId === project.id)
-              .map((t) => (
-                <Row key={t.id} name={t.name}>
-                  <AssigneeSelect project={project} inherits="Project default" />
-                </Row>
-              ))}
-          </Section>
-          <Section
-            title="Checks on a new version"
-            intro="A version that fails is refused, saying why; whoever edits the workflow can let it through, on the record."
-          >
-            <SwitchRow
-              name="True peak under the delivery profile's ceiling"
-              hint="−1 dBTP for Streaming"
-              checked
-            />
-            <SwitchRow
-              name="An edit decision list with every version"
-              hint="The EDL the version was made from, uploaded beside it: it must hold edits, and end within the version."
-              checked={false}
-            />
-          </Section>
         </>
       )}
       {sec === "qa" && (
         <>
           <Section
-            title="Checks"
-            intro="Errors are always on: choose how hard each bites and whether it runs as the file arrives. Delivery checks and your own rules sit in the same categories and switch off individually."
+            title="Rules"
+            intro="Plain errors always run: choose how hard each bites. Delivery checks and your own rules switch off one by one."
             action={
-              <span className="flex items-center gap-3">
-                <label className="flex items-center gap-2 text-[13px] text-ink-2">
-                  Delivery checks
-                  <Switch
-                    label="Distributor delivery checks"
-                    checked={packsOn.has("delivery")}
-                    onChange={(v) => {
-                      const next = new Set(packsOn);
-                      if (v) next.add("delivery");
-                      else next.delete("delivery");
-                      setPacksOn(next);
-                    }}
-                  />
-                </label>
-                <Button variant="secondary" size="md" onClick={() => setRuleOpen(true)}>
-                  <Icon name="plus" size={14} />
-                  New rule
-                </Button>
-              </span>
+              <Button variant="secondary" size="md" onClick={() => setRuleOpen(true)}>
+                <Icon name="plus" size={14} />
+                New rule
+              </Button>
             }
           >
+            <SwitchRow
+              name="Delivery checks"
+              hint="What distributors and aggregators refuse or query at delivery, against the delivery profile."
+              checked={packsOn.has("delivery")}
+              onChange={(v) => {
+                const next = new Set(packsOn);
+                if (v) next.add("delivery");
+                else next.delete("delivery");
+                setPacksOn(next);
+              }}
+            />
             {(Object.keys(kindCopy) as QaRuleKind[]).map((kind) => {
               const errors = qaRules.filter((r) => r.kind === kind);
               const delivery = packsOn.has("delivery")
@@ -804,40 +820,88 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
               const custom = customRules.filter((r) => r.kind === kind);
               const count = errors.length + delivery.length + custom.length;
               if (count === 0) return null;
+              // The kinds the profile does not use are folded (#584), a click away.
+              const open = folded.has(kind)
+                ? false
+                : opened.has(kind) ||
+                  (project.profile === "video" ? kind === "video" : kind === "audio");
               return (
-                <div key={kind} className="flex flex-col divide-y divide-line/60">
-                  <div className="flex items-baseline gap-2 bg-raised/30 px-4 py-1.5">
+                <div key={kind} className="flex flex-col">
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    onClick={() => {
+                      const next = new Set(folded);
+                      const was = new Set(opened);
+                      if (open) {
+                        next.add(kind);
+                        was.delete(kind);
+                      } else {
+                        next.delete(kind);
+                        was.add(kind);
+                      }
+                      setFolded(next);
+                      setOpened(was);
+                    }}
+                    className="flex items-baseline gap-2 bg-raised/30 px-4 py-1.5 text-left hover:bg-raised/60"
+                  >
+                    <Icon
+                      name="chevronRight"
+                      size={12}
+                      className={cn(
+                        "shrink-0 self-center text-ink-3 transition-transform",
+                        open && "rotate-90",
+                      )}
+                    />
                     <span className="text-[13px] font-medium text-ink">{kindCopy[kind].label}</span>
-                    <span className="text-[12px] text-ink-3">{kindCopy[kind].hint}</span>
+                    <span className="hidden text-[12px] text-ink-3 @3xl/app:inline">
+                      {kindCopy[kind].hint}
+                    </span>
                     <span className="tabular ml-auto text-[12px] text-ink-3">{count}</span>
-                  </div>
-                  {errors.map((r) => (
-                    <RuleRow key={r.id} rule={r} fixed />
-                  ))}
-                  {delivery.map((r) => (
-                    <RuleRow key={r.id} rule={r} tag="delivery" />
-                  ))}
-                  {custom.map((r) => (
-                    <RuleRow key={r.id} rule={r} tag={`${r.measure} ${r.operator} ${r.value}`} />
-                  ))}
+                  </button>
+                  {open && (
+                    <div className="flex flex-col divide-y divide-line/60">
+                      {errors.map((r) => (
+                        <RuleRow key={r.id} rule={r} fixed={r.id !== "tp"} />
+                      ))}
+                      {delivery.length > 0 && (
+                        <>
+                          <div className="px-4 pt-2.5 pb-0.5 text-[12px] text-ink-3">Delivery</div>
+                          {delivery.map((r) => (
+                            <RuleRow key={r.id} rule={r} />
+                          ))}
+                        </>
+                      )}
+                      {custom.length > 0 && (
+                        <>
+                          <div className="px-4 pt-2.5 pb-0.5 text-[12px] text-ink-3">
+                            Your rules
+                          </div>
+                          {custom.map((r) => (
+                            <RuleRow
+                              key={r.id}
+                              rule={{ ...r, hint: `${r.measure} ${r.operator} ${r.value}` }}
+                            />
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
           </Section>
-          <p className="text-[13px] text-ink-3">
-            {packsOn.has("delivery")
-              ? "Delivery checks follow what distributors and aggregators refuse or query at delivery."
-              : `${rulePacks.flatMap((pk) => pk.rules).length} delivery checks are off: switch them on when this project delivers through a distributor.`}{" "}
-            Rules marked “on upload” also run as a file arrives, from the workflow's{" "}
-            <Link
-              to="/projects/$projectId/$view"
-              params={{ projectId: project.id, view: "workflow" }}
-              className="text-ink-2 hover:text-ink"
-            >
-              upload event
-            </Link>
-            , where their action (warn or refuse) is set.
-          </p>
+          {/* What a new version must pass (moved here from Workflow, #672). */}
+          <Section
+            title="Checks on a new version"
+            intro="A version whose files fail a rule marked On upload is refused, saying why; whoever edits the workflow can let it through, on the record. The other rules are measured once a file has landed."
+          >
+            <SwitchRow
+              name="An edit decision list with every version"
+              hint="The EDL the version was made from, uploaded beside it: it must hold edits, and end within the version."
+              checked={false}
+            />
+          </Section>
           {ruleOpen && (
             <Dialog
               title="New rule"

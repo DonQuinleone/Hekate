@@ -50,7 +50,6 @@ import { AssignmentPicker } from "~/components/assignment-picker";
 import { CategoryDialog } from "~/components/category-dialog";
 import {
   deliveryHint,
-  formatDb,
   ProfileEditor,
   ProfileOptions,
   useWorkspaceAdmin,
@@ -73,9 +72,12 @@ import {
 import { Button } from "~/components/ui/button";
 import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
-import { Input, Select } from "~/components/ui/input";
+import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { Loading } from "~/components/ui/states";
+import { WorkflowState } from "~/components/workflow-state";
+import { cn } from "~/lib/cn";
+import { categoryTone } from "~/lib/comments";
 import { formatDates } from "~/lib/locale";
 import {
   type CommentCategory,
@@ -86,6 +88,7 @@ import {
   projectStorageQuery,
   projectTracksQuery,
   projectWorkflowsQuery,
+  type Track,
   templatesQuery,
   useArchiveProject,
   useCategoryMutations,
@@ -116,7 +119,8 @@ const sections = [
     id: "comments",
     label: "Comments",
     group: "Project",
-    intro: "What comments may refer to, and how they are categorised and carried between versions.",
+    intro:
+      "What comments may refer to, how they are categorised and carried between versions, and whom new ones are given to.",
   },
   {
     id: "roles",
@@ -129,7 +133,7 @@ const sections = [
     id: "workflow",
     label: "Workflow",
     group: "Project",
-    intro: "Its workflows, who they tell, and what a new version must pass before it lands.",
+    intro: "Its workflows, and who they tell.",
   },
   {
     id: "watermarks",
@@ -150,14 +154,14 @@ const sections = [
     label: "Delivery profile",
     group: "Quality assurance",
     intro:
-      "What QA measures every recording against: loudness, peaks and formats. Anything in the project can have its own; without any, each file is measured against the profile its channels suggest.",
+      "What QA measures every recording against, and plays it back level with: loudness, peaks and formats. Anything in the project can have its own; without any, each file is measured against the profile its channels suggest.",
   },
   {
     id: "qa",
     label: "QA rules",
     group: "Quality assurance",
     intro:
-      "Every check that runs on a recording or a video, by category: plain errors always on, delivery checks and your own rules as you choose.",
+      "Every check that runs on a recording or a video, by category, and what a new version must pass before it lands.",
   },
 ] as const;
 export type ProjectSettingsSection = (typeof sections)[number]["id"];
@@ -210,7 +214,7 @@ export function ProjectSettingsPage({
             {current.id === "watermarks" && <Watermarks project={project} />}
             {current.id === "storage" && <ProjectStorageSection project={project} />}
             {current.id === "delivery" && <Delivery project={project} />}
-            {current.id === "qa" && <QaRules project={project} />}
+            {current.id === "qa" && <QaRulesPage project={project} />}
           </SettingsLayout>
         )
       }
@@ -218,12 +222,16 @@ export function ProjectSettingsPage({
   );
 }
 
-/** A text setting saved when it loses focus, or on Enter; Escape puts it back. */
+/**
+ * A text setting saved when it loses focus, or on Enter; Escape puts it back. Two lines tall
+ * where its words run longer than a name (#706), Shift and Enter starting a new line.
+ */
 function SavedInput({
   value,
   label,
   disabled,
   required = false,
+  multiline = false,
   className,
   onSave,
 }: {
@@ -231,6 +239,7 @@ function SavedInput({
   label: string;
   disabled: boolean;
   required?: boolean;
+  multiline?: boolean;
   className?: string;
   onSave: (value: string) => void;
 }) {
@@ -240,23 +249,28 @@ function SavedInput({
     if (next === value || (required && !next)) setDraft(value);
     else onSave(next);
   };
-  return (
-    <Input
-      key={value}
-      value={draft}
-      aria-label={label}
-      disabled={disabled}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={save}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-        if (event.key === "Escape") {
-          setDraft(value);
-          event.currentTarget.blur();
-        }
-      }}
-      className={className}
-    />
+  const keys = (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      event.currentTarget.blur();
+    }
+    if (event.key === "Escape") {
+      setDraft(value);
+      event.currentTarget.blur();
+    }
+  };
+  const shared = {
+    value: draft,
+    "aria-label": label,
+    disabled,
+    onBlur: save,
+    onKeyDown: keys,
+    className,
+  };
+  return multiline ? (
+    <Textarea key={value} rows={2} {...shared} onChange={(event) => setDraft(event.target.value)} />
+  ) : (
+    <Input key={value} {...shared} onChange={(event) => setDraft(event.target.value)} />
   );
 }
 
@@ -392,7 +406,7 @@ function General({ project }: { project: Project }) {
             required
             disabled={!edit}
             onSave={(name) => update.mutate({ name })}
-            className="w-full @3xl/app:w-64"
+            className="w-full @3xl/app:w-72"
           />
         </Row>
         <Row
@@ -404,7 +418,6 @@ function General({ project }: { project: Project }) {
             aria-label="Profile"
             disabled={!edit}
             onChange={(event) => update.mutate({ profile: event.target.value as ProjectProfile })}
-            className="w-full @3xl/app:w-40"
           >
             {(Object.keys(profiles) as ProjectProfile[]).map((p) => (
               <option key={p} value={p}>
@@ -419,8 +432,9 @@ function General({ project }: { project: Project }) {
             value={project.description ?? ""}
             label="Description"
             disabled={!edit}
+            multiline
             onSave={(description) => update.mutate({ description: description || null })}
-            className="w-full @3xl/app:w-80"
+            className="w-full @3xl/app:w-72"
           />
         </Row>
       </Section>
@@ -932,6 +946,103 @@ function Downloads({ project }: { project: Project }) {
   );
 }
 
+/**
+ * The tracks that differ from the project in one setting (#671), as Vercel lists only the values
+ * an environment overrides: each with its control, choosing the project's default putting it
+ * back, and "Override for a track…" to give another its own. Named for what they override.
+ */
+function TrackOverrides({
+  project,
+  title,
+  tracks,
+  differs,
+  disabled,
+  control,
+}: {
+  project: Project;
+  /** What the tracks listed have of their own: "Tracks with their own references". */
+  title: string;
+  tracks: Track[] | undefined;
+  differs: (track: Track) => boolean;
+  disabled: boolean;
+  /** A track's control, `done` once it has changed (the dialog closes). */
+  control: (track: Track, done?: () => void) => ReactNode;
+}) {
+  const words = itemWords(project.profile);
+  const [adding, setAdding] = useState(false);
+  const [chosen, setChosen] = useState("");
+  if (!tracks || tracks.length === 0) return null;
+  const listed = tracks.filter(differs);
+  const others = tracks.filter((t) => !differs(t));
+  const picked = others.find((t) => t.id === chosen) ?? others[0];
+  return (
+    <Section
+      title={title}
+      count={listed.length > 0 ? listed.length : undefined}
+      intro={listed.length === 0 ? `Every ${words.track} follows the project's choice.` : undefined}
+      action={
+        !disabled && others.length > 0 ? (
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={() => {
+              setChosen("");
+              setAdding(true);
+            }}
+          >
+            Override for a {words.track}…
+          </Button>
+        ) : undefined
+      }
+    >
+      {listed.length > 0
+        ? listed.map((t) => (
+            <Row
+              key={t.id}
+              name={
+                <Link
+                  to="/tracks/$trackId"
+                  params={{ trackId: t.id }}
+                  className="transition-colors hover:text-signal"
+                >
+                  {t.name}
+                </Link>
+              }
+            >
+              {control(t)}
+            </Row>
+          ))
+        : null}
+      {adding && picked && (
+        <Dialog
+          title={`Override for a ${words.track}`}
+          description={`The ${words.track} keeps this in place of the project's choice, until it is set back to the project default.`}
+          onClose={() => setAdding(false)}
+          width="sm"
+          footer={
+            <Button variant="secondary" onClick={() => setAdding(false)}>
+              Cancel
+            </Button>
+          }
+        >
+          <div className="flex flex-col gap-4">
+            <Field label={capital(words.track)}>
+              <Select value={picked.id} onChange={(e) => setChosen(e.target.value)}>
+                {others.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Its own">{control(picked, () => setAdding(false))}</Field>
+          </div>
+        </Dialog>
+      )}
+    </Section>
+  );
+}
+
 function Comments({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
@@ -940,18 +1051,19 @@ function Comments({ project }: { project: Project }) {
   // Tracks may choose their own (#240).
   const { data: tracks } = useQuery(projectTracksQuery(project.id));
   const onTrack = useTrackReferences(project.id);
-  const playsTrack = useTrackNormalisation(project.id);
+  const assignOnTrack = useTrackCommentAssignment(project.id);
   const { data: categories } = useQuery(categoriesQuery(project.id));
   const mutations = useCategoryMutations(project.id);
   const { remove } = mutations;
   const [editing, setEditing] = useState<CommentCategory | "new" | null>(null);
   const [deleting, setDeleting] = useState<CommentCategory | null>(null);
   const shape = can("edit_workflows");
+  const words = itemWords(project.profile);
   return (
     <>
       <Section
         title="References"
-        intro="What reviewers can type beside a comment, as they read it from the score or the document. Never derived from the time; never on the scrub bar. Each track can also have its own."
+        intro={`What reviewers can type beside a comment, as they read it from the score or the document. Never derived from the time; never on the scrub bar. Each ${words.track} can also have its own.`}
       >
         <SwitchRow
           name="Pages"
@@ -975,46 +1087,37 @@ function Comments({ project }: { project: Project }) {
         />
       </Section>
       {onTrack.error && <p className="-mt-6 text-[13px] text-signal">{onTrack.error.message}</p>}
-      {tracks && tracks.length > 0 && (
-        <Section title="Overrides" intro="Tracks whose comments name other references.">
-          {tracks.map((t) => (
-            <Row
-              key={t.id}
-              name={
-                <Link
-                  to="/tracks/$trackId"
-                  params={{ trackId: t.id }}
-                  className="transition-colors hover:text-signal"
-                >
-                  {t.name}
-                </Link>
-              }
-            >
-              <Select
-                value={t.commentReferences ? (referenceSetOf(t.commentReferences) ?? "") : ""}
-                aria-label={`References of ${t.name}`}
-                disabled={!can("edit_project")}
-                onChange={(event) =>
-                  onTrack.mutate({
-                    trackId: t.id,
-                    references:
-                      referenceSets.find((set) => set.id === event.target.value)?.references ??
-                      null,
-                  })
-                }
-                className="w-full @3xl/app:w-56"
-              >
-                <option value="">Project default</option>
-                {referenceSets.map((set) => (
-                  <option key={set.id} value={set.id}>
-                    {set.label}
-                  </option>
-                ))}
-              </Select>
-            </Row>
-          ))}
-        </Section>
-      )}
+      <TrackOverrides
+        project={project}
+        title={`${capital(words.tracks)} with their own references`}
+        tracks={tracks}
+        differs={(t) => t.commentReferences !== null}
+        disabled={!can("edit_project")}
+        control={(t, done) => (
+          <Select
+            value={t.commentReferences ? (referenceSetOf(t.commentReferences) ?? "") : ""}
+            aria-label={`References of ${t.name}`}
+            disabled={!can("edit_project")}
+            onChange={(event) =>
+              onTrack.mutate(
+                {
+                  trackId: t.id,
+                  references:
+                    referenceSets.find((set) => set.id === event.target.value)?.references ?? null,
+                },
+                { onSuccess: done },
+              )
+            }
+          >
+            <option value="">Project default</option>
+            {referenceSets.map((set) => (
+              <option key={set.id} value={set.id}>
+                {set.label}
+              </option>
+            ))}
+          </Select>
+        )}
+      />
       <Section
         title="Categories"
         intro="Triage marks comments with a category, so each kind goes where it belongs."
@@ -1032,28 +1135,37 @@ function Comments({ project }: { project: Project }) {
           <Row name="No categories" hint="Comments can still be triaged without one." />
         )}
         {categories?.map((c) => (
-          <Row
-            key={c.id}
-            name={c.name}
-            inline
-            hint={
-              c.handling === "deferred"
-                ? `Deferred to the ${c.stage} stage`
-                : handlingWords[c.handling]
-            }
-          >
-            {shape && (
-              <ActionMenu
-                always
-                label={c.name}
-                actions={[
-                  { label: "Rename or change handling…", onSelect: () => setEditing(c) },
-                  "divider",
-                  { label: "Delete…", danger: true, onSelect: () => setDeleting(c) },
-                ]}
-              />
-            )}
-          </Row>
+          // Each in its colour, by its place among the project's categories (#706, brand.md).
+          <div key={c.id} className="relative">
+            <span
+              aria-hidden="true"
+              className={cn(
+                "absolute inset-y-2.5 left-0 w-[3px] rounded-r-full",
+                categoryTone(categories, c.id),
+              )}
+            />
+            <Row
+              name={c.name}
+              inline
+              hint={
+                c.handling === "deferred"
+                  ? `Deferred to the ${c.stage} stage`
+                  : handlingWords[c.handling]
+              }
+            >
+              {shape && (
+                <ActionMenu
+                  always
+                  label={c.name}
+                  actions={[
+                    { label: "Rename or change handling…", onSelect: () => setEditing(c) },
+                    "divider",
+                    { label: "Delete…", danger: true, onSelect: () => setDeleting(c) },
+                  ]}
+                />
+              )}
+            </Row>
+          </div>
         ))}
       </Section>
       <Section title="Versions">
@@ -1064,72 +1176,44 @@ function Comments({ project }: { project: Project }) {
           disabled={!can("edit_project")}
           onChange={(carriedCommentsShown) => update.mutate({ carriedCommentsShown })}
         />
-        <Row
-          name="Normalised playback"
-          hint="Level-matched to the delivery profile's target, so a louder version is not mistaken for a better one."
-        >
-          <Select
-            value={project.normalisation ?? "off"}
-            aria-label="Normalised playback"
-            disabled={!can("edit_project")}
-            onChange={(event) =>
-              update.mutate({ normalisation: event.target.value as NormalisationMode })
-            }
-            className="w-full @3xl/app:w-48"
-          >
-            {normalisationModes.map((mode) => (
-              <option key={mode} value={mode}>
-                {normalisationWords[mode]}
-              </option>
-            ))}
-          </Select>
+      </Section>
+      {/* Whom new comments are for (#499, moved here from Workflow by #672). */}
+      <Section
+        title="New comments"
+        intro={`Whom a comment is given to as it is opened, unless the step the ${words.track} waits at says otherwise. They are told, as of comments sent to them.`}
+      >
+        <Row name="Assign new comments to" hint="A member, or whoever has held a role the longest">
+          <AssignmentPicker
+            projectId={project.id}
+            value={project.commentAssignment ?? { assign: null }}
+            disabled={!shape || update.isPending}
+            aria-label="Assign new comments to"
+            onChange={(rule) => update.mutate({ commentAssignment: rule })}
+          />
         </Row>
       </Section>
-      {/* A track can play otherwise (#98), as a set heard together might. */}
-      {tracks && tracks.length > 0 && (
-        <Section
-          title="Normalised playback by track"
-          intro="Tracks with a normalisation of their own, in place of the project's: a set heard together can play as one."
-        >
-          {tracks?.map((t) => (
-            <Row
-              key={t.id}
-              name={
-                <Link
-                  to="/tracks/$trackId"
-                  params={{ trackId: t.id }}
-                  className="transition-colors hover:text-signal"
-                >
-                  {t.name}
-                </Link>
-              }
-            >
-              <Select
-                value={t.normalisation ?? ""}
-                aria-label={`Normalised playback of ${t.name}`}
-                disabled={!can("edit_project") || playsTrack.isPending}
-                onChange={(event) =>
-                  playsTrack.mutate({
-                    trackId: t.id,
-                    normalisation: (event.target.value || null) as NormalisationMode | null,
-                  })
-                }
-                className="w-full @3xl/app:w-56"
-              >
-                <option value="">Project default</option>
-                {normalisationModes.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {normalisationWords[mode]}
-                  </option>
-                ))}
-              </Select>
-            </Row>
-          ))}
-          {playsTrack.error && (
-            <p className="m-0 text-[13px] text-signal">{playsTrack.error.message}</p>
-          )}
-        </Section>
+      {assignOnTrack.error && (
+        <p className="-mt-6 text-[13px] text-signal">{assignOnTrack.error.message}</p>
       )}
+      <TrackOverrides
+        project={project}
+        title={`${capital(words.tracks)} whose new comments go to someone else`}
+        tracks={tracks}
+        differs={(t) => t.commentAssignment !== null}
+        disabled={!shape}
+        control={(t, done) => (
+          <AssignmentPicker
+            projectId={project.id}
+            value={t.commentAssignment}
+            inherits="Project default"
+            disabled={!shape}
+            aria-label={`Assign new comments on ${t.name} to`}
+            onChange={(assignment) =>
+              assignOnTrack.mutate({ trackId: t.id, assignment }, { onSuccess: done })
+            }
+          />
+        )}
+      />
       {editing && (
         <CategoryDialog
           mutations={mutations}
@@ -1154,7 +1238,7 @@ function Comments({ project }: { project: Project }) {
                 disabled={remove.isPending}
                 onClick={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
               >
-                Delete
+                Delete category
               </Button>
             </>
           }
@@ -1175,17 +1259,29 @@ function useProjectProfile(project: Project) {
   return { customs, own, inherited, effective: own ?? inherited };
 }
 
-/** "4 steps": the stages a workflow takes a track through, as its builder counts them. */
+/** "4 steps": the steps a workflow takes an item through, as its builder counts them. */
 const stepsOf = (w: WorkflowSummary) => {
   const n = basicSteps(w.definition).steps.length;
   return `${n} ${n === 1 ? "step" : "steps"}`;
+};
+
+/** "1 problem", "2 warnings": what a workflow breaks, by level (#582). */
+export const problemsOf = (problems: readonly { level: "error" | "warning" }[]) => {
+  const errors = problems.filter((p) => p.level === "error").length;
+  const warnings = problems.length - errors;
+  return [
+    errors > 0 ? `${errors} ${errors === 1 ? "problem" : "problems"}` : null,
+    warnings > 0 ? `${warnings} ${warnings === 1 ? "warning" : "warnings"}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
 };
 
 function Workflow({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
   const edit = can("edit_workflows");
-  const { effective } = useProjectProfile(project);
+  const words = itemWords(project.profile);
   const notices = project.workflowNotices ?? defaultWorkflowNotices;
   // Each sends all three, so a change waits for the one before it.
   const notify = (next: Partial<WorkflowNotices>) => {
@@ -1197,15 +1293,12 @@ function Workflow({ project }: { project: Project }) {
     ...projectWorkflowsQuery(project.id),
     enabled: mayBuild,
   });
-  // Whom new comments are for (#499): the project's rule, and each track's over it.
-  const { data: tracks } = useQuery(projectTracksQuery(project.id));
-  const onTrack = useTrackCommentAssignment(project.id);
   return (
     <>
       {mayBuild && (
         <Section
           title="Workflows"
-          intro="The stages a track goes through as versions arrive, the statuses they set, and who is asked at each."
+          intro={`The steps a ${words.track} goes through as ${words.versions} arrive, the statuses they set, and who is asked at each.`}
           action={
             <Button asChild variant="primary" size="md">
               <Link to="/projects/$projectId/workflow" params={{ projectId: project.id }}>
@@ -1217,27 +1310,31 @@ function Workflow({ project }: { project: Project }) {
           {workflows?.length === 0 && (
             <Row
               name="No workflow"
-              hint="Tracks have no stages until one is made and switched on."
+              hint={`${capital(words.tracks)} have no steps until one is made and switched on.`}
             />
           )}
           {workflows?.map((w) => (
             <Row
               key={w.id}
               name={w.name}
-              hint={`${stepsOf(w)}${
-                w.problems.length > 0 ? ` · ${w.problems.length} to look at` : ""
-              }${w.trackId ? " · for one track" : ""}`}
+              hint={[
+                stepsOf(w),
+                w.problems.length > 0 ? problemsOf(w.problems) : null,
+                w.trackId ? `for one ${words.track}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
               inline
             >
-              <span className="text-[13px] text-ink-2">{w.active ? "Active" : "Draft"}</span>
+              <WorkflowState active={w.active} />
             </Row>
           ))}
         </Section>
       )}
-      <Section title="Notifications" intro="Who is told when a stage or status is entered.">
+      <Section title="Notifications" intro="Who is told when a step or status is entered.">
         <SwitchRow
           name="Participants, in the app"
-          hint="Whoever a stage names, and the track's followers on a new status."
+          hint={`Whoever a step names, and the ${words.track}'s followers on a new status.`}
           checked={notices.app}
           disabled={!edit}
           onChange={(app) => notify({ app })}
@@ -1255,75 +1352,14 @@ function Workflow({ project }: { project: Project }) {
           onChange={(everyoneOnStatus) => notify({ everyoneOnStatus })}
         />
       </Section>
-      <Section
-        title="New comments"
-        intro="Whom a comment is given to as it is opened, unless the stage the track waits at says otherwise. They are told, as of comments sent to them."
-      >
-        <Row name="Assign new comments to" hint="A member, or whoever has held a role the longest">
-          <AssignmentPicker
-            projectId={project.id}
-            value={project.commentAssignment ?? { assign: null }}
-            disabled={!edit || update.isPending}
-            aria-label="Assign new comments to"
-            className="w-full @3xl/app:w-56"
-            onChange={(rule) => update.mutate({ commentAssignment: rule })}
-          />
-        </Row>
-      </Section>
-      {onTrack.error && <p className="-mt-6 text-[13px] text-signal">{onTrack.error.message}</p>}
-      {tracks && tracks.length > 0 && (
-        <Section title="Overrides" intro="Tracks whose new comments go to someone else.">
-          {tracks.map((t) => (
-            <Row
-              key={t.id}
-              name={
-                <Link
-                  to="/tracks/$trackId"
-                  params={{ trackId: t.id }}
-                  className="transition-colors hover:text-signal"
-                >
-                  {t.name}
-                </Link>
-              }
-            >
-              <AssignmentPicker
-                projectId={project.id}
-                value={t.commentAssignment}
-                inherits="Project default"
-                disabled={!edit}
-                aria-label={`Assign new comments on ${t.name} to`}
-                className="w-full @3xl/app:w-56"
-                onChange={(assignment) => onTrack.mutate({ trackId: t.id, assignment })}
-              />
-            </Row>
-          ))}
-        </Section>
-      )}
-      <Section
-        title="Checks on a new version"
-        intro="A version that fails is refused, saying why; whoever edits the workflow can let it through, on the record."
-      >
-        <SwitchRow
-          name="True peak under the delivery profile's ceiling"
-          hint={
-            effective
-              ? `${formatDb(effective.truePeakMax)} dBTP for ${effective.label}, unless a track or file has its own`
-              : "The ceiling of the profile suggested for each file"
-          }
-          checked={project.checkTruePeak ?? false}
-          disabled={!edit}
-          onChange={(checkTruePeak) => update.mutate({ checkTruePeak })}
-        />
-        <SwitchRow
-          name="An edit decision list with every version"
-          hint="The EDL the version was made from, uploaded beside it: it must hold edits, and end within the version."
-          checked={project.requireEdl ?? false}
-          disabled={!edit}
-          onChange={(requireEdl) => update.mutate({ requireEdl })}
-        />
-      </Section>
     </>
   );
+}
+
+/** QA rules, with the delivery profile whose ceiling a new version's true peak is held to. */
+function QaRulesPage({ project }: { project: Project }) {
+  const { effective } = useProjectProfile(project);
+  return <QaRules project={project} profile={effective ?? null} />;
 }
 
 function Delivery({ project }: { project: Project }) {
@@ -1335,14 +1371,15 @@ function Delivery({ project }: { project: Project }) {
   // Tracks, and a video project's deliverables (#16), can each measure against their own.
   const withTracks = project.profile !== "general";
   const words = itemWords(project.profile);
-  const { data: tracks } = useQuery({
-    ...projectTracksQuery(project.id),
-    enabled: withTracks,
-  });
+  const { data: tracks } = useQuery(projectTracksQuery(project.id));
   const onTrack = useTrackDeliveryProfile(project.id);
+  const playsTrack = useTrackNormalisation(project.id);
   const [editing, setEditing] = useState(false);
   const shown = own ?? inherited;
-  const error = update.error ?? onTrack.error;
+  const error = update.error ?? onTrack.error ?? playsTrack.error;
+  // "Custom…" is the select's last choice (#672): it opens the editor, and the select keeps
+  // what it showed until the new profile is saved.
+  const CUSTOM = "custom-new";
   return (
     <>
       <Section>
@@ -1351,68 +1388,104 @@ function Delivery({ project }: { project: Project }) {
             value={project.deliveryProfile ?? ""}
             aria-label="Project default"
             disabled={!edit}
-            onChange={(event) =>
-              update.mutate({ deliveryProfile: (event.target.value || null) as ProfileRef | null })
-            }
-            className="w-full @3xl/app:w-60"
+            onChange={(event) => {
+              if (event.target.value === CUSTOM) {
+                setEditing(true);
+                return;
+              }
+              update.mutate({ deliveryProfile: (event.target.value || null) as ProfileRef | null });
+            }}
           >
             <option value="">
               {inherited ? `Workspace default (${inherited.label})` : "Suggested from each file"}
             </option>
             <ProfileOptions customs={customs} />
+            {edit && admin && <option value={CUSTOM}>Custom…</option>}
           </Select>
-          {edit && admin && (
-            <Button variant="ghost" size="md" onClick={() => setEditing(true)}>
-              Custom…
-            </Button>
-          )}
         </Row>
       </Section>
       {error && <p className="-mt-6 text-[13px] text-signal">{error.message}</p>}
       {withTracks && (
-        <Section
-          title="Overrides"
-          intro={`${capital(words.tracks)} that measure against a different profile.`}
-        >
-          {!tracks && <Loading size="panel" />}
-          {tracks?.length === 0 && (
-            <Row
-              name={`No ${words.tracks} yet`}
-              hint={`Each ${words.track} can measure against its own profile.`}
-            />
-          )}
-          {tracks?.map((t) => (
-            <Row
-              key={t.id}
-              name={
-                <Link
-                  to="/tracks/$trackId"
-                  params={{ trackId: t.id }}
-                  className="transition-colors hover:text-signal"
-                >
-                  {t.name}
-                </Link>
-              }
-            >
-              <Select
-                value={t.deliveryProfile ?? ""}
-                aria-label={`Delivery profile of ${t.name}`}
-                disabled={!edit}
-                onChange={(event) =>
-                  onTrack.mutate({
+        <TrackOverrides
+          project={project}
+          title={`${capital(words.tracks)} with their own profile`}
+          tracks={tracks}
+          differs={(t) => t.deliveryProfile !== null}
+          disabled={!edit}
+          control={(t, done) => (
+            <Select
+              value={t.deliveryProfile ?? ""}
+              aria-label={`Delivery profile of ${t.name}`}
+              disabled={!edit}
+              onChange={(event) =>
+                onTrack.mutate(
+                  {
                     trackId: t.id,
                     deliveryProfile: (event.target.value || null) as ProfileRef | null,
-                  })
-                }
-                className="w-full @3xl/app:w-56"
-              >
-                <option value="">Project default</option>
-                <ProfileOptions customs={customs} />
-              </Select>
-            </Row>
-          ))}
-        </Section>
+                  },
+                  { onSuccess: done },
+                )
+              }
+            >
+              <option value="">Project default</option>
+              <ProfileOptions customs={customs} />
+            </Select>
+          )}
+        />
       )}
+      {/* A listening setting, matched to this profile's target (moved here from Comments, #672). */}
+      <Section title="Playback">
+        <Row
+          name="Normalised playback"
+          hint="Level-matched to the delivery profile's target, so a louder version is not mistaken for a better one."
+        >
+          <Select
+            value={project.normalisation ?? "off"}
+            aria-label="Normalised playback"
+            disabled={!can("edit_project")}
+            onChange={(event) =>
+              update.mutate({ normalisation: event.target.value as NormalisationMode })
+            }
+          >
+            {normalisationModes.map((mode) => (
+              <option key={mode} value={mode}>
+                {normalisationWords[mode]}
+              </option>
+            ))}
+          </Select>
+        </Row>
+      </Section>
+      {/* A track can play otherwise (#98), as a set heard together might. */}
+      <TrackOverrides
+        project={project}
+        title={`${capital(words.tracks)} with their own normalisation`}
+        tracks={tracks}
+        differs={(t) => t.normalisation !== null}
+        disabled={!can("edit_project")}
+        control={(t, done) => (
+          <Select
+            value={t.normalisation ?? ""}
+            aria-label={`Normalised playback of ${t.name}`}
+            disabled={!can("edit_project") || playsTrack.isPending}
+            onChange={(event) =>
+              playsTrack.mutate(
+                {
+                  trackId: t.id,
+                  normalisation: (event.target.value || null) as NormalisationMode | null,
+                },
+                { onSuccess: done },
+              )
+            }
+          >
+            <option value="">Project default</option>
+            {normalisationModes.map((mode) => (
+              <option key={mode} value={mode}>
+                {normalisationWords[mode]}
+              </option>
+            ))}
+          </Select>
+        )}
+      />
       {editing && (
         <ProfileEditor
           onClose={() => setEditing(false)}
