@@ -3637,7 +3637,7 @@ test("file-comment-link-files", async ({ page }, info) => {
   let form = page.locator("section[aria-label=Comments] form");
   if (phone) {
     await page.getByRole("button", { name: "Comment at the playhead" }).click();
-    form = page.getByRole("dialog", { name: "Comment at the playhead" }).locator("form");
+    form = page.getByRole("dialog", { name: "New comment" }).locator("form");
   }
   await form.getByRole("textbox", { name: "Comment at the playhead" }).fill(words);
   await form.getByRole("button", { name: "Attach", exact: true }).click();
@@ -3759,7 +3759,7 @@ test("file-comment-sheet", async ({ page }, info) => {
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
   await page.getByRole("button", { name: "Comment at the playhead" }).click();
-  const sheet = page.getByRole("dialog", { name: "Comment at the playhead" });
+  const sheet = page.getByRole("dialog", { name: "New comment" });
   await expect(sheet.getByRole("textbox", { name: "Comment at the playhead" })).toBeVisible();
   await saveScreen(page, "file-comment-sheet");
   await checkScreen(page);
@@ -5241,5 +5241,28 @@ test("file-view-overflow", async ({ page }, info) => {
   await page.getByRole("button", { name: "Actions for the view" }).click();
   await expect(page.getByRole("menuitemradio", { name: "Meters" })).toBeVisible();
   await saveScreen(page, "file-view-overflow");
+  await checkScreen(page);
+});
+
+// The composer at rest is one row (#563): where the comment goes, the words and send; on focus
+// the references, channel, category, Attach and Mention come in, and where it goes is a menu.
+test("file-composer-open", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "On a phone the composer is a sheet");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  const form = page.locator("section[aria-label=Comments] form").last();
+  await expect(form.getByRole("button", { name: "Attach", exact: true })).toBeHidden();
+  await form.getByRole("textbox", { name: "Comment at the playhead" }).focus();
+  await expect(form.getByRole("button", { name: "Attach", exact: true })).toBeVisible();
+  await expect(form.getByRole("textbox", { name: "Bar" })).toHaveAttribute(
+    "placeholder",
+    "Bar, or 9–12",
+  );
+  await saveScreen(page, "file-composer-open");
+  await checkScreen(page);
+  await form.getByRole("button", { name: /^Where the comment goes/ }).click();
+  await expect(page.getByRole("menuitemradio", { name: "The whole file" })).toBeVisible();
+  await saveScreen(page, "file-composer-where");
   await checkScreen(page);
 });

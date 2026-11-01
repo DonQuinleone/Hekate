@@ -337,16 +337,18 @@ export function Thread({
             {personById(comment.assigneeId).name.split(" ")[0]}
           </span>
         )}
+        {/* A quiet chip whose words never change (#642): checked once it is done. */}
         {comment.todo && (
           <span
-            className={cn(
-              "rounded-chip px-1.5 text-[11px] leading-5",
-              comment.todo.done
-                ? "bg-raised text-ink-3 line-through"
-                : "border border-signal/50 text-signal",
-            )}
+            title={comment.todo.done ? "Task, done" : "Task, to do"}
+            className="flex h-6 items-center gap-1 rounded-chip border border-line px-1.5 text-[11px] text-ink-3"
           >
-            to do
+            <Icon
+              name="check"
+              size={11}
+              className={comment.todo.done ? "text-ink" : "opacity-40"}
+            />
+            Task
           </span>
         )}
         {actions.length > 0 && (

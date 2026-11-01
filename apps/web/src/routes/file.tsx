@@ -479,10 +479,12 @@ export function FilePage({
   const lastPlace = useRef<"right" | "below" | null>(null);
   if (layout.comments !== "hidden") lastPlace.current = layout.comments;
   const commentsShown = layout.comments !== "hidden";
-  // Fetched only while they are put away: shown, the pane keeps the same query fresh.
+  // The same query as the pane's: the header's toggle carries the count of open threads, the
+  // one place a wide screen says it (#642).
   const { data: commentList } = useQuery({
     ...commentsQuery(fileId),
-    enabled: layout.comments === "hidden",
+    // A take shared with a guest to hear has no comments for them (#133).
+    enabled: file !== undefined && !file.grant?.listenOnly,
   });
   // Another file starts on its first page, with nothing drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset whenever the file changes.
