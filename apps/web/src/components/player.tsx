@@ -189,7 +189,7 @@ const markerStyles: Record<TimelineMarker["state"] | "active", string> = {
  * The threads' numbered markers along the top of the waveform or the filmstrip (#562): a
  * click plays from the thread's moment and opens it; a passage's reach is a bar beside it.
  */
-function CommentMarkers({
+export function CommentMarkers({
   markers,
   duration,
   active,
