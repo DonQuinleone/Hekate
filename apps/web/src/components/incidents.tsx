@@ -264,20 +264,19 @@ function PostIncidentDialog({ onClose }: { onClose: () => void }) {
             autoFocus
           />
         </Field>
-        <ServicePicker value={services} onChange={setServices} />
+        <StandingFields
+          state={state}
+          impact={impact}
+          services={services}
+          onState={setState}
+          onImpact={setImpact}
+          onServices={setServices}
+        />
         {tried && services.length === 0 && (
           <p role="alert" className="m-0 -mt-2 text-[12px] text-signal">
             Choose what it touches
           </p>
         )}
-        <div className="grid gap-4 @md/app:grid-cols-2">
-          <Field label="How badly">
-            <ImpactSelect value={impact} onChange={setImpact} />
-          </Field>
-          <Field label="Where it stands">
-            <StateSelect value={state} onChange={setState} />
-          </Field>
-        </div>
         <Field
           label="What is happening"
           hint="Plain words for everyone who uses the instance: what they will notice, and what you are doing."
@@ -302,6 +301,40 @@ function PostIncidentDialog({ onClose }: { onClose: () => void }) {
         )}
       </form>
     </Dialog>
+  );
+}
+
+/**
+ * Where an incident stands, how badly, and what it touches: one order in both dialogs (#693),
+ * posting it and updating it.
+ */
+function StandingFields({
+  state,
+  impact,
+  services,
+  onState,
+  onImpact,
+  onServices,
+}: {
+  state: IncidentState;
+  impact: IncidentImpact;
+  services: StatusService[];
+  onState: (state: IncidentState) => void;
+  onImpact: (impact: IncidentImpact) => void;
+  onServices: (services: StatusService[]) => void;
+}) {
+  return (
+    <>
+      <div className="grid gap-4 @md/app:grid-cols-2">
+        <Field label="Where it stands">
+          <StateSelect value={state} onChange={onState} />
+        </Field>
+        <Field label="How badly">
+          <ImpactSelect value={impact} onChange={onImpact} />
+        </Field>
+      </div>
+      <ServicePicker value={services} onChange={onServices} />
+    </>
   );
 }
 
@@ -330,9 +363,9 @@ function IncidentDialog({ incident, onClose }: { incident: Incident; onClose: ()
     );
   };
   return (
+    // No subtitle: the fields below show where it stands, and the updates when (#693).
     <Dialog
       title={incident.title}
-      description={`${incidentLine(incident)} · ${incidentSpan(incident)}`}
       onClose={onClose}
       width="lg"
       footer={
@@ -375,15 +408,14 @@ function IncidentDialog({ incident, onClose }: { incident: Incident; onClose: ()
     >
       <div className="flex flex-col gap-6">
         <form id="incident-update" onSubmit={send} className="flex flex-col gap-4">
-          <div className="grid gap-4 @md/app:grid-cols-2">
-            <Field label="Where it stands">
-              <StateSelect value={state} onChange={setState} />
-            </Field>
-            <Field label="How badly">
-              <ImpactSelect value={impact} onChange={setImpact} />
-            </Field>
-          </div>
-          <ServicePicker value={services} onChange={setServices} />
+          <StandingFields
+            state={state}
+            impact={impact}
+            services={services}
+            onState={setState}
+            onImpact={setImpact}
+            onServices={setServices}
+          />
           <Field label="Update">
             <Textarea
               value={body}

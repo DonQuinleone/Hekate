@@ -181,21 +181,21 @@ function PostIncidentDialog({ onClose }: { onClose: () => void }) {
           Title
           <Input placeholder="Uploads are failing" autoFocus />
         </label>
-        <ServicePicker chosen={[]} />
         <div className="grid gap-4 @md/app:grid-cols-2">
-          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-            How badly
-            <Select defaultValue="partial">
-              <ImpactOptions />
-            </Select>
-          </label>
           <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
             Where it stands
             <Select defaultValue="investigating">
               <StateOptions />
             </Select>
           </label>
+          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            How badly
+            <Select defaultValue="partial">
+              <ImpactOptions />
+            </Select>
+          </label>
         </div>
+        <ServicePicker chosen={[]} />
         <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
           What is happening
           <Textarea className="h-28" />
@@ -221,7 +221,6 @@ function IncidentDialog({ incident, onClose }: { incident: StatusIncident; onClo
   return (
     <Dialog
       title={incident.title}
-      description={`${incidentLine(incident)} · ${incidentSpan(incident)}`}
       onClose={onClose}
       width="lg"
       footer={
