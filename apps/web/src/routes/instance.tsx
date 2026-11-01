@@ -2366,6 +2366,9 @@ function Workspaces({
   const current =
     workspaces.find((w) => w.id === chosen) ??
     (chosen === open && open ? { id: open } : workspaces[0]);
+  // On a phone, the list or one workspace, never both (#690): a workspace is opened from the
+  // list and left by its crumb, as Apple Mail opens a message. Side by side from @3xl.
+  const opened = chosen !== null;
   const more = useRef<HTMLDivElement>(null);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = list;
   useEffect(() => {
@@ -2402,7 +2405,12 @@ function Workspaces({
         />
       )}
       <div className="flex h-full min-h-0 flex-col @3xl/app:flex-row">
-        <div className="flex w-full shrink-0 flex-col border-b border-line @3xl/app:w-[300px] @3xl/app:border-r @3xl/app:border-b-0">
+        <div
+          className={cn(
+            "min-h-0 w-full flex-1 flex-col @3xl/app:flex @3xl/app:w-[300px] @3xl/app:flex-none @3xl/app:shrink-0 @3xl/app:border-r @3xl/app:border-line",
+            opened ? "hidden" : "flex",
+          )}
+        >
           <div className="flex flex-col gap-2 p-3">
             <Input
               value={q}
@@ -2420,7 +2428,7 @@ function Workspaces({
               />
             )}
           </div>
-          <div className="scroll-quiet flex max-h-[40vh] min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2 @3xl/app:max-h-none">
+          <div className="scroll-quiet flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2">
             <ul aria-label="Workspaces" className="m-0 flex list-none flex-col gap-0.5 p-0">
               {workspaces.map((w) => (
                 <li key={w.id}>
@@ -2433,13 +2441,27 @@ function Workspaces({
                       w.id === current?.id && "bg-raised shadow-1",
                     )}
                   >
-                    <StateDot state={w.state} />
+                    {/* Only the exception is marked (#690): a signal ring, and the word. */}
+                    {w.state === "suspended" && (
+                      <span
+                        aria-hidden="true"
+                        className="size-[7px] shrink-0 rounded-full border-[1.5px] border-signal"
+                      />
+                    )}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] text-ink">{w.name}</span>
                       <span className="block truncate text-[12px] text-ink-3">
+                        {w.state === "suspended" && (
+                          <span className="text-signal">Suspended · </span>
+                        )}
                         {people(w.members)} · {formatBytes(w.storageBytes)}
                       </span>
                     </span>
+                    <Icon
+                      name="chevronRight"
+                      size={14}
+                      className="shrink-0 text-ink-3 @3xl/app:hidden"
+                    />
                   </button>
                 </li>
               ))}
@@ -2458,7 +2480,20 @@ function Workspaces({
             )}
           </div>
         </div>
-        <div className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div
+          className={cn(
+            "scroll-quiet min-h-0 min-w-0 flex-1 overflow-y-auto @3xl/app:block",
+            opened ? "block" : "hidden",
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => setChosen(null)}
+            className="flex items-center gap-1 px-5 pt-4 text-[13px] text-ink-3 transition-colors hover:text-ink @3xl/app:hidden"
+          >
+            <Icon name="chevronLeft" size={14} />
+            Workspaces
+          </button>
           {current && (
             <WorkspaceDetail
               key={current.id}
@@ -2474,18 +2509,6 @@ function Workspaces({
 }
 
 const people = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
-
-function StateDot({ state }: { state: WorkspaceState }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "size-[7px] shrink-0 rounded-full",
-        state === "suspended" ? "bg-ink-3" : "bg-ok",
-      )}
-    />
-  );
-}
 
 type WorkspaceTab =
   | "overview"

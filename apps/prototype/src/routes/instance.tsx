@@ -747,6 +747,8 @@ export function InstancePage({ section }: { section: string }) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("");
   const [orgId, setOrgId] = useState("t-1");
+  // On a phone, the list or one workspace: opened from the list, left by its crumb.
+  const [opened, setOpened] = useState(false);
   const [orgTab, setOrgTab] = useState<OrgTab>("overview");
   const [logKind, setLogKind] = useState<LogKind>("audit");
   const [logQ, setLogQ] = useState("");
@@ -815,7 +817,12 @@ export function InstancePage({ section }: { section: string }) {
       <div className="flex h-full min-h-0 flex-col @3xl/app:flex-row">
         {creating && <NewOrganisation onClose={() => setCreating(false)} />}
         {deleting && <DeleteOrganisation name={org.name} onClose={() => setDeleting(false)} />}
-        <div className="flex w-full shrink-0 flex-col border-b border-line @3xl/app:w-[300px] @3xl/app:border-r @3xl/app:border-b-0">
+        <div
+          className={cn(
+            "min-h-0 w-full flex-1 flex-col @3xl/app:flex @3xl/app:w-[300px] @3xl/app:flex-none @3xl/app:shrink-0 @3xl/app:border-r @3xl/app:border-line",
+            opened ? "hidden" : "flex",
+          )}
+        >
           <div className="flex flex-col gap-2 p-3">
             <Input
               value={q}
@@ -848,28 +855,36 @@ export function InstancePage({ section }: { section: string }) {
               <button
                 key={o.id}
                 type="button"
-                onClick={() => setOrgId(o.id)}
+                onClick={() => {
+                  setOrgId(o.id);
+                  setOpened(true);
+                }}
                 aria-current={o.id === org.id ? "true" : undefined}
                 className={cn(
                   "flex shrink-0 items-center gap-2.5 rounded-control px-2.5 py-2 text-left transition-colors hover:bg-raised/60",
                   o.id === org.id && "bg-raised shadow-1",
                 )}
               >
-                <Dot
-                  state={
-                    o.state === "active"
-                      ? "approved"
-                      : o.state === "trial"
-                        ? "working"
-                        : "cancelled"
-                  }
-                />
+                {/* Only the exception is marked: a signal ring, and the word. */}
+                {o.state === "suspended" && (
+                  <span
+                    aria-hidden="true"
+                    className="size-[7px] shrink-0 rounded-full border-[1.5px] border-signal"
+                  />
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] text-ink">{o.name}</span>
                   <span className="block truncate text-[12px] text-ink-3">
+                    {o.state === "suspended" && <span className="text-signal">Suspended · </span>}
+                    {o.state === "trial" && "On trial · "}
                     {o.members} people · {gb(o.used)} of {gb(o.quota)}
                   </span>
                 </span>
+                <Icon
+                  name="chevronRight"
+                  size={14}
+                  className="shrink-0 text-ink-3 @3xl/app:hidden"
+                />
               </button>
             ))}
             {visibleOrgs.length === 0 && (
@@ -881,7 +896,20 @@ export function InstancePage({ section }: { section: string }) {
             </p>
           </div>
         </div>
-        <div className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div
+          className={cn(
+            "scroll-quiet min-h-0 min-w-0 flex-1 overflow-y-auto @3xl/app:block",
+            opened ? "block" : "hidden",
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => setOpened(false)}
+            className="flex items-center gap-1 px-5 pt-4 text-[13px] text-ink-3 transition-colors hover:text-ink @3xl/app:hidden"
+          >
+            <Icon name="chevronLeft" size={14} />
+            Workspaces
+          </button>
           <div className="fade-in flex flex-col gap-6 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8">
             <div className="flex items-end gap-3">
               <div className="min-w-0 flex-1">
