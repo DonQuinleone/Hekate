@@ -45,6 +45,8 @@ interface Screen {
   ready: string;
   /** Whose screen it is: the owner's, someone signed out, or a guest reviewer's. */
   as?: "owner" | "signed-out" | "guest";
+  /** What the screen is about, where it is part of a page another capture shows: that part alone. */
+  subject?: string;
 }
 
 const screens: Screen[] = [
@@ -166,7 +168,8 @@ const screens: Screen[] = [
   },
   {
     name: "guest-file",
-    path: (s) => `/g/files/${s.dryFileId}`,
+    // As a guest arrives from their review, which the file page opens with (#610).
+    path: (s) => `/g/files/${s.dryFileId}?review=${s.reviewId}`,
     ready: "section[aria-label=Comments]",
     as: "guest",
   },
@@ -334,17 +337,27 @@ const screens: Screen[] = [
     path: (s) => `/tracks/${s.trackId}?view=versions`,
     ready: "text=Bars 12 to 16",
   },
-  // Its workflow's history of transitions (#25), under the versions: who moved it on, and when.
+  // Its workflow's history of transitions (#25), under the versions: who moved it on, and when,
+  // a wait among them ended by hand.
   {
     name: "track-history",
     path: (s) => `/tracks/${s.trackId}?view=versions`,
     ready: "section[aria-label='Workflow history'] >> text=Let it settle",
+    subject: "section[aria-label='Workflow history']",
   },
   // A deliverable (#16): a track in a video project, in video words, its renditions described.
   {
     name: "deliverable",
     path: (s) => `/tracks/${s.deliverableId}?view=versions`,
     ready: "text=Picture lock candidate",
+  },
+  // Its own workflow's history: a run moved on by hand, then stopped by the second cut, which
+  // started it again where it was.
+  {
+    name: "deliverable-history",
+    path: (s) => `/tracks/${s.deliverableId}?view=versions`,
+    ready: "section[aria-label='Workflow history'] >> text=Stopped",
+    subject: "section[aria-label='Workflow history']",
   },
   // Two versions side by side (#137): aligned by their audio, the checks fixed and new.
   {
@@ -640,15 +653,40 @@ async function showWhole(page: Page) {
   if (hidden > 0 && size) await page.setViewportSize({ ...size, height: size.height + hidden });
 }
 
+/**
+ * Scrolls what a screen is about into its scrolling pane (the main area, or a pane inside it),
+ * and nothing else: the document itself never scrolls, so the shell stays where it is.
+ */
+async function bringIntoView(target: Locator, block: "start" | "center" = "start") {
+  await target.evaluate((el, block) => {
+    let pane = el.parentElement;
+    while (
+      pane &&
+      !(
+        pane.scrollHeight > pane.clientHeight &&
+        /auto|scroll/.test(getComputedStyle(pane).overflowY)
+      )
+    )
+      pane = pane.parentElement;
+    if (!pane) return;
+    const box = el.getBoundingClientRect();
+    const frame = pane.getBoundingClientRect();
+    const top = box.top - frame.top + pane.scrollTop;
+    pane.scrollTop = block === "start" ? top - 24 : top - (pane.clientHeight - box.height) / 2;
+  }, block);
+}
+
 function capture(screen: Screen) {
   test(screen.name, async ({ page }) => {
     await page.clock.setFixedTime(FIXED_TIME);
     await page.goto(screen.path(seeded()));
     await settle(page, screen.ready);
-    await showWhole(page);
+    const subject = screen.subject ? page.locator(screen.subject).first() : undefined;
+    if (subject) await bringIntoView(subject);
+    else await showWhole(page);
     await settle(page, screen.ready);
     // Captured first, so a screen that fails its checks still leaves a picture to look at.
-    await saveScreen(page, screen.name);
+    await saveScreen(page, screen.name, subject);
     await checkScreen(page);
   });
 }
@@ -1732,10 +1770,11 @@ test("sidebar-collapsed-switcher", async ({ page }, info) => {
   await checkScreen(page);
 });
 
-// The template menu on the empty Workflows page, out of the card that clipped it (#476).
+// The template menu on the empty Workflows page, out of the card that clipped it (#476): the
+// booklet's project, as the video project's deliverable has a workflow of its own.
 test("workflows-templates", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().videoProjectId}/workflow?view=basic`);
+  await page.goto(`/projects/${seeded().generalProjectId}/workflow?view=basic`);
   await settle(page, "main >> text=No workflows yet");
   await page.getByRole("button", { name: "From a template" }).click();
   await page.getByRole("menuitem", { name: "From another project…" }).hover({ timeout: 5_000 });
@@ -1747,7 +1786,7 @@ test("workflows-templates", async ({ page }) => {
 test("workflows-copy", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   // From a project with none yet, to one with two.
-  await page.goto(`/projects/${seeded().videoProjectId}/workflow?view=basic`);
+  await page.goto(`/projects/${seeded().generalProjectId}/workflow?view=basic`);
   await settle(page, "main >> text=No workflows yet");
   await page.getByRole("button", { name: "From a template" }).click();
   await page.getByRole("menuitem", { name: "From another project…" }).click();
@@ -1914,6 +1953,8 @@ test("workflows-code-refused", async ({ page }) => {
     .getByRole("button", { name: /^Line \d+$/ })
     .first()
     .click();
+  // The reason and the marked line together (#610).
+  await showWhole(page);
   await saveScreen(page, "workflows-code-refused");
   await checkScreen(page);
 });
@@ -2754,36 +2795,28 @@ test("settings-workspace-deletion", async ({ page }) => {
 
 // A workspace its owners are deleting (#186), as its owner sees it: the day it goes, keeping
 // it, and its export. Who they are is amended in the page alone, so nothing is suspended.
-for (const [name, viewport] of [
-  ["workspace-being-deleted", { width: 1440, height: 900 }],
-  ["workspace-being-deleted-phone", { width: 390, height: 844 }],
-] as const) {
-  test(name, async ({ page }) => {
-    await page.route("**/api/me", async (route) => {
-      const response = await route.fetch();
-      const body = (await response.json()) as {
-        activeOrganisationId: string;
-        organisations: { id: string; suspended: unknown }[];
-      };
-      for (const o of body.organisations)
-        if (o.id === body.activeOrganisationId)
-          o.suspended = {
-            reason: "Its owners are deleting it.",
-            payable: false,
-            deleteAfter: "2026-11-13T09:30:00Z",
-          };
-      await route.fulfill({ response, json: body });
-    });
-    await page.route("**/api/organisation/exports", (route) =>
-      route.fulfill({ json: exportsShown }),
-    );
-    await page.setViewportSize(viewport);
-    await page.goto("/suspended");
-    await settle(page, "text=Download the export");
-    await saveScreen(page, name);
-    await checkScreen(page);
+test("workspace-being-deleted", async ({ page }) => {
+  await page.route("**/api/me", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      activeOrganisationId: string;
+      organisations: { id: string; suspended: unknown }[];
+    };
+    for (const o of body.organisations)
+      if (o.id === body.activeOrganisationId)
+        o.suspended = {
+          reason: "Its owners are deleting it.",
+          payable: false,
+          deleteAfter: "2026-11-13T09:30:00Z",
+        };
+    await route.fulfill({ response, json: body });
   });
-}
+  await page.route("**/api/organisation/exports", (route) => route.fulfill({ json: exportsShown }));
+  await page.goto("/suspended");
+  await settle(page, "text=Download the export");
+  await saveScreen(page, "workspace-being-deleted");
+  await checkScreen(page);
+});
 
 // A workspace's own bucket (#508), on a plan that includes it: the seeded workspace's plan does
 // not, so the answer is amended in the page alone, with a bucket saved and taking new files;
@@ -2864,6 +2897,8 @@ test("project-settings-transfer", async ({ page }) => {
   );
   await page.goto(`/projects/${seeded().musicProjectId}/settings`);
   await settle(page, "main >> text=Moving to Endless Hall Records East");
+  // The pending move, in the middle of the pane, at either width (#610).
+  await bringIntoView(page.getByText("Moving to Endless Hall Records East").first(), "center");
   await saveScreen(page, "project-settings-transfer");
   await checkScreen(page);
   await page.getByRole("button", { name: "Approve…" }).click();
@@ -3070,6 +3105,9 @@ test("file-channels", async ({ page }) => {
 // the current timecode, refusing one the file does not reach. The suite's browser cannot
 // decode the cut itself, so the reference shows them.
 test("video-frame-tools", async ({ page }) => {
+  // A window tall enough for the whole section and the box below it, at either width.
+  const size = page.viewportSize() ?? { width: 1440, height: 900 };
+  await page.setViewportSize({ width: size.width, height: 2400 });
   await page.goto("/reference");
   await settle(page, "main h1");
   await page.getByRole("button", { name: "Go to" }).click();
@@ -3085,8 +3123,27 @@ test("video-frame-tools", async ({ page }) => {
   await field.fill("09:59:59:00");
   await field.press("Enter");
   await expect(page.getByText("That timecode is not in this file.")).toBeVisible();
-  await page.getByText("Mattes and safe areas").scrollIntoViewIfNeeded();
-  await saveScreen(page, "video-frame-tools");
+  // The reference's Video frame section and the Go to box open over its foot, not the page
+  // around them (#610).
+  const section = page
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: "Video frame" }) });
+  await bringIntoView(section);
+  const boxes = (
+    await Promise.all(
+      [section, field, page.getByText("That timecode is not in this file.")].map((l) =>
+        l.boundingBox(),
+      ),
+    )
+  ).flatMap((b) => (b ? [b] : []));
+  const top = Math.max(0, Math.min(...boxes.map((b) => b.y)) - 16);
+  const bottom = Math.max(...boxes.map((b) => b.y + b.height)) + 16;
+  await saveScreen(page, "video-frame-tools", {
+    x: 0,
+    y: top,
+    width: size.width,
+    height: Math.min(2400, bottom) - top,
+  });
   await checkScreen(page);
 });
 
@@ -4665,9 +4722,7 @@ test("request-review-filled", async ({ page }) => {
   await form.getByRole("button", { name: "a share" }).click();
   await form.getByRole("button", { name: "A week" }).click();
   await expect(form.getByRole("button", { name: "Send the review" })).toBeEnabled();
-  await form
-    .getByRole("heading", { name: "Reviewers" })
-    .evaluate((el) => el.scrollIntoView({ block: "start" }));
+  await bringIntoView(form.getByRole("heading", { name: "Reviewers" }));
   await saveScreen(page, "request-review-filled");
   await checkScreen(page);
 });

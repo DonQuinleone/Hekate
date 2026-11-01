@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { type Page, test } from "@playwright/test";
+import { type Locator, type Page, test } from "@playwright/test";
 import type { Seeded } from "../../server/src/demo/seeded.ts";
 
 /** Where a run keeps its sign-in, its store and what it seeded. */
@@ -15,17 +15,23 @@ export const seeded = (): Seeded =>
 
 const screens = join(import.meta.dirname, "../test-results/screens");
 
-/** Keeps a capture of the whole page, named for the screen, for people and CI to look at. */
-export async function saveScreen(page: Page, name: string) {
+/**
+ * Keeps a capture of the whole page, named for the screen, for people and CI to look at; or of
+ * one part of it, an element or an area of the window, where the screen is that part.
+ */
+export async function saveScreen(
+  page: Page,
+  name: string,
+  part?: Locator | { x: number; y: number; width: number; height: number },
+) {
   mkdirSync(screens, { recursive: true });
   // The seed and the installer run once; the screens run at each width, so the width's project
   // names the file.
   const project = test.info().project.name;
   const file = project === "seed" || project === "install" ? name : `${name}-${project}`;
   // Transitions finish first, so a capture never shows a control halfway to its new state.
-  await page.screenshot({
-    path: join(screens, `${file}.png`),
-    fullPage: true,
-    animations: "disabled",
-  });
+  const options = { path: join(screens, `${file}.png`), animations: "disabled" } as const;
+  if (!part) await page.screenshot({ ...options, fullPage: true });
+  else if ("screenshot" in part) await part.screenshot(options);
+  else await page.screenshot({ ...options, clip: part });
 }

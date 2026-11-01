@@ -523,11 +523,7 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
   if (main) {
     await owner.api("PATCH", `/api/variants/${main.id}`, { subtitled: false, graded: true });
   }
-  // Its second cut, to compare with the first frame by frame (#147).
-  await owner.api("POST", `/api/tracks/${deliverable.id}/versions`, {
-    notes: "Titles moved up a second.",
-    variants: [{ fileId: rendition("Cut 2"), name: "Main" }],
-  });
+  // Its second cut follows once its own workflow is under way, below.
 
   // A track in two versions, and one not yet started.
   const { track } = await owner.api<{ track: { id: string } }>(
@@ -1592,6 +1588,51 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
   // Its run finished, it goes back off: the album review stays the project's one workflow
   // running, as the screens of a new version's restart and the canvas expect.
   await owner.api("PATCH", `/api/workflows/${mastering.id}`, { active: false });
+
+  // The deliverable's own workflow (#25), its history's other states: a run moved on by hand
+  // past the director's notes, then stopped by the second cut, which starts it again there.
+  const { workflow: pictureLock } = await owner.api<{ workflow: { id: string } }>(
+    "POST",
+    `/api/projects/${video.id}/workflows`,
+    {
+      name: "Picture lock",
+      trackId: deliverable.id,
+      definition: {
+        groups: [],
+        nodes: [
+          step("start", "manual", "Started by hand", 0),
+          step("edit", "status", "In the edit", 1, 0, { status: "In the edit" }),
+          step("notes", "wait", "Notes from the director", 2, 0, { days: "3" }),
+          step("grade", "status", "Grading", 3, 0, { status: "Grading" }),
+          step("settle", "wait", "Grade review", 4, 0, { days: "2" }),
+          step("done", "finish", "Locked", 5, 0, { status: "Locked" }),
+        ],
+        connectors: [
+          { id: "c1", from: "start", outcome: "happened", to: "edit" },
+          { id: "c2", from: "edit", outcome: "set", to: "notes" },
+          { id: "c3", from: "notes", outcome: "elapsed", to: "grade" },
+          { id: "c4", from: "grade", outcome: "set", to: "settle" },
+          { id: "c5", from: "settle", outcome: "elapsed", to: "done" },
+        ],
+      },
+    },
+  );
+  await owner.api("PATCH", `/api/workflows/${pictureLock.id}`, { active: true });
+  const { run: lockRun } = await owner.api<{ run: { id: string } }>(
+    "POST",
+    `/api/tracks/${deliverable.id}/workflow-runs`,
+    { workflowId: pictureLock.id },
+  );
+  await owner.api("POST", `/api/workflow-runs/${lockRun.id}/steps`, {
+    nodeId: "notes",
+    outcome: "elapsed",
+  });
+  // Its second cut, to compare with the first frame by frame (#147).
+  await owner.api("POST", `/api/tracks/${deliverable.id}/versions`, {
+    notes: "Titles moved up a second.",
+    variants: [{ fileId: rendition("Cut 2"), name: "Main" }],
+    restartFrom: { workflowId: pictureLock.id, nodeId: "notes" },
+  });
 
   // API tokens (#198): two of the owner's own (one since run out) and a service token for the
   // release pipeline, whose calls, one of them refused for want of a scope, fill the API log.
