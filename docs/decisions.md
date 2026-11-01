@@ -2411,3 +2411,56 @@ Some organisations must keep their material in storage they own, and a workspace
 - **A break within version 1, on purpose.** The public API only grows within a version (decision 224), but these calls and fields were deprecated in the release they appeared beside, and no release has carried them to anyone. `api:reference` refused the document as a break (the removed calls, and `variants` now required), and it was written with `--breaking`, the script's word that the break is meant. The commit says so in a `BREAKING CHANGE:` footer, for the upgrade notes.
 - **The access log keeps what it holds.** The log is append-only, and Postgres cannot drop a value from an enum without rebuilding the type and every row that holds it. So `variation.replace` stays in `audit_action`, and an entry written under it stays as written. The app reads such an entry as `variant.replace` (`formerAuditActions`, `currentAuditAction` and `storedAuditActions` in `packages/shared`, tested): "File replaced" in words, as before; filtering on File replaced finds the old entries with the new (the server's test proves it, another workspace's excluded); and the filter offers the action once, under its current name. Nothing writes the old value.
 - **Words.** `AGENTS.md` and `README.md` say variants, as `docs/domain.md` does. The documentation site's API reference already had its *Versions and variants* page, written from the document at build time, so there was no page to rename. Old migrations and the decisions above keep the word, as history.
+
+## 330. The status menu offers what a person decides, named by where it leads
+
+#566. A track's status menu offered every outcome of the step it waited at, by its raw name: "Done" beside "Due date passed". The second is an event the clock raises; choosing it by hand faked a deadline, and neither said where the track would go next.
+
+- **Some outcomes are an event's alone.** `choosableOutcome` in `packages/shared` (tested) says whether a person may end a step of its kind by an outcome: a due date passing (a feedback round's or a task's `overdue`) and a wait elapsing are the clock's, and what the QA check found is the measurement's. Events and steps Hekate does at once are never ended by hand, as before.
+- **The server refuses them.** `POST /api/workflow-runs/:id/steps` answers 409 for an outcome only an event raises, with the run locked, so nothing ends the step; an outcome the kind lacks is still 422, and a lesser role and another workspace are refused as before (the server's test proves each).
+- **Named by where it leads.** A track's runs say, for each step they wait on, the outcomes a person may choose and the step each leads to (`choices`, from `stepAfter`, which follows the outcome's connector past what is done at once, as `nextStep` does for the first). The menu reads "Done, to Mastering…", and its confirmation says which step ends and which begins. The field is added beside the old shape; a client that does not read it filters by `choosableOutcome` itself.
+
+## 331. QA counts checks, in one set of words, in one layout
+
+#564, #565, #634. The QA badge, the view and the report each counted something different (checks with a problem, checks per severity, findings), in two sets of words ("failed" and "to look at" against "Fails" and "Worth a look"), and a video's QA was laid out as cards while a recording's was hairlines.
+
+- **One count.** `severityCounts` counts checks, each at its worst finding, a project rule a check of its own; `qaAttention` is the checks that fail or are worth a look. The header's badge, the view's tally and the report's counts and headline all use them, so they agree on every file. Findings are listed under their check, the check named once.
+- **One set of words,** `qaSeverityNames`: Fails, Worth a look, Note, Passes, in the tally, the report and the rules' results.
+- **Each problem said once.** `findingLine` and `findingWords` (tested) drop a check's name where its summary already starts with it, in the list and in a comment begun from a finding. "New in this version" is a quiet label, and the comparison with the previous version is one line ("Since V1 · Dry: 4 new, nothing fixed") whose count narrows the list.
+- **One layout** (`QaLayout`): the figures in one hairline row (loudness and true peak from the checks, the length), the checks with the report in their heading row, then what the page adds (a video's frames to look at, the loudness), the format and the metadata. A video's delivery checks are among its checks rather than a list apart, so its badge and tally count the same. Where QA's row gives loudness and true peak, the meters' panel leaves them out.
+- **The report** heads its rules' columns Check, Asks for and Result, a signal check asking "None allowed"; prints the format and metadata once, in the appendix; lets the findings and appendix flow on from the summary rather than each starting a page; and says "Ceiling −1.0 dBTP: exceeded".
+
+## 332. A file's format is said once, in words people use
+
+#635. The same facts were said three ways on one page (the strip, the Details sheet, QA's list), in ffmpeg's ids and MIME types ("pcm_s16le", "audio/wav"), and the download dialog offered a "Proxy" of a PDF.
+
+- **One formatter.** `mediaFormat`, `soundLine`, `audioCodecName` and `containerName` in `packages/shared` (tested) say a file's format in words: "PCM 16-bit · 44.1 kHz · stereo", "WAV", "QuickTime". The Details sheet, QA's Format, the report's tables, a video's streams and the download choices use them; nothing shows a MIME type or a codec's id.
+- **Said once.** The detail list is the Details sheet's: the player's strip no longer repeats the rendition, and a file with no viewer no longer prints its details under it. A guest, who has no sheet, has them behind one "Details" disclosure, so on a phone the comments come straight under the transport. Storage, encryption and renditions, the instance's business more than a reviewer's, fold under "Storage and delivery".
+- **Downloads in plain words:** a Review copy and the Original, a video's "Original, re-encoded with your mark", each with its format and its size (an encode's, about, from its rate and length).
+
+## 333. The player's view is one row; playback's settings are the transport's
+
+#636, #637, #638. The player had its menus in the strip and its view toggles in a second row, two controls for the spectrogram, playback settings inside View, a Loop that was disabled at rest and renamed itself once on, and a loop editor that pushed the page down when it appeared.
+
+- **One row** at the media's edge holds every view control after what leads the strip: the score, the quality ("Quality Auto", its full name in the menu), the loop, the spectrogram, the meters, the player's menus (draw, frame, captions, channels, view) and the zoom. On a phone the spectrogram, the meters and the frame's guides go into one overflow, as Logic gathers its control bar's rest. Captions keeps its name, pressed with the track's as a quiet suffix, and a track's menu entry says its kind once.
+- **One control for each setting.** The row turns the spectrogram on and off; View says only where it sits (Below, Behind, Instead), its settings opening directly under a link that keeps its label, and keeps a preset from one field with one Save. Behind, the waveform is drawn see-through so the spectrogram reads, the brightness slider still setting how much. Normalised playback sits beside the volume it sets, and following the DAW in the transport's own menu.
+- **Loop is always there and moves nothing.** It keeps its label, pressed when on; with no passage it says, in place, how to make one. Its edges, step and rolls open in a panel from it, never a row of their own, and the composer offers the loop as one of the places a comment goes.
+
+## 334. Comments sit on the media as numbered markers, and the composer is one row
+
+#562, #563, #642. Each comment was a one-pixel tick on the scrub bar that could not be clicked, the findings louder than people's comments; the composer was always open across three or four rows; and a thread's row held a changing task chip, a link and two stacked menus.
+
+- **Markers.** Each open thread with a moment is a numbered marker along the top of the waveform or the filmstrip, as the prototype draws them and as Frame.io and Dropbox Replay show comments on the media, with a bar for a passage's reach; work to do carries the signal colour, a deferred one is dashed. A click plays from its moment and opens and marks its thread (the comments shown if they were put away); a hover previews its first line. Threads are numbered in the order they play (`threadNumbers`, tested), "#1" on the thread as on its marker. The checks' findings sit on a quieter lane of their own under the scrub bar.
+- **The composer** is the prototype's: one row of where the comment goes, the words and a send button, the rest (references, channel, category, Attach, Mention) coming in on focus. Where it goes is a menu whose items keep their names and whose face shows the place it will land, the playhead's moment following the playhead until writing begins.
+- **A thread's row** holds Reply, Resolve and one menu: a task is a quiet "Task" chip with a check, "Open the task" is in the menu, and a reply's menu and a posted file's remove appear on hover or focus. The count of open comments is the header's toggle's alone.
+
+## 335. A media position is written one way
+
+#645. The same kind of time was written five ways ("0:12.0", "0:21.400", "00:06.200", "00:12.005", "0:14–0:15"). `formatClock` writes every media position to the millisecond with no leading zero on the minutes ("0:12.000", "1:04:31.250"), and `formatSpan` every stretch, its ends joined by an en dash; `formatAnchor` writes an anchor in sentence case ("Bars 9–12", "p. 3 · bar 5") and no longer says REGION. QA, the comments, the marker import, the loop, the transport and the QA report use them. A machine-readable export (WebVTT, a DAW's markers) keeps its own format. The transport shows the bar beside the time where the version's edit decisions say which bars each stretch holds (`barAt`, `timeOfBar`), and a video's two values on its own timecode.
+
+## 336. The score sits beside the waveform, and triage plays only the passage
+
+#646, #632. Opened, the score stacked under the transport and squeezed the waveform to a strip; triage embedded the whole player, its view row, meters and loop editor, pushing its decisions out of view.
+
+- **The score beside the player** on a wide screen, the frame's full height, as wide as the viewer drags its edge (or moves it with the arrow keys), remembered per browser (`scoreWidth` in the panel layout); on a phone it follows the player. Its thumbnails show paper until they are drawn, and every page is drawn on the paper token.
+- **Triage's passage** is the prototype's: the media small with its loop, play, and the passage's times. The same media element plays on as the queue moves, so nothing restarts between threads.
