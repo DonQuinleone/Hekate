@@ -3,7 +3,8 @@ import { cn } from "~/lib/cn";
 
 /**
  * Two to four views of the same thing (list and grid, light and dark): one pressed at a
- * time. Tabs are for a third level of navigation only. An `action` adds one more to the set
+ * time. Tabs are for a third level of navigation only. `labelled` keeps each icon's words beside
+ * it where there is room (Board, Timeline, Calendar), icons alone on a phone. An `action` adds one more to the set
  * (another variant beside the dry and the wet): a small button at its end, after a hairline.
  */
 export function Segmented<T extends string>({
@@ -12,6 +13,7 @@ export function Segmented<T extends string>({
   options,
   onChange,
   action,
+  labelled = false,
   className,
 }: {
   /** What the choice is, for assistive technology. */
@@ -31,6 +33,8 @@ export function Segmented<T extends string>({
   onChange: (value: T) => void;
   /** A way to add to the choices, at the end: its name (read and shown on hover) and icon. */
   action?: { label: string; icon: ReactNode; onSelect: () => void } | undefined;
+  /** Icons with their words beside them, from a tablet's width up. */
+  labelled?: boolean;
   className?: string;
 }) {
   return (
@@ -51,11 +55,16 @@ export function Segmented<T extends string>({
           onClick={() => onChange(o.value)}
           className={cn(
             "flex h-7 items-center justify-center gap-1.5 rounded-[5px] text-[13px] transition-colors",
-            o.icon ? "w-7" : "px-2.5",
+            o.icon ? (labelled ? "min-w-7 @xl/app:px-2.5" : "w-7") : "px-2.5",
             value === o.value ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
           )}
         >
           {o.icon ?? o.label}
+          {o.icon && labelled && (
+            <span aria-hidden="true" className="hidden @xl/app:inline">
+              {o.label}
+            </span>
+          )}
           {!o.icon && o.hint && <span className="tabular text-ink-3">{o.hint}</span>}
           {!o.icon && o.badge !== undefined && o.badge > 0 && (
             <span className="tabular rounded-full bg-signal/15 px-1.5 text-[11px] leading-4 font-medium text-signal">

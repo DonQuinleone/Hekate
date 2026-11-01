@@ -1,5 +1,7 @@
+import type { ReactNode } from "react";
 import { ProjectBoard } from "~/components/board";
 import { ProjectCalendar, thisMonth } from "~/components/calendar";
+import { Icon } from "~/components/icons";
 import { ProjectTimeline } from "~/components/timeline";
 import { Segmented } from "~/components/ui/segmented";
 import { ProjectFrame } from "~/routes/project";
@@ -9,9 +11,17 @@ const body =
 
 export type BoardMode = "board" | "timeline" | "calendar";
 
+const modes = [
+  { value: "board", label: "Board", icon: <Icon name="board" size={14} /> },
+  { value: "timeline", label: "Timeline", icon: <Icon name="chart" size={14} /> },
+  { value: "calendar", label: "Calendar", icon: <Icon name="calendar" size={14} /> },
+] as const;
+
 /**
  * A project's board (#141): where each track stands, its tracks across the weeks, or what is due
- * when, kept in the address.
+ * when, kept in the address. The views are switched from the start of the board's own toolbar,
+ * as the prototype has it. A general project has no tracks to stand anywhere, so it has no
+ * board and opens on its calendar.
  */
 export function BoardPage({
   projectId,
@@ -26,33 +36,41 @@ export function BoardPage({
 }) {
   return (
     <ProjectFrame projectId={projectId} title="Board">
-      {(project) => (
-        <div className={body}>
+      {(project) => {
+        const tracks = project.profile !== "general";
+        const shown: BoardMode = !tracks && mode === "board" ? "calendar" : mode;
+        const switcher: ReactNode = (
           <Segmented
             label="Show"
-            className="self-start"
-            value={mode}
-            options={[
-              { value: "board", label: "Board" },
-              { value: "timeline", label: "Timeline" },
-              { value: "calendar", label: "Calendar" },
-            ]}
+            labelled
+            className="shrink-0"
+            value={shown}
+            options={tracks ? modes : modes.filter((m) => m.value !== "board")}
             onChange={(next) => onChange({ mode: next })}
           />
-          {mode === "calendar" ? (
-            <ProjectCalendar
-              projectId={project.id}
-              projectName={project.name}
-              month={month ?? thisMonth()}
-              onMonth={(next) => onChange({ mode, month: next })}
-            />
-          ) : mode === "timeline" ? (
-            <ProjectTimeline projectId={project.id} />
-          ) : (
-            <ProjectBoard projectId={project.id} />
-          )}
-        </div>
-      )}
+        );
+        return (
+          <div className={body}>
+            {shown === "board" ? (
+              <ProjectBoard projectId={project.id} switcher={switcher} />
+            ) : (
+              <>
+                <div className="flex items-center gap-2">{switcher}</div>
+                {shown === "calendar" ? (
+                  <ProjectCalendar
+                    projectId={project.id}
+                    projectName={project.name}
+                    month={month ?? thisMonth()}
+                    onMonth={(next) => onChange({ mode: "calendar", month: next })}
+                  />
+                ) : (
+                  <ProjectTimeline projectId={project.id} />
+                )}
+              </>
+            )}
+          </div>
+        );
+      }}
     </ProjectFrame>
   );
 }

@@ -13,6 +13,7 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { AvatarRow } from "~/components/avatar";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
@@ -151,29 +152,32 @@ function Customise({
               ))}
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3 text-[12px]">
-            <button
-              type="button"
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={onReset}
-              className="text-ink-3 hover:text-ink"
               title="Back to the project's default"
             >
               Reset
-            </button>
-            {onSetDefault &&
-              (isDefault ? (
-                <span className="text-ink-3">The project's default</span>
-              ) : (
-                <button
-                  type="button"
-                  disabled={settingDefault}
-                  onClick={onSetDefault}
-                  className="text-ink-3 hover:text-ink disabled:opacity-50"
-                  title="What everyone sees until they arrange it for themselves"
-                >
-                  Set as the project's default
-                </button>
-              ))}
+            </Button>
+            {/* The same words whether or not it is the default already: then it is ticked and off. */}
+            {onSetDefault && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={isDefault || settingDefault}
+                onClick={onSetDefault}
+                title={
+                  isDefault
+                    ? "This is the project's default"
+                    : "What everyone sees until they arrange it for themselves"
+                }
+              >
+                {isDefault && <Icon name="check" size={13} />}
+                Set as the project's default
+              </Button>
+            )}
           </div>
           {defaultError && (
             <p role="alert" className="m-0 mt-2 text-[12px] text-signal">
@@ -281,7 +285,14 @@ function Card({
  * waits on and by when, what reviewers said, its open tasks and threads. How it is arranged is
  * each person's own, kept with their account.
  */
-export function ProjectBoard({ projectId }: { projectId: string }) {
+export function ProjectBoard({
+  projectId,
+  switcher,
+}: {
+  projectId: string;
+  /** The switch between the board, the timeline and the calendar, at the toolbar's start. */
+  switcher?: ReactNode;
+}) {
   const { data, error, refetch } = useQuery(projectBoardQuery(projectId));
   const { words, versionLabel } = useItemWords(projectId);
   const preferences = usePreferences();
@@ -293,8 +304,29 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   const display = boardDisplayFor(preferences, data?.display);
   const set = (board: BoardDisplay) => save.mutate({ board, boardChosen: true });
   const reset = () => save.mutate({ board: defaultBoardDisplay, boardChosen: false });
-  if (error) return <Failed what="The board" error={error} retry={refetch} />;
-  if (!data) return <Loading />;
+  const toolbar = (customise?: ReactNode, workflows?: string) => (
+    <div className="flex min-w-0 items-center gap-3">
+      {switcher}
+      {workflows && (
+        <span className="min-w-0 flex-1 truncate text-[13px] text-ink-3">{workflows}</span>
+      )}
+      {customise && <span className="ml-auto shrink-0">{customise}</span>}
+    </div>
+  );
+  if (error)
+    return (
+      <div className="flex flex-col gap-4">
+        {toolbar()}
+        <Failed what="The board" error={error} retry={refetch} />
+      </div>
+    );
+  if (!data)
+    return (
+      <div className="flex flex-col gap-4">
+        {toolbar()}
+        <Loading />
+      </div>
+    );
   const columns = data.columns[display.groupBy];
   const cardsIn = (id: string) =>
     data.cards.filter((card) => boardColumnOf(card, display.groupBy) === id);
@@ -307,34 +339,35 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
       !((c.id === NO_STATUS || c.id === NOT_AT_A_STAGE) && cardsIn(c.id).length === 0),
   );
   const putAway = columns.filter((c) => hidden.has(c.id));
+  const workflows =
+    data.workflows.length > 0
+      ? data.workflows.join(", ")
+      : `No workflow is switched on; ${words.tracks} show the last status they were given.`;
   if (data.cards.length === 0)
     return (
-      <Empty
-        title={`No ${words.tracks} yet`}
-        text={`The board shows each ${words.track} by where its workflow has it. Add a ${words.track} and upload a ${words.version} to start.`}
-      />
+      <div className="flex flex-col gap-4">
+        {toolbar()}
+        <Empty
+          title={`No ${words.tracks} yet`}
+          text={`The board shows each ${words.track} by where its workflow has it. Add a ${words.track} and upload a ${words.version} to start.`}
+        />
+      </div>
     );
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="min-w-0 truncate text-[13px] text-ink-3">
-          {data.workflows.length > 0
-            ? data.workflows.join(", ")
-            : `No workflow is switched on; ${words.tracks} show the last status they were given.`}
-        </span>
-        <span className="ml-auto">
-          <Customise
-            display={display}
-            onChange={set}
-            onReset={reset}
-            version={capital(words.version)}
-            projectDefault={projectDefault}
-            onSetDefault={can("edit_project") ? () => setDefault.mutate(display) : undefined}
-            settingDefault={setDefault.isPending}
-            defaultError={setDefault.error?.message}
-          />
-        </span>
-      </div>
+      {toolbar(
+        <Customise
+          display={display}
+          onChange={set}
+          onReset={reset}
+          version={capital(words.version)}
+          projectDefault={projectDefault}
+          onSetDefault={can("edit_project") ? () => setDefault.mutate(display) : undefined}
+          settingDefault={setDefault.isPending}
+          defaultError={setDefault.error?.message}
+        />,
+        workflows,
+      )}
       <div className="scroll-quiet -mx-5 overflow-x-auto px-5 @3xl/app:-mx-10 @3xl/app:px-10">
         <div className="flex min-w-max items-start gap-3 pb-2">
           {shown.map((column) => {

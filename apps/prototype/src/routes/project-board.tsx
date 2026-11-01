@@ -133,27 +133,30 @@ function Customise({ display, set }: { display: Display; set: (d: Display) => vo
               ))}
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-between border-t border-line pt-3 text-[12px]">
-            <button
-              type="button"
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => set(projectDefault)}
-              className="text-ink-3 hover:text-ink"
               title="Back to the project's default"
             >
               Reset
-            </button>
-            {isDefault ? (
-              <span className="text-ink-3">The project's default</span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setProjectDefault(display)}
-                className="text-ink-3 hover:text-ink"
-                title="What everyone sees until they arrange it for themselves"
-              >
-                Set as the project's default
-              </button>
-            )}
+            </Button>
+            {/* The same words whether or not it is the default already: then it is ticked and off. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={isDefault}
+              onClick={() => setProjectDefault(display)}
+              title={
+                isDefault
+                  ? "This is the project's default"
+                  : "What everyone sees until they arrange it for themselves"
+              }
+            >
+              {isDefault && <Icon name="check" size={13} />}
+              Set as the project's default
+            </Button>
           </div>
         </Floating>
       )}
@@ -275,7 +278,11 @@ function TrackCard({
 
 export function Board({ project, month }: { project: Project; month?: string }) {
   const workflow = workflows.find((w) => w.id === project.workflowId);
-  const [mode, setMode] = useState<"board" | "timeline" | "calendar">("board");
+  // A general project has no tracks to stand anywhere: no board, and it opens on its calendar.
+  const tracksHere = project.profile !== "general";
+  const [mode, setMode] = useState<"board" | "timeline" | "calendar">(
+    tracksHere ? "board" : "calendar",
+  );
   const [display, setDisplay] = useState<Display>(defaultDisplay);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   /** An entry being added or changed (#505), from the calendar or the timeline. */
@@ -321,24 +328,26 @@ export function Board({ project, month }: { project: Project; month?: string }) 
               ["timeline", "Timeline", "chart"],
               ["calendar", "Calendar", "calendar"],
             ] as const
-          ).map(([m, label, icon]) => (
-            <button
-              key={m}
-              type="button"
-              role="radio"
-              aria-checked={mode === m}
-              onClick={() => setMode(m)}
-              className={cn(
-                "flex h-7 items-center gap-1.5 rounded-[4px] px-2.5 text-[13px]",
-                mode === m ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
-              )}
-            >
-              <Icon name={icon as IconName} size={13} />
-              {label}
-            </button>
-          ))}
+          )
+            .filter(([m]) => tracksHere || m !== "board")
+            .map(([m, label, icon]) => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={mode === m}
+                onClick={() => setMode(m)}
+                className={cn(
+                  "flex h-7 items-center gap-1.5 rounded-[4px] px-2.5 text-[13px]",
+                  mode === m ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
+                )}
+              >
+                <Icon name={icon as IconName} size={13} />
+                {label}
+              </button>
+            ))}
         </div>
-        <span className="text-[13px] text-ink-3">{workflow?.name}</span>
+        {tracksHere && <span className="text-[13px] text-ink-3">{workflow?.name}</span>}
         <span className="ml-auto flex items-center gap-1">
           {mode === "board" && <Customise display={display} set={setDisplay} />}
         </span>
