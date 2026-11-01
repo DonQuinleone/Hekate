@@ -714,7 +714,7 @@ function Plans() {
                 label={p.name}
                 actions={[
                   { label: "Edit limits and price…", onSelect: () => setEditing({ plan: p }) },
-                  { label: "Duplicate", onSelect: () => setEditing({ plan: p, copy: true }) },
+                  { label: "Duplicate…", onSelect: () => setEditing({ plan: p, copy: true }) },
                   {
                     label: p.hidden ? "Offer to new sign-ups" : "Hide from new sign-ups",
                     onSelect: () => toggleHidden(p),
@@ -766,11 +766,11 @@ function Plans() {
           onClose={() => setRetiring(null)}
           footer={
             <>
-              <Button variant="ghost" onClick={() => setRetiring(null)}>
-                Keep it
+              <Button variant="secondary" onClick={() => setRetiring(null)}>
+                Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 disabled={retire.isPending}
                 onClick={() => retire.mutate(retiring.id, { onSuccess: () => setRetiring(null) })}
               >
@@ -1152,11 +1152,11 @@ function Promos() {
           onClose={() => setEnding(null)}
           footer={
             <>
-              <Button variant="ghost" onClick={() => setEnding(null)}>
-                Keep it
+              <Button variant="secondary" onClick={() => setEnding(null)}>
+                Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 disabled={end.isPending}
                 onClick={() => end.mutate(ending.id, { onSuccess: () => setEnding(null) })}
               >

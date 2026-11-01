@@ -504,7 +504,7 @@ function Composer({
                   ...(takesFrom
                     ? [
                         {
-                          label: "Takes from this track",
+                          label: "Takes from this track…",
                           icon: <Icon name="take" size={14} />,
                           onSelect: () => setAttaching("takes"),
                         },
@@ -513,14 +513,14 @@ function Composer({
                   ...(filesFrom
                     ? [
                         {
-                          label: "Files from this project",
+                          label: "Files from this project…",
                           icon: <Icon name="folder" size={14} />,
                           onSelect: () => setAttaching("files"),
                         },
                       ]
                     : []),
                   {
-                    label: "Upload",
+                    label: "Upload…",
                     icon: <Icon name="upload" size={14} />,
                     hint:
                       files.length >= COMMENT_ATTACHMENTS_MAX

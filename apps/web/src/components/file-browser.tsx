@@ -1221,11 +1221,11 @@ export function FileBrowser({
             ? `Delete ${item.folder.name}? What is in it moves to ${parentOf(item.folder)}.`
             : `Delete ${itemName(item, versionLabel)}? This cannot be undone.`}
         </span>
-        <Button size="sm" variant="primary" disabled={pending} onClick={() => remove(item)}>
-          Delete
+        <Button size="sm" variant="secondary" onClick={() => setEditing(null)}>
+          Cancel
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
-          Keep
+        <Button size="sm" variant="danger" disabled={pending} onClick={() => remove(item)}>
+          Delete
         </Button>
       </span>
     );
@@ -2168,11 +2168,11 @@ function SelectionBar({
             Delete {count === 1 ? "this" : `these ${count}`}? What is in a folder moves up; files
             cannot be brought back.
           </span>
-          <Button size="sm" variant="primary" disabled={busy} onClick={remove}>
-            Delete
+          <Button size="sm" variant="secondary" onClick={() => onMode(null)}>
+            Cancel
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => onMode(null)}>
-            Keep
+          <Button size="sm" variant="danger" disabled={busy} onClick={remove}>
+            Delete
           </Button>
         </div>
       )}

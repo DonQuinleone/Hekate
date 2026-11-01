@@ -54,7 +54,7 @@ function CaptionTracks({ file }: { file: File }) {
                 { label: "Export as WebVTT (.vtt)", onSelect: () => {} },
                 { label: "Export as TTML (.ttml)", onSelect: () => {} },
                 "divider",
-                { label: "Remove", danger: true, onSelect: () => {} },
+                { label: "Remove…", danger: true, onSelect: () => {} },
               ]}
             />
           </li>

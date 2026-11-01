@@ -491,11 +491,11 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
           onClose={() => setDeleting(false)}
           footer={
             <>
-              <Button variant="ghost" onClick={() => setDeleting(false)}>
+              <Button variant="secondary" onClick={() => setDeleting(false)}>
                 Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 disabled={remove.isPending}
                 onClick={() =>
                   remove.mutate(session.id, {

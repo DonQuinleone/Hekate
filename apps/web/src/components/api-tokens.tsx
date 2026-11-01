@@ -393,11 +393,11 @@ function RevokeDialog({
       width="sm"
       footer={
         <>
-          <Button variant="ghost" size="md" onClick={onClose}>
+          <Button variant="secondary" size="md" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="md"
             disabled={revoke.isPending}
             onClick={() => revoke.mutate(token.id, { onSuccess: onClose })}

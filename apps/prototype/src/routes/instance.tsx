@@ -703,15 +703,15 @@ function DeleteOrganisation({ name, onClose }: { name: string; onClose: () => vo
   const [typed, setTyped] = useState("");
   return (
     <Dialog
-      title={`Delete ${name}`}
+      title={`Delete ${name}?`}
       description="In 30 days its members, projects, files, reviews, keys and access log are deleted, and its stored files with them. Until then it stays suspended, and keeping it changes nothing."
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" disabled={typed !== name} onClick={onClose}>
+          <Button variant="danger" disabled={typed !== name} onClick={onClose}>
             Delete in 30 days
           </Button>
         </>

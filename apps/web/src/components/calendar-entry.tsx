@@ -10,7 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { PeoplePicker, type Person } from "~/components/people-picker";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
 import { Segmented } from "~/components/ui/segmented";
@@ -47,6 +47,7 @@ export function EntryDialog({
   onClose: () => void;
 }) {
   const can = useProjectCan(projectId);
+  const [confirm, confirmation] = useConfirm();
   const { words } = useItemWords(projectId);
   const { create, change, remove } = useCalendarEntries(projectId);
   const { data: members = [] } = useQuery(projectMembersQuery(projectId));
@@ -101,12 +102,19 @@ export function EntryDialog({
         <>
           {entry && (
             <Button
-              variant="ghost"
-              className="mr-auto text-signal hover:text-signal"
+              variant="danger"
+              className="mr-auto"
               disabled={pending}
-              onClick={() => remove.mutate(entry.id, { onSuccess: onClose })}
+              onClick={() =>
+                confirm({
+                  title: `Remove ${entry.title}?`,
+                  description: "It goes from the calendar and the timeline for everyone.",
+                  action: "Remove entry",
+                  onConfirm: () => remove.mutateAsync(entry.id).then(onClose),
+                })
+              }
             >
-              Remove
+              Remove…
             </Button>
           )}
           <Button variant="ghost" onClick={onClose}>
@@ -207,6 +215,7 @@ export function EntryDialog({
           </p>
         )}
       </form>
+      {confirmation}
     </Dialog>
   );
 }

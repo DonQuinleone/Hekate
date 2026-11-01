@@ -113,10 +113,10 @@ function Repertoire() {
                   always
                   label={w.title}
                   actions={[
-                    { label: "Edit", onSelect: () => {} },
+                    { label: "Edit…", onSelect: () => {} },
                     { label: "Swap the score, keeping marks", onSelect: () => {} },
                     "divider",
-                    { label: "Delete", danger: true, onSelect: () => {} },
+                    { label: "Delete…", danger: true, onSelect: () => {} },
                   ]}
                 />
               </span>
@@ -194,9 +194,9 @@ function Venues() {
             <ActionMenu
               label={v.name}
               actions={[
-                { label: "Edit", onSelect: () => {} },
+                { label: "Edit…", onSelect: () => {} },
                 "divider",
-                { label: "Delete", danger: true, onSelect: () => {} },
+                { label: "Delete…", danger: true, onSelect: () => {} },
               ]}
             />
           </li>
@@ -300,7 +300,7 @@ function PersonnelView() {
                     <ActionMenu
                       label={p.name}
                       actions={[
-                        { label: "Edit", onSelect: () => {} },
+                        { label: "Edit…", onSelect: () => {} },
                         {
                           label: p.personId
                             ? "Unlink from the member"
@@ -308,7 +308,7 @@ function PersonnelView() {
                           onSelect: () => {},
                         },
                         "divider",
-                        { label: "Remove", danger: true, onSelect: () => {} },
+                        { label: "Remove…", danger: true, onSelect: () => {} },
                       ]}
                     />
                   </div>
@@ -518,12 +518,12 @@ function Schedule() {
                       <ActionMenu
                         label={track?.name ?? r.label ?? "row"}
                         actions={[
-                          { label: "Edit", onSelect: () => {} },
+                          { label: "Edit…", onSelect: () => {} },
                           { label: "Insert a break after", onSelect: () => {} },
                           { label: "Move up", onSelect: () => {} },
                           { label: "Move down", onSelect: () => {} },
                           "divider",
-                          { label: "Remove", danger: true, onSelect: () => {} },
+                          { label: "Remove…", danger: true, onSelect: () => {} },
                         ]}
                       />
                     </li>
@@ -1700,10 +1700,10 @@ function Patch() {
                         <ActionMenu
                           label={r.source}
                           actions={[
-                            { label: "Edit", onSelect: () => {} },
+                            { label: "Edit…", onSelect: () => {} },
                             { label: "Link to a microphone on the plan", onSelect: () => {} },
                             "divider",
-                            { label: "Remove", danger: true, onSelect: () => {} },
+                            { label: "Remove…", danger: true, onSelect: () => {} },
                           ]}
                         />
                       </td>

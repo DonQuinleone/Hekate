@@ -368,11 +368,11 @@ function Cancel({ billing }: { billing: WorkspaceBilling }) {
           onClose={() => setAsking(false)}
           footer={
             <>
-              <Button variant="ghost" onClick={() => setAsking(false)}>
-                Keep it
+              <Button variant="secondary" onClick={() => setAsking(false)}>
+                Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 disabled={cancel.isPending}
                 onClick={() => cancel.mutate(true, { onSuccess: () => setAsking(false) })}
               >

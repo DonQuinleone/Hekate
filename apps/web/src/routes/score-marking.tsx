@@ -274,10 +274,10 @@ function Marking({
   };
   const exports = [
     ...(marks.length > 0 && canDownload.proxy
-      ? [{ label: "Annotated PDF", onSelect: () => setExporting("one") }]
+      ? [{ label: "Annotated PDF…", onSelect: () => setExporting("one") }]
       : []),
     ...(everyScore
-      ? [{ label: "Every score, annotated", onSelect: () => setExporting("every") }]
+      ? [{ label: "Every score, annotated…", onSelect: () => setExporting("every") }]
       : []),
     ...(marks.length > 0 ? [{ label: "Marks as CSV", onSelect: exportCsv }] : []),
   ];

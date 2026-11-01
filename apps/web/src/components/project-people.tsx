@@ -15,7 +15,7 @@ import { Icon } from "~/components/icons";
 import { Card, SectionHead } from "~/components/page";
 import { PeoplePicker, type Person } from "~/components/people-picker";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
@@ -65,6 +65,7 @@ export function ProjectPeople({ projectId }: { projectId: string }) {
  */
 function Members({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
+  const [confirm, confirmation] = useConfirm();
   const manage = can("manage_roles");
   const { data: holders, error: loadError } = useQuery(projectMembersQuery(projectId));
   const { data: roles } = useQuery(projectRolesQuery(projectId));
@@ -205,9 +206,16 @@ function Members({ projectId }: { projectId: string }) {
                   ? [
                       "divider" as const,
                       {
-                        label: "Remove from project",
+                        label: "Remove from project…",
                         danger: true,
-                        onSelect: () => remove.mutate(m.userId),
+                        onSelect: () =>
+                          confirm({
+                            title: `Remove ${m.name} from the project?`,
+                            description:
+                              "They lose their role here and everything it lets them see. What they wrote and decided stays.",
+                            action: "Remove",
+                            onConfirm: () => remove.mutateAsync(m.userId),
+                          }),
                       },
                     ]
                   : []),
@@ -257,6 +265,7 @@ function Members({ projectId }: { projectId: string }) {
       {granting && (
         <StandingDialog projectId={projectId} person={granting} onClose={() => setGranting(null)} />
       )}
+      {confirmation}
     </>
   );
 }
@@ -308,11 +317,11 @@ function LeaveDialog({
       width="sm"
       footer={
         <>
-          <Button variant="ghost" size="md" onClick={onClose}>
+          <Button variant="secondary" size="md" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="md"
             disabled={leave.isPending || (lastOwner && !successor)}
             onClick={() =>
@@ -551,11 +560,11 @@ function Reviewers({ projectId }: { projectId: string }) {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={() => setRevoking(null)}>
+              <Button variant="secondary" size="md" onClick={() => setRevoking(null)}>
                 Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={revoke.isPending}
                 onClick={() => revoke.mutate(revoking.id, { onSuccess: () => setRevoking(null) })}

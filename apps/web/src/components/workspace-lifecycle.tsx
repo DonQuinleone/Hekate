@@ -341,12 +341,7 @@ export function DeleteWorkspace({ name }: { name: string }) {
             Withdraw
           </Button>
           {deletion.mayConfirm && (
-            <Button
-              variant="secondary"
-              size="md"
-              className="text-signal"
-              onClick={() => setDialog("confirm")}
-            >
+            <Button variant="danger" size="md" onClick={() => setDialog("confirm")}>
               Delete…
             </Button>
           )}
@@ -359,12 +354,7 @@ export function DeleteWorkspace({ name }: { name: string }) {
         name="Delete this workspace"
         hint="Every project, file and review. Only an owner, with a second owner confirming."
       >
-        <Button
-          variant="secondary"
-          size="md"
-          className="text-signal"
-          onClick={() => setDialog("ask")}
-        >
+        <Button variant="danger" size="md" onClick={() => setDialog("ask")}>
           Delete…
         </Button>
       </Row>
@@ -386,11 +376,11 @@ export function DeleteWorkspace({ name }: { name: string }) {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={close}>
-                Keep it
+              <Button variant="secondary" size="md" onClick={close}>
+                Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={request.isPending}
                 onClick={() => request.mutate(undefined, { onSuccess: close })}
@@ -411,11 +401,11 @@ export function DeleteWorkspace({ name }: { name: string }) {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={close}>
-                Keep it
+              <Button variant="secondary" size="md" onClick={close}>
+                Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={confirm.isPending || typed.trim() !== name}
                 onClick={() => confirm.mutate(typed, { onSuccess: close })}

@@ -26,7 +26,7 @@ import { ScopeChoices } from "./api-tokens";
 import { Icon } from "./icons";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
-import { Dialog } from "./ui/dialog";
+import { Dialog, useConfirm } from "./ui/dialog";
 import { Field } from "./ui/field";
 import { Input, Select, Textarea } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
@@ -337,11 +337,11 @@ function RotateDialog({
       width="sm"
       footer={
         <>
-          <Button variant="ghost" size="md" onClick={onClose}>
+          <Button variant="secondary" size="md" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="md"
             disabled={rotate.isPending}
             onClick={() => rotate.mutate(client.id, { onSuccess: onRotated })}
@@ -410,11 +410,11 @@ function DeleteClientDialog({ client, onClose }: { client: OAuthClientRow; onClo
       width="sm"
       footer={
         <>
-          <Button variant="ghost" size="md" onClick={onClose}>
+          <Button variant="secondary" size="md" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="md"
             disabled={remove.isPending}
             onClick={() => remove.mutate(client.id, { onSuccess: onClose })}
@@ -437,6 +437,15 @@ export function ConnectedAppsSection() {
   const { data: apps } = useQuery(connectedAppsQuery);
   const disconnect = useDisconnect();
   const [reading, setReading] = useState<ConnectedAppRow | null>(null);
+  const [confirm, confirmation] = useConfirm();
+  const askDisconnect = (app: ConnectedAppRow) =>
+    confirm({
+      title: `Disconnect ${app.name}?`,
+      description:
+        "It can no longer act as you in this workspace. To use it again, connect it from its own screen.",
+      action: "Disconnect",
+      onConfirm: () => disconnect.mutateAsync(app.id),
+    });
   if (!apps) return null;
   return (
     <>
@@ -464,15 +473,14 @@ export function ConnectedAppsSection() {
                 { label: "What it may do…", onSelect: () => setReading(a) },
                 "divider",
                 {
-                  label: "Disconnect",
+                  label: "Disconnect…",
                   danger: true,
-                  onSelect: () => disconnect.mutate(a.id),
+                  onSelect: () => askDisconnect(a),
                 },
               ]}
             />
           </Row>
         ))}
-        {disconnect.error && <Row name="Not disconnected" hint={disconnect.error.message} />}
       </Section>
       <Section
         title="For developers"
@@ -495,24 +503,22 @@ export function ConnectedAppsSection() {
           description="It acts as you, in this workspace alone, and can do no more than you can."
           onClose={() => setReading(null)}
           footer={
-            <>
-              <Button
-                variant="ghost"
-                size="md"
-                disabled={disconnect.isPending}
-                onClick={() => disconnect.mutate(reading.id, { onSuccess: () => setReading(null) })}
-              >
-                Disconnect
-              </Button>
-              <Button variant="primary" size="md" onClick={() => setReading(null)}>
-                Done
-              </Button>
-            </>
+            <Button
+              variant="danger"
+              size="md"
+              onClick={() => {
+                setReading(null);
+                askDisconnect(reading);
+              }}
+            >
+              Disconnect…
+            </Button>
           }
         >
           <ScopeList scopes={reading.scopes} />
         </Dialog>
       )}
+      {confirmation}
     </>
   );
 }

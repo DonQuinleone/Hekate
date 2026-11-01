@@ -11,6 +11,7 @@ import { Property } from "~/components/property";
 import { Dot, reviewDot, reviewerCopy, reviewerDot } from "~/components/status";
 import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
+import { ConfirmDialog } from "~/components/ui/dialog";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import {
@@ -911,24 +912,18 @@ export function ReviewBody({
             </p>
           )}
           {cancelling && (
-            <div className="rise-in flex flex-col gap-3 rounded-panel border border-signal/40 bg-signal/10 px-4 py-3 text-[14px] text-ink">
-              <span>
-                Cancel this review? Reviewers lose access to its items. Decisions already recorded
-                stay in the record.
-              </span>
+            <ConfirmDialog
+              title={`Cancel ${review.title}?`}
+              description="Reviewers lose access to its items. Decisions already recorded stay in the record."
+              action="Cancel the review"
+              onConfirm={() => setCancelling(false)}
+              onClose={() => setCancelling(false)}
+            >
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Reason (optional, shown on the review)
-                <Input className="h-8" />
+                <Input />
               </label>
-              <div className="flex justify-end gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setCancelling(false)}>
-                  Keep it
-                </Button>
-                <Button variant="primary" size="sm" onClick={() => setCancelling(false)}>
-                  Cancel the review
-                </Button>
-              </div>
-            </div>
+            </ConfirmDialog>
           )}
         </div>
         {me && review.status === "open" && <YourTurn review={review} me={me} />}

@@ -488,14 +488,9 @@ export function AccountPage({ section }: { section: string }) {
               description="It acts as you, in this workspace alone, and can do no more than you can."
               onClose={() => setReading(null)}
               footer={
-                <>
-                  <Button variant="ghost" onClick={() => setReading(null)}>
-                    Disconnect
-                  </Button>
-                  <Button variant="primary" onClick={() => setReading(null)}>
-                    Done
-                  </Button>
-                </>
+                <Button variant="danger" onClick={() => setReading(null)}>
+                  Disconnect…
+                </Button>
               }
             >
               <ul className="flex flex-col gap-2 text-[13px]">

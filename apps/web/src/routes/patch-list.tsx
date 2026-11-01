@@ -5,7 +5,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
@@ -68,6 +68,7 @@ function PatchList({
   canEdit: boolean;
 }) {
   const { removeBox, removeRow } = usePatchList(projectId);
+  const [confirm, confirmation] = useConfirm();
   const [editing, setEditing] = useState<Editing | null>(null);
   const addBox = (
     <Button variant="primary" onClick={() => setEditing({ kind: "box" })}>
@@ -114,9 +115,20 @@ function PatchList({
                     always
                     label={box.name}
                     actions={[
-                      { label: "Rename", onSelect: () => setEditing({ kind: "box", box }) },
+                      { label: "Rename…", onSelect: () => setEditing({ kind: "box", box }) },
                       "divider",
-                      { label: "Remove", danger: true, onSelect: () => removeBox.mutate(box.id) },
+                      {
+                        label: "Remove…",
+                        danger: true,
+                        onSelect: () =>
+                          confirm({
+                            title: `Remove ${box.name}?`,
+                            description:
+                              "The box goes with its inputs and outputs. Microphones on the stage plan stay, without their channel.",
+                            action: "Remove box",
+                            onConfirm: () => removeBox.mutateAsync(box.id),
+                          }),
+                      },
                     ]}
                   />
                 )}
@@ -168,15 +180,23 @@ function PatchList({
                                   label={`${words.one} ${r.channel}`}
                                   actions={[
                                     {
-                                      label: "Edit",
+                                      label: "Edit…",
                                       onSelect: () =>
                                         setEditing({ kind: "row", box, direction, row: r }),
                                     },
                                     "divider",
                                     {
-                                      label: "Remove",
+                                      label: "Remove…",
                                       danger: true,
-                                      onSelect: () => removeRow.mutate(r.id),
+                                      onSelect: () =>
+                                        confirm({
+                                          title: `Remove ${words.one} ${r.channel}?`,
+                                          description: r.source
+                                            ? `${r.source} goes from the patch list.`
+                                            : "It goes from the patch list.",
+                                          action: "Remove",
+                                          onConfirm: () => removeRow.mutateAsync(r.id),
+                                        }),
                                     },
                                   ]}
                                 />
@@ -224,6 +244,7 @@ function PatchList({
           onClose={() => setEditing(null)}
         />
       )}
+      {confirmation}
     </>
   );
 }

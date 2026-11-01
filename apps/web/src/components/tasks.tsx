@@ -19,7 +19,7 @@ import { Empty } from "~/components/empty";
 import { Icon, type IconName } from "~/components/icons";
 import { Card } from "~/components/page";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { InlineInput, Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
@@ -124,6 +124,7 @@ function TaskPanel({
   onClose: () => void;
 }) {
   const { data: task, error } = useQuery(taskQuery(taskId));
+  const [confirm, confirmation] = useConfirm();
   const { data: me } = useQuery(meQuery);
   const mutations = useTaskMutations(projectId);
   const [note, setNote] = useState("");
@@ -181,10 +182,15 @@ function TaskPanel({
                   ? [
                       "divider" as const,
                       {
-                        label: "Delete",
+                        label: "Delete…",
                         danger: true,
                         onSelect: () =>
-                          mutations.remove.mutate(task.id, { onSuccess: () => onClose() }),
+                          confirm({
+                            title: `Delete ${task.title}?`,
+                            description: "The task and its comments go for everyone.",
+                            action: "Delete task",
+                            onConfirm: () => mutations.remove.mutateAsync(task.id).then(onClose),
+                          }),
                       },
                     ]
                   : []),
@@ -236,6 +242,7 @@ function TaskPanel({
           </Button>
         </form>
       )}
+      {confirmation}
     </aside>
   );
 }

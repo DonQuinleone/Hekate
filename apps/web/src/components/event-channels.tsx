@@ -34,7 +34,7 @@ import { MailLogNotice } from "./mail-log-notice";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/choice";
-import { Dialog } from "./ui/dialog";
+import { Dialog, useConfirm } from "./ui/dialog";
 import { Field } from "./ui/field";
 import { Input, Select } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
@@ -65,6 +65,7 @@ function channelHint(c: ChannelRow) {
  */
 export function ChannelsSection() {
   const { data: channels } = useQuery(channelsQuery);
+  const [confirm, confirmation] = useConfirm();
   const { change, remove, test } = useChannels();
   const [editing, setEditing] = useState<ChannelRow | "new" | null>(null);
   const [choosing, setChoosing] = useState<ChannelRow | null>(null);
@@ -157,7 +158,18 @@ export function ChannelsSection() {
                   { label: "Edit…", onSelect: () => setEditing(c) },
                   { label: "Which events…", onSelect: () => setChoosing(c) },
                   "divider",
-                  { label: "Remove", danger: true, onSelect: () => remove.mutate(c.id) },
+                  {
+                    label: "Remove…",
+                    danger: true,
+                    onSelect: () =>
+                      confirm({
+                        title: `Remove ${c.name}?`,
+                        description:
+                          "Nothing more is sent to it. What it was sent before stays where it went.",
+                        action: "Remove channel",
+                        onConfirm: () => remove.mutateAsync(c.id),
+                      }),
+                  },
                 ]}
               />
             </div>
@@ -183,6 +195,7 @@ export function ChannelsSection() {
           onClose={() => setChoosing(null)}
         />
       )}
+      {confirmation}
     </>
   );
 }
@@ -429,6 +442,7 @@ function ChannelDialog({ channel, onClose }: { channel: ChannelRow | null; onClo
  */
 function MailRow({ onEdit, onBounced }: { onEdit: () => void; onBounced: () => void }) {
   const { data: mail, isPending } = useQuery(workspaceMailQuery);
+  const [confirm, confirmation] = useConfirm();
   const { remove, resume, test } = useWorkspaceMail();
   if (isPending) return null;
   const outcome = test.data ?? (test.error ? { ok: false, result: test.error.message } : null);
@@ -493,14 +507,22 @@ function MailRow({ onEdit, onBounced }: { onEdit: () => void; onBounced: () => v
               ...(mail.bounceUrl ? [{ label: "Bounced addresses…", onSelect: onBounced }] : []),
               "divider",
               {
-                label: "Back to the instance's mail",
+                label: "Back to the instance's mail…",
                 danger: true,
-                onSelect: () => remove.mutate(),
+                onSelect: () =>
+                  confirm({
+                    title: "Go back to the instance's mail?",
+                    description:
+                      "The workspace's own mail settings are removed, and its mail is sent through the instance's again.",
+                    action: "Remove the workspace's mail",
+                    onConfirm: () => remove.mutateAsync(),
+                  }),
               },
             ]}
           />
         )}
       </div>
+      {confirmation}
     </Row>
   );
 }

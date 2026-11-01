@@ -344,6 +344,7 @@ export function ComponentsSection() {
           <Button variant="primary">Request a review</Button>
           <Button variant="secondary">Share</Button>
           <Button variant="ghost">Export</Button>
+          <Button variant="danger">Delete…</Button>
           <Button variant="quiet" size="icon" aria-label="More">
             <Icon name="more" size={16} />
           </Button>
@@ -359,10 +360,10 @@ export function ComponentsSection() {
           <Dropdown
             value="Album review"
             actions={[
-              { label: "Rename", onSelect: () => {} },
+              { label: "Rename…", onSelect: () => {} },
               { label: "Duplicate", onSelect: () => {} },
               "divider",
-              { label: "Delete", danger: true, onSelect: () => {} },
+              { label: "Delete…", danger: true, onSelect: () => {} },
             ]}
           />
         </Spec>

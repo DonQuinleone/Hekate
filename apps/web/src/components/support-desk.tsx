@@ -23,7 +23,7 @@ import { Row, Section } from "~/components/settings";
 import { calmLine } from "~/components/status";
 import { AttachPicker, Thread, TicketListRow, ticketLine } from "~/components/support";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
@@ -266,6 +266,7 @@ function Desk() {
 
 function CannedRepliesDialog({ onClose }: { onClose: () => void }) {
   const { data } = useQuery(cannedRepliesQuery);
+  const [confirm, confirmation] = useConfirm();
   const save = useSaveCannedReply();
   const remove = useRemoveCannedReply();
   const [editing, setEditing] = useState<CannedReply | "new" | null>(null);
@@ -348,14 +349,27 @@ function CannedRepliesDialog({ onClose }: { onClose: () => void }) {
               <ActionMenu
                 label={r.title}
                 actions={[
-                  { label: "Edit", onSelect: () => open(r) },
-                  { label: "Remove", danger: true, onSelect: () => remove.mutate(r.id) },
+                  { label: "Edit…", onSelect: () => open(r) },
+                  "divider",
+                  {
+                    label: "Remove…",
+                    danger: true,
+                    onSelect: () =>
+                      confirm({
+                        title: `Remove the reply ${r.title}?`,
+                        description:
+                          "It is no longer offered when answering. Replies already sent stay.",
+                        action: "Remove reply",
+                        onConfirm: () => remove.mutateAsync(r.id),
+                      }),
+                  },
                 ]}
               />
             </div>
           ))}
         </div>
       )}
+      {confirmation}
     </Dialog>
   );
 }

@@ -24,7 +24,7 @@ import { Property } from "~/components/property";
 import { ReviewerPermissionsEditor } from "~/components/reviewer-permissions";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { ConfirmDialog, Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
@@ -195,6 +195,7 @@ function Steps({ review }: { review: ReviewDetail }) {
 
 function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: string) => void }) {
   const { guest } = useViewer();
+  const [confirm, confirmation] = useConfirm();
   const actions = useReviewActions(review.id);
   const { addReviewer, invite, sendLink, revoke, permissions, remind, removeReviewer } = actions;
   const [inviting, setInviting] = useState(false);
@@ -347,9 +348,16 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                                 ? [
                                     "divider" as const,
                                     {
-                                      label: "Remove from the review",
+                                      label: "Remove from the review…",
                                       danger: true,
-                                      onSelect: () => removeReviewer.mutate(r.id),
+                                      onSelect: () =>
+                                        confirm({
+                                          title: `Remove ${r.name} from the review?`,
+                                          description:
+                                            "They are no longer asked, and lose access to its items. What they wrote stays.",
+                                          action: "Remove reviewer",
+                                          onConfirm: () => removeReviewer.mutateAsync(r.id),
+                                        }),
                                     },
                                   ]
                                 : []),
@@ -410,6 +418,7 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
           </div>
         </div>
       )}
+      {confirmation}
     </section>
   );
 }
@@ -1043,34 +1052,21 @@ export function ReviewBody({
               </p>
             )}
             {cancelling && (
-              <div className="rise-in flex flex-col gap-3 rounded-panel border border-signal/40 bg-signal/10 px-4 py-3 text-[14px] text-ink">
-                <span>
-                  {sharing
-                    ? "Stop sharing? Those it was shared with lose access to what it shares. What they opened stays in the record."
-                    : "Cancel this review? Reviewers lose access to its items. Decisions already recorded stay in the record."}
-                </span>
-                <Field label="Reason (optional, shown on the review)" error={cancel.error?.message}>
+              <ConfirmDialog
+                title={sharing ? `Stop sharing ${review.title}?` : `Cancel ${review.title}?`}
+                description={
+                  sharing
+                    ? "Those it was shared with lose access to what it shares. What they opened stays in the record."
+                    : "Reviewers lose access to its items. Decisions already recorded stay in the record."
+                }
+                action={sharing ? "Stop sharing" : "Cancel the review"}
+                onConfirm={() => cancel.mutateAsync({ reason: reason || undefined })}
+                onClose={() => setCancelling(false)}
+              >
+                <Field label="Reason (optional, shown on the review)">
                   <Input value={reason} onChange={(e) => setReason(e.target.value)} />
                 </Field>
-                <div className="flex justify-end gap-2">
-                  <Button variant="ghost" size="sm" onClick={() => setCancelling(false)}>
-                    Keep it
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={cancel.isPending}
-                    onClick={() =>
-                      cancel.mutate(
-                        { reason: reason || undefined },
-                        { onSuccess: () => setCancelling(false) },
-                      )
-                    }
-                  >
-                    {sharing ? "Stop sharing" : "Cancel the review"}
-                  </Button>
-                </div>
-              </div>
+              </ConfirmDialog>
             )}
           </div>
           <YourTurn review={review} />

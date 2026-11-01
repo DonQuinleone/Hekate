@@ -3640,9 +3640,9 @@ test("file-comment-link-files", async ({ page }, info) => {
   await form.getByRole("button", { name: "Attach", exact: true }).click();
   const menu = page.getByRole("menu", { name: "Attach" });
   await expect(menu.getByRole("menuitem")).toHaveText([
-    "Takes from this track",
-    "Files from this project",
-    "Upload",
+    "Takes from this track…",
+    "Files from this project…",
+    "Upload…",
   ]);
   await menu.getByRole("menuitem", { name: "Files from this project" }).click();
   const dialog = page.getByRole("dialog", { name: "Files from this project" });
@@ -4343,7 +4343,7 @@ test("project-timeline-entry", async ({ page }) => {
     .first()
     .click();
   const dialog = page.getByRole("dialog", { name: "Entry" });
-  await expect(dialog.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Remove…", exact: true })).toBeVisible();
   await saveScreen(page, "project-timeline-entry");
   await checkScreen(page);
 });

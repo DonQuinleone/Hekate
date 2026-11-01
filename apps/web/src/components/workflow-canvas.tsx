@@ -668,7 +668,7 @@ export function WorkflowCanvas({
         ...(editing
           ? [
               {
-                label: "Add a node here",
+                label: "Add a node here…",
                 onSelect: () =>
                   setPicking({
                     flowId: t.flowId,
@@ -705,7 +705,7 @@ export function WorkflowCanvas({
         ...(editing && n
           ? [
               {
-                label: "Add what follows",
+                label: "Add what follows…",
                 onSelect: () => setPicking({ flowId, at: besides(n), from: id }),
               },
               { label: "Duplicate", onSelect: () => duplicateNode(flowId, id) },

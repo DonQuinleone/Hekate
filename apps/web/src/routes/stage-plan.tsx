@@ -37,7 +37,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
@@ -187,6 +187,7 @@ function Editor({
   onEdit: (editing: "new" | StagePlan) => void;
 }) {
   const { sendStep, reload, removePlan } = useStagePlans(projectId);
+  const [confirm, confirmation] = useConfirm();
   // What the editor shows: the server's items with this person's steps on top.
   const [items, setItems] = useState(plan.items);
   const [selected, setSelected] = useState<string[]>([]);
@@ -462,13 +463,20 @@ function Editor({
               ...(canEdit
                 ? [
                     "divider" as const,
-                    { label: "New stage plan", onSelect: () => onEdit("new") },
-                    { label: "Size and grid", onSelect: () => onEdit(plan) },
-                    { label: "Floor plan", onSelect: () => setLaying(true) },
+                    { label: "New stage plan…", onSelect: () => onEdit("new") },
+                    { label: "Size and grid…", onSelect: () => onEdit(plan) },
+                    { label: "Floor plan…", onSelect: () => setLaying(true) },
                     {
-                      label: "Remove this plan",
+                      label: "Remove this plan…",
                       danger: true,
-                      onSelect: () => removePlan.mutate(plan.id),
+                      onSelect: () =>
+                        confirm({
+                          title: `Remove ${plan.name}?`,
+                          description:
+                            "The plan and everything placed on it go. The patch list's inputs stay.",
+                          action: "Remove plan",
+                          onConfirm: () => removePlan.mutateAsync(plan.id),
+                        }),
                     },
                   ]
                 : []),
@@ -783,6 +791,7 @@ function Editor({
       {laying && (
         <UnderlayDialog projectId={projectId} plan={plan} onClose={() => setLaying(false)} />
       )}
+      {confirmation}
     </div>
   );
 }

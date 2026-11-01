@@ -38,7 +38,7 @@ import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
 import { ToggleChip } from "./ui/chip";
 import { Checkbox } from "./ui/choice";
-import { Dialog } from "./ui/dialog";
+import { Dialog, useConfirm } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
 import { ActionMenu, MenuList, usePopover } from "./ui/menu";
 import { Switch } from "./ui/toggle";
@@ -397,6 +397,7 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
   const { createRole, updateRole, deleteRole } = useProjectAccessMutations(projectId);
   const { data: exceptions = [] } = useQuery(projectToolExceptionsQuery(projectId));
   const excepting = useToolExceptionMutations(projectId);
+  const [confirm, confirmation] = useConfirm();
   const [dialog, setDialog] = useState<"new" | "rename" | "copy" | "compare" | "exception" | null>(
     null,
   );
@@ -430,10 +431,15 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
         always
         actions={[
           {
-            label: "Remove exception",
-            hint: "They have their role's tools again",
+            label: "Remove exception…",
             danger: true,
-            onSelect: () => excepting.remove.mutate(e.id),
+            onSelect: () =>
+              confirm({
+                title: `Remove ${e.name}'s exception?`,
+                description: "They have their role's tools in this project again.",
+                action: "Remove exception",
+                onConfirm: () => excepting.remove.mutateAsync(e.id),
+              }),
           },
         ]}
       />
@@ -504,15 +510,23 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
                   "divider",
                   role.members > 0
                     ? {
-                        label: "In use: cannot delete",
-                        hint: "Give its people another role first",
+                        label: "Delete…",
+                        hint: "In use: give its people another role first",
+                        disabled: true,
                         onSelect: () => {},
                       }
                     : {
-                        label: "Delete",
+                        label: "Delete…",
                         danger: true,
                         onSelect: () =>
-                          deleteRole.mutate(role.id, { onSuccess: () => setShown(null) }),
+                          confirm({
+                            title: `Delete the role ${role.name}?`,
+                            description:
+                              "Nobody holds it, so nobody loses access; it goes from the project's roles.",
+                            action: "Delete role",
+                            onConfirm: () =>
+                              deleteRole.mutateAsync(role.id).then(() => setShown(null)),
+                          }),
                       },
                 ]}
               />
@@ -694,6 +708,7 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
           onClose={close}
         />
       )}
+      {confirmation}
     </>
   );
 }

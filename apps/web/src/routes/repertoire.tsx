@@ -6,7 +6,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
@@ -97,6 +97,7 @@ function Works({
   const [numberError, setNumberError] = useState<{ workId: string; message: string } | null>(null);
   const [order, setOrder] = useState<RepertoireOrder>("schedule");
   const [editing, setEditing] = useState<"new" | Work | null>(null);
+  const [confirm, confirmation] = useConfirm();
   const shown = order === "alphabetical" ? alphabetical(works) : works;
   return (
     <>
@@ -170,15 +171,26 @@ function Works({
                       always
                       label={w.title}
                       actions={[
-                        { label: "Edit", onSelect: () => setEditing(w) },
+                        { label: "Edit…", onSelect: () => setEditing(w) },
                         {
                           label: w.scoreFileId
-                            ? "Swap the score, keeping marks"
-                            : "Choose the score",
+                            ? "Swap the score, keeping marks…"
+                            : "Choose the score…",
                           onSelect: () => setEditing(w),
                         },
                         "divider",
-                        { label: "Delete", danger: true, onSelect: () => removeWork.mutate(w.id) },
+                        {
+                          label: "Delete…",
+                          danger: true,
+                          onSelect: () =>
+                            confirm({
+                              title: `Delete ${w.title}?`,
+                              description:
+                                "The work goes from the repertoire and from the schedule's slots. Its tracks, their files and the score stay in the project.",
+                              action: "Delete work",
+                              onConfirm: () => removeWork.mutateAsync(w.id),
+                            }),
+                        },
                       ]}
                     />
                   )}
@@ -275,6 +287,7 @@ function Works({
           onClose={() => setEditing(null)}
         />
       )}
+      {confirmation}
     </>
   );
 }
@@ -573,6 +586,7 @@ function Venues({
 }) {
   const { removeVenue } = useRepertoire(projectId);
   const [editing, setEditing] = useState<"new" | Venue | null>(null);
+  const [confirm, confirmation] = useConfirm();
   return (
     <>
       {venues.length === 0 ? (
@@ -625,9 +639,20 @@ function Venues({
                   <ActionMenu
                     label={v.name}
                     actions={[
-                      { label: "Edit", onSelect: () => setEditing(v) },
+                      { label: "Edit…", onSelect: () => setEditing(v) },
                       "divider",
-                      { label: "Delete", danger: true, onSelect: () => removeVenue.mutate(v.id) },
+                      {
+                        label: "Delete…",
+                        danger: true,
+                        onSelect: () =>
+                          confirm({
+                            title: `Delete ${v.name}?`,
+                            description:
+                              "The venue goes from the list; days held there keep their place in the schedule, without a venue.",
+                            action: "Delete venue",
+                            onConfirm: () => removeVenue.mutateAsync(v.id),
+                          }),
+                      },
                     ]}
                   />
                 )}
@@ -643,6 +668,7 @@ function Venues({
           onClose={() => setEditing(null)}
         />
       )}
+      {confirmation}
     </>
   );
 }

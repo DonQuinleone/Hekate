@@ -71,7 +71,7 @@ import {
   SwitchRow,
 } from "~/components/settings";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
@@ -259,6 +259,7 @@ function SavedInput({
  */
 function Templates({ project, canSave }: { project: Project; canSave: boolean }) {
   const { data: templates = [] } = useQuery(templatesQuery);
+  const [confirm, confirmation] = useConfirm();
   const { save, remove } = useTemplateMutations();
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState(project.name);
@@ -311,7 +312,18 @@ function Templates({ project, canSave }: { project: Project; canSave: boolean })
               label={t.name}
               always
               actions={[
-                { label: "Remove template", danger: true, onSelect: () => remove.mutate(t.id) },
+                {
+                  label: "Remove template…",
+                  danger: true,
+                  onSelect: () =>
+                    confirm({
+                      title: `Remove the template ${t.name}?`,
+                      description:
+                        "New projects can no longer start from it. Projects made from it keep what they took.",
+                      action: "Remove template",
+                      onConfirm: () => remove.mutateAsync(t.id),
+                    }),
+                },
               ]}
             />
           )}
@@ -351,6 +363,7 @@ function Templates({ project, canSave }: { project: Project; canSave: boolean })
           </form>
         </Dialog>
       )}
+      {confirmation}
     </Section>
   );
 }
@@ -522,12 +535,7 @@ function DeleteProject({ project }: { project: Project }) {
             </Button>
           )}
           {deletion.mayConfirm && (
-            <Button
-              variant="secondary"
-              size="md"
-              className="text-signal"
-              onClick={() => setDialog("confirm")}
-            >
+            <Button variant="danger" size="md" onClick={() => setDialog("confirm")}>
               Delete…
             </Button>
           )}
@@ -540,12 +548,7 @@ function DeleteProject({ project }: { project: Project }) {
         name="Delete this project"
         hint="Files, comments and reviews go with it. Needs the delete permission and a second owner's confirmation."
       >
-        <Button
-          variant="secondary"
-          size="md"
-          className="text-signal"
-          onClick={() => setDialog("ask")}
-        >
+        <Button variant="danger" size="md" onClick={() => setDialog("ask")}>
           Delete…
         </Button>
       </Row>
@@ -563,11 +566,11 @@ function DeleteProject({ project }: { project: Project }) {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={close}>
-                Keep it
+              <Button variant="secondary" size="md" onClick={close}>
+                Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={request.isPending}
                 onClick={() => request.mutate(undefined, { onSuccess: close })}
@@ -588,11 +591,11 @@ function DeleteProject({ project }: { project: Project }) {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={close}>
-                Keep it
+              <Button variant="secondary" size="md" onClick={close}>
+                Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={confirm.isPending || typed.trim() !== project.name}
                 onClick={() => confirm.mutate(undefined, { onSuccess: close })}
@@ -1137,11 +1140,11 @@ function Comments({ project }: { project: Project }) {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={() => setDeleting(null)}>
+              <Button variant="secondary" size="md" onClick={() => setDeleting(null)}>
                 Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={remove.isPending}
                 onClick={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}

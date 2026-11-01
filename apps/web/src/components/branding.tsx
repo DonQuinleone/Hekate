@@ -13,6 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { WorkspaceLogo } from "~/components/brand";
 import { Button } from "~/components/ui/button";
+import { useConfirm } from "~/components/ui/dialog";
 import { ColourInput, FileInput } from "~/components/ui/input";
 import { brandingQuery, meQuery, useBranding } from "~/lib/queries";
 import { Row, Section } from "./settings";
@@ -69,6 +70,7 @@ function Preview({
  */
 export function BrandingSection() {
   const { data: stored } = useQuery(brandingQuery);
+  const [confirm, confirmation] = useConfirm();
   const { data: me } = useQuery(meQuery);
   const { accent, upload, remove } = useBranding();
   const picker = useRef<HTMLInputElement>(null);
@@ -121,8 +123,20 @@ export function BrandingSection() {
             {upload.isPending ? "Uploading" : logo ? "Replace" : "Upload logo"}
           </Button>
           {logo && (
-            <Button variant="ghost" disabled={remove.isPending} onClick={() => remove.mutate()}>
-              Remove
+            <Button
+              variant="ghost"
+              disabled={remove.isPending}
+              onClick={() =>
+                confirm({
+                  title: "Remove the logo?",
+                  description:
+                    "Sign-in, guest pages and mail show the Hekate lockup again until you upload another.",
+                  action: "Remove logo",
+                  onConfirm: () => remove.mutateAsync(),
+                })
+              }
+            >
+              Remove…
             </Button>
           )}
         </Row>
@@ -202,6 +216,7 @@ export function BrandingSection() {
           />
         </div>
       </Section>
+      {confirmation}
     </>
   );
 }

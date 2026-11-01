@@ -23,7 +23,7 @@ import { CodeAppSetup, RecoveryCodes } from "./second-factor";
 import { Danger, Row, Section, SwitchRow } from "./settings";
 import { Button } from "./ui/button";
 import { Choice } from "./ui/choice";
-import { Dialog } from "./ui/dialog";
+import { Dialog, useConfirm } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
 import { StatusDot } from "./ui/status";
 
@@ -248,13 +248,13 @@ function DeleteAccount({ email }: { email: string }) {
         name="Delete your account"
         hint="Your comments and decisions stay, attributed to a former member."
       >
-        <Button size="sm" variant="secondary" className="text-signal" onClick={() => setOpen(true)}>
+        <Button size="sm" variant="danger" onClick={() => setOpen(true)}>
           Delete…
         </Button>
       </Row>
       {open && (
         <Dialog
-          title="Delete your account"
+          title="Delete your account?"
           description="You are signed out everywhere and cannot sign in again. Your name and address leave every workspace; what you wrote and decided stays, as a former member's. This cannot be undone."
           onClose={close}
           width="sm"
@@ -275,13 +275,12 @@ function DeleteAccount({ email }: { email: string }) {
             {identity.fields}
             {remove.error && <Note error>{remove.error.message}</Note>}
             <span className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={close}>
+              <Button variant="secondary" onClick={close}>
                 Cancel
               </Button>
               <Button
                 type="submit"
-                variant="secondary"
-                className="text-signal"
+                variant="danger"
                 disabled={!matches || !identity.ready || remove.isPending}
               >
                 {remove.isPending ? "Deleting" : "Delete my account"}
@@ -633,6 +632,7 @@ export function SessionsSection() {
  */
 export function AppearanceSection() {
   const preferences = usePreferences();
+  const [confirm, confirmation] = useConfirm();
   const save = useSavePreferences();
   const choose = (theme: Theme) => {
     applyTheme(theme);
@@ -728,12 +728,18 @@ export function AppearanceSection() {
                     variant="ghost"
                     aria-label={`Remove the preset ${preset.name}`}
                     onClick={() =>
-                      save.mutate({
-                        viewPresets: preferences.viewPresets.filter((p) => p !== preset),
+                      confirm({
+                        title: `Remove the preset ${preset.name}?`,
+                        description: "The player no longer offers it. The view you have now stays.",
+                        action: "Remove preset",
+                        onConfirm: () =>
+                          save.mutateAsync({
+                            viewPresets: preferences.viewPresets.filter((p) => p !== preset),
+                          }),
                       })
                     }
                   >
-                    Remove
+                    Remove…
                   </Button>
                 </li>
               ))}
@@ -778,6 +784,7 @@ export function AppearanceSection() {
           </div>
         )}
       </Section>
+      {confirmation}
     </>
   );
 }

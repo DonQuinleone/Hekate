@@ -14,7 +14,7 @@ import { StatusChipView } from "~/components/status-chip";
 import { Button } from "~/components/ui/button";
 import { Chip, Count, ToggleChip } from "~/components/ui/chip";
 import { Checkbox, Choice, ChoiceCard, Radio } from "~/components/ui/choice";
-import { Dialog } from "~/components/ui/dialog";
+import { ConfirmDialog, Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { ColourInput, InlineInput, Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown, MenuList } from "~/components/ui/menu";
@@ -344,6 +344,7 @@ function Components() {
   const [dialog, setDialog] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [chips, setChips] = useState({ loops: true, score: false });
+  const [confirming, setConfirming] = useState(false);
   const noop = () => {};
   return (
     <>
@@ -360,6 +361,18 @@ function Components() {
           <Button variant="ghost">Export</Button>
           <Button variant="quiet" size="icon" aria-label="More">
             <Icon name="more" size={16} />
+          </Button>
+        </Spec>
+        <Spec
+          name="Danger"
+          rule="What cannot be taken back: the signal as a word, never filled, so it never reads as the thing to do. It opens a confirmation, or is the action inside one."
+        >
+          <Button variant="danger">Delete…</Button>
+          <Button variant="danger" size="sm">
+            Remove…
+          </Button>
+          <Button variant="danger" disabled>
+            Delete…
           </Button>
         </Spec>
         <Spec
@@ -382,15 +395,29 @@ function Components() {
         </Spec>
         <Spec
           name="Menu"
-          rule="Row actions live in a three-dot menu, never repeated links. Destructive items last, after a divider, in signal."
+          rule="Row actions live in a three-dot menu, never repeated links. An item that opens a dialog ends in an ellipsis; one that acts at once does not. Destructive items last, after a divider, in signal, and ask first; one that cannot be chosen now is dimmed, its hint saying why."
         >
           <Dropdown
             value="Album review"
             actions={[
-              { label: "Rename", onSelect: noop },
+              { label: "Rename…", onSelect: noop },
               { label: "Duplicate", onSelect: noop },
               "divider",
-              { label: "Delete", danger: true, onSelect: noop },
+              { label: "Delete…", danger: true, onSelect: noop },
+            ]}
+          />
+          <MenuList
+            label="Producer"
+            onClose={noop}
+            actions={[
+              { label: "Rename…", onSelect: noop },
+              "divider",
+              {
+                label: "Delete…",
+                hint: "In use: give its people another role first",
+                disabled: true,
+                onSelect: noop,
+              },
             ]}
           />
           <ActionMenu always label="this file" actions={[{ label: "Details", onSelect: noop }]} />
@@ -678,6 +705,23 @@ function Components() {
               What was measured.
             </TabsContent>
           </Tabs>
+        </Spec>
+        <Spec
+          name="Confirmation"
+          rule="Before anything that cannot be taken back: a question naming the thing, what will happen, then Cancel and the danger action at the right. Cancel is the one word for backing out of any dialog."
+        >
+          <Button variant="danger" onClick={() => setConfirming(true)}>
+            Delete…
+          </Button>
+          {confirming && (
+            <ConfirmDialog
+              title="Delete the group Soloists?"
+              description="Everyone asked through it stays on their reviews; the tool exceptions it holds go with it."
+              action="Delete group"
+              onConfirm={() => setConfirming(false)}
+              onClose={() => setConfirming(false)}
+            />
+          )}
         </Spec>
         <Spec name="Dialog" rule="One task, a title that says it, the primary action at the foot.">
           <Button onClick={() => setDialog(true)}>Open a dialog</Button>

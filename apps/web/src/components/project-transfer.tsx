@@ -78,13 +78,12 @@ export function ConfirmStep({
           </p>
         )}
         <span className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Keep it here
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
           </Button>
           <Button
             type="submit"
-            variant="secondary"
-            className="text-signal"
+            variant="danger"
             disabled={!nameMatches(typed, projectName) || !identity.ready || pending}
           >
             {action}

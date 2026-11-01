@@ -16,7 +16,7 @@ import { Icon, type IconName } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
@@ -208,6 +208,7 @@ function Day({
   onEdit: (editing: Editing) => void;
 }) {
   const { removeDay, tick, moveRow, removeRow } = useSchedule(projectId);
+  const [confirm, confirmation] = useConfirm();
   const times = timesOf(day);
   const live = day.date === today();
   const venue = data.venues.find((v) => v.id === day.venueId);
@@ -240,9 +241,22 @@ function Day({
               always
               label={day.label}
               actions={[
-                { label: "Edit", onSelect: () => onEdit({ what: "day", day }) },
+                { label: "Edit…", onSelect: () => onEdit({ what: "day", day }) },
                 "divider",
-                { label: "Delete", danger: true, onSelect: () => removeDay.mutate(day.id) },
+                {
+                  label: "Delete…",
+                  danger: true,
+                  onSelect: () =>
+                    confirm({
+                      title: `Delete ${day.label}?`,
+                      description:
+                        day.rows.length === 0
+                          ? "The day goes from the schedule."
+                          : `The day and its ${day.rows.length === 1 ? "row" : `${day.rows.length} rows`} go from the schedule.`,
+                      action: "Delete day",
+                      onConfirm: () => removeDay.mutateAsync(day.id),
+                    }),
+                },
               ]}
             />
           </span>
@@ -318,11 +332,11 @@ function Day({
                     label={words}
                     actions={[
                       {
-                        label: "Edit",
+                        label: "Edit…",
                         onSelect: () => onEdit({ what: "row", dayId: day.id, row: r }),
                       },
                       {
-                        label: "Insert a break after",
+                        label: "Insert a break after…",
                         onSelect: () =>
                           onEdit({ what: "row", dayId: day.id, after: r.id, kind: "break" }),
                       },
@@ -343,7 +357,17 @@ function Day({
                           ]
                         : []),
                       "divider",
-                      { label: "Remove", danger: true, onSelect: () => removeRow.mutate(r.id) },
+                      {
+                        label: "Remove…",
+                        danger: true,
+                        onSelect: () =>
+                          confirm({
+                            title: `Remove ${words}?`,
+                            description: "The rows after it start earlier by its length.",
+                            action: "Remove row",
+                            onConfirm: () => removeRow.mutateAsync(r.id),
+                          }),
+                      },
                     ]}
                   />
                 )}
@@ -352,6 +376,7 @@ function Day({
           })}
         </ul>
       )}
+      {confirmation}
     </section>
   );
 }

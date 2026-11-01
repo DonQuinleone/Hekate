@@ -40,6 +40,7 @@ import { Icon } from "./icons";
 import { Property } from "./property";
 import { TagInput } from "./tag-input";
 import { Button } from "./ui/button";
+import { useConfirm } from "./ui/dialog";
 import { Field } from "./ui/field";
 import { FileInput, Input, Select } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
@@ -255,6 +256,7 @@ function Captions({
   canExport: boolean;
 }) {
   const { data: captions = [] } = useQuery(captionsQuery(fileId));
+  const [confirm, confirmation] = useConfirm();
   const { add, update, remove } = useCaptionMutations(fileId);
   const chooser = useRef<HTMLInputElement>(null);
   const [chosen, setChosen] = useState<{ file: File; initial: TrackFields } | null>(null);
@@ -313,9 +315,16 @@ function Captions({
                       ? [
                           "divider" as const,
                           {
-                            label: "Remove",
+                            label: "Remove…",
                             danger: true,
-                            onSelect: () => remove.mutate(c.id),
+                            onSelect: () =>
+                              confirm({
+                                title: `Remove the ${c.label} captions?`,
+                                description:
+                                  "They go from the file, for the player and its downloads. The file itself stays.",
+                                action: "Remove captions",
+                                onConfirm: () => remove.mutateAsync(c.id),
+                              }),
                           },
                         ]
                       : []),
@@ -374,6 +383,7 @@ function Captions({
           {failure.message}
         </p>
       )}
+      {confirmation}
     </section>
   );
 }

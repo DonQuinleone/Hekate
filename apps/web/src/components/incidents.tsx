@@ -348,11 +348,11 @@ function IncidentDialog({ incident, onClose }: { incident: Incident; onClose: ()
             <span className="flex-1 text-[13px] text-ink-2">
               Take it off the status page, with its updates?
             </span>
-            <Button variant="ghost" onClick={() => setRemoving(false)}>
-              Keep it
+            <Button variant="secondary" onClick={() => setRemoving(false)}>
+              Cancel
             </Button>
             <Button
-              variant="primary"
+              variant="danger"
               disabled={remove.isPending}
               onClick={() => remove.mutate(incident.id, { onSuccess: onClose })}
             >

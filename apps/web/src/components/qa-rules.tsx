@@ -29,7 +29,7 @@ import { Icon } from "./icons";
 import { checkNames } from "./qa";
 import { Section } from "./settings";
 import { Button } from "./ui/button";
-import { Dialog } from "./ui/dialog";
+import { Dialog, useConfirm } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
 import { Switch } from "./ui/toggle";
@@ -160,6 +160,7 @@ function RuleRow({
  */
 export function QaRules({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
+  const [confirm, confirmation] = useConfirm();
   const edit = can("edit_workflows");
   const update = useUpdateProject(project.id);
   const settings = qaSettingsOf(project.qaSettings);
@@ -273,12 +274,21 @@ export function QaRules({ project }: { project: Project }) {
                           { label: "Edit…", onSelect: () => setEditing(rule) },
                           "divider",
                           {
-                            label: "Delete",
+                            label: "Delete…",
                             danger: true,
                             onSelect: () =>
-                              save({
-                                ...settings,
-                                rules: settings.rules.filter((r) => r.id !== rule.id),
+                              confirm({
+                                title: `Delete the rule ${rule.name}?`,
+                                description:
+                                  "Files are no longer checked against it. Reports already made keep what it found.",
+                                action: "Delete rule",
+                                onConfirm: () =>
+                                  update.mutateAsync({
+                                    qaSettings: {
+                                      ...settings,
+                                      rules: settings.rules.filter((r) => r.id !== rule.id),
+                                    },
+                                  }),
                               }),
                           },
                         ]}
@@ -309,6 +319,7 @@ export function QaRules({ project }: { project: Project }) {
           onClose={() => setEditing(null)}
         />
       )}
+      {confirmation}
     </>
   );
 }

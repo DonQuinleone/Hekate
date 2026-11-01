@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Icon } from "~/components/icons";
 import { Matrix, Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { ConfirmDialog, Dialog } from "~/components/ui/dialog";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu, MenuList, usePopover } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
@@ -215,7 +215,9 @@ export function RolesAndAccess({ project, canRoles }: { project: Project; canRol
     project.roles.map((r) => ({ id: r.id, name: r.name, access: accessOf(r), tools: r.tools })),
   );
   const [shownId, setShownId] = useState(project.roles[0]?.id ?? "");
-  const [dialog, setDialog] = useState<"blank" | "rename" | "copy" | "compare" | null>(null);
+  const [dialog, setDialog] = useState<"blank" | "rename" | "copy" | "compare" | "delete" | null>(
+    null,
+  );
   const [copySource, setCopySource] = useState("");
   // Exceptions to the player tools (decision 258): a person's or a group's own.
   const [exceptions, setExceptions] = useState<{ id: string; label: string; tools: Tool[] }[]>([
@@ -328,18 +330,12 @@ export function RolesAndAccess({ project, canRoles }: { project: Project; canRol
                   "divider",
                   inUse
                     ? {
-                        label: "In use: cannot delete",
-                        hint: "Give its people another role first",
+                        label: "Delete…",
+                        hint: "In use: give its people another role first",
+                        disabled: true,
                         onSelect: () => {},
                       }
-                    : {
-                        label: "Delete",
-                        danger: true,
-                        onSelect: () => {
-                          setRoles((list) => list.filter((r) => r.id !== role.id));
-                          setShownId(roles[0]?.id ?? "");
-                        },
-                      },
+                    : { label: "Delete…", danger: true, onSelect: () => setDialog("delete") },
                 ]}
               />
             )}
@@ -470,6 +466,19 @@ export function RolesAndAccess({ project, canRoles }: { project: Project; canRol
         />
       </Section>
 
+      {dialog === "delete" && (
+        <ConfirmDialog
+          title={`Delete the role ${role.name}?`}
+          description="Nobody holds it, so nobody loses access; it goes from the project's roles."
+          action="Delete role"
+          onClose={close}
+          onConfirm={() => {
+            setRoles((list) => list.filter((r) => r.id !== role.id));
+            setShownId(roles[0]?.id ?? "");
+            close();
+          }}
+        />
+      )}
       {(dialog === "blank" || dialog === "rename") && (
         <NameDialog
           title={dialog === "blank" ? "New role" : `Rename ${role.name}`}

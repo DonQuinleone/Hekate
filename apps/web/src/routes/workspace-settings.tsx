@@ -71,7 +71,7 @@ import { SsoSection } from "~/components/sso";
 import { type AskedFrom, SupportSection } from "~/components/support";
 import { Button } from "~/components/ui/button";
 import { ToggleChip } from "~/components/ui/chip";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
@@ -700,11 +700,11 @@ function WorkspaceCategories() {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={() => setDeleting(null)}>
+              <Button variant="secondary" size="md" onClick={() => setDeleting(null)}>
                 Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={remove.isPending}
                 onClick={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
@@ -807,11 +807,11 @@ function DeliveryProfiles() {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={() => setDeleting(null)}>
+              <Button variant="secondary" size="md" onClick={() => setDeleting(null)}>
                 Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={remove.isPending}
                 onClick={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
@@ -1054,6 +1054,7 @@ function InviteDialog({ myRole, onClose }: { myRole: Role; onClose: () => void }
 
 function Members({ role: myRole }: { role: Role }) {
   const { data: me } = useQuery(meQuery);
+  const [confirm, confirmation] = useConfirm();
   const { data: members } = useQuery(membersQuery);
   const elevated = myRole === "owner" || myRole === "admin";
   const { data: invitations } = useQuery({ ...invitationsQuery, enabled: elevated });
@@ -1146,9 +1147,26 @@ function Members({ role: myRole }: { role: Role }) {
                     label={m.name}
                     actions={[
                       {
-                        label: isSelf ? "Leave the workspace" : "Remove from the workspace",
+                        label: isSelf ? "Leave the workspace…" : "Remove from the workspace…",
                         danger: true,
-                        onSelect: () => remove.mutate(m.id),
+                        onSelect: () =>
+                          confirm(
+                            isSelf
+                              ? {
+                                  title: "Leave the workspace?",
+                                  description:
+                                    "You lose access to its projects. Someone in it has to invite you to come back.",
+                                  action: "Leave",
+                                  onConfirm: () => remove.mutateAsync(m.id),
+                                }
+                              : {
+                                  title: `Remove ${m.name} from the workspace?`,
+                                  description:
+                                    "They lose access to its projects. What they wrote and decided stays.",
+                                  action: "Remove",
+                                  onConfirm: () => remove.mutateAsync(m.id),
+                                },
+                          ),
                       },
                     ]}
                   />
@@ -1171,13 +1189,26 @@ function Members({ role: myRole }: { role: Role }) {
               </span>
               <ActionMenu
                 label={i.email}
-                actions={[{ label: "Revoke", danger: true, onSelect: () => revoke.mutate(i.id) }]}
+                actions={[
+                  {
+                    label: "Revoke…",
+                    danger: true,
+                    onSelect: () =>
+                      confirm({
+                        title: `Revoke the invitation to ${i.email}?`,
+                        description: "Its link stops working. You can invite them again.",
+                        action: "Revoke invitation",
+                        onConfirm: () => revoke.mutateAsync(i.id),
+                      }),
+                  },
+                ]}
               />
             </div>
           ))}
         </Section>
       )}
       {elevated && <Guests />}
+      {confirmation}
     </>
   );
 }
@@ -1185,6 +1216,7 @@ function Members({ role: myRole }: { role: Role }) {
 /** People outside the workspace who review through links, and the way to cut them off. */
 function Guests() {
   const { data: guests } = useQuery(workspaceGuestsQuery);
+  const [confirm, confirmation] = useConfirm();
   const revoke = useRevokeGuest();
   if (!guests || guests.length === 0) return null;
   return (
@@ -1214,7 +1246,18 @@ function Guests() {
             <ActionMenu
               label={g.name}
               actions={[
-                { label: "Revoke access", danger: true, onSelect: () => revoke.mutate(g.id) },
+                {
+                  label: "Revoke access…",
+                  danger: true,
+                  onSelect: () =>
+                    confirm({
+                      title: `Revoke ${g.name}'s access?`,
+                      description:
+                        "They are signed out everywhere and their links stop working, until someone sends them a new one.",
+                      action: "Revoke access",
+                      onConfirm: () => revoke.mutateAsync(g.id),
+                    }),
+                },
               ]}
             />
           ) : (
@@ -1222,6 +1265,7 @@ function Guests() {
           )}
         </div>
       ))}
+      {confirmation}
     </Section>
   );
 }

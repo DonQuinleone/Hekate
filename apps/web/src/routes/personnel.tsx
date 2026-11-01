@@ -15,7 +15,7 @@ import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
 import { Choice } from "~/components/ui/choice";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
@@ -132,6 +132,7 @@ function PersonnelList({
   canEdit: boolean;
 }) {
   const { remove } = usePersonnel(projectId);
+  const [confirm, confirmation] = useConfirm();
   const [editing, setEditing] = useState<"new" | Personnel | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const addButton = (
@@ -219,9 +220,20 @@ function PersonnelList({
                         <ActionMenu
                           label={p.name}
                           actions={[
-                            { label: "Edit", onSelect: () => setEditing(p) },
+                            { label: "Edit…", onSelect: () => setEditing(p) },
                             "divider",
-                            { label: "Remove", danger: true, onSelect: () => remove.mutate(p.id) },
+                            {
+                              label: "Remove…",
+                              danger: true,
+                              onSelect: () =>
+                                confirm({
+                                  title: `Remove ${p.name}?`,
+                                  description:
+                                    "They go from the personnel list with their sections; where the stage plan places them stays, unnamed.",
+                                  action: "Remove",
+                                  onConfirm: () => remove.mutateAsync(p.id),
+                                }),
+                            },
                           ]}
                         />
                       )}
@@ -242,6 +254,7 @@ function PersonnelList({
           onClose={() => setEditing(null)}
         />
       )}
+      {confirmation}
     </>
   );
 }

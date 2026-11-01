@@ -86,7 +86,7 @@ Hekate draws no icons of its own. They are [Lucide](https://lucide.dev)'s (ISC l
 
 ## Components
 
-One set, in `apps/web/src/components/ui`, restyled on the tokens and never stock: button, field and its label, input (with small, inline and bare forms), select, textarea, checkbox, radio, choice card, switch, slider, segmented, menu and dropdown, dialog, tabs, chip and count, status dot and pill. Screens build from it and nothing else; a test fails on a form control made anywhere else. Settings rows, cards, section heads and empty states sit beside it in `components/`.
+One set, in `apps/web/src/components/ui`, restyled on the tokens and never stock: button (primary, secondary, ghost, quiet and danger), confirmation, field and its label, input (with small, inline and bare forms), select, textarea, checkbox, radio, choice card, switch, slider, segmented, menu and dropdown, dialog, tabs, chip and count, status dot and pill. Screens build from it and nothing else; a test fails on a form control made anywhere else. Settings rows, cards, section heads and empty states sit beside it in `components/`.
 
 Every piece, in each of its states, is on the reference page at `/reference`. It exists in `pnpm dev` and in the build the visual suite captures, never in a release: it is a reference for whoever builds screens, not part of the product.
 
@@ -100,6 +100,8 @@ The words are part of the design, and read as one person wrote them.
 - Never "seamlessly", "powerful", "simply", "easily", "effortlessly", "robust" or "leverage". No marketing register anywhere, and no exclamation marks.
 - British English (colour, organisation in code, licence as a noun, behaviour). Sentence case. No em-dashes: commas, colons, semicolons or parentheses.
 - Errors say what went wrong and what to do; empty states say what will appear here and how to make it so.
+- A menu item or button that opens a dialog ends in an ellipsis ("Rename…"); one that acts at once does not. "Cancel" is the one word for backing out of a dialog.
+- Nothing is deleted by one click. A destructive action asks first, in a confirmation that names the thing and says what will happen, with the danger button (the signal as a word, never filled) at the right; or it offers Undo.
 
 ## A workspace's own branding
 

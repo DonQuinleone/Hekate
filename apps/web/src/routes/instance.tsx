@@ -88,7 +88,7 @@ import {
 } from "~/components/settings";
 import { InstanceSupport } from "~/components/support-desk";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
@@ -960,6 +960,7 @@ const until = formatDates({ day: "numeric", month: "short" });
 /** Operators' invitations to make a workspace, each withdrawn from its menu. */
 function SignUpInvitations() {
   const client = useQueryClient();
+  const [confirm, confirmation] = useConfirm();
   const { data: invitations, error } = useQuery(signUpInvitationsQuery);
   const withdraw = useMutation({
     mutationFn: async (id: string) =>
@@ -991,11 +992,24 @@ function SignUpInvitations() {
           <ActionMenu
             always
             label={i.email}
-            actions={[{ label: "Withdraw", danger: true, onSelect: () => withdraw.mutate(i.id) }]}
+            actions={[
+              {
+                label: "Withdraw…",
+                danger: true,
+                onSelect: () =>
+                  confirm({
+                    title: `Withdraw the invitation to ${i.email}?`,
+                    description: "Its link stops working. You can invite them again.",
+                    action: "Withdraw",
+                    onConfirm: () => withdraw.mutateAsync(i.id),
+                  }),
+              },
+            ]}
           />
         </Row>
       ))}
       {withdraw.isError && <Row name="Not withdrawn" hint={withdraw.error.message} />}
+      {confirmation}
     </>
   );
 }
@@ -2576,6 +2590,7 @@ const factorWords: Record<InstanceMemberRow["factor"], string> = {
 
 function WorkspaceMembers({ id, operator }: { id: string; operator: boolean }) {
   const { data: members = [] } = useQuery(instanceMembersQuery(id));
+  const [confirm, confirmation] = useConfirm();
   const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
   const help = useMutation({
     mutationFn: async ({ userId, action }: { userId: string; action: MemberHelp }) =>
@@ -2627,9 +2642,16 @@ function WorkspaceMembers({ id, operator }: { id: string; operator: boolean }) {
                 },
                 "divider",
                 {
-                  label: "Sign out everywhere",
+                  label: "Sign out everywhere…",
                   danger: true,
-                  onSelect: () => help.mutate({ userId: m.userId, action: "sessions" }),
+                  onSelect: () =>
+                    confirm({
+                      title: `Sign ${m.name} out everywhere?`,
+                      description:
+                        "Every session they have ends now, on each device. They can sign in again.",
+                      action: "Sign out",
+                      onConfirm: () => help.mutateAsync({ userId: m.userId, action: "sessions" }),
+                    }),
                 },
               ]}
             />
@@ -2644,6 +2666,7 @@ function WorkspaceMembers({ id, operator }: { id: string; operator: boolean }) {
           {said.text}
         </p>
       )}
+      {confirmation}
     </Section>
   );
 }
@@ -3092,11 +3115,11 @@ function DeleteWorkspace({
       width="sm"
       footer={
         <>
-          <Button variant="ghost" size="md" onClick={onClose}>
+          <Button variant="secondary" size="md" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="md"
             type="submit"
             form="delete-workspace"
@@ -3330,11 +3353,11 @@ function SuspendWorkspace({
       width="sm"
       footer={
         <>
-          <Button variant="ghost" size="md" onClick={onClose}>
+          <Button variant="secondary" size="md" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="md"
             type="submit"
             form="suspend-workspace"
@@ -3368,6 +3391,7 @@ function SuspendWorkspace({
 
 function Operators() {
   const client = useQueryClient();
+  const [confirm, confirmation] = useConfirm();
   const { data: operators = [] } = useQuery(instanceOperatorsQuery);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3425,9 +3449,16 @@ function Operators() {
                 { label: "Sign out everywhere", onSelect: () => revoke.mutate(o.userId) },
                 "divider",
                 {
-                  label: "Remove as operator",
+                  label: "Remove as operator…",
                   danger: true,
-                  onSelect: () => remove.mutate(o.userId),
+                  onSelect: () =>
+                    confirm({
+                      title: `Remove ${o.name} as an operator?`,
+                      description:
+                        "They can no longer open the instance's side. Their account and what they did here stay.",
+                      action: "Remove operator",
+                      onConfirm: () => remove.mutateAsync(o.userId),
+                    }),
                 },
               ]}
             />
@@ -3439,6 +3470,7 @@ function Operators() {
           {error}
         </p>
       )}
+      {confirmation}
     </>
   );
 }
