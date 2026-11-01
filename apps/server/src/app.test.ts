@@ -3485,6 +3485,58 @@ describe.runIf(url)("api", () => {
         expect((await get("/api/instance/logs/mail/export", theirOwner)).status).toBe(403);
       });
 
+      it("lists and narrows the logs by when things happened, not when they were written (#598)", async () => {
+        const operator = cookieOf(await setup());
+        const now = Date.now();
+        const hoursAgo = (hours: number) => new Date(now - hours * 60 * 60_000);
+        // Written in this order, so each id is newer than the last; their times say otherwise.
+        for (const [target, at] of [
+          ["recent-598", hoursAgo(0.5)],
+          ["after-the-fact-598", hoursAgo(3)],
+          ["long-ago-598", hoursAgo(48)],
+        ] as const)
+          await db
+            .insert(schema.instanceEvents)
+            .values({ actorId: null, action: "flag.on", target, createdAt: at });
+        for (const [subject, at] of [
+          ["Recent 598", hoursAgo(0.5)],
+          ["After the fact 598", hoursAgo(3)],
+          ["Long ago 598", hoursAgo(48)],
+        ] as const)
+          await db
+            .insert(schema.mailEvents)
+            .values({ recipient: "mira@endlesshall.example", subject, result: "sent", occurredAt: at });
+        type Page<R> = { rows: R[]; next: string | null };
+        const read = async <R>(path: string) => {
+          const res = await get(`/api/instance/logs/${path}`, operator);
+          expect(res.status).toBe(200);
+          return (await res.json()) as Page<R>;
+        };
+        // In time order, and the last day holds only the last day.
+        const day = await read<AuditLogRow>("audit?q=598&range=24h");
+        expect(day.rows.map((r) => r.target)).toEqual(["recent-598", "after-the-fact-598"]);
+        const week = await read<AuditLogRow>("audit?q=598&range=7d");
+        expect(week.rows.map((r) => r.target)).toEqual([
+          "recent-598",
+          "after-the-fact-598",
+          "long-ago-598",
+        ]);
+        // A page at a time, after the last row's time.
+        const first = await read<AuditLogRow>("audit?q=598&range=7d&limit=1");
+        expect(first.rows.map((r) => r.target)).toEqual(["recent-598"]);
+        const second = await read<AuditLogRow>(`audit?q=598&range=7d&limit=1&before=${first.next}`);
+        expect(second.rows.map((r) => r.target)).toEqual(["after-the-fact-598"]);
+        const third = await read<AuditLogRow>(`audit?q=598&range=7d&limit=1&before=${second.next}`);
+        expect(third.rows.map((r) => r.target)).toEqual(["long-ago-598"]);
+        expect(third.next).toBeNull();
+        // The single-table logs alike.
+        const mail = await read<MailLogRow>("mail?q=598&range=24h");
+        expect(mail.rows.map((r) => r.subject)).toEqual(["Recent 598", "After the fact 598"]);
+        const page = await read<MailLogRow>("mail?q=598&range=7d&limit=1");
+        const next = await read<MailLogRow>(`mail?q=598&range=7d&limit=2&before=${page.next}`);
+        expect(next.rows.map((r) => r.subject)).toEqual(["After the fact 598", "Long ago 598"]);
+      });
+
       it("logs every sign-in, refusal and guest link, and forgets a deleted account's address (#157)", async () => {
         const operator = cookieOf(await setup());
         await db.delete(schema.authEvents);
