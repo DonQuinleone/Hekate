@@ -75,6 +75,7 @@ import { Code, Fact, Inspect } from "~/components/inspect";
 import { InstanceBilling } from "~/components/instance-billing";
 import { Operations } from "~/components/instance-operations";
 import { Queues } from "~/components/instance-queues";
+import { OpenRow } from "~/components/open-row";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { ConfirmStep } from "~/components/project-transfer";
@@ -658,9 +659,15 @@ function Debug({ initial }: { initial?: string | undefined }) {
         {errors?.length === 0 ? (
           <Row name="Nothing" hint="Nothing has failed in the last day." />
         ) : (
+          // Each opens its story on a click (#691), not an Open on every row.
           errors?.map((e) => (
-            <Row
+            <OpenRow
               key={e.reference}
+              label={`Open ${e.reference}`}
+              onOpen={() => {
+                fromList.current = true;
+                lookUp(e.reference);
+              }}
               name={
                 <span className="flex min-w-0 items-center gap-2">
                   <StatusDot state={e.knownAt ? "submitted" : "changes_requested"} />
@@ -669,20 +676,7 @@ function Debug({ initial }: { initial?: string | undefined }) {
                 </span>
               }
               hint={`${clock.format(new Date(e.occurredAt))} · ${e.workspace ?? "No workspace"} · ${e.source} · ${e.location}${e.knownAt ? " · known" : ""}`}
-              inline
-            >
-              <Button
-                variant="ghost"
-                size="md"
-                aria-label={`Open ${e.reference}`}
-                onClick={() => {
-                  fromList.current = true;
-                  lookUp(e.reference);
-                }}
-              >
-                Open
-              </Button>
-            </Row>
+            />
           ))
         )}
       </Section>

@@ -2050,7 +2050,7 @@ for (const [name, path, open, ready] of [
   [
     "instance-support-replies",
     "/instance/support",
-    "button:Manage",
+    "button:Manage the canned replies",
     "[role=dialog] >> text=Quota raised",
   ],
   ["help-menu", "/", "button:Help", "[role=menu] >> text=Contact support"],

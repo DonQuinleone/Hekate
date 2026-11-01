@@ -8,6 +8,7 @@ import { LinkedFiles } from "~/components/file-picker";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { NewPassword } from "~/components/new-password";
+import { OpenRow } from "~/components/open-row";
 import { Card, Page, SectionHead } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { Crop, Gauge, Verdict } from "~/components/qa-report";
@@ -771,6 +772,31 @@ function Components() {
               <Input defaultValue="Joplin Rags" className="w-40" aria-label="Project name" />
             </Row>
             <SwitchRow name="Carried comments shown" checked={on} onChange={setOn} />
+          </Card>
+        </Spec>
+        <Spec
+          name="Row that opens"
+          rule="A list of things to open opens each on a click, with a chevron at its end; its other actions go in its menu, never a text link repeated on every row. Elsewhere, an arrow out."
+        >
+          <Card className="w-full max-w-[460px] divide-y divide-line">
+            <OpenRow
+              name="Canned replies"
+              hint="Quota raised · Fixed in the next patch"
+              onOpen={() => {}}
+            />
+            <OpenRow
+              name="Retry a failed job"
+              hint="media-align · failed 2 minutes ago"
+              onOpen={() => {}}
+              menu={
+                <ActionMenu label="The job" actions={[{ label: "Retry", onSelect: () => {} }]} />
+              }
+            />
+            <OpenRow
+              name="Restore"
+              hint="From a backup and the master key."
+              href="https://example.com/"
+            />
           </Card>
         </Spec>
         <Spec

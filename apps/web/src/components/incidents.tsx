@@ -13,6 +13,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Icon } from "~/components/icons";
+import { OpenRow } from "~/components/open-row";
 import { Row, Section } from "~/components/settings";
 import { IncidentUpdates, incidentLine, incidentSpan, StateDot } from "~/components/status";
 import { Button } from "~/components/ui/button";
@@ -21,6 +22,7 @@ import { DateTimeField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
+import { ActionMenu } from "~/components/ui/menu";
 import { Failed, Loading } from "~/components/ui/states";
 import { ago } from "~/lib/comments";
 import {
@@ -80,24 +82,29 @@ export function StatusSection() {
       {[...open, ...recent].map((i) => (
         <IncidentRow key={i.id} incident={i} onOpen={() => setOpenId(i.id)} />
       ))}
+      {/* The address opens to change on a click; the page itself is in its menu (#691). */}
       {desk && linked && (
-        <Row
+        <OpenRow
           name="Address"
+          label="Change the status page's address"
+          onOpen={() => setEditing(true)}
           hint={
             own
               ? `${hostOf(linked)} · this instance’s own page, readable signed out`
               : `${hostOf(linked)} · ${desk.statusUrl ? "set here" : "from HEKATE_STATUS_URL"}; incidents posted here still show at ${hostOf(desk.ownStatusUrl)} and in the app`
           }
-        >
-          <Button variant="ghost" size="md" asChild>
-            <a href={linked} target="_blank" rel="noopener noreferrer">
-              Open
-            </a>
-          </Button>
-          <Button variant="ghost" size="md" onClick={() => setEditing(true)}>
-            Edit
-          </Button>
-        </Row>
+          menu={
+            <ActionMenu
+              label="The status page"
+              actions={[
+                {
+                  label: "Open the status page",
+                  onSelect: () => window.open(linked, "_blank", "noopener,noreferrer"),
+                },
+              ]}
+            />
+          }
+        />
       )}
       {posting && <PostIncidentDialog onClose={() => setPosting(false)} />}
       {shown && <IncidentDialog incident={shown} onClose={() => setOpenId(null)} />}

@@ -2,11 +2,13 @@ import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon } from "~/components/icons";
 import { IncidentUpdates, incidentLine, incidentSpan, StateDot } from "~/components/incidents";
+import { OpenRow } from "~/components/open-row";
 import { Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { DateTimeField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
+import { ActionMenu } from "~/components/ui/menu";
 import {
   impactNames,
   incidentStateNames,
@@ -99,17 +101,17 @@ export function StatusDesk({ incidentOpen }: { incidentOpen: boolean }) {
           <Icon name="chevronRight" size={14} className="text-ink-3" />
         </button>
       ))}
-      <Row
+      <OpenRow
         name="Address"
         hint="review.endlesshall.example/status · this instance’s own page, readable signed out"
-      >
-        <Button variant="ghost" size="md">
-          Open
-        </Button>
-        <Button variant="ghost" size="md" onClick={() => setEditing(true)}>
-          Edit
-        </Button>
-      </Row>
+        onOpen={() => setEditing(true)}
+        menu={
+          <ActionMenu
+            label="The status page"
+            actions={[{ label: "Open the status page", onSelect: () => {} }]}
+          />
+        }
+      />
       {posting && <PostIncidentDialog onClose={() => setPosting(false)} />}
       {shown && <IncidentDialog incident={shown} onClose={() => setShown(null)} />}
       {editing && <StatusAddressDialog onClose={() => setEditing(false)} />}

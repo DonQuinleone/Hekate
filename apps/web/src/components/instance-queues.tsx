@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Code, Fact, Facts } from "~/components/inspect";
+import { OpenRow } from "~/components/open-row";
 import { Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
@@ -223,9 +224,12 @@ export function Queues() {
         {data.recent.length === 0 && (
           <Row name="Nothing yet" hint="Jobs appear here as files arrive and mail goes out." />
         )}
+        {/* Each job opens its details on a click; Retry is in its menu (#691). */}
         {data.recent.map((j) => (
-          <Row
+          <OpenRow
             key={j.id}
+            label={`Details of ${j.what ?? j.queue}`}
+            onOpen={() => setDetails(j)}
             name={
               <span className="flex min-w-0 items-center gap-2">
                 <StatusDot state={dotOf(j.state)} />
@@ -236,21 +240,21 @@ export function Queues() {
             hint={[j.workspace?.name ?? "The instance", stateWords[j.state], ago(j.at), j.reference]
               .filter(Boolean)
               .join(" · ")}
-          >
-            {j.state === "failed" && (
-              <Button
-                variant="secondary"
-                size="md"
-                disabled={retryJob.isPending}
-                onClick={() => retryJob.mutate(j)}
-              >
-                Retry
-              </Button>
-            )}
-            <Button variant="ghost" size="md" onClick={() => setDetails(j)}>
-              Details
-            </Button>
-          </Row>
+            menu={
+              j.state === "failed" && (
+                <ActionMenu
+                  label={j.what ?? j.queue}
+                  actions={[
+                    {
+                      label: "Retry",
+                      disabled: retryJob.isPending,
+                      onSelect: () => retryJob.mutate(j),
+                    },
+                  ]}
+                />
+              )
+            }
+          />
         ))}
       </Section>
       {draining && <DrainQueue queue={draining} onClose={() => setDraining(null)} />}

@@ -3,6 +3,7 @@ import { Gauge, Spark } from "~/components/charts";
 import type { IconName } from "~/components/icons";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
+import { OpenRow } from "~/components/open-row";
 import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { Danger, Row, Section, SwitchRow } from "~/components/settings";
@@ -1735,14 +1736,11 @@ export function InstancePage({ section }: { section: string }) {
             title="Desk"
             intro="Support is a module: on because the instance runs with HEKATE_SUPPORT=app. Set it to link or mail to answer elsewhere, or off."
           >
-            <Row
+            <OpenRow
               name="Severities by plan"
               hint="Low and Normal on every plan; High from Studio; Urgent and Emergency on Label. Emergency pages the operator on call."
-            >
-              <Button variant="ghost" size="md">
-                Edit
-              </Button>
-            </Row>
+              onOpen={() => {}}
+            />
             <Row
               name="On call"
               hint="Hears of each new ticket first, and is told at once of an Emergency."
@@ -1754,14 +1752,11 @@ export function InstancePage({ section }: { section: string }) {
                 ))}
               </Select>
             </Row>
-            <Row
+            <OpenRow
               name="Canned replies"
               hint="Rate-limited channel · Quota raised · Fixed in the next patch"
-            >
-              <Button variant="ghost" size="md">
-                Manage
-              </Button>
-            </Row>
+              onOpen={() => {}}
+            />
           </Section>
         </>
       )}
@@ -2015,7 +2010,8 @@ export function InstancePage({ section }: { section: string }) {
           </Section>
           <Section title="Recent jobs">
             {jobs.map((j) => (
-              <Row
+              <OpenRow
+                onOpen={() => {}}
                 key={j.id}
                 name={
                   <span className="flex items-center gap-2">
@@ -2033,16 +2029,12 @@ export function InstancePage({ section }: { section: string }) {
                   </span>
                 }
                 hint={`${j.org} · ${j.id} · ${j.when} ago${j.state === "failed" ? ` · ${errors.find((e) => e.job === j.id)?.ref ?? ""}` : ""}`}
-              >
-                {j.state === "failed" && (
-                  <Button variant="secondary" size="md">
-                    Retry
-                  </Button>
-                )}
-                <Button variant="ghost" size="md">
-                  Details
-                </Button>
-              </Row>
+                menu={
+                  j.state === "failed" && (
+                    <ActionMenu label={j.what} actions={[{ label: "Retry", onSelect: () => {} }]} />
+                  )
+                }
+              />
             ))}
           </Section>
         </>
@@ -2199,7 +2191,11 @@ export function InstancePage({ section }: { section: string }) {
             intro="Everything that failed in the last day, newest first."
           >
             {errors.map((e) => (
-              <Row
+              <OpenRow
+                onOpen={() => {
+                  setRef(e.ref);
+                  setFound(e);
+                }}
                 key={e.ref}
                 name={
                   <span className="flex items-center gap-2">
@@ -2209,18 +2205,7 @@ export function InstancePage({ section }: { section: string }) {
                   </span>
                 }
                 hint={`${e.when} · ${e.org} · ${e.where}`}
-              >
-                <Button
-                  variant="ghost"
-                  size="md"
-                  onClick={() => {
-                    setRef(e.ref);
-                    setFound(e);
-                  }}
-                >
-                  Open
-                </Button>
-              </Row>
+              />
             ))}
           </Section>
           <Section
@@ -2573,19 +2558,16 @@ export function InstancePage({ section }: { section: string }) {
             title="Backups"
             intro="Taken outside Hekate, so it cannot say when the last one ran: the database, the storage and the master key, the first two as of the same moment."
           >
-            <Row
+            <OpenRow
               name="Backing up"
               hint="deploy/backup.sh copies the database and the storage; the master key is kept apart from both."
-            >
-              <Button variant="ghost" size="md">
-                How to
-              </Button>
-            </Row>
-            <Row name="Restore" hint="Into a fresh instance, from a backup and the master key.">
-              <Button variant="ghost" size="md">
-                How to
-              </Button>
-            </Row>
+              href="https://donquinleone.github.io/Hekate/operate/backup/"
+            />
+            <OpenRow
+              name="Restore"
+              hint="Into a fresh instance, from a backup and the master key."
+              href="https://donquinleone.github.io/Hekate/operate/recovery/"
+            />
             <Row
               name="Verify a restore"
               hint="Before anyone uses it: every workspace key opens, every file recorded is in storage, and a sample reads back and matches its checksum. It changes nothing."

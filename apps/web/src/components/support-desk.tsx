@@ -19,6 +19,7 @@ import { TileGrid } from "~/components/billing";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { StatusSection } from "~/components/incidents";
+import { OpenRow } from "~/components/open-row";
 import { Row, Section } from "~/components/settings";
 import { calmLine } from "~/components/status";
 import { AttachPicker, Thread, TicketListRow, ticketLine } from "~/components/support";
@@ -212,19 +213,17 @@ function Desk() {
       title="Desk"
       intro="Support is a module: on because the instance runs with HEKATE_SUPPORT=app. Set it to link or mail to answer elsewhere, or off."
     >
-      <Row name="Severities by plan" hint={severityLine}>
-        {desk.billing && (
-          <Button
-            variant="ghost"
-            size="md"
-            onClick={() =>
-              void navigate({ to: "/instance/$section", params: { section: "billing" } })
-            }
-          >
-            Edit
-          </Button>
-        )}
-      </Row>
+      {/* Rows open on a click (#691): the plans that set severities, and the canned replies. */}
+      {desk.billing ? (
+        <OpenRow
+          name="Severities by plan"
+          hint={severityLine}
+          label="Severities by plan, in Billing"
+          onOpen={() => void navigate({ to: "/instance/$section", params: { section: "billing" } })}
+        />
+      ) : (
+        <Row name="Severities by plan" hint={severityLine} />
+      )}
       <Row
         name="On call"
         hint={
@@ -250,18 +249,16 @@ function Desk() {
           ))}
         </Select>
       </Row>
-      <Row
+      <OpenRow
         name="Canned replies"
+        label="Manage the canned replies"
+        onOpen={() => setManaging(true)}
         hint={
           canned && canned.replies.length > 0
             ? canned.replies.map((r) => r.title).join(" · ")
             : "None yet: answers the desk gives often, to start a reply from."
         }
-      >
-        <Button variant="ghost" size="md" onClick={() => setManaging(true)}>
-          Manage
-        </Button>
-      </Row>
+      />
       {save.error && <p className="m-0 px-4 py-2 text-[13px] text-signal">{save.error.message}</p>}
       {managing && <CannedRepliesDialog onClose={() => setManaging(false)} />}
     </Section>
