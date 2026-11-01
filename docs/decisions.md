@@ -2411,3 +2411,48 @@ Some organisations must keep their material in storage they own, and a workspace
 - **A break within version 1, on purpose.** The public API only grows within a version (decision 224), but these calls and fields were deprecated in the release they appeared beside, and no release has carried them to anyone. `api:reference` refused the document as a break (the removed calls, and `variants` now required), and it was written with `--breaking`, the script's word that the break is meant. The commit says so in a `BREAKING CHANGE:` footer, for the upgrade notes.
 - **The access log keeps what it holds.** The log is append-only, and Postgres cannot drop a value from an enum without rebuilding the type and every row that holds it. So `variation.replace` stays in `audit_action`, and an entry written under it stays as written. The app reads such an entry as `variant.replace` (`formerAuditActions`, `currentAuditAction` and `storedAuditActions` in `packages/shared`, tested): "File replaced" in words, as before; filtering on File replaced finds the old entries with the new (the server's test proves it, another workspace's excluded); and the filter offers the action once, under its current name. Nothing writes the old value.
 - **Words.** `AGENTS.md` and `README.md` say variants, as `docs/domain.md` does. The documentation site's API reference already had its *Versions and variants* page, written from the document at build time, so there was no page to rename. Old migrations and the decisions above keep the word, as history.
+
+## 350. A track's and a session's name is their page's heading, and a track's header shares once
+
+#567, #649, #648. A track's trail read "Maple Leaf Rag: versions" over a heading "Maple Leaf Rag", and its header offered Share beside Request a review behind the same permission, five actions in a row that ran off a phone. A session's name was in the trail alone.
+
+- **The heading in the page.** `PageHeader` takes `heading: "page"`, as the prototype's header has: the trail ends at the step above, with no separator after it, and the page draws its own heading; on a phone, where the trail is only the way back, the bar still names the page. A track and a session use it; lists and tools keep the title as the trail's last step.
+- **One sharing action.** The track's header keeps Request a review, as the prototype's does; Share is in the "…" beside it (a version's own Share stays in its row). On a phone only the primary stays out (Add version, Add cut, Add takes), whole, and Follow, Compare, Share and Request a review are in the "…", as Linear and Vercel keep one primary on a phone.
+
+## 351. A take sits under its track; its session is said beside it
+
+#568. A take belongs to its track, never to the session it was recorded in (docs/domain.md), but its trail went through the session whenever it had one. The trail is now the project, the track, its Takes and the take, in the app and the prototype; the session and its day ("Day 2 · 13 Oct 2026") are in the take's line of facts, linked to the session, and the take detail carries the session's day for it. The switcher between takes is named for the track ("Takes of Maple Leaf Rag recorded in Day 2"), as it lists that track's takes from that session.
+
+## 352. Cuts are compared in the player; the comparison page is for tracks
+
+#569. A deliverable's Compare opened the page that lines up two versions by their audio, where a cut has no picture, while the player's own compare bar showed both cuts and worked.
+
+- **One place for cuts.** The header's Compare and a cut's "Compare with the previous cut" open the newer cut in the player with the cut before it beside it (`?cuts=side` on the file's address, read by the player as it opens). The comparison page, reached for cuts only from the player's "Comments and findings", shows a deliverable's comments and findings and a way to the pictures, never empty lanes, Blind A/B or the keys.
+- **One order.** The older cut is on the left in Wipe as in Side by side, labelled so; two cuts side by side start at the top of the stage with their lanes under them, as two pictures half as tall cannot fill it.
+- **Each fact once on the alignment page.** The keys 1 and 2 are on the lanes only; a level is labelled where it is turned down ("Level-matched −2.0 dB"); a findings section with nothing in it is not shown (one line says nothing was fixed or new); Open V2 is a button.
+
+## 353. The stage plan opens fitted, zooms as Figma does, and keeps labels off their neighbours
+
+#570. A 12 by 8 metre plan over a 16 metre floor plan was drawn at a scale that could not go below 40 pixels a metre, so it ran past the panel. The plan now fits its panel on load and as it resizes (down to 12 pixels a metre); a zoom of out, the scale ("Fit" or a percentage) and in sits beside its size, with Shift+1 to fit again and + and - on the plan, as in Figma. A microphone's label sits to the right of its mark unless it would run into another mark, then to its left, else under it (`labelSides`, a pure function with a test). The grey tab at the plan's left was the floor plan's own door, now drawn whole with the plan. Export offers A3 and A4 as equals, under one heading saying both carry rulers and a scale bar.
+
+## 354. Every production page is in Production's frame, with Take log in it
+
+#648. The session and take log pages skipped the frame, so the page jumped between them and the rest of Production. Both are now framed, a session with Sessions current and its take log with Take log, which joins the sections between Sessions and Score marking as the prototype has it. Production's Take log opens the day's session's log: today's, else the latest before today, else the soonest to come (`takeLogSession`, tested), or, without sessions, says where to make one. The sections are short, so their column is as wide as the longest (`SideNav`'s `fit`) rather than settings' 200 pixels. Venues have an icon of their own (`venue`), as `pin` means pinning a file.
+
+## 355. A slot shared by tracks is counted once in the schedule's coverage
+
+#651. An "All repertoire" slot was counted in full against every track, so the totals came to more than the time booked. Coverage now gives each track its own minutes and the shared minutes apart ("110 min + 120 min shared"), and under the list the minutes booked and how many of them are shared, so each track's own and the shared add up to what is booked (`coverageTotals`, tested). A track's slots are grouped by day, each day named once ("Day 1: 11:50, 14:00 · Day 2: 10:30").
+
+## 356. A session is made with one form, and its page lists takes under their tracks
+
+#652. A session made from the calendar's New entry had a form of its own. Choosing Session there now opens the one New session form (`SessionDialog`), with the title and day typed so far, and the session it makes is on the calendar on its day. A session's page lists the tracks it recorded, each a heading with its takes beneath (the Track column is gone), every column headed (Length last), the star's room kept so the numbers line up, and on a phone two lines a take instead of a table that scrolls sideways. Both timecodes of a take are written in full wherever they show, as "10:14:02:00 – 10:19:40:00", never with the out point's hours left off (#571).
+
+The Import section of Production imports a ControlRoom project, not takes, so it keeps its name; Import takes is the button that brings a day's recordings in.
+
+## 357. The take import ticks what it will import
+
+#657. The proposal's boxes selected takes for bulk changes, all unticked, while the button counted the takes to import. A box now says whether its take will be imported: ticked from the start, unticking leaves it out, a take waiting for its track or mix is ticked once it has them, one already imported cannot be. The number on the button is always the ticked takes. Takes without a track are placed together from the bar above ("Put the 3 without a track on"), where Undo now sits once there is something to undo; the footer holds Cancel and the primary. A new session's name field is labelled and empty, the name it would take as its placeholder.
+
+## 358. A patch row's source can be a stage plan's microphone
+
+#659. The patch list is linked to the microphones on the stage plan (docs/domain.md), but a row's source was free text. Its dialog names its fields as the table heads them (Input or Output, Source, Device, Cable, Notes); Source still takes any words, and offers the stage plans' microphones beside it: choosing one fills the source and, once the row is saved, links the microphone to it, so its label on the plan follows the list. A row a microphone is linked to is marked in the list. On a phone the notes go under the source rather than off the edge.
