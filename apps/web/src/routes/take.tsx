@@ -1,22 +1,23 @@
-import type { TakeDetail } from "@hekate/shared";
+import { formatAnchor, type TakeDetail } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { DocumentViewer } from "~/components/document-viewer";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
-import { Kbd } from "~/components/kbd";
 import { PageHeader } from "~/components/page-header";
 import { Player } from "~/components/player";
 import { Rating } from "~/components/takes";
 import { Button } from "~/components/ui/button";
+import { Chip } from "~/components/ui/chip";
+import { Radio } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
-import { Input, Select } from "~/components/ui/input";
+import { Input } from "~/components/ui/input";
 import { Failed, failureText, Loading } from "~/components/ui/states";
-import { StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { threadsOf } from "~/lib/comments";
+import { formatDates } from "~/lib/locale";
 import type { Loop } from "~/lib/loop";
 import { initialFocus, type PageFocus } from "~/lib/pages";
 import {
@@ -33,9 +34,20 @@ import {
   useTakeMutations,
 } from "~/lib/queries";
 import { useShortcuts } from "~/lib/shortcuts";
-import { coverageLabel, falseStartsLabel, takeLoop, timecodeSpan } from "~/lib/take-page";
+import {
+  coverageLabel,
+  falseStartsLabel,
+  takeLoop,
+  threadMatches,
+  timecodeSpan,
+} from "~/lib/take-page";
 import { primaryOf } from "~/lib/versions";
 import { PageFailed } from "~/routes/problem";
+
+const dayFormat = formatDates({ day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+/** A session's day, in the workspace's format: a date has no time zone, so UTC. */
+const dayOf = (iso: string) => dayFormat.format(new Date(`${iso}T12:00:00Z`));
 
 /**
  * One take on its own page (#21, #45), as the prototype's: what is known of it in a line,
@@ -84,6 +96,7 @@ export function TakePage({ takeId }: { takeId: string }) {
   return (
     <>
       <PageHeader
+        // A take is its track's, never its session's (#568): the session is said beside it.
         crumbs={[
           {
             key: "project",
@@ -93,27 +106,30 @@ export function TakePage({ takeId }: { takeId: string }) {
               </Link>
             ),
           },
-          take.session
-            ? {
-                key: "session",
-                link: (
-                  <Link to="/sessions/$sessionId" params={{ sessionId: take.session.id }}>
-                    {take.session.name}
-                  </Link>
-                ),
-              }
-            : {
-                key: "track",
-                link: (
-                  <Link
-                    to="/tracks/$trackId"
-                    params={{ trackId: take.track.id }}
-                    search={{ view: "takes" }}
-                  >
-                    {take.track.name}
-                  </Link>
-                ),
-              },
+          {
+            key: "track",
+            link: (
+              <Link
+                to="/tracks/$trackId"
+                params={{ trackId: take.track.id }}
+                search={{ view: "versions" }}
+              >
+                {take.track.name}
+              </Link>
+            ),
+          },
+          {
+            key: "takes",
+            link: (
+              <Link
+                to="/tracks/$trackId"
+                params={{ trackId: take.track.id }}
+                search={{ view: "takes" }}
+              >
+                Takes
+              </Link>
+            ),
+          },
         ]}
         title={`Take ${take.number}`}
         actions={
@@ -121,7 +137,7 @@ export function TakePage({ takeId }: { takeId: string }) {
           can("triage") && !project.archivedAt ? (
             <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
               <Icon name="comment" size={14} />
-              Share to a comment
+              Attach to a comment
             </Button>
           ) : undefined
         }
@@ -136,26 +152,31 @@ export function TakePage({ takeId }: { takeId: string }) {
                 starred
               </span>
             )}
-            <Link
-              to="/tracks/$trackId"
-              params={{ trackId: take.track.id }}
-              search={{ view: "takes" }}
-              className="text-ink-2 no-underline hover:text-ink"
-            >
-              {take.track.name}
-            </Link>
+            {take.session && (
+              <Link
+                to="/sessions/$sessionId"
+                params={{ sessionId: take.session.id }}
+                className="text-ink-2 no-underline hover:text-ink"
+              >
+                {[
+                  take.session.name,
+                  take.session.recordedOn ? dayOf(take.session.recordedOn) : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </Link>
+            )}
             {coverage && <span className="tabular">{coverage}</span>}
             {timecode && <span className="tabular">{timecode}</span>}
             {take.lifecycle === "aborted" && <span>aborted</span>}
             {falseStarts && <span>{falseStarts}</span>}
-            {used && (
-              <span className="flex items-center gap-1.5 text-ink-2">
-                <StatusDot state="approved" />
-                in {used}
-              </span>
-            )}
+            {/* Where an edit uses it, said quietly: it is a fact, not a status (#703). */}
+            {used && <span>in {used}</span>}
             {siblings.length > 1 && (
-              <nav aria-label="Takes from the session" className="ml-auto flex flex-wrap gap-1">
+              <nav
+                aria-label={`Takes of ${take.track.name}${take.session ? ` recorded in ${take.session.name}` : ""}`}
+                className="ml-auto flex flex-wrap gap-1"
+              >
                 {siblings.map((t) => (
                   <Link
                     key={t.id}
@@ -176,7 +197,7 @@ export function TakePage({ takeId }: { takeId: string }) {
             )}
           </div>
           {/* Each take starts afresh: its own stream, playhead and loop. */}
-          <Recording key={take.id} take={take} siblings={siblings.length} />
+          <Recording key={take.id} take={take} />
           <Notes
             key={`notes-${take.id}`}
             take={take}
@@ -187,7 +208,7 @@ export function TakePage({ takeId }: { takeId: string }) {
           <ScoreAside key={`score-${take.id}`} scoreFileId={take.track.scoreFileId} take={take} />
         )}
       </div>
-      {sharing && <ShareDialog take={take} onClose={() => setSharing(false)} />}
+      {sharing && <AttachDialog take={take} onClose={() => setSharing(false)} />}
     </>
   );
 }
@@ -202,9 +223,10 @@ function Waiting({ children }: { children: ReactNode }) {
 
 /**
  * The take's recording: its summed mix, the one lane for now, through the protected player
- * (encrypted segments, a session-bound key). Loop plays it from its in point to its out point.
+ * (encrypted segments, a session-bound key). The player's own Loop is the one Loop (#572): it
+ * starts as the take, from its in point to its out point, and a drag makes another.
  */
-function Recording({ take, siblings }: { take: TakeDetail; siblings: number }) {
+function Recording({ take }: { take: TakeDetail }) {
   const client = useQueryClient();
   const fileId = take.file?.id ?? "";
   const { data: file, error: fileError } = useQuery({
@@ -213,9 +235,8 @@ function Recording({ take, siblings }: { take: TakeDetail; siblings: number }) {
   });
   const ready = file?.streamStatus === "ready" && (file.kind === "audio" || file.kind === "video");
   const { data: playback, error } = useQuery({ ...playbackQuery(fileId), enabled: ready });
-  const [media, setMedia] = useState<HTMLMediaElement | null>(null);
-  const [loop, setLoop] = useState<Loop | null>(null);
-  const [cue, setCue] = useState(0);
+  const [_media, _setMedia] = useState<HTMLMediaElement | null>(null);
+  const [loop, setLoop] = useState<Loop | null | undefined>(undefined);
   if (!take.file)
     return (
       <Empty
@@ -238,64 +259,24 @@ function Recording({ take, siblings }: { take: TakeDetail; siblings: number }) {
   if (file.streamStatus !== "ready") return <Waiting>Preparing for playback.</Waiting>;
   if (error) return <Waiting>{failureText(error)}</Waiting>;
   if (!playback) return <Loading size="panel" label="Loading the player" />;
-  const canLoop = !file.tools || file.tools.includes("loops");
-  const whole = takeLoop(take, file.mediaInfo.duration ?? null);
-  const looping = loop !== null;
-  const toggleLoop = () => {
-    if (looping || !whole) {
-      setLoop(null);
-      return;
-    }
-    setLoop(whole);
-    setCue((n) => n + 1);
-    if (media) {
-      media.currentTime = whole.start;
-      void media.play().catch(() => undefined);
-    }
-  };
+  // Until another is made, the loop is the take's own in and out points.
+  const shown = loop === undefined ? takeLoop(take, file.mediaInfo.duration ?? null) : loop;
   return (
-    <>
-      <div className="flex min-h-[260px] flex-col overflow-hidden rounded-panel-lg border border-line bg-raised/25 shadow-1">
-        <Player
-          strip={{ lead: <MixLead file={file} /> }}
-          fileId={file.id}
-          kind={file.kind}
-          playback={playback}
-          info={file.mediaInfo}
-          onMedia={setMedia}
-          loop={loop}
-          onLoop={setLoop}
-          cue={cue}
-          tools={file.tools ?? null}
-          mark={file.watermark}
-          normalisation={file.normalisation}
-          onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
-        />
-      </div>
-      <div className="flex flex-wrap items-center gap-3 text-[13px] text-ink-3">
-        {canLoop && whole && (
-          <Button
-            variant="ghost"
-            size="md"
-            aria-pressed={looping}
-            onClick={toggleLoop}
-            className={cn("rounded-full", looping && "bg-signal/15 text-signal hover:text-signal")}
-          >
-            <Icon name="loop" size={14} />
-            Loop
-          </Button>
-        )}
-        <span>
-          The summed mix.
-          {siblings > 1 && (
-            <>
-              {" "}
-              <Kbd>1</Kbd>–<Kbd>{String(Math.min(siblings, 9))}</Kbd> switch takes.
-            </>
-          )}
-        </span>
-      </div>
-    </>
+    <div className="flex min-h-[260px] flex-col overflow-hidden rounded-panel-lg border border-line bg-raised/25 shadow-1">
+      <Player
+        strip={{ lead: <MixLead file={file} /> }}
+        fileId={file.id}
+        kind={file.kind}
+        playback={playback}
+        info={file.mediaInfo}
+        loop={shown}
+        onLoop={setLoop}
+        tools={file.tools ?? null}
+        mark={file.watermark}
+        normalisation={file.normalisation}
+        onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
+      />
+    </div>
   );
 }
 
@@ -387,10 +368,12 @@ function ScoreAside({ scoreFileId, take }: { scoreFileId: string; take: TakeDeta
 }
 
 /**
- * Sharing the take on a thread of the track's latest version (#133): everyone who sees the
- * thread hears exactly this take, at the thread's bar where it is about one.
+ * Attaching the take to a thread of the track's latest version (#133): everyone who sees the
+ * thread hears exactly this take, at the thread's bar where it is about one. The threads are
+ * listed as the Attach take picker lists takes (#655): each by where it points, its version and
+ * variant, and who wrote it, with a search.
  */
-function ShareDialog({ take, onClose }: { take: TakeDetail; onClose: () => void }) {
+function AttachDialog({ take, onClose }: { take: TakeDetail; onClose: () => void }) {
   const {
     data: track,
     error: trackError,
@@ -410,8 +393,18 @@ function ShareDialog({ take, onClose }: { take: TakeDetail; onClose: () => void 
   const { shareTakes } = useCommentMutations(fileId);
   const open = comments ? threadsOf(comments).open : [];
   const [chosen, setChosen] = useState("");
-  const thread = chosen || open[0]?.comment.id || "";
+  const [search, setSearch] = useState("");
+  const anchorOf = (c: (typeof open)[number]["comment"]) =>
+    c.anchor ? formatAnchor(c.anchor) : null;
+  const shown = open.filter((t) =>
+    threadMatches(
+      { body: t.comment.body, authorName: t.comment.authorName, anchor: anchorOf(t.comment) },
+      search,
+    ),
+  );
+  const thread = open.some((t) => t.comment.id === chosen) ? chosen : "";
   const error = trackError ?? commentsError;
+  const where = latest && primary ? `V${latest.number} · ${primary.name}` : "";
   const body = error ? (
     <Failed
       what="The threads"
@@ -424,38 +417,77 @@ function ShareDialog({ take, onClose }: { take: TakeDetail; onClose: () => void 
     <Loading size="panel" className="px-0" />
   ) : !latest || !primary ? (
     <p className="m-0 text-[13px] text-ink-2">
-      {take.track.name} has no version yet: a take is shared to a comment on one.
+      {take.track.name} has no version yet: a take is attached to a comment on one.
     </p>
   ) : open.length === 0 ? (
     <p className="m-0 text-[13px] text-ink-2">
-      No open comments on V{latest.number} yet. Write one on the version, then share this take to
+      No open comments on V{latest.number} yet. Write one on the version, then attach this take to
       it.
     </p>
   ) : (
     <form
-      id="share-take"
+      id="attach-take"
+      className="flex flex-col gap-3"
       onSubmit={(e) => {
         e.preventDefault();
-        shareTakes.mutate({ commentId: thread, takeIds: [take.id] }, { onSuccess: onClose });
+        if (thread)
+          shareTakes.mutate({ commentId: thread, takeIds: [take.id] }, { onSuccess: onClose });
       }}
     >
-      <Field label="Thread" error={shareTakes.error?.message}>
-        <Select value={thread} onChange={(e) => setChosen(e.target.value)}>
-          {open.map((t, i) => (
-            <option key={t.comment.id} value={t.comment.id}>
-              #{i + 1} · {excerpt(t.comment.body)}
-            </option>
-          ))}
-        </Select>
-      </Field>
+      {open.length > 4 && (
+        <Input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search the threads"
+          aria-label="Search the threads"
+        />
+      )}
+      <fieldset className="m-0 border-0 p-0">
+        <legend className="sr-only">Thread</legend>
+        {shown.length === 0 ? (
+          <p className="m-0 text-[13px] text-ink-3">No thread matches.</p>
+        ) : (
+          <ul className="m-0 flex list-none flex-col rounded-panel border border-line p-0">
+            {shown.map((t) => {
+              const anchor = anchorOf(t.comment);
+              return (
+                <li key={t.comment.id} className="border-b border-line last:border-b-0">
+                  <label className="flex cursor-pointer items-start gap-3 px-3 py-2 hover:bg-raised/40">
+                    <Radio
+                      name="thread"
+                      checked={thread === t.comment.id}
+                      onChange={() => setChosen(t.comment.id)}
+                      className="mt-0.5"
+                    />
+                    <span className="flex min-w-0 flex-1 flex-col gap-1">
+                      <span className="line-clamp-2 text-[13px] text-ink">{t.comment.body}</span>
+                      <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-3">
+                        {anchor && <Chip className="tabular">{anchor}</Chip>}
+                        <span className="min-w-0 truncate">
+                          {[where, t.comment.authorName].filter(Boolean).join(" · ")}
+                        </span>
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </fieldset>
+      {shareTakes.error && (
+        <p role="alert" className="m-0 text-[13px] text-signal">
+          {shareTakes.error.message}
+        </p>
+      )}
     </form>
   );
   return (
     <Dialog
-      title="Share this take to a comment"
+      title="Attach this take to a comment"
       description="The reviewers on that thread hear exactly this take, and nothing else from the sessions; on a thread about a bar, at that bar, looped."
       onClose={onClose}
-      width="sm"
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -465,10 +497,10 @@ function ShareDialog({ take, onClose }: { take: TakeDetail; onClose: () => void 
             <Button
               variant="primary"
               type="submit"
-              form="share-take"
+              form="attach-take"
               disabled={!thread || shareTakes.isPending}
             >
-              Share
+              Attach to this thread
             </Button>
           ) : (
             primary &&
@@ -488,9 +520,3 @@ function ShareDialog({ take, onClose }: { take: TakeDetail; onClose: () => void 
     </Dialog>
   );
 }
-
-/** A thread's first words, for a list of them. */
-const excerpt = (body: string) => {
-  const line = body.replace(/\s+/g, " ").trim();
-  return line.length > 60 ? `${line.slice(0, 59)}…` : line;
-};

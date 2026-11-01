@@ -246,7 +246,7 @@ export const takeRoutes = (db: Database) =>
       const sessionId = row.take.sessionId;
       const [session] = sessionId
         ? await db
-            .select({ id: sessions.id, name: sessions.name })
+            .select({ id: sessions.id, name: sessions.name, recordedOn: sessions.recordedOn })
             .from(sessions)
             .where(inOrg(sessions, organisationId, eq(sessions.id, sessionId)))
         : [];
