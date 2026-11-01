@@ -11,7 +11,7 @@ import type { MyReview, ProjectOverview } from "./queries";
 
 /** What a section is called on the page and in the customise menu. */
 export const sectionNames = (noun: "Tracks" | "Deliverables"): Record<OverviewSection, string> => ({
-  attention: "Needs attention",
+  attention: "Needs you",
   stats: "At a glance",
   tracks: noun,
   reviews: "In review",
@@ -89,7 +89,10 @@ export function overviewAttention(
           id: `overdue-${r.id}`,
           kind: "overdue",
           title: r.title,
-          why: r.waitingOn.length ? `Overdue, waiting on ${firstNames(r.waitingOn)}` : "Overdue",
+          // How late is said once, beside it.
+          why: r.waitingOn.length
+            ? `Waiting on ${firstNames(r.waitingOn)}`
+            : "Everyone has answered; it is still open",
           when: r.dueAt ? dueIn(r.dueAt, now).label : undefined,
           urgent: true,
           targetId: r.id,

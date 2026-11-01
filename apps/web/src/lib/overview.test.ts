@@ -70,7 +70,7 @@ describe("overviewAttention", () => {
       ["qa", "Master.wav fails a quality check"],
     ]);
     expect(items[0]).toMatchObject({ when: "due today", urgent: true });
-    expect(items[1]?.why).toBe("Overdue, waiting on Mira");
+    expect(items[1]?.why).toBe("Waiting on Mira");
   });
 
   it("does not list a review twice when it is both yours and overdue", () => {

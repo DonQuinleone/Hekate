@@ -228,7 +228,7 @@ const screens: Screen[] = [
   {
     name: "project-overview",
     path: (s) => `/projects/${s.musicProjectId}`,
-    ready: "main section[aria-label='Needs attention'] li",
+    ready: "main section[aria-label='Needs you'] li",
   },
   {
     name: "project-overview-video",
@@ -1721,7 +1721,7 @@ test("sidebar-collapsed-switcher", async ({ page }, info) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.addInitScript(() => localStorage.setItem("hekate.sidebar", "collapsed"));
   await page.goto(`/projects/${seeded().musicProjectId}`);
-  await settle(page, "main section[aria-label='Needs attention'] li");
+  await settle(page, "main section[aria-label='Needs you'] li");
   await page.getByRole("button", { name: /Switch project/ }).click();
   const menu = page.getByRole("menu", { name: "Switch project" });
   await menu.getByRole("menuitemradio").last().hover({ timeout: 5_000 });
