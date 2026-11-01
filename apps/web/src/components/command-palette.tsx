@@ -15,6 +15,7 @@ import {
   rememberRecent,
 } from "~/lib/palette";
 import { meQuery, projectsQuery, searchQuery, useProjectCan } from "~/lib/queries";
+import { KeyStrokes } from "./shortcut-map";
 import { BareInput } from "./ui/input";
 
 const kindGroup: Record<SearchResult["kind"], { group: HitGroup; icon: IconName }> = {
@@ -79,7 +80,7 @@ export function CommandPalette({
         label: "Home",
         icon: "dashboard",
         link: "/",
-        shortcut: "G H",
+        shortcut: "g h",
       },
       {
         id: "go-inbox",
@@ -87,7 +88,7 @@ export function CommandPalette({
         label: "Inbox",
         icon: "inbox",
         link: "/inbox",
-        shortcut: "G I",
+        shortcut: "g i",
       },
       {
         id: "go-projects",
@@ -95,14 +96,21 @@ export function CommandPalette({
         label: "Projects",
         icon: "folder",
         link: "/projects",
-        shortcut: "G P",
+        shortcut: "g p",
       },
       {
         id: "go-search",
         group: "Jump to",
-        label: "Search",
+        label: "Advanced search",
         icon: "search",
         link: "/search",
+      },
+      {
+        id: "go-notifications",
+        group: "Jump to",
+        label: "All notifications",
+        icon: "bell",
+        link: "/notifications",
       },
       {
         id: "go-members",
@@ -180,13 +188,6 @@ export function CommandPalette({
         icon: "sidebar",
         shortcut: "[",
         run: onToggleSidebar,
-      },
-      {
-        id: "act-notifications",
-        group: "Actions",
-        label: "All notifications",
-        icon: "bell",
-        link: "/notifications",
       },
       {
         id: "act-signout",
@@ -364,10 +365,8 @@ export function CommandPalette({
                       </span>
                     )}
                     {hit.shortcut && (
-                      <span className="hidden shrink-0 items-center gap-1 @3xl/app:flex">
-                        {hit.shortcut.split(" ").map((k) => (
-                          <Kbd key={k}>{k}</Kbd>
-                        ))}
+                      <span className="hidden @3xl/app:flex">
+                        <KeyStrokes bindings={[hit.shortcut]} />
                       </span>
                     )}
                   </div>
@@ -390,7 +389,9 @@ export function CommandPalette({
           <span className="hidden items-center gap-1.5 @3xl/app:flex">
             <Kbd>{">"}</Kbd> commands only
           </span>
-          <span className="ml-auto hidden @3xl/app:inline">Only what you may see</span>
+          <span className="ml-auto hidden @3xl/app:inline">
+            Results include only what you can open
+          </span>
         </div>
       </div>
     </div>
