@@ -5,9 +5,10 @@ import {
   type AuditActorType,
   type AuditQuery,
   isServiceAccount,
+  storedAuditActions,
 } from "@hekate/shared";
 import { getConnInfo } from "@hono/node-server/conninfo";
-import { and, desc, eq, gte, lt, lte, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, lte, type SQL } from "drizzle-orm";
 import type { Context } from "hono";
 import { countAccess } from "./metrics/index.ts";
 
@@ -153,7 +154,8 @@ export function createAudit(db: Database): Audit {
         f.reviewId ? eq(accessEvents.reviewId, f.reviewId) : undefined,
         f.userId ? eq(accessEvents.userId, f.userId) : undefined,
         f.guestId ? eq(accessEvents.guestId, f.guestId) : undefined,
-        f.action ? eq(accessEvents.action, f.action) : undefined,
+        // An action's older entries may hold a name since changed (decision 295).
+        f.action ? inArray(accessEvents.action, storedAuditActions(f.action)) : undefined,
         f.from ? gte(accessEvents.occurredAt, new Date(f.from)) : undefined,
         f.to ? lte(accessEvents.occurredAt, new Date(f.to)) : undefined,
         // Ids are UUIDv7, so they sort by time: a cursor needs only the last id.

@@ -1,4 +1,4 @@
-import type { AuditAction } from "@hekate/shared";
+import { type AuditAction, formerAuditActions } from "@hekate/shared";
 
 const actionWords = {
   "stream.key": "Key issued",
@@ -25,7 +25,7 @@ const actionWords = {
   "review.reviewer_remove": "Reviewer removed",
   "version.let_through": "Let past the version checks",
   "variant.replace": "File replaced",
-  // Rows written before decision 275 carry the action under its old name.
+  // Entries written before decision 275 hold the stored value under its old name (decision 295).
   "variation.replace": "File replaced",
   "comment.takes_share": "Takes shared",
   "comment.takes_unshare": "Takes unshared",
@@ -103,6 +103,14 @@ const actionWords = {
 
 /** Plain words for what each entry records; every action has some, or this does not compile. */
 export const actionCopy: Record<string, string> = actionWords;
+
+/**
+ * The actions a filter offers, in plain words: each once, under its current name, as the log
+ * filters an action's older entries with it (decision 295).
+ */
+export const actionChoices: [action: string, label: string][] = Object.entries(actionWords).filter(
+  ([action]) => !(action in formerAuditActions),
+);
 
 /** How far back the log's time filter reaches. */
 export const logSince = ["day", "week", "month", "year"] as const;

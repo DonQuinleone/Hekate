@@ -7583,6 +7583,22 @@ describe.runIf(url)("api", () => {
         expect(await count(`to=${encodeURIComponent(until)}`)).toBe(0);
         expect((await get("/api/organisation/audit?guestId=someone", owner)).status).toBe(400);
         expect((await get("/api/organisation/audit?from=yesterday", owner)).status).toBe(400);
+        // An entry written under the action's old name stays as written, and the current name
+        // finds it with the new ones (decision 295); another workspace's never.
+        await audit.record(organisationId, me, { action: "variation.replace", fileId: fileB });
+        await audit.record(organisationId, me, { action: "variant.replace", fileId: fileA });
+        await audit.record(
+          other?.id ?? "",
+          { type: "system", label: "Hekate" },
+          { action: "variation.replace", fileId: fileA },
+        );
+        const replaced = (await (
+          await get("/api/organisation/audit?action=variant.replace", owner)
+        ).json()) as Page;
+        expect(replaced.events.map((e) => [e.action, e.fileId])).toEqual([
+          ["variant.replace", fileA],
+          ["variation.replace", fileB],
+        ]);
         // The export takes the same filters.
         const csv = await (
           await get(`/api/organisation/audit.csv?guestId=${guestId}`, owner)
