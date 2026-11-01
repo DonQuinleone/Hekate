@@ -26,12 +26,10 @@ describe("tracks", () => {
     ).toBe(false);
   });
 
-  it("reads the variants under either name, and answers with the new one (decision 275)", () => {
+  it("reads the variants under that name alone (decision 295)", () => {
     const sent = [{ fileId: a, name: "Dry" }];
     expect(createVersionInput.parse({ variants: sent })).toMatchObject({ variants: sent });
-    const parsed = createVersionInput.parse({ variations: sent });
-    expect(parsed).toMatchObject({ variants: sent });
-    expect("variations" in parsed).toBe(false);
+    expect(createVersionInput.safeParse({ variations: sent }).success).toBe(false);
     expect(createVersionInput.safeParse({ notes: "No files" }).success).toBe(false);
   });
 

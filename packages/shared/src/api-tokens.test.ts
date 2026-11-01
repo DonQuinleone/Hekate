@@ -29,6 +29,9 @@ describe("API token scopes (#198)", () => {
     expect(scopeFor("PATCH", `/api/files/${id}`)).toBe("files:write");
     expect(scopeFor("DELETE", `/api/folders/${id}`)).toBe("files:write");
     expect(scopeFor("GET", "/api/search")).toBe("files:read");
+    expect(scopeFor("PATCH", `/api/variants/${id}`)).toBe("files:write");
+    // The variants' routes under their old name are gone (decision 295): no token reaches them.
+    expect(scopeFor("PATCH", `/api/variations/${id}`)).toBeNull();
   });
 
   it("gives reviews, comments, downloads and workflows their own scopes", () => {

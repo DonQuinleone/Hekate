@@ -4,6 +4,7 @@ import {
   bucketLine,
   type CommentScope,
   type CustomProfile,
+  currentAuditAction,
   type DateFormat,
   type DefaultRoleName,
   type DownloadLevel,
@@ -79,6 +80,7 @@ import { StorageUsageRow, UsageRows } from "~/components/usage";
 import { DeleteWorkspace, WorkspaceExports } from "~/components/workspace-lifecycle";
 import { WhereFilesGo } from "~/components/workspace-storage";
 import {
+  actionChoices,
   actionCopy,
   exportUrl,
   filtered,
@@ -1517,7 +1519,7 @@ function AccessLogFilterMenu({
           <Field label="Action">
             <Select value={filters.action ?? ""} onChange={(e) => set("action", e.target.value)}>
               <option value="">Every action</option>
-              {Object.entries(actionCopy).map(([id, label]) => (
+              {actionChoices.map(([id, label]) => (
                 <option key={id} value={id}>
                   {label}
                 </option>
@@ -1687,7 +1689,10 @@ function AccessLog() {
       : []),
     {
       label: "Only this action",
-      onSelect: () => only("action", e.action, actionCopy[e.action] ?? e.action),
+      onSelect: () => {
+        const action = currentAuditAction(e.action);
+        only("action", action, actionCopy[action] ?? action);
+      },
     },
   ];
   return (

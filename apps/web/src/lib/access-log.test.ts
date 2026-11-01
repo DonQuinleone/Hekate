@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exportUrl, filtered, logQuery, without } from "./access-log";
+import { actionChoices, actionCopy, exportUrl, filtered, logQuery, without } from "./access-log";
 
 const now = Date.parse("2026-10-14T12:00:00Z");
 
@@ -44,5 +44,15 @@ describe("the access log's filters", () => {
     expect(exportUrl({ action: "page.render", fileId: "f" }, now)).toBe(
       "/api/organisation/audit.csv?action=page.render&fileId=f",
     );
+  });
+});
+
+describe("the access log's actions", () => {
+  it("offers each action once, under its current name, but reads an older entry too (decision 295)", () => {
+    const offered = actionChoices.map(([action]) => action);
+    expect(offered).toContain("variant.replace");
+    expect(offered).not.toContain("variation.replace");
+    expect(new Set(actionChoices.map(([, label]) => label)).size).toBe(actionChoices.length);
+    expect(actionCopy["variation.replace"]).toBe("File replaced");
   });
 });

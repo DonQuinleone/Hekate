@@ -12,6 +12,7 @@ import {
   journalOf,
   migrationState,
   migrationsFolder,
+  readableFrom,
   runMigrations,
 } from "./migrate.ts";
 
@@ -52,7 +53,12 @@ describe("destructive statements", () => {
             .length > 0,
       )
       .map((entry) => entry.tag);
-    expect(losing).toEqual(["0003_storage", "0063_takes_on_tracks", "0083_tasks"]);
+    expect(losing).toEqual([
+      "0003_storage",
+      "0063_takes_on_tracks",
+      "0083_tasks",
+      "0158_drop_variations",
+    ]);
   });
 });
 
@@ -157,6 +163,18 @@ describe("contracting statements (#421)", () => {
     expect(contractingStatements(older)).toHaveLength(1);
   });
 
+  // Release 2 of the rename (decision 295): the release before, which still read `variations`,
+  // cannot run once it is gone, so the drop is the newest migration an older release must know.
+  it("counts dropping variations as contracting, and makes it the release floor", () => {
+    const text = readFileSync(join(migrationsFolder, "0158_drop_variations.sql"), "utf8");
+    expect(contractingStatements(text)).toEqual([
+      "-- hekate: contracts",
+      'DROP TABLE "variations" CASCADE',
+    ]);
+    const drop = journalOf().find((entry) => entry.tag === "0158_drop_variations");
+    expect(readableFrom()).toBe(drop?.when);
+  });
+
   it("takes a migration's own word that it contracts", () => {
     expect(
       contractingStatements('-- hekate: contracts\nUPDATE "files" SET "kind" = \'audio\';'),
@@ -170,11 +188,13 @@ describe.runIf(base)("running migrations", () => {
   const made: string[] = [];
   const folders: string[] = [];
   const admin = createDb(base ?? "", { max: 1 });
+  // A database each test, dropped one after another: longer than a hook's usual ten seconds
+  // on a busy machine.
   afterAll(async () => {
     for (const name of made) await admin.db.execute(sql.raw(`drop database if exists ${name}`));
     await admin.close();
     for (const folder of folders) rmSync(folder, { recursive: true, force: true });
-  });
+  }, 60_000);
   const database = async () => {
     const name = `hekate_migrate_${made.length}_${Date.now()}`;
     made.push(name);
@@ -242,6 +262,98 @@ describe.runIf(base)("running migrations", () => {
       "9001_drop",
     ]);
     expect((await migrationState(db, folder)).pending).toEqual([]);
+    await close();
+  }, 120_000);
+
+  it("carries every variation into variants before dropping the old table (decision 295)", async () => {
+    const url = await database();
+    // The database as release 1 of the rename left it: both tables, kept in step by a trigger.
+    const before = folderWith([], 1);
+    expect(journalOf(before).at(-1)?.tag).toBe("0157_comment_files");
+    await runMigrations(url, before);
+    const { db, close } = createDb(url, { max: 1 });
+    const ids = {
+      org: "0190a000-0000-7000-8000-000000000001",
+      project: "0190a000-0000-7000-8000-000000000002",
+      track: "0190a000-0000-7000-8000-000000000003",
+      one: "0190a000-0000-7000-8000-000000000004",
+      two: "0190a000-0000-7000-8000-000000000005",
+    };
+    for (const statement of [
+      sql`insert into organisations (id, name, slug) values (${ids.org}, 'Endless Hall Records', 'endless-hall')`,
+      sql`insert into projects (id, organisation_id, name, profile) values (${ids.project}, ${ids.org}, 'Joplin Rags', 'music')`,
+      sql`insert into tracks (id, organisation_id, project_id, name) values (${ids.track}, ${ids.org}, ${ids.project}, 'Maple Leaf Rag')`,
+      sql`insert into versions (id, organisation_id, track_id, number) values (${ids.one}, ${ids.org}, ${ids.track}, 1), (${ids.two}, ${ids.org}, ${ids.track}, 2)`,
+    ])
+      await db.execute(statement);
+    const files = ["Dry", "Wet", "Main", "Room"].map((name, i) => ({
+      name,
+      file: `0190a000-0000-7000-8000-00000000001${i}`,
+      blob: `0190a000-0000-7000-8000-00000000002${i}`,
+      variation: `0190a000-0000-7000-8000-00000000003${i}`,
+    }));
+    for (const f of files) {
+      await db.execute(
+        sql`insert into blobs (id, organisation_id, backend, key, byte_size, wrapped_key, key_version) values (${f.blob}, ${ids.org}, 'local', ${f.blob}, 1, 'wrapped', 1)`,
+      );
+      await db.execute(
+        sql`insert into files (id, organisation_id, project_id, name, kind, content_type, byte_size, blob_id) values (${f.file}, ${ids.org}, ${ids.project}, ${`${f.name}.wav`}, 'audio', 'audio/wav', 1, ${f.blob})`,
+      );
+    }
+    const [dry, wet, main, room] = files as [
+      (typeof files)[number],
+      (typeof files)[number],
+      (typeof files)[number],
+      (typeof files)[number],
+    ];
+    const variation = (f: (typeof files)[number], version: string, primary: boolean, at: number) =>
+      sql`insert into variations (id, organisation_id, version_id, file_id, name, is_primary, position)
+        values (${f.variation}, ${ids.org}, ${version}, ${f.file}, ${f.name}, ${primary}, ${at})`;
+    // The release before writes `variations` alone; the trigger carries each row across.
+    await db.execute(variation(dry, ids.one, true, 0));
+    await db.execute(variation(wet, ids.one, false, 1));
+    await db.execute(variation(main, ids.two, true, 0));
+    // A row that never followed, as though written with the trigger off.
+    await db.execute(sql`alter table variations disable trigger variations_follow_into_variants`);
+    await db.execute(variation(room, ids.two, false, 1));
+    await db.execute(sql`alter table variations enable trigger variations_follow_into_variants`);
+    // And one whose variant went while another became the version's primary in its place.
+    await db.execute(sql`delete from variants where id = ${dry.variation}`);
+    await db.execute(sql`update variants set is_primary = true where id = ${wet.variation}`);
+    const old = await db.execute<{ id: string; version_id: string; file_id: string; name: string }>(
+      sql`select id, version_id, file_id, name from variations order by id`,
+    );
+    expect(old).toHaveLength(4);
+
+    // A drop is refused until the operator allows it, and nothing is applied.
+    const refused = await runMigrations(url).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(DestructiveMigrationError);
+    expect((refused as Error).message).toContain('0158_drop_variations: DROP TABLE "variations"');
+    expect(
+      (await runMigrations(url, migrationsFolder, { allowDestructive: true })).applied,
+    ).toEqual(["0158_drop_variations"]);
+
+    const now = await db.execute<{
+      id: string;
+      version_id: string;
+      file_id: string;
+      name: string;
+      is_primary: boolean;
+    }>(sql`select id, version_id, file_id, name, is_primary from variants order by id`);
+    expect(now.map(({ is_primary: _, ...v }) => v)).toEqual([...old]);
+    // Every version keeps exactly one primary: the row copied across comes in beside it.
+    const primaries = now.filter((v) => v.is_primary).map((v) => v.id);
+    expect(primaries).toEqual([wet.variation, main.variation]);
+    const [gone] = await db.execute<{ table: string | null; fn: string | null }>(
+      sql`select to_regclass('variations') as table, to_regproc('variations_follow_into_variants') as fn`,
+    );
+    expect(gone).toEqual({ table: null, fn: null });
+    // The release before is refused from now on: the drop is its floor.
+    const [floor] = await db.execute<{ migration: string }>(
+      sql`select migration from drizzle.hekate_readable_from`,
+    );
+    expect(Number(floor?.migration)).toBe(readableFrom());
+    await expect(runMigrations(url, before)).rejects.toBeInstanceOf(DatabaseAheadError);
     await close();
   }, 120_000);
 

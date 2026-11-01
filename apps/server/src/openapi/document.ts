@@ -89,7 +89,7 @@ const tagRules: [RegExp, string][] = [
   [/workflow/, "Workflows"],
   [/^\/uploads\b/, "Uploads"],
   [/upload-requests/, "Uploads"],
-  [/^\/(versions|variants|variations)\b|^\/tracks\/\{id\}\/versions$/, "Versions and variants"],
+  [/^\/(versions|variants)\b|^\/tracks\/\{id\}\/versions$/, "Versions and variants"],
   [/takes|sessions/, "Takes and sessions"],
   [/score-marks|score-categories/, "Scores"],
   [/patch|stage-|personnel|repertoire|works|venues|schedule/, "Production"],

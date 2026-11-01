@@ -43,12 +43,7 @@ import { swapScore } from "../score-swap.ts";
 import type { Storage } from "../storage.ts";
 import type { TenantVariables } from "../tenancy.ts";
 import { trackStandings } from "../track-standing.ts";
-import {
-  bothNames,
-  insertVariants,
-  updateVariants,
-  violatesOneVariantPerFile,
-} from "../variants.ts";
+import { insertVariants, updateVariants, violatesOneVariantPerFile } from "../variants.ts";
 import { type RunnerDeps, restartAt, runAfter, versionArrived } from "../workflow-runner.ts";
 import { folderIn, lockProject } from "./folders.ts";
 
@@ -193,12 +188,10 @@ async function tracksOf(db: Database, organisationId: string, projectId: string)
             .filter((x) => x.versionId === version.id && unsigned.has(x.versionId))
             .map((x) => senders.get(x.fileId))
             .find(Boolean) ?? null,
-        ...bothNames(
-          variantRows
-            .filter((x) => x.versionId === version.id)
-            // Of what was measured, the picture is all a rendition shows (#16).
-            .map(({ mediaInfo, ...x }) => ({ ...x, video: mediaInfo?.video ?? null })),
-        ),
+        variants: variantRows
+          .filter((x) => x.versionId === version.id)
+          // Of what was measured, the picture is all a rendition shows (#16).
+          .map(({ mediaInfo, ...x }) => ({ ...x, video: mediaInfo?.video ?? null })),
       })),
   }));
 }
@@ -813,8 +806,6 @@ export const versionRoutes = (db: Database) => {
         return c.json({ track: await oneTrack(db, organisationId, version.trackId) });
       })
       .post("/:id/variants", ...addVariant)
-      // Under its name before decision 275, for a client of the release before.
-      .post("/:id/variations", ...addVariant)
   );
 };
 
