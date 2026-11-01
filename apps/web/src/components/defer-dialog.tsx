@@ -14,7 +14,7 @@ import { type CommentCategory, fileStagesQuery, useProjectCan } from "~/lib/quer
 /**
  * Defer a thread to a stage (#499): one of the stages of the workflows that apply to the
  * file's track (or its project), listed by workflow with the one the track waits at marked,
- * then the stages the project's categories name. Nothing is typed; the builder is a link away
+ * then where each category's comments go. None is chosen until one is, so Defer waits for it. Nothing is typed; the builder is a link away
  * for whoever may open it.
  */
 export function DeferDialog({
@@ -36,13 +36,9 @@ export function DeferDialog({
   const { data: stages, isPending, error, refetch } = useQuery(fileStagesQuery(fileId));
   const can = useProjectCan(projectId);
   const groups = deferChoices(stages, categories, current ?? null);
-  const [chosen, setChosen] = useState<string | null>(current ?? null);
-  // Until a stage is picked, the one the track waits at is the offer.
-  const picked =
-    chosen ??
-    groups.flatMap((g) => g.stages).find((s) => s.current)?.name ??
-    groups[0]?.stages[0]?.name ??
-    null;
+  // Nothing is chosen until a stage is (#643): one click never defers to a stage at random.
+  // A thread already deferred starts at the stage it waits for.
+  const [picked, setChosen] = useState<string | null>(current ?? null);
   const name = useId();
   return (
     <Dialog

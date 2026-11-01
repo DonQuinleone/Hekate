@@ -1592,7 +1592,7 @@ test("file-share", async ({ page }) => {
 });
 
 // Deferring a thread to a stage (#499): the stages of the workflows that apply to the track,
-// listed by workflow, then the stage the Noise category names, said to be its. Nothing typed.
+// listed by workflow, then where Noise comments go. Nothing typed, and nothing chosen (#643).
 test("file-defer", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/files/${seeded().dryFileId}`);
@@ -1603,8 +1603,9 @@ test("file-defer", async ({ page }) => {
     .first();
   await thread.getByRole("button", { name: "Actions for this thread" }).click();
   await page.getByRole("menuitem", { name: "Defer to a stage…" }).click();
-  await settle(page, "[role=dialog] >> text=Named by a category");
+  await settle(page, "[role=dialog] >> text=Where Noise comments go");
   await expect(page.getByRole("radio", { name: /Label approval/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Defer", exact: true })).toBeDisabled();
   await saveScreen(page, "file-defer");
   await checkScreen(page);
 });
