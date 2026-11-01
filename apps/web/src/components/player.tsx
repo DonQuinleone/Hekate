@@ -163,16 +163,84 @@ export interface FindingMark {
   severity: "fail" | "warn";
 }
 
-/** A comment's mark on the timeline: open ones quiet, ones with work to do in the signal colour. */
+/**
+ * A thread's numbered marker over the media (#562), as the prototype draws it: where it
+ * starts and, for a passage, ends; open ones quiet, ones with work to do in the signal colour,
+ * deferred ones dashed; and its first line, previewed on hover.
+ */
 export interface TimelineMarker {
+  id: string;
+  number: number;
   at: number;
+  end?: number;
   state: "open" | "todo" | "deferred";
+  preview: string;
 }
-const markerStyles: Record<TimelineMarker["state"], string> = {
-  open: "bg-ink-2",
-  todo: "bg-signal",
-  deferred: "bg-ink-3 opacity-60",
+const markerStyles: Record<TimelineMarker["state"] | "active", string> = {
+  open: "border-ink-2/40 bg-raised text-ink",
+  todo: "border-signal/60 bg-signal/90 text-ground",
+  deferred: "border-dashed border-ink-3 bg-raised text-ink-3",
+  active: "border-signal bg-signal text-ground",
 };
+
+/**
+ * The threads' numbered markers along the top of the waveform or the filmstrip (#562): a
+ * click plays from the thread's moment and opens it; a passage's reach is a bar beside it.
+ */
+function CommentMarkers({
+  markers,
+  duration,
+  active,
+  onPick,
+}: {
+  markers: readonly TimelineMarker[];
+  duration: number;
+  active?: string | null;
+  onPick: (marker: TimelineMarker) => void;
+}) {
+  if (!(duration > 0) || markers.length === 0) return null;
+  const share = (t: number) => Math.max(0, Math.min(100, (t / duration) * 100));
+  // Kept whole at either edge: a marker at the very start or end is never cut.
+  const place = (t: number) => `clamp(12px, ${share(t)}%, calc(100% - 12px))`;
+  return (
+    <div data-e2e-overlap className="pointer-events-none absolute inset-x-0 top-0 z-30 h-7">
+      {markers.map((m) =>
+        m.end !== undefined && m.end > m.at ? (
+          <span
+            key={`r-${m.id}`}
+            aria-hidden="true"
+            className={cn(
+              "absolute top-[13px] h-0.5 rounded-full",
+              m.id === active || m.state === "todo" ? "bg-signal/70" : "bg-ink-2/50",
+            )}
+            style={{ left: `${share(m.at)}%`, width: `${share(m.end) - share(m.at)}%` }}
+          />
+        ) : null,
+      )}
+      {markers.map((m) => (
+        <button
+          key={m.id}
+          type="button"
+          aria-label={`Comment ${m.number} at ${formatClock(m.at)}: ${m.preview}`}
+          aria-pressed={m.id === active}
+          title={`#${m.number} · ${m.preview}`}
+          onClick={() => onPick(m)}
+          className="group/marker pointer-events-auto absolute top-0.5 flex size-6 -translate-x-1/2 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0"
+          style={{ left: place(m.at) }}
+        >
+          <span
+            className={cn(
+              "tabular flex size-[18px] items-center justify-center rounded-full border text-[10px] leading-none font-medium shadow-2 transition-transform duration-150 group-hover/marker:scale-110",
+              markerStyles[m.id === active ? "active" : m.state],
+            )}
+          >
+            {m.number}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /** What a reviewer chooses between, in plain words. */
 export function renditionLabel(rendition: Rendition, info: MediaInfo | null): string {
@@ -283,6 +351,8 @@ export function Player({
   onExpired,
   onMedia,
   markers = [],
+  onMarker,
+  activeMarker = null,
   findings = [],
   edits = [],
   loop = null,
@@ -313,8 +383,11 @@ export function Player({
   onExpired: () => void;
   /** The media element, once mounted, so other panels can read and move the playhead. */
   onMedia?: (element: HTMLMediaElement | null) => void;
-  /** Moments to mark on the timeline, such as anchored comments. */
+  /** The threads' numbered markers over the media (#562). */
   markers?: TimelineMarker[];
+  /** A marker picked: its thread is opened beside the player; and which one is open. */
+  onMarker?: (id: string) => void;
+  activeMarker?: string | null;
   /** What the quality checks found, marked under the timeline (#43). */
   findings?: FindingMark[];
   /** A version's edits, from its edit decision list, laid under the waveform (#56). */
@@ -866,6 +939,12 @@ export function Player({
     if (element) element.currentTime = Math.max(0, Math.min(duration, seconds));
   };
 
+  /** A marker picked (#562): its moment plays, and its thread opens beside the player. */
+  const pickMarker = (m: TimelineMarker) => {
+    seek(m.at);
+    onMarker?.(m.id);
+  };
+
   /** A double-click where the loop is on (#494): off, and the playhead goes there. */
   const clearLoop = (at: number) => {
     setLooping(false);
@@ -1409,13 +1488,14 @@ export function Player({
           }}
         />
       )}
+      {/* The checks' findings on a quieter lane of their own, under the comments (#562). */}
       {findings.map((f) => (
         <div
           key={`${f.start}-${f.end}-${f.severity}`}
           aria-hidden="true"
           className={cn(
-            "absolute bottom-0 h-1.5 min-w-[3px] rounded-[1px] border border-signal",
-            f.severity === "fail" ? "bg-signal" : "bg-transparent",
+            "absolute bottom-0 h-1 min-w-[3px] rounded-[1px] border border-ink-3",
+            f.severity === "fail" ? "bg-ink-3" : "bg-transparent",
           )}
           style={{
             left: `${share(f.start)}%`,
@@ -1424,14 +1504,6 @@ export function Player({
                 ? `${share(f.end) - share(f.start)}%`
                 : undefined,
           }}
-        />
-      ))}
-      {markers.map(({ at, state }) => (
-        <div
-          key={at}
-          aria-hidden="true"
-          className={cn("absolute top-0 h-1.5 w-px -translate-x-1/2", markerStyles[state])}
-          style={{ left: `${share(at)}%` }}
         />
       ))}
       <div
@@ -1485,35 +1557,44 @@ export function Player({
         <EditLane edits={edits} duration={duration} time={time} onSeek={seek} />
       )}
       {(canLoop || playback.filmstrip) && (
-        <LoopSurface
-          duration={duration}
-          loop={loop}
-          active={active}
-          onSeek={seek}
-          onLoop={canLoop ? setLoop : undefined}
-          onClear={active ? clearLoop : undefined}
-          label={
-            playback.filmstrip
-              ? canLoop
-                ? "Filmstrip: click to move the playhead, drag to loop a passage, double-click to stop looping"
-                : "Filmstrip: click to move the playhead"
-              : "Loop lane: drag to loop a passage, double-click to stop looping"
-          }
-          className={cn("shrink-0", playback.filmstrip ? "h-12" : "h-7")}
-        >
-          {playback.filmstrip ? (
-            <Filmstrip
-              url={playback.filmstrip.url}
-              frames={playback.filmstrip.frames}
-              at={duration > 0 ? time / duration : 0}
-            />
-          ) : (
-            <div
-              aria-hidden="true"
-              className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-hairline/60"
-            />
-          )}
-        </LoopSurface>
+        <div className="relative shrink-0">
+          <LoopSurface
+            duration={duration}
+            loop={loop}
+            active={active}
+            onSeek={seek}
+            onLoop={canLoop ? setLoop : undefined}
+            onClear={active ? clearLoop : undefined}
+            label={
+              playback.filmstrip
+                ? canLoop
+                  ? "Filmstrip: click to move the playhead, drag to loop a passage, double-click to stop looping"
+                  : "Filmstrip: click to move the playhead"
+                : "Loop lane: drag to loop a passage, double-click to stop looping"
+            }
+            className={cn("shrink-0", playback.filmstrip ? "h-12" : "h-7")}
+          >
+            {playback.filmstrip ? (
+              <Filmstrip
+                url={playback.filmstrip.url}
+                frames={playback.filmstrip.frames}
+                at={duration > 0 ? time / duration : 0}
+              />
+            ) : (
+              <div
+                aria-hidden="true"
+                className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-hairline/60"
+              />
+            )}
+          </LoopSurface>
+          {/* The threads' markers over the filmstrip, as over a recording's waveform (#562). */}
+          <CommentMarkers
+            markers={markers}
+            duration={duration}
+            active={activeMarker}
+            onPick={pickMarker}
+          />
+        </div>
       )}
     </>
   );
@@ -1800,6 +1881,12 @@ export function Player({
             </div>
           )}
         </LoopSurface>
+        <CommentMarkers
+          markers={markers}
+          duration={duration}
+          active={activeMarker}
+          onPick={pickMarker}
+        />
         {edits.length > 0 && duration > 0 && (
           <div className="mt-1.5 shrink-0">
             <EditLane edits={edits} duration={duration} time={time} onSeek={seek} />

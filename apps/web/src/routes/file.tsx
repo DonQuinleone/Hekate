@@ -160,7 +160,12 @@ function Playback({
   compare = null,
   follow,
   gain,
+  onMarker,
+  activeMarker = null,
 }: {
+  /** A thread's marker picked over the media (#562), and the thread open beside it. */
+  onMarker?: (id: string) => void;
+  activeMarker?: string | null;
   file: FileDetail;
   /** What it plays at under the volume: normalised playback's gain, or null while the comparison sets it. */
   gain: number | null;
@@ -287,6 +292,8 @@ function Playback({
       info={file.mediaInfo}
       onMedia={onMedia}
       markers={markers}
+      onMarker={onMarker}
+      activeMarker={activeMarker}
       findings={findings}
       edits={variant ? edits : []}
       loop={loop}
@@ -449,6 +456,10 @@ export function FilePage({
   const [importing, setImporting] = useState(false);
   const [versioning, setVersioning] = useState(false);
   const [sharing, setSharing] = useState(false);
+  /** The thread whose marker was picked over the media (#562): opened and marked beside it. */
+  const [pickedThread, setPickedThread] = useState<string | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a thread belongs to its file.
+  useEffect(() => setPickedThread(null), [fileId]);
   const [chosenNormal, setChosenNormal] = useNormalisedChoice();
   // Arriving from another version or variant: start where that one was (#15).
   const { media, onMedia } = useFileMedia(fileId, startAt, onStarted);
@@ -723,6 +734,12 @@ export function FilePage({
       onCaption={setCaptionId}
       follow={guest ? undefined : <FollowRecorderSettings follow={follow} />}
       gain={playerGain}
+      onMarker={(id) => {
+        setPickedThread(id);
+        // Its thread is beside the player: shown if the comments were put away.
+        if (layout.comments === "hidden") setLayout({ comments: lastPlace.current ?? "right" });
+      }}
+      activeMarker={pickedThread ?? focusComment ?? null}
     />
   );
   /** The transcript is offered beside the comments wherever there is a track to read. */
@@ -1070,7 +1087,7 @@ export function FilePage({
                 onLoop={allows("loops") ? hear : undefined}
                 heading={tabs}
                 tools={<PanelPlacement layout={layout} onChange={setLayout} />}
-                focus={focusComment}
+                focus={pickedThread ?? focusComment}
               />
             )}
           </div>

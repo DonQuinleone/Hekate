@@ -866,6 +866,7 @@ function ThreadView({
   channelNames = [],
   projectId,
   focused = false,
+  number,
 }: {
   thread: Thread;
   /** The file being looked at, which a carried thread was brought to. */
@@ -898,6 +899,8 @@ function ThreadView({
   projectId?: string;
   /** The thread a link points at: brought into view and marked. */
   focused?: boolean;
+  /** Its number on the media (#562): "#1" here and on its marker are the same thread. */
+  number?: number;
 }) {
   const time = useContext(TimeFormatting);
   const label = (a: Anchor) => anchorLabel(a, time);
@@ -985,17 +988,25 @@ function ThreadView({
   const moment = (at: number) => label({ kind: "time", start: at, end: at });
   const chip =
     "tabular inline-flex h-6 min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal";
+  /** Its number, as its marker over the media shows it (#562); not read out, as the chip is. */
+  const n = (marker?.n ?? number) !== undefined && (
+    <span aria-hidden="true" className="shrink-0 text-ink-3">
+      #{marker?.n ?? number}
+    </span>
+  );
   /** Where it points, as one chip at the end of its first line; nothing for the whole file. */
   const where = anchor ? (
     anchor.kind === "time" ? (
       // Each chip is named by its own words, the verb read out and not shown, so what it shows
       // is always part of its name.
       <button type="button" onClick={() => onSeek(anchor.start)} className={chip}>
+        {n}
         <span className="sr-only">Play from </span>
         <span className="truncate">{label(anchor)}</span>
       </button>
     ) : anchor.kind === "bar" && anchor.at !== undefined ? (
       <button type="button" onClick={() => onSeek(anchor.at ?? 0)} className={chip}>
+        {n}
         <span className="sr-only">Play </span>
         <span className="truncate">
           {label(anchor)}
@@ -1015,13 +1026,14 @@ function ThreadView({
         aria-pressed={picked}
         className={cn(chip, picked && "border-signal")}
       >
-        <span className="sr-only">Show {marker ? "thread " : ""}</span>
-        {marker && <span className="text-signal">{marker.n}</span>}
+        <span className="sr-only">Show {marker ? `thread ${marker.n}, ` : ""}</span>
+        {n}
         <span className="truncate">{label(anchor)}</span>
       </button>
     ) : anchor.kind === "region" && anchor.at !== undefined ? (
       // A drawing on a video's frame (#146): back to its frame, as the prototype does.
       <button type="button" onClick={() => onSeek(anchor.at ?? 0)} className={chip}>
+        {n}
         <span className="sr-only">Show the drawing, </span>
         <span className="truncate">{label(anchor)}</span>
       </button>
@@ -1879,6 +1891,8 @@ export function Comments({
     if (holding && holding !== "open") setFilter(holding);
   }, [holding]);
   const markers = data ? regionMarkers(data) : [];
+  // Each thread numbered as its marker over the media is (#562).
+  const numbers = data ? threadNumbers(data) : new Map<string, number>();
   const view = (t: Thread) => (
     <ThreadView
       key={t.comment.id}
@@ -1901,6 +1915,7 @@ export function Comments({
       channelNames={channelNames}
       projectId={projectId}
       focused={t.comment.id === focus}
+      number={numbers.get(t.comment.id)}
     />
   );
 
@@ -2115,22 +2130,52 @@ export function markerState(comment: Comment): TimelineMarker["state"] {
 }
 
 /**
- * Where open time-anchored threads start, for markers on the timeline. Threads at the same
- * moment share a marker, which shows the most pressing of them.
+ * The open threads with a moment, numbered in the order they play (#562): "#1" on a thread
+ * and on its marker over the media are the same thread. Ties go to the one written first.
+ */
+export function threadNumbers(comments: Comment[]): Map<string, number> {
+  const timed = comments.flatMap((c) => {
+    if (c.parentId || c.resolvedAt || c.carry?.visible === false) return [];
+    // A bar comment is numbered by the moment it was named at.
+    const at = anchorTime(c.anchor ?? null);
+    return at === null ? [] : [{ id: c.id, at, created: c.createdAt }];
+  });
+  timed.sort((a, b) => a.at - b.at || a.created.localeCompare(b.created));
+  return new Map(timed.map((t, i) => [t.id, i + 1]));
+}
+
+/** A thread's first line, for its marker's preview on hover (#562). */
+const firstLine = (c: Comment) => {
+  const line = c.body.split("\n")[0]?.trim() ?? "";
+  return line.length > 80 ? `${line.slice(0, 79)}…` : line;
+};
+
+/**
+ * The open threads with a moment, as numbered markers over the media (#562): where each
+ * starts and, for a passage, where it ends, how pressing it is, and its first line.
  */
 export function commentMarkers(comments: Comment[]): TimelineMarker[] {
-  const rank = { todo: 2, open: 1, deferred: 0 } as const;
-  const byTime = new Map<number, TimelineMarker>();
-  for (const c of comments) {
-    if (c.parentId || c.resolvedAt || c.carry?.visible === false) continue;
-    // A bar comment marks the moment it was named at.
-    const at = anchorTime(c.anchor ?? null);
-    if (at === null) continue;
-    const state = markerState(c);
-    const seen = byTime.get(at);
-    if (!seen || rank[state] > rank[seen.state]) byTime.set(at, { at, state });
-  }
-  return [...byTime.values()];
+  const numbers = threadNumbers(comments);
+  return comments
+    .flatMap((c): TimelineMarker[] => {
+      const number = numbers.get(c.id);
+      const at = anchorTime(c.anchor ?? null);
+      if (number === undefined || at === null) return [];
+      const a = c.anchor;
+      const end =
+        a?.kind === "time" ? a.end : a?.kind === "region" && a.end !== undefined ? a.end : at;
+      return [
+        {
+          id: c.id,
+          number,
+          at,
+          ...(end > at ? { end } : {}),
+          state: markerState(c),
+          preview: `${c.authorName ?? "Former member"}: ${firstLine(c)}`,
+        },
+      ];
+    })
+    .sort((a, b) => a.number - b.number);
 }
 
 /** The open threads' drawings on a video, each shown on its frame or through its range (#146). */
