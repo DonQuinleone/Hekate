@@ -4915,7 +4915,7 @@ test("account-passkeys", async ({ browser }, info) => {
 test("file-triage", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}?view=triage`);
   const queue = page.getByRole("complementary", { name: "Queue" });
-  await expect(queue.getByText("Queue · 4")).toBeVisible();
+  await expect(queue.getByText(/^Queue\s*4$/)).toBeVisible();
   await settle(page, "aside li");
   await saveScreen(page, "file-triage");
   await checkScreen(page);
