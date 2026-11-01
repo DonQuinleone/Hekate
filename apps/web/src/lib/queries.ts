@@ -4055,6 +4055,31 @@ export interface GuestCodeSent {
 }
 
 /**
+ * What a guest's link opens, read without spending it (#573): the arrival page greets its
+ * person with this and exchanges the link only when they press Continue. Where a code is
+ * asked for, it names no one.
+ */
+export interface GuestArrival {
+  verify: "link" | "code";
+  organisation: string | null;
+  branding: PublicBranding | null;
+  guest: { name: string } | null;
+  reviews: { id: string; title: string; kind: ReviewSummary["kind"] }[];
+  expiresAt: string;
+}
+
+export const guestArrivalQuery = (token: string) =>
+  queryOptions({
+    queryKey: ["guest-link", token],
+    queryFn: async () =>
+      json<GuestArrival>(await api.guest.sessions.lookup.$post({ json: { token } })),
+    // Read once: a link is greeted, not polled, and a refusal stands.
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+
+/**
  * Exchange a magic link for a guest session in this browser, or, where the workspace asks
  * for one, have a code sent first.
  */

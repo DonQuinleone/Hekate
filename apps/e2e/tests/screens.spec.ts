@@ -3837,6 +3837,71 @@ test.describe("guest code", () => {
   });
 });
 
+// A guest's link greets them and waits for Continue (#573): loading the page, as a mail scanner
+// does, leaves the link working; their own click spends it, once. Then signing out (#574) asks
+// first and lands on the workspace's own signed-out page (#668). A link made in the database
+// for the seeded guest, in this page's own browser, so the seeded guest session is untouched.
+test.describe("guest link", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+  test("guest-link", async ({ page }) => {
+    const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", {
+      max: 1,
+    });
+    const token = `e2e-guest-link-${test.info().project.name}-0123456789`;
+    const hash = createHash("sha256").update(token).digest("hex");
+    const spent = async () =>
+      (
+        await sql<
+          { used: Date | null }[]
+        >`select used_at as used from guest_links where token_hash = ${hash}`
+      )[0]?.used ?? null;
+    const [workspace] = await sql<{ id: string }[]>`
+      select id from organisations where name = 'Endless Hall Records'`;
+    const [guest] = await sql<{ id: string }[]>`
+      select id from guests where email = 'mira@example.test'`;
+    try {
+      await sql`insert into guest_links (id, organisation_id, guest_id, token_hash, expires_at)
+        values (gen_random_uuid(), ${workspace?.id ?? ""}, ${guest?.id ?? ""}, ${hash},
+          now() + interval '3 days')`;
+      await page.clock.setFixedTime(FIXED_TIME);
+      await page.goto(`/guest/${token}`);
+      await settle(page, "text=Opening your review");
+      await expect(page.getByText("Endless Hall Records asked you to")).toBeVisible();
+      await expect(page.getByRole("img", { name: "Endless Hall Records" })).toBeVisible();
+      const go = page.getByRole("button", { name: "Continue as Mira Solberg" });
+      await expect(go).toBeVisible();
+      await saveScreen(page, "guest-link");
+      await checkScreen(page);
+      // Loaded, and loaded again, the link is still unspent.
+      await page.reload();
+      await settle(page, "text=Opening your review");
+      expect(await spent()).toBeNull();
+      await go.click();
+      await expect(page).toHaveURL(/\/g(\/|$)/);
+      expect(await spent()).not.toBeNull();
+
+      // Signing out asks first, saying what follows.
+      await page.getByRole("button", { name: "Mira Solberg, account" }).click();
+      await page.getByRole("menuitem", { name: "Sign out…" }).click();
+      const dialog = page.getByRole("dialog", { name: "Sign out?" });
+      await expect(dialog.getByText("You will need a new link")).toBeVisible();
+      await saveScreen(page, "guest-sign-out");
+      await checkScreen(page);
+      await dialog.getByRole("button", { name: "Sign out" }).click();
+      await settle(page, "text=You are signed out");
+      await expect(page.getByRole("img", { name: "Endless Hall Records" })).toBeVisible();
+      await saveScreen(page, "guest-signed-out-branded");
+      await checkScreen(page);
+      // The spent link greets no one.
+      await page.goto(`/guest/${token}`);
+      await settle(page, "text=This link no longer works");
+    } finally {
+      await sql`delete from guest_links where token_hash = ${hash}`;
+      await sql.end();
+    }
+  });
+});
+
 // Deleting your account asks for the address typed out and the password; opened, not sent.
 test("account-delete", async ({ page }) => {
   await page.goto("/account/account");

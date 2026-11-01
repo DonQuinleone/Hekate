@@ -10,13 +10,12 @@ import { NotificationsMenu } from "~/components/notifications";
 import { Trail, useCurrentHeader } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-card";
 import { Dot, reviewDot } from "~/components/status";
-import { DialogLayer } from "~/components/ui/dialog";
+import { ConfirmDialog, DialogLayer } from "~/components/ui/dialog";
 import { Floating } from "~/components/ui/floating";
 import { MenuList, usePopover } from "~/components/ui/menu";
 import {
   env,
   fileById,
-  guests,
   impactNames,
   openIncident,
   organisation,
@@ -827,12 +826,58 @@ export function Shell({ children }: { children: ReactNode }) {
 }
 
 /** Guests see no navigation: their reviews, and the way out. */
-export function GuestShell({ children }: { children: ReactNode }) {
+/**
+ * The guest's own name and who asked them (#705), opening the one thing they may do there:
+ * sign out, after a word on what follows (#574), since their link is spent.
+ */
+function GuestAccount() {
   const viewer = useViewer();
   const person = personById(viewer.personId);
-  const label = guests.find((g) => g.personId === viewer.personId)?.label;
-  const header = useCurrentHeader();
   const navigate = useNavigate();
+  const [open, setOpen, box] = usePopover();
+  const [leaving, setLeaving] = useState(false);
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`${person.name}, account`}
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-2.5 rounded-control py-1 pr-1 pl-2 transition-colors hover:bg-raised"
+      >
+        <span className="hidden flex-col items-end leading-tight @3xl/app:flex">
+          <span className="text-[13px] text-ink">{person.name}</span>
+          <span className="text-[12px] text-ink-3">{organisation.name}</span>
+        </span>
+        <Avatar personId={viewer.personId} size={28} />
+      </button>
+      {open && (
+        <MenuList
+          anchor={box}
+          label="Account"
+          onClose={() => setOpen(false)}
+          actions={[
+            { heading: person.email },
+            { label: "Sign out…", onSelect: () => setLeaving(true) },
+          ]}
+        />
+      )}
+      {leaving && (
+        <ConfirmDialog
+          title="Sign out?"
+          description="You will need a new link from whoever invited you to come back."
+          action="Sign out"
+          onConfirm={() => navigate({ to: "/guest" })}
+          onClose={() => setLeaving(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+export function GuestShell({ children }: { children: ReactNode }) {
+  const header = useCurrentHeader();
   return (
     <div className="flex h-full flex-col @3xl/app:p-2.5">
       <Pane>
@@ -844,18 +889,7 @@ export function GuestShell({ children }: { children: ReactNode }) {
           {header ? <Trail spec={header} compact /> : <div className="flex-1" />}
           <div className="flex items-center gap-2">
             <span className="hidden items-center gap-1.5 @3xl/app:flex">{header?.actions}</span>
-            <div className="hidden flex-col items-end leading-tight @3xl/app:flex">
-              <span className="text-[13px] text-ink">{person.name}</span>
-              <span className="text-[12px] text-ink-3">{label ?? "Guest"}</span>
-            </div>
-            <Avatar personId={viewer.personId} size={28} />
-            <button
-              type="button"
-              onClick={() => navigate({ to: "/guest" })}
-              className="h-8 rounded-control px-2.5 text-[13px] text-ink-3 transition-colors hover:bg-raised hover:text-ink"
-            >
-              Sign out
-            </button>
+            <GuestAccount />
           </div>
         </header>
         {header?.actions && (

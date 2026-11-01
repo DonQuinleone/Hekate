@@ -1,21 +1,25 @@
 import { reviewKindNames } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
+import { Fragment, type ReactNode, useState } from "react";
 import { Avatar } from "~/components/avatar";
-import { Lockup } from "~/components/brand";
 import { reviewState } from "~/components/reviews";
 import { GuestFrame } from "~/components/shell";
 import { Button } from "~/components/ui/button";
 import { CodeField } from "~/components/ui/code-field";
-import { Failed, Loading } from "~/components/ui/states";
+import { useConfirm } from "~/components/ui/dialog";
+import { MenuList, usePopover } from "~/components/ui/menu";
+import { Failed, failureText, Loading } from "~/components/ui/states";
 import { StatusPill } from "~/components/ui/status";
 import { useBrandAccent } from "~/lib/branding";
 import { formatDates, localeKey } from "~/lib/locale";
 import { accessNote } from "~/lib/permissions";
 import {
   ApiError,
+  type GuestArrival,
+  type GuestMe,
   type GuestSignedIn,
+  guestArrivalQuery,
   guestMeQuery,
   useGuestCode,
   useGuestSignIn,
@@ -25,20 +29,45 @@ import { ErrorLine, Frame, type FrameBrand } from "~/routes/auth-pages";
 
 const day = formatDates({ day: "numeric", month: "long" });
 
-function Centred({ children }: { children: ReactNode }) {
+/**
+ * The workspace a guest has just signed out of (#668), so the page they land on still wears
+ * its brand. Kept in memory only: a fresh load of that page knows no workspace, and shows
+ * Hekate's own lockup, as the anonymous pages do (decision 260).
+ */
+let signedOutOf: FrameBrand | null = null;
+
+/** One answer for every link that no longer works (decision 260), in the frame of them all. */
+function LinkGone({ brand = null }: { brand?: FrameBrand | null }) {
   return (
-    <div className="flex min-h-full flex-col items-center justify-center gap-6 px-4 py-16">
-      <Lockup size={20} />
-      <div className="flex w-full max-w-md flex-col gap-3 text-center">{children}</div>
-    </div>
+    <Frame
+      brand={brand}
+      title="This link no longer works"
+      intro="It has been used, or it has expired. Ask whoever invited you for a new one."
+    >
+      {null}
+    </Frame>
   );
 }
 
-/** `/guest/:token`: a magic link. Exchanged once for a session in this browser. */
+/** What the link asks of its guest, as its arrival page says it: "review Album masters". */
+export function arrivalAsk(reviews: GuestArrival["reviews"]): string {
+  const [first, ...rest] = reviews;
+  if (!first) return "take part in a review";
+  const verb = first.kind === "share" ? "look at" : "review";
+  return rest.length === 0
+    ? `${verb} ${first.title}`
+    : `look at ${first.title} and ${rest.length} more`;
+}
+
+/**
+ * `/guest/:token`: a magic link. Its page greets the guest and spends the link only when they
+ * press Continue (#573): a mail scanner that loads the page, scripts and all, leaves it
+ * working. Exchanged then, once, for a session in this browser.
+ */
 export function GuestLinkPage({ token }: { token: string }) {
+  const arrival = useQuery(guestArrivalQuery(token));
   const signIn = useGuestSignIn();
   const navigate = useNavigate();
-  const started = useRef(false);
   // Straight to the review when there is one, otherwise to the list.
   const arrive = (me: GuestSignedIn) => {
     const [only] = me.reviews.filter((r) => r.status === "open");
@@ -46,15 +75,9 @@ export function GuestLinkPage({ token }: { token: string }) {
       void navigate({ to: "/g/reviews/$reviewId", params: { reviewId: only.id }, replace: true });
     } else void navigate({ to: "/g", replace: true });
   };
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    signIn.mutate(token, {
-      onSuccess: (data) => {
-        if (!("verify" in data)) arrive(data);
-      },
-    });
-  });
+  const brand: FrameBrand | null = arrival.data
+    ? { name: arrival.data.organisation ?? "Workspace", branding: arrival.data.branding }
+    : null;
   if (signIn.data && "verify" in signIn.data)
     return (
       <GuestCode
@@ -67,17 +90,59 @@ export function GuestLinkPage({ token }: { token: string }) {
         onOpened={arrive}
       />
     );
+  const refused = arrival.error ?? signIn.error;
+  if (refused) {
+    // A link that is spent or gone gets the one answer; anything else may be tried again.
+    if (refused instanceof ApiError && refused.code === "link_gone")
+      return <LinkGone brand={signIn.error ? brand : null} />;
+    return (
+      <Frame brand={brand} title="Opening your review" intro={failureText(refused)}>
+        <Button
+          variant="secondary"
+          size="lg"
+          onClick={() => {
+            signIn.reset();
+            void arrival.refetch();
+          }}
+        >
+          Try again
+        </Button>
+      </Frame>
+    );
+  }
+  if (!arrival.data) return <Loading className="mx-auto max-w-[380px] px-4 py-12" />;
+  const greeting = arrival.data;
+  const asked = `${greeting.organisation ?? "A workspace"} asked you to ${arrivalAsk(greeting.reviews)}.`;
+  const until = day.format(new Date(greeting.expiresAt));
   return (
-    <Centred>
-      {signIn.error ? (
-        <>
-          <h1 className="m-0 text-[20px] font-medium">This link no longer works</h1>
-          <p className="m-0 text-[14px] text-ink-2">{signIn.error.message}</p>
-        </>
-      ) : (
-        <p className="m-0 text-[14px] text-ink-3">Signing you in</p>
-      )}
-    </Centred>
+    <Frame
+      brand={brand}
+      title="Opening your review"
+      intro={
+        greeting.verify === "code"
+          ? `${asked} To open it, a code goes to the address it was sent to. The link works until ${until}.`
+          : `${asked} This link is yours alone and works until ${until}; once opened, it keeps you signed in on this device for a fortnight.`
+      }
+    >
+      <Button
+        variant="primary"
+        size="lg"
+        disabled={signIn.isPending}
+        onClick={() =>
+          signIn.mutate(token, {
+            onSuccess: (data) => {
+              if (!("verify" in data)) arrive(data);
+            },
+          })
+        }
+      >
+        {greeting.verify === "code"
+          ? "Email me a code"
+          : greeting.guest
+            ? `Continue as ${greeting.guest.name}`
+            : "Continue"}
+      </Button>
+    </Frame>
   );
 }
 
@@ -107,14 +172,7 @@ function GuestCode({
     failed?.code === "link_gone" ||
     (resend.error instanceof ApiError && resend.error.code === "link_gone")
   )
-    return (
-      <Centred>
-        <h1 className="m-0 text-[20px] font-medium">This link no longer works</h1>
-        <p className="m-0 text-[14px] text-ink-2">
-          This link has been used or has expired. Ask whoever invited you to send a new one.
-        </p>
-      </Centred>
-    );
+    return <LinkGone brand={brand} />;
   return (
     <Frame
       brand={brand}
@@ -163,51 +221,88 @@ function GuestCode({
   );
 }
 
-/** `/guest`: where a guest without a session lands. */
+/**
+ * `/guest`: where a guest without a session lands, signed out or never in (#574). Their old
+ * link is spent, so it sends them to whoever invited them, never back to that link.
+ */
 export function GuestSignedOutPage() {
   return (
-    <Centred>
-      <h1 className="m-0 text-[20px] font-medium">Open the link in your email</h1>
-      <p className="m-0 text-[14px] text-ink-2">
-        Reviews from outside the workspace start from the link you were sent. Each link works once,
-        on one device; ask whoever invited you for a new one if it has expired.
-      </p>
-    </Centred>
+    <Frame
+      brand={signedOutOf}
+      title="You are signed out"
+      intro="Ask whoever invited you for a new link."
+    >
+      {null}
+    </Frame>
+  );
+}
+
+/** Who the guest is and who asked them, opening the one thing they may do there: sign out. */
+function GuestAccount({ me }: { me: GuestMe }) {
+  const signOut = useGuestSignOut();
+  const navigate = useNavigate();
+  const [open, setOpen, box] = usePopover();
+  const [confirm, confirmation] = useConfirm();
+  const brand: FrameBrand = { name: me.organisation ?? "Workspace", branding: me.branding };
+  return (
+    <div ref={box} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={`${me.guest.name}, account`}
+        onClick={() => setOpen(!open)}
+        className="flex min-w-0 items-center gap-2.5 rounded-control py-1 pr-1 pl-2 text-left transition-colors hover:bg-raised"
+      >
+        <span className="hidden min-w-0 flex-col items-end leading-tight @3xl/app:flex">
+          <span className="truncate text-[13px] text-ink">{me.guest.name}</span>
+          {me.organisation && (
+            <span className="truncate text-[12px] text-ink-3">{me.organisation}</span>
+          )}
+        </span>
+        <Avatar person={me.guest.id} name={me.guest.name} size={28} />
+      </button>
+      {open && (
+        <MenuList
+          anchor={box}
+          label="Account"
+          onClose={() => setOpen(false)}
+          actions={[
+            { heading: me.guest.email },
+            {
+              label: "Sign out…",
+              onSelect: () =>
+                confirm({
+                  title: "Sign out?",
+                  description: "You will need a new link from whoever invited you to come back.",
+                  action: "Sign out",
+                  onConfirm: () =>
+                    signOut.mutateAsync(undefined, {
+                      onSuccess: () => {
+                        signedOutOf = brand;
+                        void navigate({ to: "/guest" });
+                      },
+                    }),
+                }),
+            },
+          ]}
+        />
+      )}
+      {confirmation}
+    </div>
   );
 }
 
 /** The frame around a guest's pages: who they are, for whom, and signing out. */
 export function GuestShell({ children }: { children: ReactNode }) {
   const { data: me } = useQuery(guestMeQuery);
-  const signOut = useGuestSignOut();
-  const navigate = useNavigate();
   // The workspace's accent and logo (#185) on every page a guest sees.
   useBrandAccent(me?.branding?.accent);
   const logo = me?.branding?.logo;
   return (
     <GuestFrame
       logo={logo ? { ...logo, name: me?.organisation ?? "Workspace" } : null}
-      account={
-        <>
-          <span className="hidden min-w-0 flex-col items-end leading-tight @3xl/app:flex">
-            <span className="truncate text-[13px] text-ink">{me?.guest.name}</span>
-            <span className="truncate text-[12px] text-ink-3">
-              {me?.guest.label ? `${me.guest.label}, guest` : "Guest"}
-              {me?.organisation ? ` · ${me.organisation}` : ""}
-            </span>
-          </span>
-          {me && <Avatar person={me.guest.id} name={me.guest.name} size={28} />}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              signOut.mutate(undefined, { onSuccess: () => void navigate({ to: "/guest" }) })
-            }
-          >
-            Sign out
-          </Button>
-        </>
-      }
+      account={me ? <GuestAccount me={me} /> : null}
     >
       {/* Dates redraw once the workspace's format (#481) is known. */}
       <Fragment key={localeKey()}>{children}</Fragment>

@@ -14,6 +14,7 @@ import {
   clearGuestCookie,
   guestSessionOf,
   newGuestCodeFor,
+  peekGuestLink,
   setGuestCookie,
   useGuestLink,
   verificationFor,
@@ -132,6 +133,30 @@ export const guestRoutes = (deps: GuestRouteDeps) => {
 
   return (
     new Hono()
+      /**
+       * What a link opens, for the page it lands on to greet its person (#573). It spends
+       * nothing and sends nothing: only pressing Continue does. Where a code is asked for, it
+       * names no one, so a forwarded mail tells whoever has it no more than the mail did.
+       */
+      .post("/sessions/lookup", zValidator("json", tokenBody), async (c) => {
+        const link = await peekGuestLink(deps.db, c.req.valid("json").token);
+        if (!link) throw gone();
+        const [organisation] = await deps.db
+          .select({ name: organisations.name })
+          .from(organisations)
+          .where(eq(organisations.id, link.organisationId));
+        const open = (await guestReviews(deps.db, link.organisationId, link.guestId)).filter(
+          (r) => r.status === "open",
+        );
+        return c.json({
+          verify: link.verification,
+          organisation: organisation?.name ?? null,
+          branding: await brandingOf(deps.db, link.organisationId),
+          guest: link.verification === "code" ? null : { name: link.name },
+          reviews: open.map((r) => ({ id: r.id, title: r.title, kind: r.kind })),
+          expiresAt: link.expiresAt.toISOString(),
+        });
+      })
       .post("/sessions", zValidator("json", tokenBody), async (c) => {
         const { token } = c.req.valid("json");
         // Where the workspace asks for a code, the link alone opens nothing: a code goes out.

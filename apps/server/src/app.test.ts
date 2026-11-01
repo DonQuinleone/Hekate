@@ -19672,6 +19672,82 @@ describe.runIf(url)("api", () => {
           return { ...s, review, token, cookie: cookieOf(res) };
         };
 
+        it("greets a guest from their link without spending it, until they press Continue (#573)", async () => {
+          const s = await studio();
+          mailer.sent.length = 0;
+          await request(s.owner, s.projectId, {
+            kind: "approval",
+            title: "Album master",
+            items: [{ trackId: s.trackId }],
+            reviewers: [s.ids.composer, guest],
+          });
+          const token = linkFor("conductor@example.test");
+          const lookup = () => app.request("/api/guest/sessions/lookup", json({ token }));
+          // A mail scanner loading the page, twice: each time it is greeted, and nothing changes.
+          mailer.sent.length = 0;
+          for (const _ of [1, 2]) {
+            const seen = await lookup();
+            expect(seen.status).toBe(200);
+            expect(cookieOf(seen)).not.toContain("hekate_guest=");
+            const body = (await seen.json()) as {
+              verify: string;
+              organisation: string;
+              guest: { name: string } | null;
+              reviews: { title: string }[];
+              expiresAt: string;
+            };
+            expect(body).toMatchObject({
+              verify: "link",
+              organisation: "Studio",
+              guest: { name: "Mira Solberg" },
+              reviews: [{ title: "Album master" }],
+            });
+            expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
+          }
+          expect(mailer.sent).toEqual([]);
+          const [link] = await db
+            .select({ usedAt: schema.guestLinks.usedAt })
+            .from(schema.guestLinks)
+            .where(eq(schema.guestLinks.organisationId, s.organisationId));
+          expect(link?.usedAt).toBeNull();
+          // The person's own click spends it, once, on one device.
+          expect((await signIn(token)).status).toBe(201);
+          expect((await signIn(token)).status).toBe(410);
+          // Spent, it greets no one: the same answer as any link that no longer works.
+          const spent = await lookup();
+          expect(spent.status).toBe(410);
+          expect(((await spent.json()) as { error: { code: string } }).error.code).toBe("link_gone");
+          const unknown = await app.request(
+            "/api/guest/sessions/lookup",
+            json({ token: "x".repeat(43) }),
+          );
+          expect(unknown.status).toBe(410);
+        });
+
+        it("names no one from a link where the workspace asks for a code, and sends none on looking (#573)", async () => {
+          const s = await studio();
+          await app.request("/api/organisation/settings", {
+            ...json({ guestVerification: "code" }, s.owner),
+            method: "PATCH",
+          });
+          mailer.sent.length = 0;
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            title: "Album master",
+            items: [{ trackId: s.trackId }],
+            reviewers: [guest],
+          });
+          const token = linkFor("conductor@example.test");
+          mailer.sent.length = 0;
+          const seen = await app.request("/api/guest/sessions/lookup", json({ token }));
+          expect(seen.status).toBe(200);
+          expect(await seen.json()).toMatchObject({ verify: "code", guest: null });
+          // Looking sends no code: only Continue does.
+          expect(mailer.sent).toEqual([]);
+          expect((await signIn(token)).status).toBe(202);
+          expect(mailer.sent.map((m) => m.to)).toEqual(["conductor@example.test"]);
+        });
+
         describe("what a review covers (#501)", () => {
           /** A file put straight into a project's folder, as an upload would leave it. */
           const fileIn = async (
