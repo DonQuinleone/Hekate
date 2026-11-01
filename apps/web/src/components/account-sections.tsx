@@ -5,8 +5,8 @@ import { type FormEvent, useState } from "react";
 import { Loading } from "~/components/ui/states";
 import { shortAgent } from "~/lib/agent";
 import { authClient } from "~/lib/auth";
-import { ago } from "~/lib/comments";
 import { applyDensity } from "~/lib/density";
+import { lastUsed } from "~/lib/last-used";
 import { languageNames } from "~/lib/locale";
 import {
   meQuery,
@@ -27,7 +27,6 @@ import { Button } from "./ui/button";
 import { Choice } from "./ui/choice";
 import { Dialog, useConfirm } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
-import { StatusDot } from "./ui/status";
 import { Switch } from "./ui/toggle";
 
 const zones = (() => {
@@ -587,17 +586,13 @@ export function SessionsSection() {
           hint={[
             s.current ? shortAgent(s.userAgent) : null,
             s.ipAddress,
-            s.current ? "now" : `last used ${ago(s.lastUsedAt)}`,
+            s.current ? "now" : lastUsed(s.lastUsedAt),
           ]
             .filter(Boolean)
             .join(" · ")}
         >
-          {s.current ? (
-            <span className="flex items-center gap-2 text-[12px] text-ink-3">
-              <StatusDot state="approved" />
-              Here
-            </span>
-          ) : (
+          {/* "This browser" says it; no dot beside it repeats it (#707). */}
+          {!s.current && (
             <Button
               size="sm"
               variant="ghost"

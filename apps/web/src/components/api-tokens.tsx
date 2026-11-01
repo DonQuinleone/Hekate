@@ -24,7 +24,7 @@ import {
   workspaceApiLogQuery,
 } from "~/lib/api-tokens";
 import { cn } from "~/lib/cn";
-import { ago } from "~/lib/comments";
+import { lastUsed } from "~/lib/last-used";
 import { docsUrl } from "~/lib/links";
 import { formatDates } from "~/lib/locale";
 import { meQuery, projectsQuery } from "~/lib/queries";
@@ -56,8 +56,8 @@ export function tokenHint(t: ApiTokenRow, now = new Date()) {
     : "never expires";
   return [
     scopeWords(t.scopes),
-    `made ${dayFormat.format(new Date(t.createdAt))}${t.kind === "service" && t.createdBy ? ` by ${t.createdBy}` : ""}`,
-    t.lastUsedAt ? `last used ${ago(t.lastUsedAt)}` : "never used",
+    `created ${dayFormat.format(new Date(t.createdAt))}${t.kind === "service" && t.createdBy ? ` by ${t.createdBy}` : ""}`,
+    t.lastUsedAt ? lastUsed(t.lastUsedAt) : "never used",
     ends,
   ].join(" · ");
 }

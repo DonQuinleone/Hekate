@@ -257,7 +257,7 @@ export function AccountPage({ section }: { section: string }) {
           </Section>
           <Section
             title="Passkeys and hardware security keys"
-            intro="Up to five. A passkey signs you in without a password; a hardware security key, such as a YubiKey, can be required by the workspace."
+            intro="A passkey signs you in without a password; a hardware security key, such as a YubiKey, can be required by the workspace. You can keep up to five."
             action={
               <Button
                 variant="secondary"
@@ -327,9 +327,8 @@ export function AccountPage({ section }: { section: string }) {
               ["Studio machine", "Firefox 146, Linux · 10.0.0.31 · 3 Oct", false],
             ].map(([name, hint, current]) => (
               <Row key={String(name)} name={String(name)} hint={String(hint)}>
-                {current ? (
-                  <Dot state="approved" />
-                ) : (
+                {/* #707: "This browser" says it; no dot repeats it. */}
+                {!current && (
                   <Button variant="ghost" size="md">
                     Sign out
                   </Button>
@@ -388,7 +387,7 @@ export function AccountPage({ section }: { section: string }) {
                     {t.name}
                   </span>
                 }
-                hint={`${t.scopes} · made ${t.made} · last used ${t.used} · ${t.expires.startsWith("Expired") ? t.expires.toLowerCase() : `expires ${t.expires.toLowerCase()}`}`}
+                hint={`${t.scopes} · created ${t.made} · last used ${t.used} · ${t.expires.startsWith("Expired") ? t.expires.toLowerCase() : `expires ${t.expires.toLowerCase()}`}`}
               >
                 <ActionMenu
                   always
@@ -525,19 +524,17 @@ export function AccountPage({ section }: { section: string }) {
               </ul>
             </Dialog>
           )}
-          <Section
-            title="For developers"
-            intro="An application that connects to Hekate on people's behalf is registered by a workspace, under its settings."
-          >
-            <Row
-              name="Register an application"
-              hint="Client id and secret, redirect addresses, scopes; in Workspace settings under API."
+          {/* #707: for developers, one line under the list. */}
+          <p className="-mt-6 text-[13px] text-ink-3">
+            Building an application that connects for people? A workspace registers it under its
+            settings, API.{" "}
+            <a
+              href="https://docs.hekate.studio/use/oauth/"
+              className="text-ink-2 underline decoration-edge underline-offset-2 hover:text-ink"
             >
-              <Button variant="ghost" size="md">
-                Open the guide
-              </Button>
-            </Row>
-          </Section>
+              Read the guide
+            </a>
+          </p>
         </>
       )}
       {sec === "notifications" && (

@@ -13,7 +13,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Loading } from "~/components/ui/states";
-import { ago } from "~/lib/comments";
+import { lastUsed } from "~/lib/last-used";
 import { docsUrl } from "~/lib/links";
 import { formatDates } from "~/lib/locale";
 import {
@@ -57,7 +57,7 @@ export function connectedHint(a: {
   return [
     scopePhrase(a.scopes),
     `connected ${dayFormat.format(new Date(a.connectedAt))}`,
-    a.lastUsedAt ? `last used ${ago(a.lastUsedAt)}` : "not used yet",
+    a.lastUsedAt ? lastUsed(a.lastUsedAt) : "not used yet",
   ].join(" · ");
 }
 
@@ -480,21 +480,19 @@ export function ConnectedAppsSection() {
           </Row>
         ))}
       </Section>
-      <Section
-        title="For developers"
-        intro="An application that connects to Hekate on people's behalf is registered by a workspace, under its settings."
-      >
-        <Row
-          name="Register an application"
-          hint="Client id and secret, redirect addresses, scopes; in Workspace settings under API."
+      {/* For developers, one line under the list rather than a section of its own (#707). */}
+      <p className="m-0 -mt-6 text-[13px] text-ink-3">
+        Building an application that connects for people? A workspace registers it under its
+        settings, API.{" "}
+        <a
+          href={`${docsUrl}/use/oauth/`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-ink-2 underline decoration-edge underline-offset-2 transition-colors hover:text-ink hover:decoration-ink-3"
         >
-          <Button variant="ghost" size="md" asChild>
-            <a href={`${docsUrl}/use/oauth/`} target="_blank" rel="noreferrer">
-              Open the guide
-            </a>
-          </Button>
-        </Row>
-      </Section>
+          Read the guide
+        </a>
+      </p>
       {reading && (
         <Dialog
           title={`What ${reading.name} may do`}

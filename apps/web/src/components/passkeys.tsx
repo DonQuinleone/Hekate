@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { authClient } from "~/lib/auth";
 import { ago } from "~/lib/comments";
+import { lastUsed } from "~/lib/last-used";
 import { passkeysQuery } from "~/lib/queries";
 import { Icon } from "./icons";
 import type { SetupStep } from "./second-factor";
@@ -150,7 +151,7 @@ export function PasskeysSection() {
   return (
     <Section
       title="Passkeys and hardware security keys"
-      intro={`Up to ${data?.max ?? 5}. A passkey signs you in without a password; a hardware security key, such as a YubiKey, can be required by a workspace.`}
+      intro={`A passkey signs you in without a password; a hardware security key, such as a YubiKey, can be required by a workspace. You can keep up to ${data?.max ?? 5}.`}
       action={
         <Button size="sm" variant="secondary" disabled={full} onClick={() => setAdding(true)}>
           <Icon name="plus" size={14} />
@@ -168,7 +169,7 @@ export function PasskeysSection() {
               {key.name || kindOf(key.deviceType)}
             </span>
           }
-          hint={`${kindOf(key.deviceType)} · ${key.lastUsedAt ? `last used ${ago(key.lastUsedAt)}` : `added ${ago(key.createdAt)}`}`}
+          hint={`${kindOf(key.deviceType)} · ${key.lastUsedAt ? lastUsed(key.lastUsedAt) : `added ${ago(key.createdAt)}`}`}
         >
           <ActionMenu
             always

@@ -1123,7 +1123,7 @@ function Members({ role: myRole }: { role: Role }) {
               // On a phone the role goes under the name, so the name and address keep the width (#596).
               <div
                 key={m.id}
-                className="group grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 transition-colors hover:bg-raised/30 @3xl/app:grid-cols-[28px_minmax(0,1fr)_8rem_auto]"
+                className="group grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-row-tight transition-colors hover:bg-raised/30 @3xl/app:grid-cols-[28px_minmax(0,1fr)_8rem_auto]"
               >
                 <Avatar person={m.userId} name={m.name} size={28} />
                 <span className="min-w-0">
@@ -1203,7 +1203,7 @@ function Members({ role: myRole }: { role: Role }) {
       {elevated && invitations && invitations.length > 0 && (
         <Section title="Invited" count={invitations.length}>
           {invitations.map((i) => (
-            <div key={i.id} className="group flex items-center gap-3 px-4 py-2.5">
+            <div key={i.id} className="group flex items-center gap-3 px-4 py-row-tight">
               <span className="flex size-7 shrink-0 items-center justify-center text-ink-3">
                 <Icon name="mail" />
               </span>
@@ -1211,7 +1211,7 @@ function Members({ role: myRole }: { role: Role }) {
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[14px] text-ink">{i.email}</span>
                 <span className="block truncate text-[13px] text-ink-3">
-                  {roleLabel[i.role]} · until {dateFormat.format(new Date(i.expiresAt))}
+                  {roleLabel[i.role]} · invitation ends {dateFormat.format(new Date(i.expiresAt))}
                 </span>
               </span>
               <ActionMenu
@@ -1250,11 +1250,11 @@ function Guests() {
     <Section
       title="Guests"
       count={guests.length}
-      intro="Guests are asked from a review and sign in with a link sent to them."
+      intro="Guests are invited from a review, and sign in with a link sent to them."
     >
       {revoke.error && <p className="px-4 py-2 text-[13px] text-signal">{revoke.error.message}</p>}
       {guests.map((g) => (
-        <div key={g.id} className="group flex items-center gap-3 px-4 py-2.5">
+        <div key={g.id} className="group flex items-center gap-3 px-4 py-row-tight">
           <Avatar person={g.id} name={g.name} size={28} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[14px] text-ink">
@@ -1266,9 +1266,9 @@ function Guests() {
           <span className="hidden text-[13px] text-ink-3 @3xl/app:inline">
             {g.live
               ? g.lastLinkAt
-                ? `link sent ${dateFormat.format(new Date(g.lastLinkAt))}`
-                : "signed in"
-              : "no working link"}
+                ? `Link sent ${dateFormat.format(new Date(g.lastLinkAt))}`
+                : "Signed in"
+              : "No working link"}
           </span>
           {g.live ? (
             <ActionMenu
@@ -1743,7 +1743,7 @@ function AccessLog() {
             <div
               key={e.id}
               data-log-entry
-              className="group grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_auto] @6xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_140px_auto]"
+              className="group grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-0.5 px-4 py-row-snug text-[13px] @3xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_auto] @6xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_140px_auto]"
             >
               <span className="tabular text-ink-3">
                 {timeFormat.format(new Date(e.occurredAt))}
