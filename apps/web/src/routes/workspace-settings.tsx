@@ -48,7 +48,7 @@ import { EmailTemplatesSection } from "~/components/email-templates";
 import { Empty } from "~/components/empty";
 import { ChannelsSection } from "~/components/event-channels";
 import { Icon, type IconName } from "~/components/icons";
-import { LeakTracingSection } from "~/components/leak-tracing";
+import { LeakTracingSection, WatermarkingSection } from "~/components/leak-tracing";
 import { OAuthClientsSection } from "~/components/oauth";
 import { PageHeader } from "~/components/page-header";
 import { PlayerToolsTable } from "~/components/player-tools";
@@ -222,7 +222,7 @@ const allSections: SectionSpec[] = [
     group: "Security",
     from: "admin",
     intro:
-      "How members sign in: the ways allowed, the second factor, single sign-on or a directory, and how long a session lasts.",
+      "How members sign in: the ways allowed, the second factor, single sign-on or a directory, and how long a session lasts; for owners, how downloads are marked.",
     docs: "/security/model/",
   },
   {
@@ -1908,6 +1908,8 @@ export function WorkspaceSettingsPage({
         {current.id === "security" && (
           <>
             <Security />
+            {/* The marks are the owners' to set (#682), beside the rest of the workspace's security. */}
+            {role === "owner" && <WatermarkingSection />}
             <SsoSection />
             <DirectorySection />
           </>

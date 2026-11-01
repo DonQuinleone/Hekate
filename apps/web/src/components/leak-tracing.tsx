@@ -19,13 +19,44 @@ const when = formatDates({
 });
 
 /**
- * Leak tracing (#32), for the workspace's owners: whether recordings' downloads carry an
- * inaudible mark, and a suspected leak traced back to the download it came from. The file is
- * examined on the server and not kept; the trace is in the access log.
+ * Watermarking (#32), on the workspace's Security page for its owners (#682): whether
+ * recordings' downloads carry an inaudible mark. What only a project sets (the visible mark on
+ * pages, pictures and video) is said in a line, not offered as a switch that cannot move.
+ */
+export function WatermarkingSection() {
+  const { data: status } = useQuery(forensicQuery);
+  const { audio } = useForensic();
+  return (
+    <Section
+      title="Watermarking"
+      intro="Every recording someone downloads carries an inaudible mark that names the person who received it."
+    >
+      <SwitchRow
+        name="Audio"
+        hint={
+          status && !status.included
+            ? "Not on this workspace's plan."
+            : "Originals and proxies of recordings, marked for whoever downloads them."
+        }
+        checked={Boolean(status?.included && status.audio)}
+        disabled={!status?.included || audio.isPending}
+        onChange={(on) => audio.mutate(on)}
+      />
+      <Row
+        name="Pages, pictures and video"
+        hint="They carry a visible mark, set in each project's settings under Asset security."
+      />
+    </Section>
+  );
+}
+
+/**
+ * Leak tracing (#32), for the workspace's owners: a suspected leak traced back to the download
+ * it came from. The file is examined on the server and not kept; the trace is in the access log.
  */
 export function LeakTracingSection() {
   const { data: status } = useQuery(forensicQuery);
-  const { audio, trace } = useForensic();
+  const { trace } = useForensic();
   const revoke = useRevokeGuest();
   const navigate = useNavigate();
   const input = useRef<HTMLInputElement>(null);
@@ -49,34 +80,6 @@ export function LeakTracingSection() {
   const result: TraceResult | undefined = trace.data;
   return (
     <>
-      <Section
-        title="Forensic marking"
-        intro="Every recording someone downloads carries an inaudible mark that names the person who received it."
-      >
-        <SwitchRow
-          name="Audio"
-          hint={
-            status && !status.included
-              ? "Not on this workspace's plan."
-              : "Originals and proxies of recordings, marked for whoever downloads them."
-          }
-          checked={Boolean(status?.included && status.audio)}
-          disabled={!status?.included || audio.isPending}
-          onChange={(on) => audio.mutate(on)}
-        />
-        <SwitchRow
-          name="Video"
-          hint="Not yet: video downloads carry the visible mark, burned into every frame."
-          checked={false}
-          disabled
-        />
-        <SwitchRow
-          name="Pages"
-          hint="Not yet: pages and pictures carry the visible mark, set per project."
-          checked={false}
-          disabled
-        />
-      </Section>
       <Section
         title="Trace a leak"
         intro="Upload the file that got out. It is matched against every mark issued, and kept only while it is."

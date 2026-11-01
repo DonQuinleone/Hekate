@@ -336,6 +336,9 @@ export function SettingsPage({
     viewer.persona.organisationRole === "owner" || viewer.persona.organisationRole === "admin";
   const [adding, setAdding] = useState(false);
   const [channelKind, setChannelKind] = useState("Slack");
+  // Single sign-on and the directory, on or off (#682): their fields show only while on.
+  const [ssoOn, setSsoOn] = useState(true);
+  const [directoryOn, setDirectoryOn] = useState(false);
   // The Events matrix's one channel on a phone (#681).
   const [eventsChannel, setEventsChannel] = useState("slack");
   const [leak, setLeak] = useState<"idle" | "scanning" | "match" | "none">("idle");
@@ -1279,6 +1282,23 @@ export function SettingsPage({
               </Select>
             </Row>
           </Section>
+          {/* #682: the marking is set with the rest of the workspace's security, by its owners. */}
+          {viewer.persona.organisationRole === "owner" && (
+            <Section
+              title="Watermarking"
+              intro="Every recording someone downloads carries an inaudible mark that names the person who received it."
+            >
+              <SwitchRow
+                name="Audio"
+                hint="Off until you turn it on. Listen to a marked download of quiet material first."
+                checked={false}
+              />
+              <Row
+                name="Pages, pictures and video"
+                hint="They carry a visible mark, set in each project's settings under Asset security."
+              />
+            </Section>
+          )}
           <Section
             title="Single sign-on"
             intro="One identity provider, by OIDC or SAML. Members sign in through it, and their first sign-in makes their account."
@@ -1286,60 +1306,75 @@ export function SettingsPage({
             <SwitchRow
               name="Sign in with single sign-on"
               hint="Turned off, nobody new can join through it, and its members sign in with a password or passkey."
-              checked
+              checked={ssoOn}
+              onChange={setSsoOn}
             />
-            <Row name="Provider">
-              <Select defaultValue="oidc" className="w-40">
-                <option value="oidc">OIDC</option>
-                <option value="saml">SAML</option>
-              </Select>
-            </Row>
-            <Row name="Issuer" hint="Its discovery document is read when you save.">
-              <Input
-                defaultValue="https://login.endlesshall.example/realms/hekate"
-                className="w-full @3xl/app:w-96"
-              />
-            </Row>
-            <Row name="Client" hint="The client secret is never shown again.">
-              <span className="flex flex-wrap gap-2">
-                <Input defaultValue="hekate" className="w-48" aria-label="Client ID" />
-                <Input
-                  type="password"
-                  placeholder="Kept"
-                  className="w-40"
-                  aria-label="Client secret"
+            {/* #682: a provider's fields only while it is on, and one footer per form. */}
+            {ssoOn && (
+              <>
+                <Row name="Provider">
+                  <Select defaultValue="oidc" className="w-40">
+                    <option value="oidc">OIDC</option>
+                    <option value="saml">SAML</option>
+                  </Select>
+                </Row>
+                <Row name="Issuer" hint="Its discovery document is read when you save.">
+                  <Input
+                    defaultValue="https://login.endlesshall.example/realms/hekate"
+                    className="w-full @3xl/app:w-96"
+                  />
+                </Row>
+                <Row name="Client" hint="The client secret is never shown again.">
+                  <span className="flex flex-wrap gap-2">
+                    <Input defaultValue="hekate" className="w-48" aria-label="Client ID" />
+                    <Input
+                      type="password"
+                      placeholder="Kept"
+                      className="w-40"
+                      aria-label="Client secret"
+                    />
+                  </span>
+                </Row>
+                <Row name="Redirect URI">
+                  <span className="flex w-full items-center gap-1 @3xl/app:w-96">
+                    <Input
+                      readOnly
+                      defaultValue="https://review.endlesshall.example/api/auth/sso/callback/workspace-endless-hall"
+                      className="tabular min-w-0 flex-1 text-[13px]"
+                    />
+                    <CopyValue
+                      value="https://review.endlesshall.example/api/auth/sso/callback/workspace-endless-hall"
+                      label="Copy the redirect URI"
+                    />
+                  </span>
+                </Row>
+                <Row name="Groups" hint="The claim that lists a person's groups.">
+                  <Input defaultValue="groups" className="w-40" />
+                </Row>
+                <Row
+                  name="Admins"
+                  hint="Groups whose people are admins here, separated by commas. Everyone else is a member; owners stay owners."
+                >
+                  <Input defaultValue="hekate-admins" className="w-full @3xl/app:w-96" />
+                </Row>
+                <SwitchRow
+                  name="Enforce single sign-on"
+                  hint="Members sign in only through it. Owners keep their password, so a broken provider never locks the workspace out."
+                  checked={false}
                 />
+              </>
+            )}
+            <div className="flex flex-col gap-3 px-4 py-row @3xl/app:flex-row @3xl/app:items-center">
+              <span className="min-w-0 flex-1 text-[13px] text-ink-3">
+                {ssoOn ? "Saving an OIDC issuer checks that it answers." : ""}
               </span>
-            </Row>
-            <Row name="Redirect URI">
-              <Input
-                readOnly
-                defaultValue="https://review.endlesshall.example/api/auth/sso/callback/workspace-endless-hall"
-                className="tabular w-full text-[13px] @3xl/app:w-96"
-              />
-            </Row>
-            <Row name="Groups" hint="The claim that lists a person's groups.">
-              <Input defaultValue="groups" className="w-40" />
-            </Row>
-            <Row
-              name="Admins"
-              hint="Groups whose people are admins here, separated by commas. Everyone else is a member; owners stay owners."
-            >
-              <Input defaultValue="hekate-admins" className="w-full @3xl/app:w-96" />
-            </Row>
-            <SwitchRow
-              name="Enforce single sign-on"
-              hint="Members sign in only through it. Owners keep their password, so a broken provider never locks the workspace out."
-              checked={false}
-            />
-            <Row name="Save" hint="Saving an OIDC issuer checks that it answers.">
-              <span className="flex gap-2">
-                <Test state={state === "failed" ? "failed" : "idle"} />
-                <Button variant="primary" size="md">
+              <span className="flex justify-end gap-2">
+                {ssoOn && <Test state={state === "failed" ? "failed" : "idle"} />}
+                <Button variant="secondary" size="md">
                   Save
                 </Button>
               </span>
-            </Row>
+            </div>
           </Section>
           <Section
             title="Directory (LDAP)"
@@ -1348,64 +1383,78 @@ export function SettingsPage({
             <SwitchRow
               name="Sign in with the directory"
               hint="Turned off, nobody new can join through it, and its members sign in with a password or passkey."
-              checked
+              checked={directoryOn}
+              onChange={setDirectoryOn}
             />
-            <Row name="Server" hint="ldaps:// with its port; ldap:// only on a network you trust.">
-              <Input
-                defaultValue="ldaps://directory.endlesshall.example:636"
-                className="w-full @3xl/app:w-96"
-              />
-            </Row>
-            <SwitchRow name="Verify the certificate" checked />
-            <Row
-              name="Service account"
-              hint="Searches for people. Left empty, the search is anonymous. The password is never shown again."
-            >
-              <span className="flex flex-wrap gap-2">
-                <Input defaultValue="cn=hekate,ou=services,dc=endlesshall" className="w-64" />
-                <Input
-                  type="password"
-                  placeholder="Kept"
-                  className="w-32"
-                  aria-label="Service account password"
-                />
+            {directoryOn && (
+              <>
+                <Row
+                  name="Server"
+                  hint="ldaps:// with its port; ldap:// only on a network you trust."
+                >
+                  <Input
+                    defaultValue="ldaps://directory.endlesshall.example:636"
+                    className="w-full @3xl/app:w-96"
+                  />
+                </Row>
+                <SwitchRow name="Verify the certificate" checked />
+                <Row
+                  name="Service account"
+                  hint="Searches for people. Left empty, the search is anonymous. The password is never shown again."
+                >
+                  <span className="flex flex-wrap gap-2">
+                    <Input defaultValue="cn=hekate,ou=services,dc=endlesshall" className="w-64" />
+                    <Input
+                      type="password"
+                      placeholder="Kept"
+                      className="w-32"
+                      aria-label="Service account password"
+                    />
+                  </span>
+                </Row>
+                <Row
+                  name="People"
+                  hint="Where they are, and the filter that finds one by username."
+                >
+                  <span className="flex flex-wrap gap-2">
+                    <Input defaultValue="ou=people,dc=endlesshall" className="w-64" />
+                    <Input defaultValue="(uid={username})" className="w-40" />
+                  </span>
+                </Row>
+                <Row name="Attributes" hint="Which hold the email address and the name.">
+                  <span className="flex flex-wrap gap-2">
+                    <Input defaultValue="mail" className="w-32" aria-label="Email attribute" />
+                    <Input defaultValue="cn" className="w-32" aria-label="Name attribute" />
+                  </span>
+                </Row>
+                <Row
+                  name="Groups"
+                  hint="Where groups are, and the filter that finds a person's groups."
+                >
+                  <span className="flex flex-wrap gap-2">
+                    <Input defaultValue="ou=groups,dc=endlesshall" className="w-64" />
+                    <Input defaultValue="(member={dn})" className="w-40" />
+                  </span>
+                </Row>
+                <Row
+                  name="Admins"
+                  hint="Groups whose people are admins here, by name or DN, separated by commas. Everyone else is a member; owners stay owners."
+                >
+                  <Input defaultValue="producers" className="w-full @3xl/app:w-96" />
+                </Row>
+              </>
+            )}
+            <div className="flex flex-col gap-3 px-4 py-row @3xl/app:flex-row @3xl/app:items-center">
+              <span className="min-w-0 flex-1 text-[13px] text-ink-3">
+                {directoryOn ? "Test connects with the saved settings." : ""}
               </span>
-            </Row>
-            <Row name="People" hint="Where they are, and the filter that finds one by username.">
-              <span className="flex flex-wrap gap-2">
-                <Input defaultValue="ou=people,dc=endlesshall" className="w-64" />
-                <Input defaultValue="(uid={username})" className="w-40" />
-              </span>
-            </Row>
-            <Row name="Attributes" hint="Which hold the email address and the name.">
-              <span className="flex flex-wrap gap-2">
-                <Input defaultValue="mail" className="w-32" aria-label="Email attribute" />
-                <Input defaultValue="cn" className="w-32" aria-label="Name attribute" />
-              </span>
-            </Row>
-            <Row
-              name="Groups"
-              hint="Where groups are, and the filter that finds a person's groups."
-            >
-              <span className="flex flex-wrap gap-2">
-                <Input defaultValue="ou=groups,dc=endlesshall" className="w-64" />
-                <Input defaultValue="(member={dn})" className="w-40" />
-              </span>
-            </Row>
-            <Row
-              name="Admins"
-              hint="Groups whose people are admins here, by name or DN, separated by commas. Everyone else is a member; owners stay owners."
-            >
-              <Input defaultValue="producers" className="w-full @3xl/app:w-96" />
-            </Row>
-            <Row name="Test" hint="Connects with the saved settings.">
-              <span className="flex gap-2">
-                <Test state={state === "refused" ? "failed" : "idle"} />
-                <Button variant="primary" size="md">
+              <span className="flex justify-end gap-2">
+                {directoryOn && <Test state={state === "refused" ? "failed" : "idle"} />}
+                <Button variant="secondary" size="md">
                   Save
                 </Button>
               </span>
-            </Row>
+            </div>
           </Section>
         </>
       )}
@@ -1585,22 +1634,6 @@ export function SettingsPage({
       )}
       {sec === "leaks" && (
         <>
-          <Section
-            title="Forensic marking"
-            intro="Every stream and permitted download carries an inaudible, invisible mark that names the person who received it."
-          >
-            <SwitchRow
-              name="Audio"
-              hint="Off until you turn it on. Listen to a marked download of quiet material first."
-              checked={false}
-            />
-            <SwitchRow name="Video" checked />
-            <SwitchRow
-              name="Pages"
-              hint="The visible watermark is set per project; this is the hidden one."
-              checked
-            />
-          </Section>
           <Section
             title="Trace a leak"
             intro="Upload the file that got out. It is matched against every mark issued, and kept only while it is."

@@ -571,7 +571,7 @@ const screens: Screen[] = [
     path: () => "/settings/api",
     ready: "main [data-log-entry] >> nth=0",
   },
-  // Leak tracing (#32): forensic marking's switches, and a suspected leak to drop.
+  // Leak tracing (#32): a suspected leak to drop; the marking's switch is on Security (#682).
   {
     name: "settings-leaks",
     path: () => "/settings/leaks",

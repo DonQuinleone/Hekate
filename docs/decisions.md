@@ -2460,3 +2460,13 @@ Some organisations must keep their material in storage they own, and a workspace
 - **One name per event.** `eventNames` in `packages/shared` names the events both pages hear of: *Review requested*, *Decision recorded*, *New version*, *Mention*, *Processing failed*. The matrix's rows (`eventLabels`) and the account's rows (`notificationCatalogue`) take them, and the others are names in the same form (*Feedback submitted*, *Stage started*, *Guest signed in*, *Download*); a test on each side holds the pairs to one name. The account's line under each name still says what it means for you.
 - **One column at a time on a phone,** chosen above the table ("Channel: #masters"), as Defaults' Tool access chooses a role; the desktop keeps every column.
 - The prototype went first.
+
+## 375. Workspace Security is a short page with one save per form, and watermarking is set there
+
+#682. The Security page showed two filled Save buttons, rows named "Save" and "Test", and the whole single sign-on and directory forms while both were off. The forensic marking's switches sat on Leak tracing, where Video and Pages were disabled "Not yet" switches, and Pages was a setting that lives in each project.
+
+- **Fields while on.** Single sign-on and the directory show their switch alone while off, as Vercel's and Linear's SAML settings do; turned on, their fields follow. A form saved on keeps its footer when switched off, so turning it off can be saved.
+- **One footer per form.** `FormFooter` (`apps/web/src/components/form-footer.tsx`, on the reference page) ends each form: what saving does, a test's outcome or what went wrong at the left, *Test connection* (the directory's) and *Save* at the right. Save is secondary, so the page has no filled button competing with another; the sign-in policy above saves as it changes.
+- **The Redirect URI** is a read-only value with Copy, as Hekate's entity ID and reply address are.
+- **Watermarking is on Security, for owners.** The audio mark's switch moved there under *Watermarking*, with a line saying the visible mark on pages, pictures and video is set in each project's Asset security; the "Not yet" switches are gone until they ship. Leak tracing is the trace alone.
+- The prototype went first.
