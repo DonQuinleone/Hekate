@@ -17,6 +17,7 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type CSSProperties, type FormEvent, useState } from "react";
+import { Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
 import { formatDates } from "~/lib/locale";
@@ -88,7 +89,7 @@ export function ChannelsSection() {
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
             <Icon name="plus" size={14} />
-            Channel
+            New channel
           </Button>
         }
       >
@@ -732,7 +733,7 @@ export function SuppressionsDialog({
     >
       <div className="flex max-h-[60vh] flex-col divide-y divide-line overflow-y-auto rounded-panel border border-line">
         {isPending ? (
-          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+          <Loading size="panel" />
         ) : !rows || rows.length === 0 ? (
           <p className="m-0 px-4 py-3 text-[13px] text-ink-3">None: every address is sent to.</p>
         ) : (

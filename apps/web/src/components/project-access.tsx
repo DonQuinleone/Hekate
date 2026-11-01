@@ -8,6 +8,7 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import {
   type ProjectRole,
@@ -164,7 +165,7 @@ function ExceptionDialog({
   };
   return (
     <Dialog
-      title="Add an exception"
+      title="Add exception"
       description="Their tools in this project, in place of their role's. A guest keeps no tool their review leaves out."
       onClose={onClose}
       width="sm"
@@ -404,7 +405,7 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
   const [shown, setShown] = useState<string | null>(null);
   // The exceptions on a phone: one column at a time.
   const [exceptionShown, setExceptionShown] = useState<string | null>(null);
-  if (!roles) return <p className="m-0 text-[13px] text-ink-3">Loading</p>;
+  if (!roles) return <Loading size="panel" className="px-0" />;
   const role = roles.find((r) => r.id === shown) ?? roles[0];
   if (!role) return <p className="m-0 text-[13px] text-ink-3">This project has no roles.</p>;
   const error = updateRole.error ?? deleteRole.error ?? createRole.error;
@@ -650,7 +651,8 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
           )}
           {manage && (
             <Button variant="secondary" size="md" onClick={() => setDialog("exception")}>
-              Add an exception
+              <Icon name="plus" size={14} />
+              Add exception
             </Button>
           )}
         </div>

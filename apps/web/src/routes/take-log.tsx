@@ -21,6 +21,7 @@ import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { Segmented } from "~/components/ui/segmented";
+import { Failed, Loading } from "~/components/ui/states";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
@@ -98,6 +99,7 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
     data: served,
     error,
     isError,
+    refetch,
   } = useQuery({
     ...sessionQuery(sessionId),
     refetchInterval: 2000,
@@ -260,8 +262,8 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
     { keys: ["l"], label: "Large print, or back", run: () => setLarge((on) => !on) },
   ]);
 
-  if (error && !session) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!session || !project) return <p className="p-8 text-ink-3">Loading</p>;
+  if (error && !session) return <Failed what="This session" error={error} retry={refetch} />;
+  if (!session || !project) return <Loading />;
 
   const recording = current?.lifecycle === "recording";
   const armed = current?.lifecycle === "armed";
@@ -276,7 +278,6 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
     <>
       <PageHeader
         crumbs={[
-          { key: "projects", link: <Link to="/projects">Projects</Link> },
           {
             key: "project",
             link: (

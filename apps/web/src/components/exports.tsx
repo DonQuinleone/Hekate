@@ -20,6 +20,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Select } from "~/components/ui/input";
 import { Dropdown, type MenuAction } from "~/components/ui/menu";
+import { Loading } from "~/components/ui/states";
 import { commentsQuery } from "~/lib/queries";
 
 const scopes = {
@@ -245,7 +246,7 @@ export function ExportCommentsDialog({
       <div className="mt-4 flex min-w-0 flex-col gap-1 rounded-panel border border-line bg-sunken p-3 text-[12px] text-ink-2">
         <span className="text-ink-3">Preview · {exportTargets[target].label}</span>
         {!out ? (
-          <span className="text-ink-3">Loading</span>
+          <Loading size="line" label="Loading the preview" />
         ) : empty ? (
           <span>
             Nothing to export: no {options.threads === "open" ? "open " : ""}threads

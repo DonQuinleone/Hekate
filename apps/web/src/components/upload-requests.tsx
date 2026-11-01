@@ -243,7 +243,7 @@ export function UploadRequestDialog({
               form="upload-request"
               disabled={!name.trim() || limitWrong || passwordWrong || create.isPending}
             >
-              Create the link
+              Create link
             </Button>
           </>
         )

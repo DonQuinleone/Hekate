@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { accessibilityProblems, layoutProblems } from "./checks.ts";
+import { accessibilityProblems, avatarProblems, layoutProblems } from "./checks.ts";
 
 /** The checks themselves: each finds what it is for, and leaves sound layouts alone. */
 
@@ -93,4 +93,23 @@ test("finds a modal shut inside the box it was opened in, not over the main area
   expect((await layoutProblems(p)).map((x) => x.check)).toContain("uncovered-by-modal");
   await p.setContent(shell(`<div style="height:160px"></div>${modal}`));
   expect((await layoutProblems(p)).map((x) => x.check)).not.toContain("uncovered-by-modal");
+});
+
+test("finds avatar initials that cannot be read, and initials a stacked face covers (#540)", async ({
+  page: p,
+}) => {
+  const face = (initials: string, style: string) =>
+    `<span aria-hidden="true" data-initials="${initials}" style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;font:500 9px sans-serif;${style}"></span>`;
+  const css = `<style>[data-initials]::before { content: attr(data-initials) }</style>`;
+  await p.setContent(
+    page(
+      `${css}<p>${face("MS", "color:#111113;background:linear-gradient(145deg, oklch(0.42 0.06 30), oklch(0.3 0.05 60))")}</p>
+      <p>${face("AR", "color:#f4f4f5;background:linear-gradient(145deg, oklch(0.42 0.06 30), oklch(0.3 0.05 60))")}${face("TV", "color:#f4f4f5;background:#333;margin-left:-8px;box-shadow:0 0 0 2px #111")}</p>
+      <p>${face("IA", "color:#f4f4f5;background:#333")}${face("MS", "color:#f4f4f5;background:#333;margin-left:-1px;box-shadow:0 0 0 2px #111")}</p>`,
+    ),
+  );
+  const found = await avatarProblems(p);
+  expect(found.map((x) => x.check).sort()).toEqual(["avatar-contrast", "clipped-initials"]);
+  expect(found.find((x) => x.check === "avatar-contrast")?.what).toContain("MS");
+  expect(found.find((x) => x.check === "clipped-initials")?.what).toContain("AR");
 });

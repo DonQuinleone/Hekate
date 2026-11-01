@@ -2,6 +2,7 @@ import { type Density, locales, preRolls, skipSteps, type Theme } from "@hekate/
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { Loading } from "~/components/ui/states";
 import { shortAgent } from "~/lib/agent";
 import { authClient } from "~/lib/auth";
 import { ago } from "~/lib/comments";
@@ -104,7 +105,7 @@ function EmailField({ email }: { email: string }) {
     return (
       <span className="flex flex-wrap items-center gap-2">
         <span className="text-[13px] text-ink">{email}</span>
-        <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+        <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
           Change…
         </Button>
         {sent && <Note>{`Check ${sent} for a link. The address changes once you follow it.`}</Note>}
@@ -145,7 +146,7 @@ export function ProfileSection() {
     <>
       <Section title="You">
         <Row name="Picture" hint="Made from your name and its colour.">
-          <Avatar id={user.id} name={user.name} size={36} />
+          <Avatar person={user.id} name={user.name} size={36} />
         </Row>
         <Row name="Name">
           <NameField key={user.name} name={user.name} />
@@ -575,7 +576,7 @@ export function SessionsSection() {
   const others = sessions.filter((s) => !s.current);
   return (
     <Section title="Signed in">
-      {isPending && <Row name="Loading" />}
+      {isPending && <Loading size="panel" />}
       {sessions.map((s) => (
         <Row
           key={s.id}
@@ -641,7 +642,11 @@ export function AppearanceSection() {
   return (
     <>
       <Section title="Theme">
-        <Row name="Theme" hint="The brand in dark and light, and a few others people know." stacked>
+        <Row
+          name="Palette"
+          hint="The brand in dark and light, and a few others people know."
+          stacked
+        >
           <div className="grid w-full grid-cols-1 gap-2 @xl/app:grid-cols-2 @3xl/app:grid-cols-3">
             <ThemeTile
               name="Follow the system"

@@ -75,6 +75,7 @@ import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Loading } from "~/components/ui/states";
 import { formatDates } from "~/lib/locale";
 import {
   type CommentCategory,
@@ -147,7 +148,8 @@ const sections = [
     id: "delivery",
     label: "Delivery profile",
     group: "Quality assurance",
-    intro: "The numbers the checks measure against: loudness, peaks and formats.",
+    intro:
+      "What QA measures every recording against: loudness, peaks and formats. Anything in the project can have its own; without any, each file is measured against the profile its channels suggest.",
   },
   {
     id: "qa",
@@ -376,7 +378,7 @@ function General({ project }: { project: Project }) {
   const edit = can("edit_project");
   return (
     <>
-      <Section title="Project">
+      <Section title="Details">
         <Row name="Name">
           <SavedInput
             key={project.name}
@@ -1017,12 +1019,12 @@ function Comments({ project }: { project: Project }) {
           shape ? (
             <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
               <Icon name="plus" size={14} />
-              Category
+              New category
             </Button>
           ) : undefined
         }
       >
-        {!categories && <Row name="Loading" />}
+        {!categories && <Loading size="panel" />}
         {categories?.length === 0 && (
           <Row name="No categories" hint="Comments can still be triaged without one." />
         )}
@@ -1340,10 +1342,7 @@ function Delivery({ project }: { project: Project }) {
   const error = update.error ?? onTrack.error;
   return (
     <>
-      <Section
-        title="Delivery profile"
-        intro={`What QA measures every recording against. A ${words.track} or a file can have its own; without any, each file is measured against the profile its channels suggest.`}
-      >
+      <Section>
         <Row name="Project default" hint={shown ? deliveryHint(shown) : undefined}>
           <Select
             value={project.deliveryProfile ?? ""}
@@ -1372,7 +1371,7 @@ function Delivery({ project }: { project: Project }) {
           title="Overrides"
           intro={`${capital(words.tracks)} that measure against a different profile.`}
         >
-          {!tracks && <Row name="Loading" />}
+          {!tracks && <Loading size="panel" />}
           {tracks?.length === 0 && (
             <Row
               name={`No ${words.tracks} yet`}

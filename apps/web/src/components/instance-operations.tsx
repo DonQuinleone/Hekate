@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Code } from "~/components/inspect";
 import { Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
+import { Failed } from "~/components/ui/states";
 import { api } from "~/lib/api";
 import { docsUrl } from "~/lib/links";
 import { json } from "~/lib/queries";
@@ -22,7 +23,7 @@ const roleCopy: Record<InstanceOperations["capacity"]["process"]["role"], string
  * outside it and checked by `backup verify`; capacity as the environment and the code set it.
  */
 export function Operations() {
-  const { data, error } = useQuery({
+  const { data, error, refetch } = useQuery({
     queryKey: ["instance", "operations"],
     queryFn: async () => json<InstanceOperations>(await api.instance.operations.$get()),
     refetchInterval: 15_000,
@@ -65,7 +66,7 @@ export function Operations() {
         title="Capacity"
         intro="Set in each process's environment, so shown here and changed there; a change takes a restart."
       >
-        {error && <Row name="Capacity could not be read" hint={error.message} />}
+        {error && <Failed what="Capacity" error={error} retry={refetch} size="panel" />}
         {capacity && process && (
           <>
             <Row

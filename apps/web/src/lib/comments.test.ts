@@ -21,6 +21,7 @@ const comment = (id: string, extra: Partial<Comment> = {}): Comment => ({
   anchor: null,
   body: id,
   authorId: null,
+  authorGuestId: null,
   authorName: null,
   authorGuest: false,
   mine: false,

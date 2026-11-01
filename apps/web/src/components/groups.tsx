@@ -8,7 +8,7 @@ import {
   useGroupMutations,
   useProjectCan,
 } from "~/lib/queries";
-import { AvatarRow } from "./avatar";
+import { AvatarRow, personKey } from "./avatar";
 import { GuestFields } from "./guest-fields";
 import { Icon } from "./icons";
 import { Card, SectionHead } from "./page";
@@ -173,7 +173,7 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
                 </span>
                 <span className="hidden @3xl/app:inline-flex">
                   <AvatarRow
-                    people={group.members.map((m) => ({ id: m.userId ?? m.email, name: m.name }))}
+                    people={group.members.map((m) => ({ id: personKey(m), name: m.name }))}
                     max={3}
                   />
                 </span>

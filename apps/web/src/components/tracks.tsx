@@ -2,6 +2,7 @@ import { type AlignmentPoints, capital, mapTime, versionLabel } from "@hekate/sh
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
+import { Failed } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import {
@@ -69,7 +70,7 @@ function NewTrack({ projectId }: { projectId: string }) {
 
 /** The tracks of a music project, each with its latest version. */
 export function TrackList({ projectId }: { projectId: string }) {
-  const { data: tracks, error } = useQuery(projectTracksQuery(projectId));
+  const { data: tracks, error, refetch } = useQuery(projectTracksQuery(projectId));
   const can = useProjectCan(projectId);
   return (
     <section aria-label="Tracks" className="flex flex-col gap-3">
@@ -77,7 +78,9 @@ export function TrackList({ projectId }: { projectId: string }) {
         <h2 className="m-0 text-[15px] font-medium">Tracks</h2>
         {can("organise") && <NewTrack projectId={projectId} />}
       </div>
-      {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
+      {error && (
+        <Failed what="The tracks" error={error} retry={refetch} size="panel" className="px-0" />
+      )}
       {tracks && tracks.length === 0 && (
         <p className="m-0 text-[13px] text-ink-3">
           {can("organise")
@@ -338,7 +341,7 @@ export function VersionNote({ file }: { file: FileDetail }) {
   const by = version.createdByName ?? version.sentBy ?? null;
   return (
     <div className="flex shrink-0 items-start gap-2.5 border-t border-line px-3 py-2.5 lg:px-4">
-      {by && <Avatar id={by} name={by} size={22} />}
+      {by && <Avatar person={version.createdBy ?? by} name={by} size={22} />}
       <p className="m-0 min-w-0 text-[13px] text-ink-2">
         {by && <span className="font-medium text-ink">{by}</span>}
         <span className="text-ink-3">

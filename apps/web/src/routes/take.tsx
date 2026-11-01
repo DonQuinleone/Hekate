@@ -13,6 +13,7 @@ import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
+import { Failed, failureText, Loading } from "~/components/ui/states";
 import { StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { threadsOf } from "~/lib/comments";
@@ -34,6 +35,7 @@ import {
 import { useShortcuts } from "~/lib/shortcuts";
 import { coverageLabel, falseStartsLabel, takeLoop, timecodeSpan } from "~/lib/take-page";
 import { primaryOf } from "~/lib/versions";
+import { PageFailed } from "~/routes/problem";
 
 /**
  * One take on its own page (#21, #45), as the prototype's: what is known of it in a line,
@@ -45,7 +47,7 @@ import { primaryOf } from "~/lib/versions";
  * mute, join it once takes hold a file per microphone.
  */
 export function TakePage({ takeId }: { takeId: string }) {
-  const { data: take, error } = useQuery(takeQuery(takeId));
+  const { data: take, error, refetch } = useQuery(takeQuery(takeId));
   const projectId = take?.track.projectId;
   const { data: project } = useQuery({
     ...projectQuery(projectId ?? ""),
@@ -71,8 +73,8 @@ export function TakePage({ takeId }: { takeId: string }) {
     })),
     siblings.length > 1,
   );
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!take || !project) return <p className="p-8 text-ink-3">Loading</p>;
+  if (error) return <PageFailed what="This take" error={error} retry={refetch} />;
+  if (!take || !project) return <Loading />;
   const used = decisions?.uses.some((u) => u.takeId === take.id)
     ? `V${decisions.version.number}`
     : null;
@@ -83,7 +85,6 @@ export function TakePage({ takeId }: { takeId: string }) {
     <>
       <PageHeader
         crumbs={[
-          { key: "projects", link: <Link to="/projects">Projects</Link> },
           {
             key: "project",
             link: (
@@ -222,8 +223,8 @@ function Recording({ take, siblings }: { take: TakeDetail; siblings: number }) {
         text="This take was logged without a file. Importing the session's files gives it its mix."
       />
     );
-  if (fileError) return <Waiting>{fileError.message}</Waiting>;
-  if (!file) return <Waiting>Loading the player.</Waiting>;
+  if (fileError) return <Waiting>{failureText(fileError)}</Waiting>;
+  if (!file) return <Loading size="panel" label="Loading the player" />;
   if (file.kind !== "audio" && file.kind !== "video")
     return <Waiting>This take's file is not a recording.</Waiting>;
   if (file.streamStatus === "failed")
@@ -235,8 +236,8 @@ function Recording({ take, siblings }: { take: TakeDetail; siblings: number }) {
     );
   if (file.mediaInfo === null) return <Waiting>Measuring the file.</Waiting>;
   if (file.streamStatus !== "ready") return <Waiting>Preparing for playback.</Waiting>;
-  if (error) return <Waiting>{error.message}</Waiting>;
-  if (!playback) return <Waiting>Loading the player.</Waiting>;
+  if (error) return <Waiting>{failureText(error)}</Waiting>;
+  if (!playback) return <Loading size="panel" label="Loading the player" />;
   const canLoop = !file.tools || file.tools.includes("loops");
   const whole = takeLoop(take, file.mediaInfo.duration ?? null);
   const looping = loop !== null;
@@ -390,11 +391,19 @@ function ScoreAside({ scoreFileId, take }: { scoreFileId: string; take: TakeDeta
  * thread hears exactly this take, at the thread's bar where it is about one.
  */
 function ShareDialog({ take, onClose }: { take: TakeDetail; onClose: () => void }) {
-  const { data: track, error: trackError } = useQuery(trackQuery(take.track.id));
+  const {
+    data: track,
+    error: trackError,
+    refetch: refetchTrack,
+  } = useQuery(trackQuery(take.track.id));
   const latest = track?.versions.at(-1);
   const primary = latest ? primaryOf(latest) : undefined;
   const fileId = primary?.fileId ?? "";
-  const { data: comments, error: commentsError } = useQuery({
+  const {
+    data: comments,
+    error: commentsError,
+    refetch: refetchComments,
+  } = useQuery({
     ...commentsQuery(fileId),
     enabled: Boolean(primary),
   });
@@ -404,9 +413,15 @@ function ShareDialog({ take, onClose }: { take: TakeDetail; onClose: () => void 
   const thread = chosen || open[0]?.comment.id || "";
   const error = trackError ?? commentsError;
   const body = error ? (
-    <p className="m-0 text-[13px] text-signal">{error.message}</p>
+    <Failed
+      what="The threads"
+      error={error}
+      retry={() => (trackError ? refetchTrack() : refetchComments())}
+      size="panel"
+      className="px-0"
+    />
   ) : !track || (primary && !comments) ? (
-    <p className="m-0 text-[13px] text-ink-3">Loading</p>
+    <Loading size="panel" className="px-0" />
   ) : !latest || !primary ? (
     <p className="m-0 text-[13px] text-ink-2">
       {take.track.name} has no version yet: a take is shared to a comment on one.

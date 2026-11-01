@@ -5,6 +5,9 @@ import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
+import { Count } from "~/components/ui/chip";
+import { filterTab } from "~/components/ui/filter-tabs";
+import { Failed, Loading } from "~/components/ui/states";
 import { StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
@@ -81,12 +84,22 @@ export function InboxPage({ item, show = "needs" }: { item?: string; show?: Inbo
   const home = useQuery(homeQuery);
   const error = mine.error ?? home.error;
 
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
+  if (error)
+    return (
+      <>
+        <PageHeader title="Inbox" />
+        <Failed
+          what="Your inbox"
+          error={error}
+          retry={() => Promise.all([mine.refetch(), home.refetch()])}
+        />
+      </>
+    );
   if (!mine.data || !home.data) {
     return (
       <>
         <PageHeader title="Inbox" />
-        <p className="p-8 text-ink-3">Loading</p>
+        <Loading />
       </>
     );
   }
@@ -151,13 +164,10 @@ export function InboxPage({ item, show = "needs" }: { item?: string; show?: Inbo
                   to="/inbox"
                   search={{ show: f.id }}
                   aria-current={show === f.id ? "true" : undefined}
-                  className={cn(
-                    "flex h-8 items-center gap-1.5 rounded-control px-2.5 text-[13px] transition-colors",
-                    show === f.id ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
-                  )}
+                  className={filterTab(show === f.id)}
                 >
                   {f.label}
-                  {count > 0 && <span className="tabular text-[12px] text-ink-3">{count}</span>}
+                  {count > 0 && <Count>{count}</Count>}
                 </Link>
               );
             })}

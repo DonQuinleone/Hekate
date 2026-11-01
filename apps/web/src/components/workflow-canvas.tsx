@@ -887,7 +887,7 @@ export function WorkflowCanvas({
           {editing && (
             <Button variant="primary" size="sm" onClick={openPicker} className="shrink-0">
               <Icon name="plus" size={13} />
-              Node
+              Add node
             </Button>
           )}
         </div>

@@ -260,6 +260,8 @@ export interface TaskSummary {
 export interface TaskEvent {
   id: string;
   at: string;
+  /** Who did it, for their avatar's colour (#604); null for the workflow or a former member. */
+  actorId: string | null;
   actorName: string | null;
   kind: TaskEventKind;
   text: string;

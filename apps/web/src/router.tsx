@@ -64,6 +64,7 @@ import { NotificationsPage } from "~/routes/notifications";
 import { ConsentPage } from "~/routes/oauth-consent";
 import { PatchListPage } from "~/routes/patch-list";
 import { PersonnelPage } from "~/routes/personnel";
+import { InShell, ProblemPage, problemOf } from "~/routes/problem";
 import {
   ProjectFilesPage,
   ProjectOverviewPage,
@@ -221,7 +222,12 @@ function Root() {
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({
   component: Root,
-  notFoundComponent: () => <p className="p-8 text-ink-3">Not found.</p>,
+  // An address that leads nowhere, and anything thrown while loading or drawing a page
+  // (#546): the branded page, in the shell when signed in.
+  notFoundComponent: () => <ProblemPage kind="not-found" />,
+  errorComponent: ({ error, reset }) => (
+    <ProblemPage kind={problemOf(error)} error={error} reset={reset} />
+  ),
 });
 
 /** Public pages: the installer and first-run setup (decision 061), and sign-in. */
@@ -346,9 +352,11 @@ const guestApp = createRoute({
   },
   component: () => (
     <ViewerProvider viewer={{ guest: true }}>
-      <GuestShell>
-        <Outlet />
-      </GuestShell>
+      <InShell.Provider value="guest">
+        <GuestShell>
+          <Outlet />
+        </GuestShell>
+      </InShell.Provider>
     </ViewerProvider>
   ),
 });
@@ -455,14 +463,16 @@ const app = createRoute({
   component: () => (
     // A listening room (#200) lasts across pages, so it lives around them all; so does the
     // recorder the take log reads (decision 240), which the player can follow.
-    <ListeningProvider>
-      <RecorderProvider>
-        <Shell>
-          <Outlet />
-        </Shell>
-        <PillHere />
-      </RecorderProvider>
-    </ListeningProvider>
+    <InShell.Provider value="member">
+      <ListeningProvider>
+        <RecorderProvider>
+          <Shell>
+            <Outlet />
+          </Shell>
+          <PillHere />
+        </RecorderProvider>
+      </ListeningProvider>
+    </InShell.Provider>
   ),
 });
 
@@ -1131,6 +1141,11 @@ export const router = createRouter({
   ]),
   context: { queryClient },
   defaultPreload: "intent",
+  // Within a page's own place (the shell's pane), never the router's stock pages (#546).
+  defaultNotFoundComponent: () => <ProblemPage kind="not-found" />,
+  defaultErrorComponent: ({ error, reset }) => (
+    <ProblemPage kind={problemOf(error)} error={error} reset={reset} />
+  ),
 });
 
 declare module "@tanstack/react-router" {

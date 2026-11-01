@@ -63,9 +63,12 @@ export function Loading({ rows = 6 }: { rows?: number }) {
 export function Failed({
   title = "This could not be loaded",
   text = "Hekate could not reach the server. Your work is kept; try again in a moment.",
+  reference,
 }: {
   title?: string;
   text?: string;
+  /** Where the server recorded the failure: the reference to quote to support, with Copy. */
+  reference?: string;
 }) {
   return (
     <div className="mx-auto flex max-w-md flex-col items-start gap-3 px-6 py-16">
@@ -74,6 +77,17 @@ export function Failed({
       </span>
       <h2 className="text-[16px] font-medium">{title}</h2>
       <p className="text-ink-2">{text}</p>
+      {reference && (
+        <span className="inline-flex items-center gap-2 text-[13px] text-ink-3">
+          Reference <span className="tabular text-ink-2">{reference}</span>
+          <button
+            type="button"
+            className="h-7 rounded-control px-2.5 text-[13px] text-ink-2 hover:bg-raised hover:text-ink"
+          >
+            Copy
+          </button>
+        </span>
+      )}
       <button
         type="button"
         className="h-8 rounded-control border border-edge bg-raised px-3 text-[14px] text-ink shadow-1"

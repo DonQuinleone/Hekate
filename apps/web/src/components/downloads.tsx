@@ -80,7 +80,7 @@ export function DownloadDialog({
                   ? allowed
                     ? data[kind].detail
                     : `${data[kind].detail} · not in your permissions`
-                  : "Loading"
+                  : "Finding out what it holds"
               }
               className="has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
             />

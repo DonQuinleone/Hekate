@@ -448,7 +448,7 @@ export function ProjectTasks({
                 Cancel
               </Button>
               <Button variant="primary" onClick={() => setCreating(false)}>
-                Add task
+                Create task
               </Button>
             </>
           }

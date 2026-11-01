@@ -19,6 +19,7 @@ import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Failed, Loading } from "~/components/ui/states";
 import { StatusDot } from "~/components/ui/status";
 import { formatDates } from "~/lib/locale";
 import { standingChange } from "~/lib/permissions";
@@ -67,7 +68,7 @@ function Members({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
   const [confirm, confirmation] = useConfirm();
   const manage = can("manage_roles");
-  const { data: holders, error: loadError } = useQuery(projectMembersQuery(projectId));
+  const { data: holders, error: loadError, refetch } = useQuery(projectMembersQuery(projectId));
   const { data: roles } = useQuery(projectRolesQuery(projectId));
   const { data: me } = useQuery(meQuery);
   const { assign, remove, makeOwner, makeMember } = useProjectAccessMutations(projectId);
@@ -79,7 +80,8 @@ function Members({ projectId }: { projectId: string }) {
   const [adding, setAdding] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [granting, setGranting] = useState<Grantee | null>(null);
-  const error = loadError ?? assign.error ?? remove.error ?? makeOwner.error ?? makeMember.error;
+  // What could not be done; what could not be loaded is shown in the list instead (#545).
+  const error = assign.error ?? remove.error ?? makeOwner.error ?? makeMember.error;
   const myId = me?.user.id;
   const workspaceRole = me?.organisations.find((o) => o.id === me.activeOrganisationId)?.role;
   const owners = holders?.filter((m) => m.ownerSince) ?? [];
@@ -103,7 +105,7 @@ function Members({ projectId }: { projectId: string }) {
     mine(m) ? [{ label: "Leave project…", onSelect: () => setLeaving(true) }] : [];
   const person = (m: ProjectMember) => (
     <>
-      <Avatar id={m.userId} name={m.name} size={30} />
+      <Avatar person={m.userId} name={m.name} size={30} />
       <span className="min-w-0">
         <span className="block truncate text-[14px] text-ink">
           {m.name}
@@ -125,7 +127,17 @@ function Members({ projectId }: { projectId: string }) {
         {error && !adding && !leaving && <p className="text-[13px] text-signal">{error.message}</p>}
         <Card>
           <ul className="m-0 list-none p-0">
-            {!holders && <li className="px-4 py-4 text-[13px] text-ink-3">Loading</li>}
+            {loadError ? (
+              <li>
+                <Failed what="The people" error={loadError} retry={refetch} size="panel" />
+              </li>
+            ) : (
+              !holders && (
+                <li>
+                  <Loading size="panel" rows={2} />
+                </li>
+              )
+            )}
             {owners.map((m) => {
               const actions = [
                 // A project keeps at least one owner: the last cannot step down.
@@ -181,7 +193,11 @@ function Members({ projectId }: { projectId: string }) {
         />
         <Card>
           <ul className="m-0 list-none p-0">
-            {!holders && <li className="px-4 py-4 text-[13px] text-ink-3">Loading</li>}
+            {!holders && !loadError && (
+              <li>
+                <Loading size="panel" rows={2} />
+              </li>
+            )}
             {others?.length === 0 && (
               <li className="px-4 py-4 text-[13px] text-ink-3">
                 Nobody but its owners yet.{" "}
@@ -431,7 +447,7 @@ function AddMember({ projectId, onClose }: { projectId: string; onClose: () => v
 function Reviewers({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
   const manage = can("manage_reviewers");
-  const { data: guests, error: loadError } = useQuery(projectGuestsQuery(projectId));
+  const { data: guests, error: loadError, refetch } = useQuery(projectGuestsQuery(projectId));
   const { sendLink, revoke } = useProjectGuestMutations(projectId);
   const [inviting, setInviting] = useState(false);
   const [labelling, setLabelling] = useState<KnownGuest | null>(null);
@@ -439,7 +455,7 @@ function Reviewers({ projectId }: { projectId: string }) {
   const [granting, setGranting] = useState<Grantee | null>(null);
   const { data: grants } = useQuery({ ...projectReviewerGrantsQuery(projectId), enabled: manage });
   const [sent, setSent] = useState<string | null>(null);
-  const error = loadError ?? sendLink.error ?? revoke.error;
+  const error = sendLink.error ?? revoke.error;
   return (
     <section aria-label="Reviewers" className="flex flex-col gap-3">
       <SectionHead
@@ -458,7 +474,17 @@ function Reviewers({ projectId }: { projectId: string }) {
       {sent && <p className="text-[13px] text-ink-2">{sent}</p>}
       <Card>
         <ul className="m-0 list-none p-0">
-          {!guests && !loadError && <li className="px-4 py-4 text-[13px] text-ink-3">Loading</li>}
+          {loadError ? (
+            <li>
+              <Failed what="The reviewers" error={loadError} retry={refetch} size="panel" />
+            </li>
+          ) : (
+            !guests && (
+              <li>
+                <Loading size="panel" rows={2} />
+              </li>
+            )
+          )}
           {guests?.length === 0 && (
             <li className="px-4 py-4 text-[13px] text-ink-3">
               No reviewers yet. Invite one here, or ask someone by email in a review.
@@ -469,7 +495,7 @@ function Reviewers({ projectId }: { projectId: string }) {
               key={g.id}
               className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-4 py-2.5 last:border-b-0 @3xl/app:grid-cols-[auto_minmax(0,1fr)_170px_170px_auto]"
             >
-              <Avatar id={g.email} name={g.name} size={30} />
+              <Avatar person={g.id} name={g.name} size={30} />
               <span className="min-w-0">
                 <span className="block truncate text-[14px] text-ink">
                   {g.name}

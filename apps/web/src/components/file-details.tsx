@@ -15,6 +15,7 @@ import {
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Failed, Loading } from "~/components/ui/states";
 import { actionChoices, actionCopy } from "~/lib/access-log";
 import { formatDates } from "~/lib/locale";
 import {
@@ -513,7 +514,7 @@ function FileLog({ fileId }: { fileId: string }) {
         </Select>
       </div>
       {log.isPending ? (
-        <span className="text-[12px] text-ink-3">Loading</span>
+        <Loading size="line" label="Loading the log" />
       ) : events.length === 0 ? (
         <span className="text-[12px] text-ink-3">Nothing logged yet.</span>
       ) : (
@@ -551,7 +552,7 @@ function FileLog({ fileId }: { fileId: string }) {
  * stays (decision 027).
  */
 export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose: () => void }) {
-  const { data: details, error } = useQuery(fileDetailsQuery(fileId));
+  const { data: details, error, refetch } = useQuery(fileDetailsQuery(fileId));
   const projectId = details?.file.projectId ?? "";
   const { data: folders = [] } = useQuery({
     ...projectFoldersQuery(projectId),
@@ -607,9 +608,9 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
         </button>
       </div>
       <div className="scroll-quiet flex min-h-0 flex-1 flex-col gap-6 overflow-auto p-4">
-        {error && <p className="m-0 text-[13px] text-signal">{error.message}</p>}
+        {error && <Failed what="The details" error={error} retry={refetch} size="panel" />}
         {!details ? (
-          !error && <p className="m-0 text-[13px] text-ink-3">Loading</p>
+          !error && <Loading size="panel" className="px-0" />
         ) : (
           <>
             <dl className="m-0 flex flex-col">
@@ -644,7 +645,7 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
                 {details.file.uploadedBy && details.file.uploadedById ? (
                   <span className="inline-flex items-center gap-2">
                     <Avatar
-                      id={details.file.uploadedById}
+                      person={details.file.uploadedById}
                       name={details.file.uploadedBy}
                       size={18}
                     />

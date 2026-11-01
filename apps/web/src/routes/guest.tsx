@@ -8,6 +8,7 @@ import { reviewState } from "~/components/reviews";
 import { GuestFrame } from "~/components/shell";
 import { Button } from "~/components/ui/button";
 import { CodeField } from "~/components/ui/code-field";
+import { Failed, Loading } from "~/components/ui/states";
 import { StatusPill } from "~/components/ui/status";
 import { useBrandAccent } from "~/lib/branding";
 import { formatDates, localeKey } from "~/lib/locale";
@@ -195,7 +196,7 @@ export function GuestShell({ children }: { children: ReactNode }) {
               {me?.organisation ? ` · ${me.organisation}` : ""}
             </span>
           </span>
-          {me && <Avatar id={me.guest.id} name={me.guest.name} size={28} />}
+          {me && <Avatar person={me.guest.id} name={me.guest.name} size={28} />}
           <Button
             variant="ghost"
             size="sm"
@@ -216,8 +217,10 @@ export function GuestShell({ children }: { children: ReactNode }) {
 
 /** `/g`: the reviews a guest has been asked to take part in. */
 export function GuestHomePage() {
-  const { data: me } = useQuery(guestMeQuery);
-  if (!me) return null;
+  const { data: me, error, refetch } = useQuery(guestMeQuery);
+  // Never a blank page (#545): the list's shape while it comes, and a way on if it cannot.
+  if (error) return <Failed what="Your reviews" error={error} retry={refetch} />;
+  if (!me) return <Loading className="mx-auto max-w-3xl px-4 py-8 sm:px-8" />;
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8 sm:px-8">
       <div className="flex flex-col gap-1">

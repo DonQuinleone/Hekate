@@ -22,6 +22,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type DragEvent, type FormEvent, useState } from "react";
+import { Failed, Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import {
   barsUsedOf,
@@ -96,7 +97,7 @@ export function TakeManager({
   const canEdit = can("edit_takes");
   // Adding takes uploads their files first, which needs the project's upload permission too.
   const canAdd = canEdit && can("upload") && onAdd !== undefined;
-  const { data: takes, error } = useQuery(trackTakesQuery(track.id));
+  const { data: takes, error, refetch } = useQuery(trackTakesQuery(track.id));
   // What the score marks say of each take at a bar (#52): which fixed it, which went wrong.
   const { data: marking } = useQuery({
     ...scoreMarksQuery(track.id),
@@ -123,8 +124,8 @@ export function TakeManager({
     });
   };
 
-  if (error) return <p className="text-signal">{error.message}</p>;
-  if (!takes) return <p className="text-ink-3">Loading</p>;
+  if (error) return <Failed what="The takes" error={error} retry={refetch} />;
+  if (!takes) return <Loading />;
 
   const wanted = Number.parseInt(bar, 10);
   const asked = bar.trim() !== "" && Number.isInteger(wanted) && wanted >= 0;
@@ -742,7 +743,7 @@ export function OtherTakes({
   /** For those who triage (#133): the takes the thread already has, and how to share more. */
   share?: { shared: string[]; onShare: (takeIds: string[]) => Promise<unknown> };
 }) {
-  const { data: takes, error } = useQuery(trackTakesQuery(trackId));
+  const { data: takes, error, refetch } = useQuery(trackTakesQuery(trackId));
   // Which of them the latest version's edit decision list uses here (#56).
   const { data: decisions } = useQuery(editDecisionsQuery(trackId));
   // What the producer's score marks say of them at this bar (#52): a role that does not see
@@ -807,9 +808,9 @@ export function OtherTakes({
         </Button>
       </div>
       {error ? (
-        <p className="m-0 px-3 py-2 text-[13px] text-signal">{error.message}</p>
+        <Failed what="The takes" error={error} retry={refetch} size="panel" className="px-3 py-2" />
       ) : !takes || marksPending ? (
-        <p className="m-0 px-3 py-2 text-[13px] text-ink-3">Loading</p>
+        <Loading size="panel" className="px-3 py-2" />
       ) : list.length === 0 ? (
         <p className="m-0 px-3 py-2 text-[13px] text-ink-3">
           No take covers bar {bar}. A take's bars are set in the track's takes.
@@ -1122,7 +1123,7 @@ export function TakePicker({
   onPick: (takes: TakeRow[]) => void;
   onClose: () => void;
 }) {
-  const { data: takes, error } = useQuery(trackTakesQuery(trackId));
+  const { data: takes, error, refetch } = useQuery(trackTakesQuery(trackId));
   const { data: sessions = [] } = useQuery(projectSessionsQuery(projectId));
   const [ticked, setTicked] = useState<Set<string>>(new Set(chosen));
   const tick = (id: string) =>
@@ -1157,9 +1158,9 @@ export function TakePicker({
       }
     >
       {error ? (
-        <p className="m-0 text-[13px] text-signal">{error.message}</p>
+        <Failed what="The takes" error={error} retry={refetch} size="panel" className="px-0" />
       ) : !takes ? (
-        <p className="m-0 text-[13px] text-ink-3">Loading</p>
+        <Loading size="panel" className="px-0" />
       ) : takes.length === 0 ? (
         <p className="m-0 text-[13px] text-ink-3">
           This track has no takes yet. They are added from the track's takes.

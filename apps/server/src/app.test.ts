@@ -11331,8 +11331,16 @@ describe.runIf(url)("api", () => {
             note: string | null;
             comments: { count: number; fileId: string } | null;
             permissions: { comments: string; tools: string[] } | null;
+            guestId: string | null;
           })[];
-          activity: { action: string; name: string; note: string | null; subject: string | null }[];
+          createdBy: string | null;
+          activity: {
+            action: string;
+            name: string;
+            person: string | null;
+            note: string | null;
+            subject: string | null;
+          }[];
           you: ReviewBody["you"] & { opened: string[] };
         }
         const pageOf = async (res: Response) =>
@@ -11465,6 +11473,24 @@ describe.runIf(url)("api", () => {
         // A guest's link is in the activity by name; their address stays in the access log.
         expect(submitted.activity.find((a) => a.action === "guest.link")?.name).toBe("Ines Arlow");
         expect(JSON.stringify(submitted.activity)).not.toContain("@");
+
+        // One person, one avatar colour (#604): each line carries who they are, never their
+        // row, and a guest is the same guest in every review that asks them.
+        expect(cancelled.activity.find((a) => a.action === "review.decision")?.person).toBe(
+          s.ids.composer,
+        );
+        expect(cancelled.activity.find((a) => a.action === "review.create")?.person).toBe(
+          cancelled.createdBy,
+        );
+        const inesHere = submitted.reviewers.find((r) => r.guest);
+        const inesThere = made.reviewers.find((r) => r.guest);
+        expect(inesHere?.guestId).toBeTruthy();
+        expect(inesHere?.id).not.toBe(inesThere?.id);
+        expect(inesHere?.guestId).toBe(inesThere?.guestId);
+        expect(submitted.activity.find((a) => a.action === "guest.link")?.person).toBe(
+          inesHere?.guestId,
+        );
+        expect(submitted.reviewers.find((r) => !r.guest)?.guestId).toBeNull();
 
         // Someone asked later may do what everyone was granted, and no more.
         const narrow = await pageOf(
@@ -20972,6 +20998,21 @@ describe.runIf(url)("api", () => {
             ),
           );
           expect(decided.reviewers.find((r) => r.state === "submitted")).toBeTruthy();
+          // Which guest wrote it, and who a review's guests are, reach members for the guest's
+          // avatar (#604), and never a guest.
+          const thread = async (cookie: string) =>
+            (
+              (await (await getAs(`/api/files/${s.mix}/comments`, cookie)).json()) as {
+                comments: { authorName: string | null; authorGuestId: string | null }[];
+              }
+            ).comments.find((c) => c.authorName === "Mira Solberg");
+          expect((await thread(s.owner))?.authorGuestId).toBeTruthy();
+          expect((await thread(s.cookie))?.authorGuestId).toBeNull();
+          expect(
+            (decided.reviewers as { guest?: boolean; guestId?: string | null }[]).every(
+              (r) => r.guestId == null,
+            ),
+          ).toBe(true);
           for (const action of [
             "guest.link",
             "guest.sign_in",

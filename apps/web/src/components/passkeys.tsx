@@ -154,7 +154,7 @@ export function PasskeysSection() {
       action={
         <Button size="sm" variant="secondary" disabled={full} onClick={() => setAdding(true)}>
           <Icon name="plus" size={14} />
-          Add
+          Add passkey
         </Button>
       }
     >

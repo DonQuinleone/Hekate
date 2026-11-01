@@ -31,6 +31,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
+import { Failed, failureText, Loading, Refused } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import {
   projectTracksQuery,
@@ -112,12 +113,12 @@ export function ScoreMarkingPage({ projectId, trackId }: { projectId: string; tr
       {(project) => (
         <ProductionBody projectId={projectId} current="score" can={can}>
           {!can("view_production") ? (
-            <Empty
+            <Refused
               title="Not among what your role shows"
               text="Score marking is shown to the roles the project's access gives the production tools."
             />
           ) : !tracks ? (
-            <p className="m-0 text-ink-3">Loading</p>
+            <Loading />
           ) : !track?.scoreFileId ? (
             <Empty
               title="No scores to mark"
@@ -176,7 +177,7 @@ function Marking({
   onTrack: (id: string) => void;
 }) {
   const client = useQueryClient();
-  const { data, error } = useQuery(scoreMarksQuery(trackId));
+  const { data, error, refetch } = useQuery(scoreMarksQuery(trackId));
   const { data: view, error: viewError, refetch: drawAgain } = useQuery(viewQuery(scoreFileId));
   const { add, change, remove } = useScoreMarks(trackId);
   const [page, setPage] = useState(1);
@@ -309,7 +310,7 @@ function Marking({
     canMark,
   );
 
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
+  if (error) return <Failed what="The marks" error={error} retry={refetch} />;
 
   return (
     <div className="flex min-h-0 flex-col gap-4 lg:flex-row lg:items-start">
@@ -422,7 +423,7 @@ function Marking({
         >
           {viewError ? (
             <p className="m-auto flex flex-col items-center gap-2 text-center text-[13px] text-ink-2">
-              {viewError.message}
+              {failureText(viewError)}
               <Button variant="secondary" size="sm" onClick={() => void drawAgain()}>
                 Try again
               </Button>

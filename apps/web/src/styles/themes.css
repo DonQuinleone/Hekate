@@ -46,6 +46,9 @@
   --hk-node-comm: #6f47c4;
   --hk-node-flow: #0f7a80;
   --hk-cover-sheen: rgb(255 255 255 / 0.18);
+  --hk-avatar-lit: 0.92 0.045;
+  --hk-avatar-deep: 0.84 0.06;
+  --hk-avatar-ink: #111113;
   --hk-scheme: light;
 }
 

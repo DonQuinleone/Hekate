@@ -18,7 +18,7 @@ function Face({ n, size }: { n: AppNotification; size: number }) {
   return (
     <span className="relative mt-0.5 shrink-0">
       {id && n.actorName ? (
-        <Avatar id={id} name={n.actorName} size={size} />
+        <Avatar person={id} name={n.actorName} size={size} />
       ) : (
         <span
           className="flex items-center justify-center rounded-full bg-raised text-ink-2 shadow-1"

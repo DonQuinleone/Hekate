@@ -8,6 +8,7 @@ import { LinkedFiles } from "~/components/file-picker";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Card, Page, SectionHead } from "~/components/page";
+import { PageHeader } from "~/components/page-header";
 import { Crop, Gauge, Verdict } from "~/components/qa-report";
 import { FoldingSection, Row, Section, SwitchRow } from "~/components/settings";
 import { StatusChipView } from "~/components/status-chip";
@@ -17,10 +18,12 @@ import { Checkbox, Choice, ChoiceCard, Radio } from "~/components/ui/choice";
 import { DateField, DateTimeField, TimeField } from "~/components/ui/date-field";
 import { ConfirmDialog, Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
+import { FilterTabs } from "~/components/ui/filter-tabs";
 import { ColourInput, InlineInput, Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown, MenuList } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { Slider } from "~/components/ui/slider";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import {
   ReviewerDot,
   type ReviewerDotState,
@@ -29,6 +32,7 @@ import {
   StatusDot,
   StatusPill,
 } from "~/components/ui/status";
+import { SubNav } from "~/components/ui/sub-nav";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Switch } from "~/components/ui/toggle";
 import {
@@ -41,6 +45,8 @@ import { FrameGuides, GoToTimecode } from "~/components/video-frame";
 import { GroupLegend, KindLegend } from "~/components/workflow-kinds";
 import { cn } from "~/lib/cn";
 import { categoryTones } from "~/lib/comments";
+import { ApiError } from "~/lib/queries";
+import { InShell, ProblemPage } from "~/routes/problem";
 
 /*
  * The design system as a reference for whoever builds screens: the brand, the tokens, and
@@ -338,6 +344,7 @@ function Components() {
   const [on, setOn] = useState(true);
   const [folded, setFolded] = useState(true);
   const [colour, setColour] = useState("#4fb3a9");
+  const [filter, setFilter] = useState<"all" | "mine" | "archived">("all");
   const [view, setView] = useState<"list" | "grid">("list");
   const [mode, setMode] = useState<"light" | "dark" | "text">("light");
   const [level, setLevel] = useState(60);
@@ -389,6 +396,23 @@ function Components() {
           <Button variant="primary" size="sm">
             <Icon name="plus" size={13} />
             With an icon
+          </Button>
+        </Spec>
+        <Spec
+          name="Create actions"
+          rule="A verb and a noun, never a bare + noun: New for things, Add for rows in a list. The view's one primary at the right of its toolbar (or the top bar outside a project); a settings list's add is secondary, at the right of its section's head."
+        >
+          <Button variant="primary">
+            <Icon name="plus" size={14} />
+            New work
+          </Button>
+          <Button>
+            <Icon name="plus" size={14} />
+            New category
+          </Button>
+          <Button variant="ghost" size="sm">
+            <Icon name="plus" size={13} />
+            Add row
           </Button>
         </Spec>
         <Spec name="Disabled" rule="Dimmed and inert; say nearby why, when it is not obvious.">
@@ -633,7 +657,7 @@ function Components() {
         </Spec>
         <Spec
           name="Segmented"
-          rule="Two to four views of the same thing. Tabs are for a third level of navigation only."
+          rule="How a list is shown: two to four views of the same thing, with icons where they read. Never a filter; tabs are for a third level of navigation only."
         >
           <Segmented
             label="View"
@@ -653,6 +677,66 @@ function Components() {
               { value: "text", label: "Plain text" },
             ]}
             onChange={setMode}
+          />
+        </Spec>
+        <Spec
+          name="Sub-navigation on a phone"
+          rule="A strip of sections scrolls its current item into view and fades the edge that has more. Settings and Production are one control instead, naming where you are."
+        >
+          <div className="flex w-full max-w-[300px] flex-col gap-2">
+            <SubNav
+              label="Joplin Rags"
+              className="gap-1 rounded-panel border border-line px-2 py-1.5"
+            >
+              {[
+                "Overview",
+                "Files",
+                "Reviews",
+                "Board",
+                "Tasks",
+                "People",
+                "Production",
+                "Settings",
+              ].map((name) => (
+                <a
+                  key={name}
+                  href={`#${name.toLowerCase()}`}
+                  aria-current={name === "Production" ? "page" : undefined}
+                  className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 aria-[current=page]:bg-raised aria-[current=page]:text-ink"
+                >
+                  {name}
+                </a>
+              ))}
+            </SubNav>
+            <Dropdown
+              variant="field"
+              label="Production"
+              value={
+                <span className="min-w-0 truncate">
+                  <span className="text-ink-3">Production: </span>Schedule
+                </span>
+              }
+              actions={[
+                { label: "Repertoire", onSelect: () => {} },
+                { label: "Schedule", checked: true, onSelect: () => {} },
+                { label: "Sessions", onSelect: () => {} },
+              ]}
+            />
+          </div>
+        </Spec>
+        <Spec
+          name="Filter tabs"
+          rule="What a list holds: a row of pill tabs, one chosen, its count after its name. A filter never looks like a view switch."
+        >
+          <FilterTabs
+            label="Show"
+            value={filter}
+            options={[
+              { value: "all", label: "All", count: 12 },
+              { value: "mine", label: "Yours" },
+              { value: "archived", label: "Archived" },
+            ]}
+            onChange={setFilter}
           />
         </Spec>
         <Spec name="Slider" rule="A value along a range; the number beside it when it matters.">
@@ -819,11 +903,20 @@ function Components() {
       >
         <Spec
           name="Avatar"
-          rule="Initials on a hue of their own; a row overlaps and stops at four."
+          rule="Initials on the person's own hue, taken from who they are (a member's or guest's id), so one person is one colour everywhere. The ramp and the ink are the theme's, 4.5:1 in every theme. A row tucks each face under a ring of the ground, never over the initials, and stops at four."
         >
-          <Avatar id="alex" name="Alex Rivera" size={28} />
-          <Avatar id="mira" name="Mira Solberg" size={20} />
+          <Avatar person="alex" name="Alex Rivera" size={28} />
+          <Avatar person="mira" name="Mira Solberg" size={20} />
           <AvatarRow
+            size={20}
+            people={[
+              { id: "alex", name: "Alex Rivera" },
+              { id: "tomas", name: "Tomas Varga" },
+              { id: "ines", name: "Ines Arlow" },
+            ]}
+          />
+          <AvatarRow
+            total={7}
             people={[
               { id: "alex", name: "Alex Rivera" },
               { id: "tomas", name: "Tomas Varga" },
@@ -916,14 +1009,17 @@ function Components() {
         </Spec>
         <Spec
           name="Chip and count"
-          rule="A chip for a tag or a filter; a count in signal only when it needs someone."
+          rule="A chip for a tag or a filter. A count follows its label as a quiet number, written one way (Works 1); in signal only when it needs someone."
         >
           <Chip>delivery</Chip>
           <Chip>
             <Icon name="tag" size={11} />
             mix
           </Chip>
-          <Count>2</Count>
+          <span className="text-[14px] text-ink">
+            Works<Count>12</Count>
+          </span>
+          <Count tone="signal">2</Count>
         </Spec>
         <Spec
           name="Linked file"
@@ -1174,6 +1270,103 @@ function Components() {
               <Icon name="close" size={13} />
             </Button>
           </span>
+        </Spec>
+        <Spec
+          name="Loading"
+          rule="The content's shape in quiet blocks while it comes: never a word or a spinner, and nothing moves when it arrives. A page or pane, a list's rows, or one value in a line."
+        >
+          <div className="flex w-full flex-col gap-2">
+            <Card className="w-full">
+              <Loading rows={3} />
+            </Card>
+            <Card className="w-full">
+              <Loading size="panel" />
+            </Card>
+            <span className="text-[13px] text-ink-2">
+              Uploaded by <Loading size="line" />
+            </span>
+          </div>
+        </Spec>
+        <Spec
+          name="Failed"
+          rule="What could not be loaded, why in plain words, the reference to quote with Copy, and Try again. In a list or a section it is one row."
+        >
+          <div className="flex w-full flex-col gap-2">
+            <Card className="w-full">
+              <Failed
+                what="The board"
+                error={new ApiError("Something went wrong", "internal", "HK-7F3A-2C")}
+                retry={() => undefined}
+              />
+            </Card>
+            <Card className="w-full">
+              <Failed
+                what="The takes"
+                error={new TypeError("Failed to fetch")}
+                retry={() => undefined}
+                size="panel"
+              />
+            </Card>
+          </div>
+        </Spec>
+        <Spec
+          name="Refused"
+          rule="What cannot be opened and why, never whether it exists, with a way on. A refusal from the server is shown this way by Failed itself."
+        >
+          <div className="flex w-full flex-col gap-2">
+            <Card className="w-full">
+              <Refused
+                title="Not among what your role shows"
+                text="The schedule is shown to the roles the project's access gives the production tools."
+              />
+            </Card>
+            <Card className="w-full">
+              <Refused size="panel" />
+            </Card>
+          </div>
+        </Spec>
+        <Spec
+          name="Breadcrumb"
+          rule="Starts at the project (the sidebar has Projects) and ends in the page's own name. Every crumb is whole: when they do not fit, the middle folds into one … menu, the first stays, and the page's name is cut only as a last resort. On a phone, the step above as the way back, or its arrow alone."
+        >
+          <div className="flex w-full flex-col gap-2">
+            {[640, 380].map((width) => (
+              <div key={width} style={{ maxWidth: width }}>
+                <Card>
+                  <PageHeader
+                    crumbs={[
+                      { key: "project", link: <a href="#joplin">Joplin Rags</a> },
+                      { key: "track", link: <a href="#maple">Maple Leaf Rag</a> },
+                      { key: "folder", link: <a href="#recordings">Recordings</a> },
+                    ]}
+                    title="Maple Leaf Rag - Dry.wav"
+                  />
+                </Card>
+              </div>
+            ))}
+          </div>
+        </Spec>
+        <Spec
+          name="Not found, refused, error"
+          rule="When a whole page cannot be shown: what happened and a way on. In the shell's pane when signed in, on the sign-in frame when not. A refusal names the account signed in; an error gives its reference when the server recorded one."
+        >
+          <InShell.Provider value="member">
+            <div className="grid w-full gap-2 @5xl/app:grid-cols-3">
+              <Card>
+                <ProblemPage kind="not-found" />
+              </Card>
+              <Card>
+                <ProblemPage kind="refused" />
+              </Card>
+              <Card>
+                <ProblemPage
+                  kind="error"
+                  error={new ApiError("Something went wrong", "internal", "HK-7F3A-2C")}
+                  reset={() => undefined}
+                />
+              </Card>
+            </div>
+          </InShell.Provider>
         </Spec>
         <Spec name="Problem" rule="Inline, next to what is wrong, with the fix in the sentence.">
           <span className="rounded-panel border border-signal/40 bg-signal/10 px-3 py-2 text-[12px] text-ink">

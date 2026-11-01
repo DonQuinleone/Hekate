@@ -24,7 +24,9 @@ export interface LayoutProblem {
     | "line-through-text"
     | "clipped-text"
     | "small-target"
-    | "uncovered-by-modal";
+    | "uncovered-by-modal"
+    | "avatar-contrast"
+    | "clipped-initials";
   what: string;
 }
 
@@ -378,8 +380,81 @@ export async function accessibilityProblems(page: Page): Promise<string[]> {
   return lines.filter((_, i) => !covered[i]).map((l) => l.line);
 }
 
+/**
+ * Avatars (#540): their initials are generated content inside an `aria-hidden` element, so axe
+ * never sees them. Each must hold 4.5:1 against both ends of its ramp, and in a row of them no
+ * face may cover the initials of the one before it (the ring in the ground colour included).
+ */
+export async function avatarProblems(page: Page): Promise<LayoutProblem[]> {
+  return page.evaluate(() => {
+    const problems: { check: string; what: string }[] = [];
+    const canvas = document.createElement("canvas");
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return problems;
+    const rgbOf = (colour: string) => {
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.fillStyle = "#000";
+      ctx.fillStyle = colour;
+      ctx.fillRect(0, 0, 1, 1);
+      return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+    };
+    const luminance = (rgb: number[]) => {
+      const [r = 0, g = 0, b = 0] = rgb.map((c) => {
+        const s = c / 255;
+        return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const ratio = (a: number[], b: number[]) => {
+      const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x) as [number, number];
+      return (hi + 0.05) / (lo + 0.05);
+    };
+    const ringOf = (style: CSSStyleDeclaration) =>
+      Math.max(
+        0,
+        ...[...style.boxShadow.matchAll(/0px 0px 0px (\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1])),
+      );
+    const faces = [...document.querySelectorAll<HTMLElement>("[data-initials]")].filter((el) => {
+      const box = el.getBoundingClientRect();
+      return box.width > 0 && getComputedStyle(el).visibility !== "hidden";
+    });
+    for (const el of faces) {
+      const style = getComputedStyle(el);
+      const text = el.dataset.initials ?? "";
+      const ink = rgbOf(style.color);
+      const stops = style.backgroundImage.match(/(?:oklch|oklab|rgba?|color|hsla?)\([^)]*\)/g) ?? [
+        style.backgroundColor,
+      ];
+      const least = Math.min(...stops.map((s) => ratio(ink, rgbOf(s))));
+      if (least < 4.5) {
+        problems.push({
+          check: "avatar-contrast",
+          what: `"${text}" has ${least.toFixed(2)}:1 on its avatar`,
+        });
+      }
+      // The next face in the row is drawn over this one.
+      const next = el.nextElementSibling;
+      if (!(next instanceof HTMLElement) || !next.hasAttribute("data-initials")) continue;
+      ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      const box = el.getBoundingClientRect();
+      const right = (box.left + box.right) / 2 + ctx.measureText(text).width / 2;
+      const cover = next.getBoundingClientRect().left - ringOf(getComputedStyle(next));
+      if (right > cover + 0.5) {
+        problems.push({
+          check: "clipped-initials",
+          what: `"${text}" is covered by "${next.dataset.initials}" (${(right - cover).toFixed(1)}px)`,
+        });
+      }
+    }
+    return problems;
+  }) as Promise<LayoutProblem[]>;
+}
+
 /** Both kinds of check, failing softly so one capture shows every problem at once. */
 export async function checkScreen(page: Page) {
   expect.soft(await layoutProblems(page), "layout").toEqual([]);
+  expect.soft(await avatarProblems(page), "avatars").toEqual([]);
   expect.soft(await accessibilityProblems(page), "accessibility").toEqual([]);
 }

@@ -1,6 +1,7 @@
 import { reviewKindNames } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { Failed } from "~/components/ui/states";
 import { formatDates } from "~/lib/locale";
 import { projectReviewsQuery, type ReviewSummary, useProjectCan } from "~/lib/queries";
 import { Icon } from "./icons";
@@ -18,7 +19,7 @@ export function reviewState(review: Pick<ReviewSummary, "status" | "outcome">): 
 
 /** A project's reviews, newest first, and requesting a new one. */
 export function ProjectReviews({ projectId }: { projectId: string }) {
-  const { data: all, error } = useQuery(projectReviewsQuery(projectId));
+  const { data: all, error, refetch } = useQuery(projectReviewsQuery(projectId));
   const can = useProjectCan(projectId);
   // Sharing is not reviewing (#138): shares are listed apart, as the prototype lists them, and
   // start from the item shared (#489), not from here.
@@ -26,24 +27,20 @@ export function ProjectReviews({ projectId }: { projectId: string }) {
   const shares = all?.filter((r) => r.kind === "share") ?? [];
   return (
     <section aria-label="Reviews" className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="m-0 flex items-baseline gap-2 text-[15px] font-medium">
-          Reviews
-          {all && (
-            <span className="text-[13px] font-normal text-ink-3">
-              {count(reviews?.length ?? 0, "review")}, {count(shares.length, "share", false)}
-            </span>
-          )}
-        </h2>
+      {/* The page is named in the trail; its toolbar holds its one primary action (#548, #609). */}
+      <div className="flex min-h-8 flex-wrap items-center justify-end gap-3">
         {can("request_reviews") && (
-          <Button asChild>
+          <Button variant="primary" asChild>
             <Link to="/projects/$projectId/reviews/new" params={{ projectId }}>
+              <Icon name="plus" size={14} />
               Request a review
             </Link>
           </Button>
         )}
       </div>
-      {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
+      {error && (
+        <Failed what="The reviews" error={error} retry={refetch} size="panel" className="px-0" />
+      )}
       {reviews && reviews.length === 0 && (
         <p className="m-0 text-[13px] text-ink-3">
           No reviews yet. A review asks people to approve, or to give feedback on, tracks and files.

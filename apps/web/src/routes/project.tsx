@@ -8,6 +8,7 @@ import { PageHeader } from "~/components/page-header";
 import { ProjectPeople } from "~/components/project-people";
 import { ProjectReviews } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
+import { Loading } from "~/components/ui/states";
 import { type BrowserFilters, noFilters } from "~/lib/browser";
 import { formatDates } from "~/lib/locale";
 import {
@@ -19,10 +20,12 @@ import {
   useProjectDeletion,
 } from "~/lib/queries";
 import { ProjectOverview } from "~/routes/overview";
+import { PageFailed } from "~/routes/problem";
 
 /**
- * A project's pages share their frame: the trail back to the projects, the section's name as
- * the title (the project itself is in the sidebar's switcher, decision 038), and the content.
+ * A project's pages share their frame: the trail from the project (#547: the sidebar has
+ * Projects), the section's name as the title, and the content. Its overview is the project
+ * itself: Projects, then the project's name, as the prototype has it.
  */
 export function ProjectFrame({
   projectId,
@@ -32,31 +35,35 @@ export function ProjectFrame({
   children,
 }: {
   projectId: string;
-  title: string;
+  /** The section's name; the overview passes none and is named for the project. */
+  title?: string;
   actions?: ReactNode;
   /** A crumb between the project and the page, for a page under one of its sections. */
   parent?: (project: Project) => ReactNode;
   children: (project: Project) => ReactNode;
 }) {
-  const { data: project, error } = useQuery(projectQuery(projectId));
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!project) return <p className="p-8 text-ink-3">Loading</p>;
+  const { data: project, error, refetch } = useQuery(projectQuery(projectId));
+  if (error) return <PageFailed what="This project" error={error} retry={refetch} />;
+  if (!project) return <Loading />;
   return (
     <>
       <PageHeader
-        crumbs={[
-          { key: "projects", link: <Link to="/projects">Projects</Link> },
-          {
-            key: "project",
-            link: (
-              <Link to="/projects/$projectId" params={{ projectId: project.id }}>
-                {project.name}
-              </Link>
-            ),
-          },
-          ...(parent ? [{ key: "parent", link: parent(project) }] : []),
-        ]}
-        title={title}
+        crumbs={
+          title === undefined
+            ? [{ key: "projects", link: <Link to="/projects">Projects</Link> }]
+            : [
+                {
+                  key: "project",
+                  link: (
+                    <Link to="/projects/$projectId" params={{ projectId: project.id }}>
+                      {project.name}
+                    </Link>
+                  ),
+                },
+                ...(parent ? [{ key: "parent", link: parent(project) }] : []),
+              ]
+        }
+        title={title ?? project.name}
         actions={project.archivedAt ? undefined : actions}
       />
       {project.archivedAt && <ArchivedNotice project={project} />}
@@ -125,7 +132,7 @@ const body =
 /** The project's first page. */
 export function ProjectOverviewPage({ projectId }: { projectId: string }) {
   return (
-    <ProjectFrame projectId={projectId} title="Overview">
+    <ProjectFrame projectId={projectId}>
       {(project) => (
         <div className={body}>
           <ProjectOverview project={project} />

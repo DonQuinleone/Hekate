@@ -48,6 +48,15 @@
   --hk-category-5: var(--hk-node-flow);
   --hk-category-6: var(--hk-wave-warm);
 
+  /*
+   * Avatars (#540): a person's initials on a ramp of their own hue. The ramp's lightness and
+   * chroma and the initials' ink are the theme's, so the initials hold 4.5:1 in every theme
+   * (avatar.test.ts checks every hue).
+   */
+  --hk-avatar-lit: 0.42 0.06;
+  --hk-avatar-deep: 0.3 0.05;
+  --hk-avatar-ink: #f4f4f5;
+
   /* Project covers: each profile has its own lit and deep tone, and one sheen for all. */
   --hk-cover-music-lit: oklch(0.46 0.08 40);
   --hk-cover-music-deep: oklch(0.2 0.04 60);

@@ -211,7 +211,7 @@ export function QaRules({ project }: { project: Project }) {
             {edit && (
               <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
                 <Icon name="plus" size={14} />
-                Rule
+                New rule
               </Button>
             )}
           </span>

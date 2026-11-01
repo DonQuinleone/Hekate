@@ -769,7 +769,7 @@ export function InstancePage({ section }: { section: string }) {
       sec === "workspaces" && operator ? (
         <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
           <Icon name="plus" size={14} />
-          Workspace
+          New workspace
         </Button>
       ) : sec === "debug" ? (
         <Button variant="secondary" size="sm">
@@ -1396,12 +1396,11 @@ export function InstancePage({ section }: { section: string }) {
           )}
           {billingTab === "plans" && (
             <Section
-              title="Plans"
               intro="What workspaces can be on. Prices, limits and which support severities each unlocks are the instance's to set."
               action={
-                <Button variant="primary" size="md">
+                <Button variant="secondary" size="md">
                   <Icon name="plus" size={14} />
-                  Plan
+                  New plan
                 </Button>
               }
             >
@@ -1460,12 +1459,11 @@ export function InstancePage({ section }: { section: string }) {
           )}
           {billingTab === "promos" && (
             <Section
-              title="Promo codes"
               intro="A percentage or an amount off, for a number of months, for the first so many who use it, until a date."
               action={
-                <Button variant="primary" size="md">
+                <Button variant="secondary" size="md">
                   <Icon name="plus" size={14} />
-                  Code
+                  New code
                 </Button>
               }
             >
@@ -1749,12 +1747,11 @@ export function InstancePage({ section }: { section: string }) {
       {sec === "operators" && (
         <>
           <Section
-            title="Operators"
-            intro="Accounts that may open this side of the application. A hardware security key is required; everything they do is in the audit log under their name."
+            intro="A hardware security key is required; everything they do is in the audit log under their name."
             action={
-              <Button variant="primary" size="md">
+              <Button variant="secondary" size="md">
                 <Icon name="plus" size={14} />
-                Operator
+                Add operator
               </Button>
             }
           >

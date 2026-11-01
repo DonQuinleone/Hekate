@@ -13,7 +13,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
-import { Avatar } from "~/components/avatar";
+import { Avatar, personKey } from "~/components/avatar";
 import { kindIcon } from "~/components/files";
 import { FollowButton } from "~/components/follow-button";
 import { GuestFields } from "~/components/guest-fields";
@@ -29,6 +29,7 @@ import { ConfirmDialog, Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Loading } from "~/components/ui/states";
 import { ReviewerDot, type ReviewerDotState, StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
@@ -46,6 +47,7 @@ import {
 } from "~/lib/queries";
 import { shareLine, shareNote } from "~/lib/shares";
 import { useViewer } from "~/lib/viewer";
+import { PageFailed } from "~/routes/problem";
 
 const shortDate = formatDates({ day: "numeric", month: "short" });
 const longDate = formatDates({ day: "numeric", month: "long", year: "numeric" });
@@ -256,7 +258,7 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                       className="group flex flex-col gap-2 border-b border-line px-4 py-row last:border-b-0"
                     >
                       <div className="flex items-center gap-3">
-                        <Avatar id={r.userId ?? r.id} name={r.name} size={30} />
+                        <Avatar person={personKey(r)} name={r.name} size={30} />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 text-[14px]">
                             <span className="truncate font-medium text-ink">{r.name}</span>
@@ -778,7 +780,12 @@ function Activity({ review }: { review: ReviewDetail }) {
       <ul className="m-0 flex list-none flex-col p-0">
         {review.activity.map((a) => (
           <li key={a.id} className="flex gap-3 py-row-tight">
-            <Avatar id={a.name} name={a.name} size={22} className="mt-px" />
+            <Avatar
+              person={personKey({ userId: a.person, name: a.name })}
+              name={a.name}
+              size={22}
+              className="mt-px"
+            />
             <div className="min-w-0 flex-1">
               <p className="m-0 text-[14px] text-ink-2">
                 <span className="text-ink">{a.name}</span>{" "}
@@ -861,7 +868,7 @@ export function ReviewBody({
   /** Record that you have seen it. Off for a review shown only because it came first. */
   markViewed?: boolean;
 }) {
-  const { data: review, error } = useQuery(reviewQuery(reviewId));
+  const { data: review, error, refetch } = useQuery(reviewQuery(reviewId));
   const { guest } = useViewer();
   const { data: me } = useQuery({ ...meQuery, enabled: !guest });
   const { data: project } = useQuery({
@@ -885,8 +892,8 @@ export function ReviewBody({
     }
   }, [markViewed, mine?.state, viewed]);
 
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!review) return <p className="p-8 text-ink-3">Loading</p>;
+  if (error) return <PageFailed what="This review" error={error} retry={refetch} />;
+  if (!review) return <Loading />;
   const state = reviewState(review);
   const due = review.dueAt ? dueIn(review.dueAt) : null;
   const overdue = review.status === "open" && due !== null && due.days < 0;
@@ -899,7 +906,6 @@ export function ReviewBody({
   const crumbs: Crumb[] = guest
     ? [{ key: "reviews", link: <Link to="/g">Your reviews</Link> }]
     : [
-        { key: "projects", link: <Link to="/projects">Projects</Link> },
         {
           key: "project",
           link: (
@@ -1026,7 +1032,7 @@ export function ReviewBody({
             {embedded && !titled && <h2 className="title m-0">{review.title}</h2>}
             <p className="m-0 flex items-center gap-2 text-[13px] text-ink-3">
               <Avatar
-                id={review.createdByName ?? "former"}
+                person={review.createdBy ?? "former"}
                 name={review.createdByName ?? "A former member"}
                 size={18}
               />
