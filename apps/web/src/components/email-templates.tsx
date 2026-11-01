@@ -29,7 +29,7 @@ function Preview({ template, view }: { template: EmailTemplateId; view: View }) 
   if (!data) return <div className="h-[480px] animate-pulse bg-raised/40" />;
   if (view === "text")
     return (
-      <pre className="tabular m-0 max-h-[560px] overflow-auto bg-ground/60 px-5 py-5 font-mono text-[12.5px] leading-[19px] whitespace-pre-wrap text-ink-2">
+      <pre className="tabular m-0 max-h-[560px] overflow-auto bg-ground/60 px-5 py-5 font-sans text-[13px] leading-[20px] whitespace-pre-wrap text-ink-2">
         {`Subject: ${data.subject}\n\n${data.text}`}
       </pre>
     );

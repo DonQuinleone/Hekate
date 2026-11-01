@@ -7,7 +7,8 @@ export type ReviewState =
   | "submitted"
   | "cancelled";
 
-const copy: Record<ReviewState, string> = {
+/** Each state in words, in sentence case, as every screen writes it. */
+export const reviewStateLabels: Record<ReviewState, string> = {
   in_review: "In review",
   changes_requested: "Changes requested",
   approved: "Approved",
@@ -36,7 +37,7 @@ export function StatusPill({ state }: { state: ReviewState }) {
   return (
     <span className="inline-flex h-6 items-center gap-[7px] rounded-full border border-hairline px-2.5 text-xs text-ink-2">
       <StatusDot state={state} />
-      {copy[state]}
+      {reviewStateLabels[state]}
     </span>
   );
 }

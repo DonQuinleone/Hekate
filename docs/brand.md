@@ -64,13 +64,14 @@ A theme overrides tokens and nothing else. Every text colour (`ink`, `ink-2`, `i
 ## Type
 
 - **Schibsted Grotesk** for the interface and display. Weights 400 and 500 only. Display from 36 px at minus 0.025em; UI text at 13 and 14 px with no tracking.
-- One typeface throughout. Data (timecodes, bar numbers, frame numbers, counts) is set in Schibsted Grotesk with tabular figures; there is no monospace face. Labels over a group or a column are 13 px, weight 500, sentence case, in the tertiary ink.
+- One typeface throughout. Data (timecodes, bar numbers, frame numbers, counts) and identifiers (keys, addresses, recovery codes, checksums) are set in Schibsted Grotesk with tabular figures, a code letter-spaced a little so its characters can be read one by one. A value people copy (a key, an address, a URI) has a Copy button beside it. Labels over a group or a column are 13 px, weight 500, sentence case, in the tertiary ink.
+- One exception: code that people read or edit as code is set in the system monospace stack. That is the workflow's YAML, Debug's JSON and stack traces, shell commands, and a file's text shown as a programme will read it (an export's preview, a certificate in PEM). Nothing else is monospace.
 
 Anchors are always written the same way: `BAR 112.1`, `BARS 118–124`, `04:31.250`, `00:01:12:08`, `F 1736`.
 
 ## Shape and space
 
-- Radius 6 px for controls, 8 px for panels, 4 px for chips. Full round only for status pills, avatars and markers.
+- Radius 4 px for chips, 6 px for controls, 8 px for panels and menus, 10 px for dialogs and large panels. Full round only for status pills, avatars and markers.
 - 4 px spacing scale. Rows are 34 px; toolbars 40 px; the top bar 52 px.
 - Hit targets at least 28 px in dense tool bars and 44 px elsewhere.
 - Shadows only for what floats: menus, popovers, dialogs and the paper of a score, at a soft, layered weight. Everything that sits on the page is elevated by a step up the surface scale plus a hairline, never a shadow.

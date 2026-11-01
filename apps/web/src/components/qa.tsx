@@ -134,7 +134,7 @@ export function FindingRow({
               type="button"
               onClick={() => onSeek(finding.start ?? 0)}
               aria-label={`Play from ${at}`}
-              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 font-mono text-[11px] text-ink hover:border-signal"
+              className="tabular h-6 cursor-pointer rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal"
             >
               {at}
             </button>
@@ -560,7 +560,7 @@ export function QaSummary({ fileId, onOpen }: { fileId: string; onOpen: () => vo
       type="button"
       onClick={onOpen}
       aria-label={`Quality checks: ${parts.join(", ")}. Open QA`}
-      className="tabular flex h-7 w-fit cursor-pointer items-center gap-2 rounded-chip border border-hairline bg-transparent px-2.5 font-mono text-[11px] text-ink-2 hover:border-edge hover:text-ink"
+      className="tabular flex h-7 w-fit cursor-pointer items-center gap-2 rounded-chip border border-hairline bg-transparent px-2.5 text-[11px] text-ink-2 hover:border-edge hover:text-ink"
     >
       <SeverityDot severity={worst} />
       {parts.join(" · ")}

@@ -117,7 +117,7 @@ const spacing = [
   },
   {
     name: "Radii",
-    value: "Chips 4 px, controls 6 px, panels 8 px, large panels 12 px, the stage 16 px",
+    value: "Chips 4 px, controls 6 px, panels and menus 8 px, dialogs and large panels 10 px",
   },
   {
     name: "Width",
@@ -166,7 +166,7 @@ function Swatch({ c }: { c: (typeof colours)[number] }) {
         <span className="block text-[13px] text-ink">{c.name}</span>
         <span className="block truncate text-[12px] text-ink-3">{c.use}</span>
       </span>
-      <code className="tabular text-[12px] text-ink-3">--hk-{c.token}</code>
+      <code className="tabular font-sans text-[12px] text-ink-3">--hk-{c.token}</code>
     </div>
   );
 }
@@ -245,11 +245,11 @@ export function BrandSection() {
           <span className="flex items-center gap-3 text-[12px] text-ink-2">
             {(
               [
-                ["approved", "done"],
-                ["in_review", "in review"],
-                ["changes_requested", "changes"],
-                ["waiting", "waiting"],
-                ["working", "working"],
+                ["approved", "Approved"],
+                ["in_review", "In review"],
+                ["changes_requested", "Changes requested"],
+                ["waiting", "Waiting"],
+                ["working", "Working"],
               ] as [DotState, string][]
             ).map(([s, l]) => (
               <span key={s} className="flex items-center gap-1.5">
@@ -262,7 +262,7 @@ export function BrandSection() {
       </Section>
       <Section
         title="Type"
-        intro="One face, Schibsted Grotesk, at one scale. No monospace outside code and timecodes."
+        intro="One face, Schibsted Grotesk, at one scale. Data and identifiers (timecodes, counts, keys, addresses) take its tabular figures. The system monospace is for code people read or edit as code only: the workflow's YAML, Debug's JSON and stack traces, shell commands."
       >
         {type.map((t) => (
           <div

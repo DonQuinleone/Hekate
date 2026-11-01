@@ -26,4 +26,25 @@ describe("the component set", () => {
     );
     expect(outside).toEqual([]);
   });
+
+  // Monospace is for code people read or edit as code, and nothing else (docs/brand.md, Type):
+  // keys, addresses and times are the one face with tabular figures.
+  it("keeps monospace to the code views brand.md names", () => {
+    const code = new Set([
+      "components/ui/code-editor.tsx", // the workflow's YAML
+      "components/inspect.tsx", // Debug's JSON and stack traces
+      "components/exports.tsx", // an export's text, as the programme reads it
+      "components/sso.tsx", // a certificate in PEM
+    ]);
+    const outside = sources(src).flatMap((path) =>
+      code.has(relative(src, path)) || path.endsWith(".test.tsx")
+        ? []
+        : readFileSync(path, "utf8")
+            .split("\n")
+            .flatMap((line, i) =>
+              /\bfont-mono\b/.test(line) ? [`${relative(src, path)}:${i + 1}`] : [],
+            ),
+    );
+    expect(outside).toEqual([]);
+  });
 });

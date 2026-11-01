@@ -11,6 +11,7 @@ import {
   useSwitchOrganisation,
   useTransferMutations,
 } from "~/lib/queries";
+import { CopyButton } from "./copy-button";
 import { useIdentityCheck } from "./identity-check";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
@@ -338,7 +339,12 @@ export function TransfersSection() {
             name="Its address"
             hint="Someone moving a project here from a workspace you are not in gives it."
           >
-            <code className="tabular text-[14px] text-ink">{here.address}</code>
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="tabular truncate text-[14px] tracking-wide text-ink">
+                {here.address}
+              </span>
+              <CopyButton value={here.address} label="Copy the address" />
+            </span>
           </Row>
         </Section>
       )}

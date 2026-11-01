@@ -214,7 +214,7 @@ function StartExport({
             <Input
               value={key}
               readOnly
-              className="font-mono text-[12px]"
+              className="tabular text-[13px] tracking-wide"
               onFocus={(e) => e.currentTarget.select()}
             />
           </Field>
@@ -264,7 +264,7 @@ function StartExport({
             placeholder="age1…"
             autoComplete="off"
             spellCheck={false}
-            className="font-mono text-[12px]"
+            className="tabular text-[13px] tracking-wide"
           />
         </Field>
       </form>

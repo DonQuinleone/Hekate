@@ -24,6 +24,7 @@ import {
   ReviewerDot,
   type ReviewerDotState,
   type ReviewState,
+  reviewStateLabels,
   StatusDot,
   StatusPill,
 } from "~/components/ui/status";
@@ -117,7 +118,7 @@ const spacing: [string, string][] = [
   ["Row", "16 px sides, 12 px top and bottom; the hint 2 px under the name"],
   ["Controls", "8 px between a row's controls; 6 px between chips"],
   ["Heights", "Buttons 32 px (small 28, large 36); fields 36 px (small 28); nav items 32 px"],
-  ["Radii", "Chips 4 px, controls 6 px, panels 8 px, large panels 12 px"],
+  ["Radii", "Chips 4 px, controls 6 px, panels and menus 8 px, dialogs and large panels 10 px"],
   ["Width", "Pages run to 1360 px; narrow pages to 860 px; dialogs 420, 560, 760 or 960 px"],
 ];
 
@@ -195,6 +196,12 @@ const pretendToSend = (file: File, onProgress: (share: number) => void, signal: 
     });
   });
 
+/** A state's key in sentence case, as screens write it: "changes_requested" is "Changes requested". */
+const sentence = (key: string) => {
+  const words = key.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
 /** One component: its name and rule at the left, the component in its states at the right. */
 function Spec({ name, rule, children }: { name: string; rule: string; children: ReactNode }) {
   return (
@@ -268,7 +275,7 @@ function Brand() {
                     <span className="block text-[13px] text-ink">{c.token}</span>
                     <span className="block truncate text-[12px] text-ink-3">{c.use}</span>
                   </span>
-                  <code className="tabular hidden text-[12px] text-ink-3 @3xl/app:block">
+                  <code className="tabular hidden font-sans text-[12px] text-ink-3 @3xl/app:block">
                     --hk-{c.token}
                   </code>
                 </div>
@@ -279,7 +286,7 @@ function Brand() {
       </Section>
       <Section
         title="Type"
-        intro="One face, Schibsted Grotesk, at one scale. No monospace outside code and timecodes."
+        intro="One face, Schibsted Grotesk, at one scale. Data and identifiers (timecodes, counts, keys, addresses) take its tabular figures. The system monospace is for code people read or edit as code only: the workflow's YAML, Debug's JSON and stack traces, shell commands."
       >
         {type.map((t) => (
           <div
@@ -747,7 +754,7 @@ function Components() {
             {states.map((s) => (
               <span key={s} className="flex items-center gap-1.5">
                 <StatusDot state={s} />
-                {s.replace("_", " ")}
+                {reviewStateLabels[s]}
               </span>
             ))}
           </span>
@@ -783,7 +790,7 @@ function Components() {
             ).map((s) => (
               <span key={s} className="flex items-center gap-1.5">
                 <ReviewerDot state={s} />
-                {s.replace("_", " ")}
+                {sentence(s)}
               </span>
             ))}
           </span>

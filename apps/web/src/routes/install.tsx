@@ -635,7 +635,7 @@ function MasterKeyStep({ code, state, advance, back }: StepProps) {
               <div className="flex items-center gap-2 rounded-panel border border-line bg-sunken py-1.5 pr-1.5 pl-4 text-[13px] text-ink">
                 <span
                   data-testid="master-key"
-                  className="tabular min-w-0 flex-1 truncate font-mono"
+                  className="tabular min-w-0 flex-1 truncate tracking-wide"
                 >
                   {generated}
                 </span>

@@ -7,6 +7,7 @@ import {
   instanceOwnSettingsQuery,
   useSaveInstanceSettings,
 } from "~/lib/queries";
+import { CopyButton } from "./copy-button";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
@@ -93,7 +94,10 @@ export function Gateways() {
             name="Webhook"
             hint="Where Stripe sends its events, with the signing secret in STRIPE_WEBHOOK_SECRET."
           >
-            <code className="tabular truncate text-[12px] text-ink-2">{stripe.webhookUrl}</code>
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="tabular truncate text-[13px] text-ink-2">{stripe.webhookUrl}</span>
+              <CopyButton value={stripe.webhookUrl} label="Copy the webhook address" />
+            </span>
           </Row>
         )}
         <Row

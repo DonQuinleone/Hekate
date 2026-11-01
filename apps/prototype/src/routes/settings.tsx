@@ -1224,7 +1224,7 @@ export function SettingsPage({
               <Input
                 readOnly
                 defaultValue="https://review.endlesshall.example/api/auth/sso/callback/workspace-endless-hall"
-                className="w-full font-mono text-[12px] @3xl/app:w-96"
+                className="tabular w-full text-[13px] @3xl/app:w-96"
               />
             </Row>
             <Row name="Groups" hint="The claim that lists a person's groups.">
@@ -1643,7 +1643,7 @@ export function SettingsPage({
               name="Its address"
               hint="Someone moving a project here from a workspace you are not in gives it."
             >
-              <code className="tabular text-[14px] text-ink">endless-hall</code>
+              <span className="tabular text-[14px] tracking-wide text-ink">endless-hall</span>
             </Row>
           </Section>
           <Section title="Waiting">

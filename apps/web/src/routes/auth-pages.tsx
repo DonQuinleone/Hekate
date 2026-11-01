@@ -580,7 +580,7 @@ function SecondFactor({
             autoFocus
             spellCheck={false}
             placeholder="xxxxx-xxxxx"
-            className="h-10 font-mono"
+            className="tabular h-10 tracking-wide"
             value={code}
             onChange={(e) => setCode(e.target.value)}
           />

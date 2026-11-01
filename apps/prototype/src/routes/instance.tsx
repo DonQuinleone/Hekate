@@ -1530,9 +1530,9 @@ export function InstancePage({ section }: { section: string }) {
                   name="Webhook"
                   hint="Where Stripe sends its events, with the signing secret in STRIPE_WEBHOOK_SECRET."
                 >
-                  <code className="tabular truncate text-[12px] text-ink-2">
+                  <span className="tabular truncate text-[13px] text-ink-2">
                     https://review.endlesshall.example/api/hooks/billing/stripe
-                  </code>
+                  </span>
                 </Row>
                 <Row
                   name="Paddle"
