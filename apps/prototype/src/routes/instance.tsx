@@ -893,30 +893,13 @@ export function InstancePage({ section }: { section: string }) {
                   {org.state !== "active" && <span className="text-signal"> · {org.state}</span>}
                 </p>
               </div>
-              <ActionMenu
-                always
-                label={org.name}
-                actions={[
-                  { label: "Export everything", onSelect: () => {} },
-                  ...(operator
-                    ? [
-                        "divider" as const,
-                        {
-                          label: org.state === "suspended" ? "Reinstate" : "Suspend",
-                          danger: org.state !== "suspended",
-                          onSelect: () => {},
-                        },
-                      ]
-                    : []),
-                ]}
-              />
             </div>
             <Tabs
               tabs={[
                 { id: "overview", label: "Overview" },
                 { id: "members", label: `Members · ${org.members}` },
                 { id: "projects", label: `Projects · ${org.projects}` },
-                { id: "storage", label: "Storage and quota" },
+                { id: "storage", label: "Storage" },
                 { id: "billing", label: "Billing" },
                 { id: "settings", label: "Settings" },
                 { id: "keys", label: "Keys" },
@@ -1018,28 +1001,26 @@ export function InstancePage({ section }: { section: string }) {
             {orgTab === "storage" && (
               <>
                 <Section
-                  title="Quota"
+                  title="Limits"
                   intro="Uploads are refused at the storage quota and invitations at the member limit; the workspace is warned from 90%. Lowering one removes nothing."
                 >
                   <Row
-                    name="Used"
-                    hint={`${gb(org.used)} of ${gb(org.quota)} · originals 71%, renditions 24%, pages 5%`}
-                  >
-                    <span className="flex w-56 flex-col gap-1">
-                      <span className="h-1.5 overflow-hidden rounded-full bg-raised">
-                        <span
-                          className={cn(
-                            "block h-full rounded-full",
-                            org.used / org.quota > 0.9 ? "bg-signal" : "bg-ink-2",
-                          )}
-                          style={{ width: `${Math.min(100, (org.used / org.quota) * 100)}%` }}
-                        />
+                    name="Storage"
+                    hint={
+                      <span className="flex flex-col gap-2">
+                        <span>{`${gb(org.used)} of ${gb(org.quota)}`}</span>
+                        <span className="h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
+                          <span
+                            className={cn(
+                              "block h-full rounded-full",
+                              org.used / org.quota > 0.9 ? "bg-signal" : "bg-ink-2",
+                            )}
+                            style={{ width: `${Math.min(100, (org.used / org.quota) * 100)}%` }}
+                          />
+                        </span>
                       </span>
-                    </span>
-                  </Row>
-                  <Row name="Members" hint={`${org.members} of 25`} />
-                  <Row name="This month" hint="184 plays · 12 downloads" />
-                  <Row name="Storage quota">
+                    }
+                  >
                     <Select defaultValue={String(org.quota)} className="w-36">
                       <option value="250">250 GB</option>
                       <option value="1000">1 TB</option>
@@ -1048,7 +1029,7 @@ export function InstancePage({ section }: { section: string }) {
                       <option value="0">No quota</option>
                     </Select>
                   </Row>
-                  <Row name="Member limit">
+                  <Row name="Members" hint={`${org.members} of 25`}>
                     <Select defaultValue="25" className="w-36">
                       <option value="5">5</option>
                       <option value="10">10</option>
@@ -1057,6 +1038,12 @@ export function InstancePage({ section }: { section: string }) {
                       <option value="100">100</option>
                       <option value="none">No limit</option>
                     </Select>
+                  </Row>
+                  <Row name="This month" hint="184 plays · 12 downloads" />
+                </Section>
+                <Section title="Stored" intro="Sizes before encryption.">
+                  <Row name="In all" hint="Originals 71%, renditions 24%, pages 5%">
+                    <span className="tabular text-[13px] text-ink-2">{gb(org.used)}</span>
                   </Row>
                   <Row name="Backends" hint="Where this workspace's objects go.">
                     <span className="text-[13px] text-ink-2">
@@ -1193,6 +1180,16 @@ export function InstancePage({ section }: { section: string }) {
                     hint="The instance can require it for everyone instead, in Settings."
                     checked={org.factor}
                   />
+                </Section>
+                <Section title="Export">
+                  <Row
+                    name="Export everything"
+                    hint="Every record as JSON and every file as it was uploaded, in one archive encrypted with age (the file encryption tool). Kept 7 days for its download."
+                  >
+                    <Button variant="secondary" size="md">
+                      Start an export…
+                    </Button>
+                  </Row>
                 </Section>
                 <Danger>
                   <Row
@@ -1782,7 +1779,6 @@ export function InstancePage({ section }: { section: string }) {
             <Row
               name="Operators sign in with a passkey or security key"
               hint="Set in the environment (OPERATOR_SECURITY_KEY). Operators never act as anyone else."
-              inline
             >
               <span className="text-[13px] text-ink-2">On</span>
               <Button variant="ghost" size="md">

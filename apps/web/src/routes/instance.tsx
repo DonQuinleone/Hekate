@@ -2497,6 +2497,12 @@ type WorkspaceTab =
   | "keys";
 
 /** One workspace: what it is, where it stands, and its tabs. */
+/** A reason typed by an operator, read as a sentence of its own (#685). */
+const asSentence = (text: string) => {
+  const t = text.trim();
+  return /[.!?]$/.test(t) ? t : `${t}.`;
+};
+
 function WorkspaceDetail({
   id,
   operator,
@@ -2506,17 +2512,9 @@ function WorkspaceDetail({
   operator: boolean;
   tab?: WorkspaceTab;
 }) {
-  const client = useQueryClient();
   const { data: w } = useQuery(instanceWorkspaceQuery(id));
   const [tab, setTab] = useState<WorkspaceTab>(first ?? "overview");
   const [suspending, setSuspending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const reinstate = useMutation({
-    mutationFn: async () =>
-      json(await api.instance.workspaces[":id"].reinstate.$post({ param: { id } })),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["instance"] }),
-    onError: (e) => setError(e.message),
-  });
   if (!w) return null;
   return (
     <div className="fade-in flex flex-col gap-6 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8">
@@ -2526,37 +2524,20 @@ function WorkspaceDetail({
           <h2 className="m-0 truncate text-[20px] font-medium tracking-tight text-ink">{w.name}</h2>
           <p className="tabular m-0 text-[13px] text-ink-3">
             {w.slug} · since {since.format(new Date(w.createdAt))}
-            {w.state === "suspended" && (
+            {w.deleteAfter && (
               <span className="text-signal">
-                {w.deleteAfter
-                  ? ` · deleted on ${since.format(new Date(w.deleteAfter))}`
-                  : " · suspended"}
+                {` · deleted on ${since.format(new Date(w.deleteAfter))}`}
               </span>
             )}
           </p>
         </div>
-        {operator && (
-          <ActionMenu
-            always
-            label={w.name}
-            actions={[
-              w.state === "suspended"
-                ? { label: "Reinstate", onSelect: () => reinstate.mutate() }
-                : { label: "Suspend…", danger: true, onSelect: () => setSuspending(true) },
-            ]}
-          />
-        )}
       </div>
+      {/* Suspend, Reinstate and Delete are the Settings tab's Danger zone's alone (#602). */}
       {w.state === "suspended" && (
         <p className="m-0 max-w-[620px] text-[13px] text-ink-2">
-          Suspended {w.suspendedAt ? ago(w.suspendedAt) : ""}
-          {w.suspendedReason ? `: ${w.suspendedReason}` : "."} Its members see this, and its guests’
-          links do not open until it is reinstated.
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="m-0 text-[13px] text-signal">
-          {error}
+          <span className="text-signal">Suspended {w.suspendedAt ? ago(w.suspendedAt) : ""}.</span>
+          {w.suspendedReason ? ` ${asSentence(w.suspendedReason)}` : ""} Its members see this, and
+          its guests’ links do not open until it is reinstated.
         </p>
       )}
       <Tabs value={tab} onValueChange={(v) => setTab(v as WorkspaceTab)}>
@@ -2596,7 +2577,7 @@ function WorkspaceDetail({
           />
         </TabsContent>
         <TabsContent value="keys" className="flex flex-col gap-6 pt-6">
-          <WorkspaceKeys id={id} name={w.name} operator={operator} />
+          <WorkspaceKeys id={id} operator={operator} />
         </TabsContent>
       </Tabs>
     </div>
@@ -2887,37 +2868,39 @@ function WorkspaceStorage({ id, operator }: { id: string; operator: boolean }) {
   return (
     <>
       <Section
-        title="Quota"
+        title="Limits"
         intro="Uploads are refused at the storage quota and invitations at the member limit; the workspace is warned from 90%. Lowering one removes nothing."
       >
-        <UsageRows usage={s.usage} />
-        {operator && (
-          <>
-            <Row name="Storage quota" inline>
+        <UsageRows
+          usage={s.usage}
+          storageControl={
+            operator && (
               <QuotaSelect
                 value={limits.storageQuota}
                 disabled={setLimits.isPending}
                 onChange={(storageQuota) => setLimits.mutate({ ...limits, storageQuota })}
               />
-            </Row>
-            <Row name="Member limit" inline>
+            )
+          }
+          memberControl={
+            operator && (
               <MemberLimitSelect
                 value={limits.memberLimit}
                 disabled={setLimits.isPending}
                 onChange={(memberLimit) => setLimits.mutate({ ...limits, memberLimit })}
               />
-            </Row>
-          </>
-        )}
+            )
+          }
+        />
         {setLimits.error && (
           <p role="alert" className="m-0 px-4 py-2 text-[13px] text-signal">
             {setLimits.error.message}
           </p>
         )}
       </Section>
-      <Section title="Storage" intro="Sizes before encryption.">
+      <Section title="Stored" intro="Sizes before encryption.">
         <Row
-          name="Used"
+          name="In all"
           hint={`${formatBytes(s.originalBytes)} of originals, ${formatBytes(s.derivedBytes)} made from them for playback, waveforms and pages`}
           inline
         >
@@ -3018,7 +3001,7 @@ function ClearRenditions({
   return (
     <Dialog
       title="Clear the rendition cache"
-      description="Every recording in this workspace is packaged again from its original, as the instance's ladder now says, taking about as long as its first preparation. Each keeps playing its old renditions until its new ones replace them. Originals are only read, never changed."
+      description="Every recording in this workspace is packaged again from its original, at the qualities the instance now streams, taking about as long as its first preparation. Each keeps playing its old renditions until its new ones replace them. Originals are only read, never changed."
       onClose={onClose}
       footer={
         <>
@@ -3026,7 +3009,7 @@ function ClearRenditions({
             Cancel
           </Button>
           <Button variant="primary" disabled={clear.isPending} onClick={() => clear.mutate()}>
-            Clear and make again
+            Clear and rebuild
           </Button>
         </>
       }
@@ -3125,10 +3108,16 @@ function WorkspaceSettingsTab({
         </Row>
         <Row name="Opening a link" inline>
           <span className="text-[13px] text-ink-2">
-            {s.guestVerification === "code" ? "Asks for an emailed code" : "Opens by itself"}
+            {s.guestVerification === "code" ? "Asks for an emailed code" : "Opens on its own"}
           </span>
         </Row>
       </Section>
+      {/* Its export (#186): for leaving or for an audit, beside its owners' own in Settings (#602). */}
+      {operator && (
+        <Section title="Export">
+          <WorkspaceExports scope={{ kind: "instance", id: w.id }} name={w.name} />
+        </Section>
+      )}
       {operator && (
         <Danger>
           <Row
@@ -3148,10 +3137,10 @@ function WorkspaceSettingsTab({
           {w.deleteAfter ? (
             <Row
               name={`Deleted on ${since.format(new Date(w.deleteAfter))}`}
-              hint="With everything in it. Until then, keeping it or reinstating it changes nothing."
+              hint="With everything in it. Until then, cancelling the deletion or reinstating it changes nothing."
             >
               <Button variant="secondary" size="md" onClick={() => keep.mutate()}>
-                Keep it
+                Cancel the deletion
               </Button>
             </Row>
           ) : (
@@ -3244,7 +3233,7 @@ function DeleteWorkspace({
   );
 }
 
-function WorkspaceKeys({ id, name, operator }: { id: string; name: string; operator: boolean }) {
+function WorkspaceKeys({ id, operator }: { id: string; operator: boolean }) {
   const client = useQueryClient();
   const { data: k } = useQuery(instanceKeysQuery(id));
   const [error, setError] = useState<string | null>(null);
@@ -3294,8 +3283,6 @@ function WorkspaceKeys({ id, name, operator }: { id: string; name: string; opera
           {error}
         </p>
       )}
-      {/* Its export (#186): for leaving or for an audit; its owners have theirs in Settings. */}
-      {operator && <WorkspaceExports scope={{ kind: "instance", id }} name={name} />}
     </Section>
   );
 }
