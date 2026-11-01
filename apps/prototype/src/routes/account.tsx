@@ -19,7 +19,7 @@ const sections = [
   { id: "account", label: "Account", intro: "Who you are to Hekate." },
   {
     id: "security",
-    label: "Passkeys and sessions",
+    label: "Security",
     intro:
       "How you sign in and how it is guarded, and every browser and device signed in as you. Sign out any you do not recognise, then change your password.",
   },
@@ -183,7 +183,7 @@ export function AccountPage({ section }: { section: string }) {
   const [adding, setAdding] = useState(false);
   const [theme, setTheme] = useState("signal-dark");
   const [digest, setDigest] = useState<"instant" | "digest">("instant");
-  usePageHeader({ title: "Account", heading: "page" });
+  usePageHeader({ title: "Your account", heading: "page" });
   const sec = sections.some((s) => s.id === section) ? section : "account";
   const current = sections.find((s) => s.id === sec);
   const keys = [
