@@ -70,7 +70,7 @@ import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
-import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
+import { ActionMenu, type MenuItem, usePopover } from "~/components/ui/menu";
 import { Failed, Loading } from "~/components/ui/states";
 import { StorageUsageRow } from "~/components/usage";
 import { DeleteWorkspace, WorkspaceExports } from "~/components/workspace-lifecycle";
@@ -78,6 +78,7 @@ import { WhereFilesGo } from "~/components/workspace-storage";
 import {
   actionChoices,
   actionCopy,
+  actorParts,
   exportUrl,
   filtered,
   type LogFilterKey,
@@ -1119,76 +1120,81 @@ function Members({ role: myRole }: { role: Role }) {
               (myRole === "owner" || m.role !== "owner") &&
               !(m.role === "owner" && owners === 1);
             return (
+              // On a phone the role goes under the name, so the name and address keep the width (#596).
               <div
                 key={m.id}
-                className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-raised/30"
+                className="group grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-2.5 transition-colors hover:bg-raised/30 @3xl/app:grid-cols-[28px_minmax(0,1fr)_8rem_auto]"
               >
                 <Avatar person={m.userId} name={m.name} size={28} />
-                <span className="min-w-0 flex-1">
+                <span className="min-w-0">
                   <span className="block truncate text-[14px] text-ink">
                     {m.name}
                     {isSelf && <span className="text-ink-3"> · you</span>}
                   </span>
                   <span className="block truncate text-[13px] text-ink-3">{m.email}</span>
                 </span>
-                {canEdit ? (
-                  <Select
-                    aria-label={`Role of ${m.name}`}
-                    value={m.role}
-                    onChange={(e) => setRole.mutate({ id: m.id, role: e.target.value as Role })}
-                    className="h-8 w-32 text-[13px]"
-                  >
-                    {roles
-                      .filter((r) => r !== "owner" || myRole === "owner")
-                      .map((r) => (
-                        <option key={r} value={r}>
-                          {roleLabel[r]}
-                        </option>
-                      ))}
-                  </Select>
-                ) : (
-                  <span
-                    className="w-32 text-right text-[13px] text-ink-2"
-                    title={
-                      m.role === "owner" && owners === 1
-                        ? "The last owner cannot change role"
-                        : undefined
-                    }
-                  >
-                    {roleLabel[m.role]}
-                  </span>
-                )}
-                {canEdit || isSelf ? (
-                  <ActionMenu
-                    label={m.name}
-                    actions={[
-                      {
-                        label: isSelf ? "Leave the workspace…" : "Remove from the workspace…",
-                        danger: true,
-                        onSelect: () =>
-                          confirm(
-                            isSelf
-                              ? {
-                                  title: "Leave the workspace?",
-                                  description:
-                                    "You lose access to its projects. Someone in it has to invite you to come back.",
-                                  action: "Leave",
-                                  onConfirm: () => remove.mutateAsync(m.id),
-                                }
-                              : {
-                                  title: `Remove ${m.name} from the workspace?`,
-                                  description:
-                                    "They lose access to its projects. What they wrote and decided stays.",
-                                  action: "Remove",
-                                  onConfirm: () => remove.mutateAsync(m.id),
-                                },
-                          ),
-                      },
-                    ]}
-                  />
-                ) : (
-                  <span className="size-7 shrink-0" />
-                )}
+                <span className="col-start-2 row-start-2 flex min-w-0 @3xl/app:col-start-3 @3xl/app:row-start-1 @3xl/app:justify-end">
+                  {canEdit ? (
+                    <Select
+                      aria-label={`Role of ${m.name}`}
+                      value={m.role}
+                      onChange={(e) => setRole.mutate({ id: m.id, role: e.target.value as Role })}
+                      className="h-8 w-32 text-[13px]"
+                    >
+                      {roles
+                        .filter((r) => r !== "owner" || myRole === "owner")
+                        .map((r) => (
+                          <option key={r} value={r}>
+                            {roleLabel[r]}
+                          </option>
+                        ))}
+                    </Select>
+                  ) : (
+                    <span
+                      className="text-[13px] text-ink-2 @3xl/app:w-32 @3xl/app:text-right"
+                      title={
+                        m.role === "owner" && owners === 1
+                          ? "The last owner cannot change role"
+                          : undefined
+                      }
+                    >
+                      {roleLabel[m.role]}
+                    </span>
+                  )}
+                </span>
+                <span className="col-start-3 row-span-2 row-start-1 flex @3xl/app:col-start-4 @3xl/app:row-span-1">
+                  {canEdit || isSelf ? (
+                    <ActionMenu
+                      label={m.name}
+                      actions={[
+                        {
+                          label: isSelf ? "Leave the workspace…" : "Remove from the workspace…",
+                          danger: true,
+                          onSelect: () =>
+                            confirm(
+                              isSelf
+                                ? {
+                                    title: "Leave the workspace?",
+                                    description:
+                                      "You lose access to its projects. Someone in it has to invite you to come back.",
+                                    action: "Leave",
+                                    onConfirm: () => remove.mutateAsync(m.id),
+                                  }
+                                : {
+                                    title: `Remove ${m.name} from the workspace?`,
+                                    description:
+                                      "They lose access to its projects. What they wrote and decided stays.",
+                                    action: "Remove",
+                                    onConfirm: () => remove.mutateAsync(m.id),
+                                  },
+                            ),
+                        },
+                      ]}
+                    />
+                  ) : (
+                    <span className="size-7 shrink-0" />
+                  )}
+                </span>
               </div>
             );
           })}
@@ -1198,10 +1204,15 @@ function Members({ role: myRole }: { role: Role }) {
         <Section title="Invited" count={invitations.length}>
           {invitations.map((i) => (
             <div key={i.id} className="group flex items-center gap-3 px-4 py-2.5">
-              <Icon name="mail" className="text-ink-3" />
-              <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{i.email}</span>
-              <span className="text-[13px] text-ink-3">
-                {roleLabel[i.role]} · until {dateFormat.format(new Date(i.expiresAt))}
+              <span className="flex size-7 shrink-0 items-center justify-center text-ink-3">
+                <Icon name="mail" />
+              </span>
+              {/* The address takes the width; what the invitation is, beneath it (#596). */}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[14px] text-ink">{i.email}</span>
+                <span className="block truncate text-[13px] text-ink-3">
+                  {roleLabel[i.role]} · until {dateFormat.format(new Date(i.expiresAt))}
+                </span>
               </span>
               <ActionMenu
                 label={i.email}
@@ -1598,7 +1609,7 @@ function AccessLog() {
     guestId: "user",
     since: "clock",
   };
-  const entryActions = (e: AccessEvent): MenuAction[] => [
+  const entryActions = (e: AccessEvent): MenuItem[] => [
     ...(e.userId
       ? [
           {
@@ -1645,6 +1656,17 @@ function AccessLog() {
         only("action", action, actionCopy[action] ?? action);
       },
     },
+    // Where there is no hovering, the address the row leaves out is here (#596).
+    ...((address) =>
+      address
+        ? [
+            "divider" as const,
+            {
+              label: `Copy ${address}`,
+              onSelect: () => void navigator.clipboard?.writeText(address).catch(() => {}),
+            },
+          ]
+        : [])(actorParts(e.actorLabel).address),
   ];
   return (
     <Section
@@ -1738,7 +1760,14 @@ function AccessLog() {
                 />
               </span>
               <span className="col-span-2 flex min-w-0 flex-col @3xl/app:col-span-1">
-                <span className="truncate text-ink-2">{e.actorLabel}</span>
+                {/* The name alone, the address on hover (#596): the log keeps the whole label. */}
+                <span
+                  className="truncate text-ink-2"
+                  title={actorParts(e.actorLabel).address ?? undefined}
+                >
+                  {actorParts(e.actorLabel).name}
+                  {actorParts(e.actorLabel).guest && <span className="text-ink-3"> (guest)</span>}
+                </span>
                 {targetOf(e) && (
                   <span className="truncate text-[12px] text-ink-3">{targetOf(e)}</span>
                 )}
