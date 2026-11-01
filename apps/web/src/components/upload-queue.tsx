@@ -145,7 +145,7 @@ export function UploadTray() {
     <section
       aria-label="Uploads"
       data-e2e-overlap
-      className="rise-in absolute right-3 bottom-[68px] z-30 flex w-[340px] max-w-[calc(100%-24px)] flex-col overflow-hidden rounded-panel-lg border border-line bg-overlay shadow-4 @3xl/app:right-5 @3xl/app:bottom-5"
+      className="rise-in absolute right-3 bottom-[68px] left-3 z-30 flex flex-col @3xl/app:left-auto @3xl/app:w-[340px] overflow-hidden rounded-panel-lg border border-line bg-overlay shadow-4 @3xl/app:right-5 @3xl/app:bottom-5"
     >
       <div className="flex h-11 items-center gap-2 pr-1.5 pl-4">
         <span role="status" className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">

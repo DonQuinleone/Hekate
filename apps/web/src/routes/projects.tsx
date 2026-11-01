@@ -276,7 +276,8 @@ export function ProjectsPage({
             }))}
             onChange={(id) => onChange({ show: id })}
           />
-          <span className="ml-auto">
+          {/* Sort and view together, so on a phone they wrap as one, to the right. */}
+          <span className="ml-auto flex items-center gap-1">
             <Dropdown
               align="right"
               value={sortLabels[sort]}
@@ -286,16 +287,16 @@ export function ProjectsPage({
                 onSelect: () => onChange({ sort: s }),
               }))}
             />
+            <Segmented
+              label="View"
+              value={view}
+              options={[
+                { value: "cards", label: "Cards", icon: <Icon name="grid" size={15} /> },
+                { value: "list", label: "List", icon: <Icon name="list" size={15} /> },
+              ]}
+              onChange={(next) => onChange({ view: next })}
+            />
           </span>
-          <Segmented
-            label="View"
-            value={view}
-            options={[
-              { value: "cards", label: "Cards", icon: <Icon name="grid" size={15} /> },
-              { value: "list", label: "List", icon: <Icon name="list" size={15} /> },
-            ]}
-            onChange={(next) => onChange({ view: next })}
-          />
         </div>
         {isPending ? (
           <Loading />

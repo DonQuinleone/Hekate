@@ -136,6 +136,8 @@ function WorkspaceMenu({ collapsed }: { collapsed: boolean }) {
           align={collapsed ? "end" : "start"}
           // Beside the rail when the sidebar is collapsed, over the pane (#615).
           side={collapsed ? "right" : "top"}
+          // Clear of the rail, over the pane.
+          gap={collapsed ? 12 : 4}
           onClose={() => setOpen(false)}
           className="rise-in w-64 rounded-panel-lg bg-overlay p-1 shadow-4"
         >
@@ -253,6 +255,8 @@ function ProjectSwitcher({ project, collapsed }: { project: Project; collapsed: 
           anchor={box}
           align="start"
           side={collapsed ? "right" : "bottom"}
+          // Clear of the rail, over the pane.
+          gap={collapsed ? 12 : 4}
           onClose={() => setOpen(false)}
           className="rise-in w-64 rounded-panel-lg bg-overlay p-1 shadow-4"
         >

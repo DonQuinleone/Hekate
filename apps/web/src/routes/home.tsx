@@ -256,12 +256,12 @@ export function HomePage() {
         </Section>
 
         <div className="grid grid-cols-2 gap-3 @3xl/app:grid-cols-4">
-          <Stat label="In review" value={f.inReview} hint="open reviews you take part in" />
+          <Stat label="In review" value={f.inReview} hint="you take part in" />
           <Stat
             label="Due in 7 days"
             value={f.dueSoon}
+            // Overdue reviews are already in Needs you, in the signal; the figure stays quiet.
             hint={f.overdue ? `and ${f.overdue} overdue` : "nothing overdue"}
-            flag={f.overdue > 0}
           />
           <Stat label="Open comments" value={f.openComments} hint="across your projects" />
           <Stat label="New versions" value={f.newVersions} hint="in the last seven days" />

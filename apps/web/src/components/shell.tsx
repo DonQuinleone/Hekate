@@ -252,6 +252,8 @@ function ProjectSwitcher({
           align="start"
           // Beside the rail when the sidebar is collapsed, over the pane, not over the rail.
           side={collapsed ? "right" : "bottom"}
+          // Clear of the rail, over the pane.
+          gap={collapsed ? 12 : 4}
           onClose={() => setOpen(false)}
           role="menu"
           aria-label="Switch project"
@@ -363,6 +365,8 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
           anchor={box}
           align={tab || collapsed ? "end" : "start"}
           side={collapsed && !tab ? "right" : "top"}
+          // Clear of the rail, over the pane.
+          gap={collapsed ? 12 : 4}
           onClose={() => setOpen(false)}
           role="menu"
           aria-label="Account and workspace"

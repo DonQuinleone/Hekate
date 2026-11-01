@@ -4,7 +4,10 @@ import { reportLines, sentence } from "./croom";
 const report = {
   unknownEvents: [{ type: "frobnicate_widget", count: 1 }],
   unknownFields: [{ type: "update_venue", field: "postcode", count: 2 }],
-  ignored: [{ type: "add_view", count: 2, reason: "The desktop app's own window layout" }],
+  ignored: [
+    { type: "add_view", count: 2, reason: "The desktop app's own window layout" },
+    { type: "set_active_view", count: 1, reason: "The desktop app's own window layout" },
+  ],
   problems: [
     "Take 1 of “Maple Leaf Rag” is already in this project, so the file's own take 1 was not imported",
   ],
@@ -19,6 +22,8 @@ describe("the import preview's report", () => {
       expect(line).toMatch(/\.$/);
       expect(line).not.toMatch(/[a-z]+_[a-z]+/);
     }
+    // One reason, one line, whichever events it came from.
+    expect(lines.notBrought[0]).toEqual({ what: "The desktop app's own window layout.", count: 3 });
     expect(lines.notBrought.map((l) => l.what)).toEqual([
       "The desktop app's own window layout.",
       "A change this import does not know, from a newer ControlRoom.",
@@ -28,6 +33,7 @@ describe("the import preview's report", () => {
       "Unknown event frobnicate_widget",
       "Unread field update_venue.postcode",
       "Set aside add_view",
+      "Set aside set_active_view",
       "upsert_stage_element: names a stage plan that is not in the project",
     ]);
   });

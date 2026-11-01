@@ -311,9 +311,6 @@ export function CommandPalette({
           <span className="hidden items-center gap-1.5 @3xl/app:flex">
             <Kbd>{">"}</Kbd> commands only
           </span>
-          <span className="ml-auto hidden @3xl/app:inline">
-            Results include only what you can open
-          </span>
         </div>
       </div>
     </div>

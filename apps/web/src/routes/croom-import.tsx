@@ -318,7 +318,8 @@ function Report({ report }: { report: CroomReport }) {
             <Button
               variant="ghost"
               size="sm"
-              className="self-start"
+              // Its words in line with the rows above, as a text button would sit.
+              className="-ml-2.5 self-start"
               aria-expanded={details}
               aria-controls="croom-support"
               onClick={() => setDetails(!details)}

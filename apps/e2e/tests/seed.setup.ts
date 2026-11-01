@@ -81,7 +81,7 @@ setup("seed", async ({ page, browser }) => {
       // A new workspace lands on an empty home that says what to do first.
       afterSetup: async () => {
         await page.goto("/");
-        await expect(page.getByText("Nothing here yet")).toBeVisible();
+        await expect(page.getByText("No projects yet")).toBeVisible();
         await captureBoth(page, "home-empty");
       },
       // The link the guest was sent, which the log holds without a mail server.

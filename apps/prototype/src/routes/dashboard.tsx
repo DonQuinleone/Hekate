@@ -320,7 +320,6 @@ export function DashboardPage() {
             label="Due in 7 days"
             value={dueSoon}
             hint={overdue ? `and ${overdue} overdue` : "nothing overdue"}
-            flag={overdue > 0}
           />
           <Stat
             label="Open comments"

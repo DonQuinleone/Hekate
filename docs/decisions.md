@@ -2451,7 +2451,7 @@ Some organisations must keep their material in storage they own, and a workspace
 
 - **One row.** *Search and commands* answers Ctrl K (⌘ K) or "/". A shortcut that works while typing (`anywhere`) does so only for its bindings with a modifier, so "/" still types a slash in a field.
 - **One way of writing keys,** `KeyStrokes` in `apps/web/src/components/shortcut-map.tsx`: the strokes of a sequence joined by *then*, a shortcut's bindings by *or*, in the palette and the map alike. The palette's shortcuts are bindings as `lib/keys` writes them ("g h").
-- **Names.** *Advanced search* for the search page, *All notifications* under *Jump to*, and the footer *Results include only what you can open*. The prototype's palette follows.
+- **Names.** *Advanced search* for the search page, *All notifications* under *Jump to*, and no closing fragment: the footer keeps to its keys (a sentence there wrapped its hints onto two lines). The prototype's palette follows.
 
 ## 315. The ControlRoom import's report is written for people, its ids kept for support
 

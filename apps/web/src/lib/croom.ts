@@ -26,10 +26,14 @@ export function reportLines(report: CroomReport): {
     const subject = croomSubject(f.type) ?? "something this import does not know";
     unread.set(subject, (unread.get(subject) ?? 0) + f.count);
   }
+  // What is set aside for the same reason is one line, whichever event it came from.
+  const setAside = new Map<string, number>();
+  for (const i of report.ignored)
+    setAside.set(sentence(i.reason), (setAside.get(sentence(i.reason)) ?? 0) + i.count);
   return {
     lookOver: report.problems.map(sentence),
     notBrought: [
-      ...report.ignored.map((i) => ({ what: sentence(i.reason), count: i.count })),
+      ...[...setAside].map(([what, count]) => ({ what, count })),
       ...(unknown > 0
         ? [
             {

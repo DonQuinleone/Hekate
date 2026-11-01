@@ -242,7 +242,8 @@ export function SearchPage({ search }: { search: SearchRequest }) {
                   onClick={() => setSaving(true)}
                 >
                   <Icon name="star" size={14} />
-                  Save search
+                  {/* On a phone the star alone, so the row keeps to one line. */}
+                  <span className={narrow ? "sr-only" : undefined}>Save search</span>
                 </Button>
               )}
             </div>
