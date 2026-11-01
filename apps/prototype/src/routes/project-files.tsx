@@ -525,33 +525,36 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
         search={{ view: "takes" }}
       />,
     );
-  if (!s.version && canUpload)
-    quick.push(
-      <Quick
-        key="add"
-        icon="upload"
-        label="Add the first version"
-        to="/tracks/$trackId"
-        params={{ trackId: track.id }}
-        search={{ view: "versions" }}
-      />,
-    );
-  else if (s.version?.state === "failed" && canUpload)
-    quick.push(<Quick key="replace" icon="refresh" label="Replace the file" onClick={() => {}} />);
-  else if (s.version?.status === "Approved" && viewer.tools(project.id).has("download"))
-    quick.push(<Quick key="deliver" icon="download" label="Deliver" onClick={() => {}} />);
-  else if (file && canRequest && !s.review)
-    quick.push(
-      <Quick
-        key="review"
-        icon="review"
-        label="Request a review"
-        onClick={() =>
-          navigate({ to: "/reviews/new", search: { project: project.id, item: track.id } })
-        }
-      />,
-    );
+  // What a track most wants next is in its menu: the hover keeps the same actions on every row.
+  const next: MenuAction[] =
+    !s.version && canUpload
+      ? [
+          {
+            label: "Add the first version",
+            onSelect: () =>
+              navigate({
+                to: "/tracks/$trackId",
+                params: { trackId: track.id },
+                search: { view: "versions" },
+              }),
+          },
+        ]
+      : s.version?.state === "failed" && canUpload
+        ? [{ label: "Replace the file…", onSelect: () => {} }]
+        : s.version?.status === "Approved" && viewer.tools(project.id).has("download")
+          ? [{ label: "Deliver…", onSelect: () => {} }]
+          : [];
   const organising: (MenuAction | "divider")[] = [
+    ...next,
+    ...(file && canRequest
+      ? [
+          {
+            label: "Request a review…",
+            onSelect: () =>
+              navigate({ to: "/reviews/new", search: { project: project.id, item: track.id } }),
+          },
+        ]
+      : []),
     ...(file
       ? [
           {
@@ -570,6 +573,7 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
     { label: "Rename", hint: "F2", onSelect: () => row.rename() },
     { label: "Move to…", onSelect: () => row.move() },
     { label: "Cut", hint: "⌘X", onSelect: () => row.cut() },
+    { label: "Paste", hint: "Nothing cut", disabled: true, onSelect: () => {} },
     { label: "Link a score…", onSelect: () => {} },
     ...(viewer.can(project.id, "delete")
       ? ["divider" as const, { label: "Delete…", danger: true, onSelect: () => {} }]
@@ -668,6 +672,7 @@ function FileRow({ file, project }: { file: File; project: Project }) {
           { label: "Rename", hint: "F2", onSelect: () => row.rename() },
           { label: "Move to…", onSelect: () => row.move() },
           { label: "Cut", hint: "⌘X", onSelect: () => row.cut() },
+          { label: "Paste", hint: "Nothing cut", disabled: true, onSelect: () => {} },
           { label: "Attach to a track…", onSelect: () => {} },
           { label: "Tags…", onSelect: () => {} },
           ...(viewer.can(project.id, "delete")
@@ -771,9 +776,15 @@ function FolderRow({ folder, project }: { folder: Folder; project: Project }) {
           { label: "Rename", hint: "F2", onSelect: () => row.rename() },
           { label: "Move to…", onSelect: () => row.move() },
           { label: "Cut", hint: "⌘X", onSelect: () => row.cut() },
-          ...(b && b.cut.size > 0 && !b.cut.has(folder.id)
-            ? [{ label: "Paste here", hint: "⌘V", onSelect: () => b.setCut(new Set()) }]
-            : []),
+          // Paste is always beside Cut, switched off while nothing is cut.
+          b && b.cut.size > 0 && !b.cut.has(folder.id)
+            ? { label: "Paste into this folder", hint: "⌘V", onSelect: () => b.setCut(new Set()) }
+            : {
+                label: "Paste into this folder",
+                hint: "Nothing cut",
+                disabled: true,
+                onSelect: () => {},
+              },
           { label: "Delete…", danger: true, onSelect: () => {} },
         ]
       : []),
@@ -1231,7 +1242,7 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
   const [moving, setMoving] = useState<string | null>(null);
   /** What the selection bar and the context menu on a selected row both offer. */
   const selectionActions: (MenuAction | "divider")[] = [
-    { label: "Favourite", onSelect: () => {} },
+    { label: "Add to favourites", onSelect: () => {} },
     { label: "Mark as viewed", onSelect: () => {} },
     ...(organise
       ? [
@@ -1239,6 +1250,9 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
           { label: "Move to…", onSelect: () => setMoving(`Move ${picked.size} items`) },
           { label: "Tags…", onSelect: () => {} },
           { label: "Cut", hint: "⌘X", onSelect: () => setCut(new Set(picked)) },
+          cut.size > 0
+            ? { label: "Paste", hint: "⌘V", onSelect: () => setCut(new Set()) }
+            : { label: "Paste", hint: "Nothing cut", disabled: true, onSelect: () => {} },
         ]
       : []),
     ...(viewer.can(project.id, "delete")

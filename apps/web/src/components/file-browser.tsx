@@ -899,6 +899,12 @@ export function FileBrowser({
     organise.deleteFile.isPending ||
     trackMutations.updateTrack.isPending;
 
+  /** Paste, offered beside Cut always: switched off, saying why, while nothing is cut. */
+  const pasteAction = (label: string, into: string | null): MenuAction =>
+    cut.size > 0
+      ? { label, hint: mod("V"), onSelect: () => paste(into) }
+      : { label, hint: "Nothing cut", disabled: true, onSelect: () => {} };
+
   /**
    * Everything that can be done to one item, in one list: the row's "…" menu and the context
    * menu on the row both show it, so neither falls behind the other.
@@ -934,9 +940,10 @@ export function FileBrowser({
           { label: "Rename", hint: "F2", onSelect: () => startRename(item) },
           { label: "Move to…", onSelect: () => setMoving([item]) },
           { label: "Cut", hint: mod("X"), onSelect: () => cutRows([key]) },
-          ...(item.kind === "folder" && cut.size > 0 && !cut.has(key)
-            ? [{ label: "Paste here", hint: mod("V"), onSelect: () => paste(item.folder.id) }]
-            : []),
+          // Paste is always beside Cut: into a folder on its own row, else here.
+          item.kind === "folder" && !cut.has(key)
+            ? pasteAction("Paste into this folder", item.folder.id)
+            : pasteAction("Paste", folderId),
           // The score beside its recordings, as its versions page links one (#52).
           ...(item.kind === "track" && !video
             ? [
@@ -968,8 +975,55 @@ export function FileBrowser({
               ]),
         ]
       : [];
+    // What a track most wants next is in its menu, not its hover, which keeps fixed actions.
+    const next =
+      item.kind === "track"
+        ? trackNext(item.track, {
+            upload: can("upload"),
+            organise: manage,
+            download: mayDownload,
+            requestReviews: can("request_reviews"),
+          })
+        : null;
+    const latestOf = item.kind === "track" ? item.track.versions.at(-1) : undefined;
+    const latestFileId = item.kind === "track" ? latestFile(item.track) : undefined;
+    const nextAction: MenuAction[] =
+      item.kind !== "track"
+        ? []
+        : next === "add"
+          ? [
+              {
+                label: `Add the first ${words.version}`,
+                onSelect: () =>
+                  void navigate({
+                    to: "/tracks/$trackId",
+                    params: { trackId: item.track.id },
+                    search: { view: "versions" },
+                  }),
+              },
+            ]
+          : next === "replace" && latestOf
+            ? [
+                {
+                  label: "Replace the file…",
+                  onSelect: () => setReplacing({ track: item.track, version: latestOf }),
+                },
+              ]
+            : next === "deliver" && latestFileId
+              ? [
+                  {
+                    label: "Deliver…",
+                    onSelect: () =>
+                      setDownloading({
+                        fileId: latestFileId,
+                        name: fileById.get(latestFileId)?.name ?? item.track.name,
+                      }),
+                  },
+                ]
+              : [];
     // Comparing as the track's page offers it; sharing as the project's reviews page does.
     const aboutItem: MenuAction[] = [
+      ...nextAction,
       ...(item.kind === "track" && live && item.track.versions.length > 1 && tool("compare")
         ? [
             {
@@ -985,6 +1039,19 @@ export function FileBrowser({
       // Takes are added from their track (#490), by those who edit takes and upload.
       ...(item.kind === "track" && live && !video && can("edit_takes") && can("upload")
         ? [{ label: "Add takes…", onSelect: () => setAddingTakes(item.track) }]
+        : []),
+      ...(item.kind === "track" && can("request_reviews") && latestFileId
+        ? [
+            {
+              label: "Request a review…",
+              onSelect: () =>
+                void navigate({
+                  to: "/projects/$projectId/reviews/new",
+                  params: { projectId },
+                  search: { item: `track:${item.track.id}` },
+                }),
+            },
+          ]
         : []),
       ...(can("request_reviews")
         ? [
@@ -1010,7 +1077,7 @@ export function FileBrowser({
     ];
     const about: (MenuAction | "divider")[] = aboutItem.length ? ["divider", ...aboutItem] : [];
     const recovering: (MenuAction | "divider")[] = failedFile
-      ? ["divider", { label: "Try preparing again", onSelect: () => retry.mutate(failedFile.id) }]
+      ? ["divider", { label: "Retry", onSelect: () => retry.mutate(failedFile.id) }]
       : [];
     return [...personal, ...about, ...recovering, ...organising];
   };
@@ -1030,7 +1097,7 @@ export function FileBrowser({
   const chosenFiles = chosen.flatMap((i) => (i.kind === "file" ? [i.file] : []));
   const selectionActions: (MenuAction | "divider")[] = [
     {
-      label: allHave(chosenKeys, marks.favourite) ? "Unfavourite" : "Favourite",
+      label: allHave(chosenKeys, marks.favourite) ? "Remove from favourites" : "Add to favourites",
       onSelect: () =>
         favour(
           chosen.map((i) => ({ kind: i.kind as MarkKind, id: i.id })),
@@ -1066,6 +1133,7 @@ export function FileBrowser({
           { label: "Move to…", onSelect: () => setMoving(chosen) },
           ...(chosenFiles.length > 0 ? [{ label: "Tags…", onSelect: () => setBulk("tags") }] : []),
           { label: "Cut", hint: mod("X"), onSelect: () => cutRows(chosenKeys) },
+          pasteAction("Paste", folderId),
         ]
       : []),
     ...(mayDelete &&
@@ -1253,8 +1321,8 @@ export function FileBrowser({
             {itemName(item, versionLabel)}
           </span>
           {marks.favourite.has(key) && (
-            <span title="Favourite" className="flex shrink-0 text-ink-3">
-              <Icon name="star" size={12} aria-hidden="true" />
+            <span title="A favourite" className="flex shrink-0 text-ink-3">
+              <Icon name="star" size={12} fill="currentColor" aria-hidden="true" />
               <span className="sr-only">, a favourite</span>
             </span>
           )}
@@ -1463,9 +1531,10 @@ export function FileBrowser({
 
   /**
    * A row's quick ways in, as the prototype has them: a track opens in the player, its
-   * versions and notes, and its takes; then the one thing it most wants next (its first
-   * version, a file to replace, delivering it once approved, or a review). A file opens, or
-   * downloads. Each for those who may, as the page it leads to decides.
+   * versions and notes, and its takes. They are the same on every row, each named in its
+   * tooltip; what a track most wants next (its first version, a file to replace, delivering
+   * it, a review) is in its menu instead, since an icon that changes meaning cannot be learnt.
+   * A file opens, or downloads. Each for those who may, as the page it leads to decides.
    */
   const quickActions = (item: Item): ReactNode[] => {
     const icon = (name: IconName) => <Icon name={name} size={14} />;
@@ -1496,7 +1565,6 @@ export function FileBrowser({
     }
     if (item.kind !== "track") return [];
     const t = item.track;
-    const latest = t.versions.at(-1);
     const fileId = latestFile(t);
     const out: ReactNode[] = [];
     if (fileId)
@@ -1540,60 +1608,6 @@ export function FileBrowser({
           {icon("take")}
         </Link>,
       );
-    const next = trackNext(t, {
-      upload: can("upload"),
-      organise: manage,
-      download: mayDownload,
-      requestReviews: can("request_reviews"),
-    });
-    if (next === "add") {
-      const first = `Add the first ${words.version}`;
-      out.push(
-        <Link
-          key="add"
-          to="/tracks/$trackId"
-          params={{ trackId: t.id }}
-          search={{ view: "versions" }}
-          aria-label={first}
-          title={first}
-          className={quickClass}
-        >
-          {icon("upload")}
-        </Link>,
-      );
-    } else if (next === "replace" && latest) {
-      out.push(
-        <Quick
-          key="replace"
-          icon="refresh"
-          label="Replace the file"
-          onClick={() => setReplacing({ track: t, version: latest })}
-        />,
-      );
-    } else if (next === "deliver" && fileId) {
-      out.push(
-        <Quick
-          key="deliver"
-          icon="download"
-          label="Deliver"
-          onClick={() => setDownloading({ fileId, name: fileById.get(fileId)?.name ?? t.name })}
-        />,
-      );
-    } else if (next === "review") {
-      out.push(
-        <Link
-          key="review"
-          to="/projects/$projectId/reviews/new"
-          params={{ projectId }}
-          search={{ item: `track:${t.id}` }}
-          aria-label="Request a review"
-          title="Request a review"
-          className={quickClass}
-        >
-          {icon("review")}
-        </Link>,
-      );
-    }
     return out;
   };
 
