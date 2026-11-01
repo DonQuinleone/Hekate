@@ -86,7 +86,7 @@ Hekate draws no icons of its own. They are [Lucide](https://lucide.dev)'s (ISC l
 
 ## Components
 
-One set, in `apps/web/src/components/ui`, restyled on the tokens and never stock: button (primary, secondary, ghost, quiet and danger), confirmation, field and its label, input (with small, inline and bare forms), select, textarea, checkbox, radio, choice card, switch, slider, segmented, menu and dropdown, dialog, tabs, chip and count, status dot and pill. Screens build from it and nothing else; a test fails on a form control made anywhere else. Settings rows, cards, section heads and empty states sit beside it in `components/`.
+One set, in `apps/web/src/components/ui`, restyled on the tokens and never stock: button (primary, secondary, ghost, quiet and danger), confirmation, field and its label, input (with small, inline and bare forms), date, time and date-and-time fields (written the workspace's way, never the browser's), select, textarea, checkbox, radio, choice card, switch, slider, segmented, menu and dropdown, dialog, tabs, chip and count, status dot and pill. Screens build from it and nothing else; a test fails on a form control made anywhere else. Settings rows, cards, section heads and empty states sit beside it in `components/`.
 
 Every piece, in each of its states, is on the reference page at `/reference`. It exists in `pnpm dev` and in the build the visual suite captures, never in a release: it is a reference for whoever builds screens, not part of the product.
 

@@ -19,6 +19,7 @@ import { Empty } from "~/components/empty";
 import { Icon, type IconName } from "~/components/icons";
 import { Card } from "~/components/page";
 import { Button } from "~/components/ui/button";
+import { DateField } from "~/components/ui/date-field";
 import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { InlineInput, Input, Select, Textarea } from "~/components/ui/input";
@@ -353,13 +354,13 @@ function TaskBody({
         <span className="text-ink-3">Due</span>
         {edit ? (
           <span className="flex items-center gap-2">
-            <Input
-              type="date"
+            <DateField
               size="sm"
               aria-label="Due"
               className="w-[150px]"
+              onLeave
               value={task.dueOn ?? ""}
-              onChange={(e) => onChange({ dueOn: e.target.value || null })}
+              onChange={(dueOn) => onChange({ dueOn: dueOn || null })}
             />
             {due && <span className={late ? "text-signal" : "text-ink-3"}>{due}</span>}
           </span>
@@ -559,7 +560,7 @@ function NewTaskDialog({
             </Select>
           </Field>
           <Field label="Due">
-            <Input type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} />
+            <DateField value={dueOn} onChange={setDueOn} />
           </Field>
         </div>
         {tracks.length > 0 && (

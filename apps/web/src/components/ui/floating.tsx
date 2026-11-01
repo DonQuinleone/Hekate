@@ -167,10 +167,20 @@ export function Floating({
       e.preventDefault();
       first.focus();
     };
+    // Into something floating from it (a calendar from a field in it) is not leaving it.
+    const within = (to: Node) => {
+      let node: Element | null = to instanceof Element ? to : to.parentElement;
+      while (node) {
+        if (f.contains(node) || a?.contains(node)) return true;
+        const root: Element | null = node.closest("[data-floating]");
+        node = root && root !== f ? (anchors.get(root) ?? null) : null;
+      }
+      return false;
+    };
     const left = (e: FocusEvent) => {
       const to = e.relatedTarget;
-      if (to instanceof Node && (f.contains(to) || a?.contains(to))) return;
       if (to === null) return;
+      if (to instanceof Node && within(to)) return;
       close.current?.();
     };
     a?.addEventListener("keydown", fromAnchor);

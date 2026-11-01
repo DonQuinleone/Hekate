@@ -5081,3 +5081,29 @@ test("search-fields", async ({ page }) => {
   await saveScreen(page, "search-fields");
   await checkScreen(page);
 });
+
+// A date typed the workspace's way (#541): the deadline's field with its calendar open on the
+// month of the day it holds, Monday first.
+test("track-deadline-calendar", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/tracks/${seeded().trackId}?view=versions`);
+  await settle(page, "main >> text=Maple Leaf Rag");
+  await page.getByRole("button", { name: /^Due / }).click();
+  const sheet = page.getByRole("dialog", { name: "Deadline" });
+  await sheet.getByRole("button", { name: "Choose a day" }).click();
+  await settle(page, "role=dialog[name='Calendar'] >> button[data-day]");
+  await saveScreen(page, "track-deadline-calendar");
+  await checkScreen(page);
+});
+
+// Nothing is deleted by one click (#544): deleting a venue asks first, naming it and saying
+// what happens, with Cancel and the danger action at the right.
+test("venues-delete", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/venues`);
+  await settle(page, "main >> text=Endless Hall Studio 2");
+  await page.getByRole("button", { name: "Actions for Endless Hall Studio 2" }).click();
+  await page.getByRole("menuitem", { name: "Delete…" }).click();
+  await settle(page, "role=dialog[name='Delete Endless Hall Studio 2?']");
+  await saveScreen(page, "venues-delete");
+  await checkScreen(page);
+});

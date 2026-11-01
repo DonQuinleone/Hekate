@@ -16,6 +16,7 @@ import { Icon, type IconName } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
+import { DateField, TimeField } from "~/components/ui/date-field";
 import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
@@ -509,7 +510,7 @@ function DayDialog({
           />
         </Field>
         <Field label="Date">
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DateField value={date} onChange={setDate} />
         </Field>
         <Field label="Venue" hint={venues.length === 0 ? "Add venues under Venues" : undefined}>
           <Dropdown
@@ -527,7 +528,7 @@ function DayDialog({
           />
         </Field>
         <Field label="Starts" hint="When the first row starts, unless it sets its own">
-          <Input type="time" value={start} onChange={(e) => setStart(e.target.value)} />
+          <TimeField value={start} onChange={setStart} />
         </Field>
       </form>
     </Dialog>
@@ -629,7 +630,7 @@ function RowDialog({
           <Input value={label} maxLength={120} onChange={(e) => setLabel(e.target.value)} />
         </Field>
         <Field label="Starts" hint="Blank to follow the row before">
-          <Input type="time" value={start} onChange={(e) => setStart(e.target.value)} />
+          <TimeField value={start} onChange={setStart} />
         </Field>
         <Field label="Minutes" error={valid ? undefined : "Whole minutes, up to a day"}>
           <Input inputMode="numeric" value={minutes} onChange={(e) => setMinutes(e.target.value)} />

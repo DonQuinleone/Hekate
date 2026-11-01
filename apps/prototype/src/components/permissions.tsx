@@ -3,6 +3,7 @@ import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { Seg } from "~/components/player/transport";
 import { Button } from "~/components/ui/button";
+import { DateTimeField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
 import { personById, type Tool } from "~/data";
@@ -153,15 +154,10 @@ export function Permissions({ guest, compact = false }: { guest: boolean; compac
         <Label>Access window</Label>
         <div className="flex flex-wrap items-center gap-3 text-ink-2">
           <label className="flex items-center gap-2">
-            From <Input type="datetime-local" className="h-8 w-44" />
+            From <DateTimeField className="w-72" />
           </label>
           <label className="flex items-center gap-2">
-            Until{" "}
-            <Input
-              type="datetime-local"
-              defaultValue={guest ? "2026-10-31T23:59" : ""}
-              className="h-8 w-44"
-            />
+            Until <DateTimeField defaultValue={guest ? "2026-10-31T23:59" : ""} className="w-72" />
           </label>
           <label className="flex items-center gap-2">
             At most <Input type="number" placeholder="∞" className="h-8 w-16" /> plays

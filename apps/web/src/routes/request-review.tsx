@@ -26,6 +26,7 @@ import { ReviewerPermissionsEditor } from "~/components/reviewer-permissions";
 import { Button } from "~/components/ui/button";
 import { ToggleChip } from "~/components/ui/chip";
 import { ChoiceCard } from "~/components/ui/choice";
+import { DateField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { InlineInput, Input, Textarea } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
@@ -928,12 +929,11 @@ function ReviewForm({
                 <span className="label" id="request-due">
                   Due
                 </span>
-                <Input
-                  type="date"
+                <DateField
                   value={due}
-                  aria-labelledby="request-due"
+                  aria-label="Due"
                   min={daysFromNow(0)}
-                  onChange={(e) => setDue(e.target.value)}
+                  onChange={setDue}
                   className="w-44"
                 />
                 {(

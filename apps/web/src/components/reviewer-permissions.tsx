@@ -12,6 +12,7 @@ import { fromLocalInput, toLocalInput } from "~/lib/permissions";
 import { Button } from "./ui/button";
 import { ToggleChip } from "./ui/chip";
 import { Choice } from "./ui/choice";
+import { DateTimeField } from "./ui/date-field";
 import { Input } from "./ui/input";
 import { Segmented } from "./ui/segmented";
 import { Toggle } from "./ui/toggle";
@@ -208,23 +209,13 @@ export function ReviewerPermissionsEditor({
                 <label htmlFor={`${id}-from`} className="text-xs text-ink-3">
                   From
                 </label>
-                <Input
-                  id={`${id}-from`}
-                  type="datetime-local"
-                  value={from}
-                  onChange={(e) => setFrom(e.target.value)}
-                />
+                <DateTimeField id={`${id}-from`} value={from} onChange={setFrom} />
               </span>
               <span className="flex flex-col gap-1">
                 <label htmlFor={`${id}-until`} className="text-xs text-ink-3">
                   Until
                 </label>
-                <Input
-                  id={`${id}-until`}
-                  type="datetime-local"
-                  value={until}
-                  onChange={(e) => setUntil(e.target.value)}
-                />
+                <DateTimeField id={`${id}-until`} value={until} onChange={setUntil} />
               </span>
             </>
           )}

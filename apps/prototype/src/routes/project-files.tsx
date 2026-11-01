@@ -17,6 +17,7 @@ import { fileKindWords, ShareDialog } from "~/components/share";
 import { Dot } from "~/components/status";
 import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
+import { DateField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Floating, type Point } from "~/components/ui/floating";
 import { Input, Select, Textarea } from "~/components/ui/input";
@@ -1483,7 +1484,7 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
               </label>
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Expires
-                <Input type="date" defaultValue="2026-10-20" />
+                <DateField defaultValue="2026-10-20" />
               </label>
             </div>
             {requestTrack && (

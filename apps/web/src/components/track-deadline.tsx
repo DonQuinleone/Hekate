@@ -2,9 +2,9 @@ import { deadlinePassed } from "@hekate/shared";
 import { useId } from "react";
 import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
+import { DateField } from "~/components/ui/date-field";
 import { Field } from "~/components/ui/field";
 import { Floating } from "~/components/ui/floating";
-import { Input } from "~/components/ui/input";
 import { usePopover } from "~/components/ui/menu";
 import { cn } from "~/lib/cn";
 import { dayHere, formatDates } from "~/lib/locale";
@@ -59,14 +59,13 @@ export function TrackDeadline({ track, className }: { track: Track; className?: 
           className="rise-in w-64 rounded-panel-lg bg-overlay p-3 shadow-4"
         >
           <Field label="Due on" hint="On the calendar, the timeline and the board.">
-            <Input
+            <DateField
               id={id}
-              type="date"
               autoFocus
+              onLeave
               value={track.dueAt ? dayHere(track.dueAt) : ""}
-              onChange={(e) => {
-                if (e.target.value)
-                  updateTrack.mutate({ id: track.id, dueAt: dueOn(e.target.value) });
+              onChange={(day) => {
+                if (day) updateTrack.mutate({ id: track.id, dueAt: dueOn(day) });
               }}
             />
           </Field>

@@ -8,6 +8,7 @@ import { Card } from "~/components/page";
 import { Chip } from "~/components/permissions";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
+import { DateField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
@@ -710,11 +711,11 @@ function EntryDialog({
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
             Starts
-            <Input type="date" defaultValue={entry?.startsOn ?? day ?? "2026-10-14"} />
+            <DateField defaultValue={entry?.startsOn ?? day ?? "2026-10-14"} />
           </label>
           <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
             Ends
-            <Input type="date" defaultValue={entry?.endsOn ?? ""} />
+            <DateField defaultValue={entry?.endsOn ?? ""} />
             <span className="text-[12px] text-ink-3">Leave empty for one day</span>
           </label>
         </div>

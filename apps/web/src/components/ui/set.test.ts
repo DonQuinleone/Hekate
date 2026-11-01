@@ -27,6 +27,21 @@ describe("the component set", () => {
     expect(outside).toEqual([]);
   });
 
+  // Dates and times are typed in the workspace's format (#541), never the browser's own, which
+  // is often the US one: through DateField, TimeField and DateTimeField.
+  it("types dates and times only through its own fields", () => {
+    const outside = sources(src).flatMap((path) =>
+      readFileSync(path, "utf8")
+        .split("\n")
+        .flatMap((line, i) =>
+          /type=["{]?["'`](date|time|datetime-local|month|week)["'`]/.test(line)
+            ? [`${relative(src, path)}:${i + 1}`]
+            : [],
+        ),
+    );
+    expect(outside).toEqual([]);
+  });
+
   // Monospace is for code people read or edit as code, and nothing else (docs/brand.md, Type):
   // keys, addresses and times are the one face with tabular figures.
   it("keeps monospace to the code views brand.md names", () => {

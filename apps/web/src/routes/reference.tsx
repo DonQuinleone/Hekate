@@ -14,6 +14,7 @@ import { StatusChipView } from "~/components/status-chip";
 import { Button } from "~/components/ui/button";
 import { Chip, Count, ToggleChip } from "~/components/ui/chip";
 import { Checkbox, Choice, ChoiceCard, Radio } from "~/components/ui/choice";
+import { DateField, DateTimeField, TimeField } from "~/components/ui/date-field";
 import { ConfirmDialog, Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { ColourInput, InlineInput, Input, Select, Textarea } from "~/components/ui/input";
@@ -345,6 +346,9 @@ function Components() {
   const [uploading, setUploading] = useState(false);
   const [chips, setChips] = useState({ loops: true, score: false });
   const [confirming, setConfirming] = useState(false);
+  const [day, setDay] = useState("2026-10-12");
+  const [time, setTime] = useState("13:05");
+  const [moment, setMoment] = useState("2026-10-31T23:59");
   const noop = () => {};
   return (
     <>
@@ -522,6 +526,27 @@ function Components() {
           <Select disabled defaultValue="Engineer" className="w-40" aria-label="Fixed role">
             <option>Engineer</option>
           </Select>
+        </Spec>
+        <Spec
+          name="Date and time"
+          rule="Typed or picked, and written the workspace's way (ISO 8601 unless it chose otherwise), never the browser's own: the same format lists use. ISO 8601 and month names are read in every format; what does not read is marked, the value kept."
+        >
+          <DateField aria-label="Due" value={day} onChange={setDay} className="w-44" />
+          <TimeField aria-label="Starts" value={time} onChange={setTime} className="w-24" />
+          <DateTimeField
+            aria-label="Access from"
+            value={moment}
+            onChange={setMoment}
+            className="w-72"
+          />
+          <DateField aria-label="Empty" value="" onChange={noop} className="w-44" />
+          <DateField
+            aria-label="Fixed"
+            value="2026-10-12"
+            disabled
+            onChange={noop}
+            className="w-44"
+          />
         </Spec>
         <Spec name="Long text" rule="Grows with its content up to a point, then scrolls.">
           <Textarea

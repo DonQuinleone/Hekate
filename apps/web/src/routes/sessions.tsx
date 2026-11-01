@@ -10,6 +10,7 @@ import { TakeImportDialog } from "~/components/take-import";
 import { Rating } from "~/components/takes";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
+import { DateField, TimeField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
@@ -239,7 +240,7 @@ function SessionDialog({
         </Field>
         <div className="grid gap-4 @md/app:grid-cols-2">
           <Field label="Day">
-            <Input type="date" value={recordedOn} onChange={(e) => setRecordedOn(e.target.value)} />
+            <DateField value={recordedOn} onChange={setRecordedOn} />
           </Field>
           <Field label="Where">
             <Input
@@ -252,10 +253,10 @@ function SessionDialog({
         </div>
         <div className="grid gap-4 @md/app:grid-cols-3">
           <Field label="Slot from">
-            <Input type="time" value={slotFrom} onChange={(e) => setSlotFrom(e.target.value)} />
+            <TimeField value={slotFrom} onChange={setSlotFrom} />
           </Field>
           <Field label="To">
-            <Input type="time" value={slotTo} onChange={(e) => setSlotTo(e.target.value)} />
+            <TimeField value={slotTo} onChange={setSlotTo} />
           </Field>
           <Field label="Takes numbered">
             <Select

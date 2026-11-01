@@ -44,6 +44,7 @@ import { Reports } from "./instance-billing-reports";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
 import { Choice, ChoiceCard } from "./ui/choice";
+import { DateField } from "./ui/date-field";
 import { Dialog } from "./ui/dialog";
 import { Field } from "./ui/field";
 import { Input, Select, Textarea } from "./ui/input";
@@ -1332,7 +1333,7 @@ function PromoEditor({
             />
           </Field>
           <Field label="Until" hint="Empty for no end." className="w-44">
-            <Input type="date" value={until} onChange={(e) => setUntil(e.target.value)} />
+            <DateField value={until} onChange={setUntil} />
           </Field>
         </div>
         {plans.length > 0 && (

@@ -24,6 +24,7 @@ import { Property } from "~/components/property";
 import { ReviewerPermissionsEditor } from "~/components/reviewer-permissions";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
+import { DateField } from "~/components/ui/date-field";
 import { ConfirmDialog, Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
@@ -829,7 +830,7 @@ function DueDialog({ review, onClose }: { review: ReviewDetail; onClose: () => v
       }
     >
       <Field label="Due" error={due.error?.message}>
-        <Input type="date" value={value} onChange={(e) => setValue(e.target.value)} />
+        <DateField value={value} onChange={setValue} />
       </Field>
     </Dialog>
   );
