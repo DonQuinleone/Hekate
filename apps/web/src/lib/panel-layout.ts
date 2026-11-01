@@ -39,9 +39,12 @@ export const scoreWidth = (width: number) =>
 /** What a browser kept, read safely: anything unreadable or out of range falls back. */
 export function readPanelLayout(stored: unknown): PanelLayout {
   if (!stored || typeof stored !== "object") return defaultPanelLayout;
-  const { comments, width, score, scoreWidth: scored } = stored as Partial<
-    Record<keyof PanelLayout, unknown>
-  >;
+  const {
+    comments,
+    width,
+    score,
+    scoreWidth: scored,
+  } = stored as Partial<Record<keyof PanelLayout, unknown>>;
   return {
     comments: places.includes(comments as CommentsPlace)
       ? (comments as CommentsPlace)
