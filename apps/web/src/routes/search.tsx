@@ -28,6 +28,7 @@ import { Field } from "~/components/ui/field";
 import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
 import { usePopover } from "~/components/ui/menu";
+import { Failed } from "~/components/ui/states";
 import {
   membersQuery,
   projectsQuery,
@@ -250,7 +251,15 @@ export function SearchPage({ search }: { search: SearchRequest }) {
             }}
           />
         )}
-        {found.error && <p className="m-0 text-signal">{found.error.message}</p>}
+        {found.error && (
+          <Failed
+            what="The search"
+            error={found.error}
+            retry={found.refetch}
+            size="panel"
+            className="px-0"
+          />
+        )}
         {!looking ? (
           <p className="m-0 text-[13px] text-ink-3">
             Type to search what you may see, or narrow by kind, project, person, time and a file's

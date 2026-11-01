@@ -17,10 +17,12 @@ import { PageHeader } from "~/components/page-header";
 import { SeverityDot } from "~/components/qa";
 import { Button } from "~/components/ui/button";
 import { Select } from "~/components/ui/input";
+import { Failed, failureText, isRefusal, Loading, referenceOf } from "~/components/ui/states";
 import { Waveform } from "~/components/waveform";
 import { cn } from "~/lib/cn";
 import { gainLabel, levelGains } from "~/lib/compare";
 import {
+  ApiError,
   type CompareSide,
   loudnessQuery,
   projectQuery,
@@ -42,7 +44,7 @@ type Which = "a" | "b";
  */
 export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?: number }) {
   const navigate = useNavigate();
-  const { data, error } = useQuery(trackCompareQuery(trackId, a, b));
+  const { data, error, refetch } = useQuery(trackCompareQuery(trackId, a, b));
   const { data: project } = useQuery({
     ...projectQuery(data?.track.projectId ?? ""),
     enabled: Boolean(data),
@@ -145,12 +147,16 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
       <>
         <PageHeader title={compareTitle} />
         <Page className="gap-6">
-          <Empty title="Nothing to compare" text={error.message} />
+          {error instanceof ApiError && !isRefusal(error) && !referenceOf(error) ? (
+            <Empty title="Nothing to compare" text={failureText(error)} />
+          ) : (
+            <Failed what="The comparison" error={error} retry={refetch} />
+          )}
         </Page>
       </>
     );
   }
-  if (!data || !project) return <p className="p-8 text-ink-3">Loading</p>;
+  if (!data || !project) return <Loading />;
 
   const choose = (which: Which, number: number) =>
     navigate({

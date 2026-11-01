@@ -27,6 +27,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Failed, failureText, Loading } from "~/components/ui/states";
 import { StatusDot } from "~/components/ui/status";
 import { ago } from "~/lib/comments";
 import { instanceErrorQuery } from "~/lib/queries";
@@ -62,7 +63,7 @@ export function InstanceSupport({
   const [severity, setSeverity] = useState<SupportSeverity | "">("");
   const [workspace, setWorkspace] = useState("");
   const search = useDeferredValue(q.trim());
-  const { data, error } = useQuery(
+  const { data, error, refetch } = useQuery(
     deskTicketsQuery({
       state,
       ...(severity ? { severity } : {}),
@@ -158,8 +159,10 @@ export function InstanceSupport({
         </Select>
       </div>
       {error ? (
-        <p className="m-0 text-[13px] text-signal">{error.message}</p>
-      ) : data && data.tickets.length === 0 ? (
+        <Failed what="The tickets" error={error} retry={refetch} size="panel" className="px-0" />
+      ) : !data ? (
+        <Loading size="panel" className="px-0" />
+      ) : data.tickets.length === 0 ? (
         <Empty
           title={
             q || severity || workspace || state !== "open" ? "Nothing matches" : "Nothing open"
@@ -365,7 +368,7 @@ const roleNames = { owner: "Owner", admin: "Admin", member: "Member" } as const;
 /** A ticket as the desk sees it: the thread and reply box, and beside it who asked and from where. */
 function DeskTicket({ id, onClose }: { id: string; onClose: () => void }) {
   const navigate = useNavigate();
-  const { data, error } = useQuery(deskTicketQuery(id));
+  const { data, error, refetch } = useQuery(deskTicketQuery(id));
   const { data: canned } = useQuery(cannedRepliesQuery);
   const reply = useDeskReply(id);
   const setState = useDeskState(id);
@@ -430,7 +433,10 @@ function DeskTicket({ id, onClose }: { id: string; onClose: () => void }) {
         )
       }
     >
-      {error && <p className="m-0 text-[13px] text-signal">{error.message}</p>}
+      {error && (
+        <Failed what="The ticket" error={error} retry={refetch} size="panel" className="px-0" />
+      )}
+      {!ticket && !error && <Loading size="panel" className="px-0" />}
       {ticket && (
         <div className="grid gap-6 @3xl/app:grid-cols-[minmax(0,1fr)_240px]">
           <div className="flex min-w-0 flex-col gap-4">
@@ -577,8 +583,8 @@ function DeskTicket({ id, onClose }: { id: string; onClose: () => void }) {
 function ErrorSummary({ reference }: { reference: string }) {
   const navigate = useNavigate();
   const { data, isPending, error } = useQuery(instanceErrorQuery(reference));
-  if (isPending) return <p className="mt-1 mb-0 text-[12px] text-ink-3">Looking it up</p>;
-  if (error) return <p className="mt-1 mb-0 text-[12px] text-signal">{error.message}</p>;
+  if (isPending) return <Loading size="line" label="Looking it up" className="mt-1" />;
+  if (error) return <p className="mt-1 mb-0 text-[12px] text-signal">{failureText(error)}</p>;
   if (!data)
     return (
       <p className="mt-1 mb-0 text-[12px] text-ink-3">

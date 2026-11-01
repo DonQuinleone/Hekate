@@ -2,6 +2,7 @@ import { type FileKind, formatDuration, type LinkedFile } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { Failed, Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import {
   filesMatching,
@@ -59,7 +60,7 @@ export function FilePicker({
   onPick: (files: ProjectFile[]) => void;
   onClose: () => void;
 }) {
-  const { data: files, error } = useQuery(projectFilesQuery(projectId));
+  const { data: files, error, refetch } = useQuery(projectFilesQuery(projectId));
   const { data: folders = [] } = useQuery(projectFoldersQuery(projectId));
   const { data: tracks = [] } = useQuery(projectTracksQuery(projectId));
   const { versionLabel } = useItemWords(projectId);
@@ -151,9 +152,9 @@ export function FilePicker({
       }
     >
       {error ? (
-        <p className="m-0 text-[13px] text-signal">{error.message}</p>
+        <Failed what="The files" error={error} retry={refetch} size="panel" className="px-0" />
       ) : !files ? (
-        <p className="m-0 text-[13px] text-ink-3">Loading</p>
+        <Loading size="panel" className="px-0" />
       ) : rows.length === 0 ? (
         <p className="m-0 text-[13px] text-ink-3">
           This project has no other files yet. They are added from the project's files.

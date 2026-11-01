@@ -88,6 +88,8 @@ Hekate draws no icons of its own. They are [Lucide](https://lucide.dev)'s (ISC l
 
 One set, in `apps/web/src/components/ui`, restyled on the tokens and never stock: button, field and its label, input (with small, inline and bare forms), select, textarea, checkbox, radio, choice card, switch, slider, segmented, menu and dropdown, dialog, tabs, chip and count, status dot and pill. Screens build from it and nothing else; a test fails on a form control made anywhere else. Settings rows, cards, section heads and empty states sit beside it in `components/`.
 
+A place that is not showing its content is in one of three states, from `components/ui/states` as the prototype draws them (#545): **Loading** is the content's shape in quiet blocks, never the word or a spinner; **Failed** says what could not be loaded, why in plain words, the reference to quote (with Copy) and Try again; **Refused** says what cannot be opened and why, never whether it exists, with a way on. Each comes in a page size and a one-row panel size for lists and sections. A test fails on a bare "Loading" or a query's raw error message anywhere else. An action that fails says so beside the action, in its own words.
+
 Every piece, in each of its states, is on the reference page at `/reference`. It exists in `pnpm dev` and in the build the visual suite captures, never in a release: it is a reference for whoever builds screens, not part of the product.
 
 ## Voice

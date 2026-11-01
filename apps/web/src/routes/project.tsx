@@ -8,6 +8,7 @@ import { PageHeader } from "~/components/page-header";
 import { ProjectPeople } from "~/components/project-people";
 import { ProjectReviews } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
+import { Failed, Loading } from "~/components/ui/states";
 import { type BrowserFilters, noFilters } from "~/lib/browser";
 import { formatDates } from "~/lib/locale";
 import {
@@ -38,9 +39,9 @@ export function ProjectFrame({
   parent?: (project: Project) => ReactNode;
   children: (project: Project) => ReactNode;
 }) {
-  const { data: project, error } = useQuery(projectQuery(projectId));
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!project) return <p className="p-8 text-ink-3">Loading</p>;
+  const { data: project, error, refetch } = useQuery(projectQuery(projectId));
+  if (error) return <Failed what="This project" error={error} retry={refetch} />;
+  if (!project) return <Loading />;
   return (
     <>
       <PageHeader

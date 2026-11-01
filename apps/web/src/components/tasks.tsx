@@ -23,6 +23,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { InlineInput, Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
+import { Failed, Loading } from "~/components/ui/states";
 import { ReviewerDot, type ReviewerDotState } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
@@ -204,7 +205,7 @@ function TaskPanel({
       <div className="scroll-quiet min-h-0 flex-1 overflow-auto">
         {failure && <p className="m-0 px-5 pt-4 text-[13px] text-signal">{failure.message}</p>}
         {!task ? (
-          !error && <p className="m-0 px-5 py-5 text-[13px] text-ink-3">Loading</p>
+          !error && <Loading size="panel" className="px-5 py-5" />
         ) : (
           <TaskBody
             key={task.id}
@@ -598,7 +599,7 @@ export function ProjectTasks({
   canMake: boolean;
 }) {
   const navigate = useNavigate();
-  const { data, error } = useQuery(projectTasksQuery(projectId));
+  const { data, error, refetch } = useQuery(projectTasksQuery(projectId));
   const { data: me } = useQuery(meQuery);
   const [filter, setFilter] = useState<TaskFilter>("open");
   const open = (task?: string, make = false) =>
@@ -607,8 +608,8 @@ export function ProjectTasks({
       params: { projectId },
       search: { ...(task ? { task } : {}), ...(make ? { new: true } : {}) },
     });
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data) return <p className="m-0 text-ink-3">Loading</p>;
+  if (error) return <Failed what="The tasks" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const list = filterTasks(data.tasks, filter, me?.user.id ?? "", today());
   const groups = taskGroupOrder
     .map((s) => [s, list.filter((t) => t.status === s)] as const)

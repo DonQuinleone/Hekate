@@ -1,6 +1,7 @@
 import { reviewKindNames } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { Failed } from "~/components/ui/states";
 import { formatDates } from "~/lib/locale";
 import { projectReviewsQuery, type ReviewSummary, useProjectCan } from "~/lib/queries";
 import { Icon } from "./icons";
@@ -18,7 +19,7 @@ export function reviewState(review: Pick<ReviewSummary, "status" | "outcome">): 
 
 /** A project's reviews, newest first, and requesting a new one. */
 export function ProjectReviews({ projectId }: { projectId: string }) {
-  const { data: all, error } = useQuery(projectReviewsQuery(projectId));
+  const { data: all, error, refetch } = useQuery(projectReviewsQuery(projectId));
   const can = useProjectCan(projectId);
   // Sharing is not reviewing (#138): shares are listed apart, as the prototype lists them, and
   // start from the item shared (#489), not from here.
@@ -43,7 +44,9 @@ export function ProjectReviews({ projectId }: { projectId: string }) {
           </Button>
         )}
       </div>
-      {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
+      {error && (
+        <Failed what="The reviews" error={error} retry={refetch} size="panel" className="px-0" />
+      )}
       {reviews && reviews.length === 0 && (
         <p className="m-0 text-[13px] text-ink-3">
           No reviews yet. A review asks people to approve, or to give feedback on, tracks and files.

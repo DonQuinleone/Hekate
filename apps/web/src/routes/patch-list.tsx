@@ -9,6 +9,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { patchQuery, usePatchList, useProjectCan } from "~/lib/queries";
 import { ProjectFrame } from "./project";
 
@@ -24,7 +25,11 @@ const directionWords: Record<PatchDirection, { heading: string; one: string }> =
  */
 export function PatchListPage({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
-  const { data: boxes, error } = useQuery({
+  const {
+    data: boxes,
+    error,
+    refetch,
+  } = useQuery({
     ...patchQuery(projectId),
     enabled: can("view_production"),
   });
@@ -33,14 +38,14 @@ export function PatchListPage({ projectId }: { projectId: string }) {
       {(project) => (
         <ProductionBody projectId={projectId} current="patch" can={can}>
           {!can("view_production") ? (
-            <Empty
+            <Refused
               title="Not among what your role shows"
               text="The patch list is shown to the roles the project's access gives the production tools."
             />
           ) : error ? (
-            <p className="m-0 text-signal">{error.message}</p>
+            <Failed what="The patch list" error={error} retry={refetch} />
           ) : !boxes ? (
-            <p className="m-0 text-ink-3">Loading</p>
+            <Loading />
           ) : (
             <PatchList
               projectId={projectId}

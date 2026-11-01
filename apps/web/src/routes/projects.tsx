@@ -13,6 +13,7 @@ import { ChoiceCard } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
+import { Failed, Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
 import { progress } from "~/lib/home";
@@ -213,7 +214,7 @@ export function ProjectsPage({
   onCreatingDone?: () => void;
 }) {
   const archived = show === "archived";
-  const { data, isPending, error } = useQuery(projectCardsQuery(archived));
+  const { data, isPending, error, refetch } = useQuery(projectCardsQuery(archived));
   const [creating, setCreatingState] = useState(creatingFirst);
   const [archiving, setArchiving] = useState<ProjectWithFigures | null>(null);
   const archive = useArchiveProject();
@@ -253,7 +254,7 @@ export function ProjectsPage({
         }
       />
       <Page>
-        {error && <p className="m-0 text-signal">{error.message}</p>}
+        {error && <Failed what="Your projects" error={error} retry={refetch} />}
 
         <div className="flex flex-wrap items-center gap-1">
           {(Object.keys(showLabels) as ProjectShow[]).map((id) => (
@@ -307,7 +308,7 @@ export function ProjectsPage({
           </fieldset>
         </div>
         {isPending ? (
-          <p className="m-0 text-ink-3">Loading</p>
+          <Loading />
         ) : list.length === 0 ? (
           // The filters stay above an empty list, so the archived are always a click away.
           show === "all" ? (

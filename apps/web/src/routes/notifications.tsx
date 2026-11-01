@@ -4,6 +4,7 @@ import { NotificationItem } from "~/components/notifications";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { Button } from "~/components/ui/button";
+import { Failed, Loading } from "~/components/ui/states";
 import { byDay } from "~/lib/notifications";
 import { allNotificationsQuery, useNotificationActions } from "~/lib/queries";
 
@@ -26,8 +27,8 @@ export function NotificationsPage() {
         }
       />
       <Page width="narrow" className="gap-6">
-        {all.error && <p className="m-0 text-signal">{all.error.message}</p>}
-        {all.isPending && <p className="m-0 text-ink-3">Loading</p>}
+        {all.error && <Failed what="Your notifications" error={all.error} retry={all.refetch} />}
+        {all.isPending && <Loading />}
         {all.data && list.length === 0 && (
           <Empty
             title="Nothing new"

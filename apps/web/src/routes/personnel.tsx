@@ -20,6 +20,7 @@ import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { personnelQuery, usePersonnel, useProjectCan } from "~/lib/queries";
 import { ProjectFrame } from "./project";
@@ -38,7 +39,7 @@ const kindWords: Record<PersonnelKind, { heading: string; one: string }> = {
  */
 export function PersonnelPage({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
-  const { data, error } = useQuery({
+  const { data, error, refetch } = useQuery({
     ...personnelQuery(projectId),
     enabled: can("view_production"),
   });
@@ -47,14 +48,14 @@ export function PersonnelPage({ projectId }: { projectId: string }) {
       {(project) => (
         <ProductionBody projectId={projectId} current="personnel" can={can}>
           {!can("view_production") ? (
-            <Empty
+            <Refused
               title="Not among what your role shows"
               text="Personnel is shown to the roles the project's access gives the production tools."
             />
           ) : error ? (
-            <p className="m-0 text-signal">{error.message}</p>
+            <Failed what="Personnel" error={error} retry={refetch} />
           ) : !data ? (
-            <p className="m-0 text-ink-3">Loading</p>
+            <Loading />
           ) : (
             <PersonnelList
               projectId={projectId}

@@ -21,6 +21,7 @@ import { ToggleChip } from "~/components/ui/chip";
 import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
+import { Failed, Loading } from "~/components/ui/states";
 import { ReviewerDot, type ReviewerDotState } from "~/components/ui/status";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
@@ -281,7 +282,7 @@ function Card({
  * each person's own, kept with their account.
  */
 export function ProjectBoard({ projectId }: { projectId: string }) {
-  const { data, error } = useQuery(projectBoardQuery(projectId));
+  const { data, error, refetch } = useQuery(projectBoardQuery(projectId));
   const { words, versionLabel } = useItemWords(projectId);
   const preferences = usePreferences();
   const save = useSavePreferences();
@@ -292,8 +293,8 @@ export function ProjectBoard({ projectId }: { projectId: string }) {
   const display = boardDisplayFor(preferences, data?.display);
   const set = (board: BoardDisplay) => save.mutate({ board, boardChosen: true });
   const reset = () => save.mutate({ board: defaultBoardDisplay, boardChosen: false });
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data) return <p className="m-0 text-ink-3">Loading</p>;
+  if (error) return <Failed what="The board" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const columns = data.columns[display.groupBy];
   const cardsIn = (id: string) =>
     data.cards.filter((card) => boardColumnOf(card, display.groupBy) === id);

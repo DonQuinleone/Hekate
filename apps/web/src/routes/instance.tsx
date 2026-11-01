@@ -93,6 +93,7 @@ import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
+import { Failed, failureText, Loading } from "~/components/ui/states";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { MemberLimitSelect, QuotaSelect, UsageRows } from "~/components/usage";
@@ -465,7 +466,9 @@ function Debug({ initial }: { initial?: string | undefined }) {
               That is not an error reference: they look like HK-7F3A-2C.
             </p>
           )}
-          {report.isError && <p className="m-0 text-[13px] text-signal">{report.error.message}</p>}
+          {report.isError && (
+            <p className="m-0 text-[13px] text-signal">{failureText(report.error)}</p>
+          )}
           {reference && report.data === null && (
             <p className="m-0 text-[13px] text-ink-2">
               No report has {reference}. Reports are kept for {ERROR_REPORT_DAYS} days.
@@ -770,7 +773,9 @@ function GatewayReplayDialog({ onClose }: { onClose: () => void }) {
     >
       <div className="flex max-h-[60vh] flex-col divide-y divide-line overflow-y-auto rounded-panel border border-line">
         {log.isPending ? (
-          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+          <Loading size="panel" />
+        ) : log.isError ? (
+          <Failed what="The events" error={log.error} retry={log.refetch} size="panel" />
         ) : rows.length === 0 ? (
           <div className="p-4">
             <Empty title="No events this week" text="The gateway has sent nothing." />
@@ -826,7 +831,9 @@ function ReplayDialog({ onClose }: { onClose: () => void }) {
     >
       <div className="flex max-h-[60vh] flex-col divide-y divide-line overflow-y-auto rounded-panel border border-line">
         {log.isPending ? (
-          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+          <Loading size="panel" />
+        ) : log.isError ? (
+          <Failed what="The deliveries" error={log.error} retry={log.refetch} size="panel" />
         ) : rows.length === 0 ? (
           <div className="p-4">
             <Empty title="No deliveries this week" text="Nothing has been sent to a channel." />
@@ -960,7 +967,7 @@ const until = formatDates({ day: "numeric", month: "short" });
 /** Operators' invitations to make a workspace, each withdrawn from its menu. */
 function SignUpInvitations() {
   const client = useQueryClient();
-  const { data: invitations, error } = useQuery(signUpInvitationsQuery);
+  const { data: invitations, error, refetch } = useQuery(signUpInvitationsQuery);
   const withdraw = useMutation({
     mutationFn: async (id: string) =>
       (
@@ -970,8 +977,8 @@ function SignUpInvitations() {
       ).invitations,
     onSuccess: (next) => client.setQueryData(signUpInvitationsQuery.queryKey, next),
   });
-  if (error) return <Row name="Invitations" hint={error.message} />;
-  if (!invitations) return null;
+  if (error) return <Failed what="Invitations" error={error} retry={refetch} size="panel" />;
+  if (!invitations) return <Loading size="panel" />;
   if (invitations.length === 0)
     return (
       <Row
@@ -1097,7 +1104,7 @@ function InviteToSignUp({ onClose }: { onClose: () => void }) {
  */
 function Settings() {
   const client = useQueryClient();
-  const { data, error } = useQuery(instanceOwnSettingsQuery);
+  const { data, error, refetch } = useQuery(instanceOwnSettingsQuery);
   const [message, setMessage] = useState<string | null>(null);
   const [bounced, setBounced] = useState(false);
   const save = useMutation({
@@ -1118,8 +1125,8 @@ function Settings() {
     mutationFn: async () =>
       json<{ to: string; mail: InstanceMail }>(await api.instance.settings["mail-test"].$post()),
   });
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data) return null;
+  if (error) return <Failed what="Settings" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const { settings, environment: env } = data;
   const maintenance = settings.maintenance;
   const words = message ?? maintenance.message;
@@ -1474,7 +1481,7 @@ function SystemInformation() {
   const client = useQueryClient();
   // A check asked for runs as a job: read again every few seconds until it has been done.
   const [checking, setChecking] = useState<{ since: string | null; until: number } | null>(null);
-  const { data, error } = useQuery({
+  const { data, error, refetch } = useQuery({
     ...instanceSystemQuery,
     refetchInterval: checking ? 3_000 : false,
   });
@@ -1506,8 +1513,8 @@ function SystemInformation() {
     onSuccess: () =>
       setChecking({ since: data?.check.checkedAt ?? null, until: Date.now() + 120_000 }),
   });
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data) return null;
+  if (error) return <Failed what="The system" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const built = data.build === "dev" ? "A development build" : `Build ${data.build.slice(0, 12)}`;
   return (
     <>
@@ -1796,9 +1803,9 @@ function Logs() {
       </div>
       <div className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25 shadow-1">
         {log.isPending ? (
-          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+          <Loading size="panel" />
         ) : log.isError ? (
-          <p className="m-0 px-4 py-3 text-[13px] text-signal">{log.error.message}</p>
+          <Failed what="The log" error={log.error} retry={log.refetch} size="panel" />
         ) : rows.length === 0 ? (
           <div className="p-4">
             <Empty
@@ -2011,7 +2018,7 @@ function reconciliationHint({ last, runningSince, open }: HealthStorage["reconci
  */
 function SystemHealthPage() {
   const [range, setRange] = useState<HealthRange>("24h");
-  const { data, error, dataUpdatedAt } = useQuery({
+  const { data, error, dataUpdatedAt, refetch } = useQuery({
     ...instanceHealthQuery(range),
     placeholderData: keepPreviousData,
   });
@@ -2030,8 +2037,8 @@ function SystemHealthPage() {
     const timer = setInterval(() => setClock(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, []);
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data) return null;
+  if (error) return <Failed what="System health" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const { now, series } = data;
   const when = (i: number) => {
     const minutes = (series.requestsPerMinute.length - 1 - i) * series.step;

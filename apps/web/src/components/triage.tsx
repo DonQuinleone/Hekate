@@ -1,6 +1,7 @@
 import { type Anchor, type TriageInput, triageQueue } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { ago, passageLoop, type Thread, threadsOf } from "~/lib/comments";
 import { type Loop, MIN_LOOP } from "~/lib/loop";
@@ -186,8 +187,7 @@ export function TriageView({
     active,
   );
 
-  if (!comments || !categories || !queue)
-    return <p className="px-4 py-8 text-ink-3 @3xl/app:px-6">Loading</p>;
+  if (!comments || !categories || !queue) return <Loading className="@3xl/app:px-6" />;
 
   const stages = [
     ...new Set([

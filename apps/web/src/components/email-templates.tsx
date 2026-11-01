@@ -7,6 +7,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { Failed } from "~/components/ui/states";
 import {
   emailPreviewQuery,
   useMailSender,
@@ -23,9 +24,11 @@ type View = "light" | "dark" | "text";
 
 /** The message drawn as a mail client would: HTML in a frame that runs nothing, or the text part. */
 function Preview({ template, view }: { template: EmailTemplateId; view: View }) {
-  const { data, error } = useQuery(emailPreviewQuery(template, view === "dark" ? "dark" : "light"));
+  const { data, error, refetch } = useQuery(
+    emailPreviewQuery(template, view === "dark" ? "dark" : "light"),
+  );
   const [height, setHeight] = useState(480);
-  if (error) return <p className="m-0 px-4 py-6 text-[13px] text-signal">{error.message}</p>;
+  if (error) return <Failed what="The preview" error={error} retry={refetch} size="panel" />;
   if (!data) return <div className="h-[480px] animate-pulse bg-raised/40" />;
   if (view === "text")
     return (

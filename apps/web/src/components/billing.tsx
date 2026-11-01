@@ -9,6 +9,7 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { Failed, Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import { billingQuery, useBillingPortal, useCancelPlan, useChangePlan } from "~/lib/queries";
@@ -44,10 +45,10 @@ const invoiceStatus = (i: Invoice) => {
 };
 
 export function BillingSection({ owner }: { owner: boolean }) {
-  const { data, error } = useQuery(billingQuery);
+  const { data, error, refetch } = useQuery(billingQuery);
   const [changing, setChanging] = useState(false);
-  if (error) return <p className="m-0 text-[13px] text-signal">{error.message}</p>;
-  if (!data) return null;
+  if (error) return <Failed what="Billing" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const done = new URLSearchParams(window.location.search).get("checkout") === "done";
   return (
     <>

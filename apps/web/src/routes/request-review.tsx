@@ -30,6 +30,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { InlineInput, Input, Textarea } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
+import { Failed, Loading } from "~/components/ui/states";
 import { Switch } from "~/components/ui/toggle";
 import { itemsIn } from "~/lib/browser";
 import { cn } from "~/lib/cn";
@@ -219,7 +220,7 @@ export function RequestReviewPage({
   /** A review to duplicate (#502): everything filled in from it. */
   from?: string;
 }) {
-  const { data: project, error } = useQuery(projectQuery(projectId));
+  const { data: project, error, refetch } = useQuery(projectQuery(projectId));
   const can = useProjectCan(projectId);
   const mayRequest = can("request_reviews");
   const { data: original, error: originalError } = useQuery({
@@ -227,8 +228,8 @@ export function RequestReviewPage({
     enabled: Boolean(from) && mayRequest,
   });
 
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!project) return <p className="p-8 text-ink-3">Loading</p>;
+  if (error) return <Failed what="This project" error={error} retry={refetch} />;
+  if (!project) return <Loading />;
   const crumbs = [
     { key: "projects", link: <Link to="/projects">Projects</Link> },
     {
@@ -269,7 +270,7 @@ export function RequestReviewPage({
     return (
       <>
         <PageHeader crumbs={crumbs} title="New review" />
-        <p className="p-8 text-ink-3">Loading</p>
+        <Loading />
       </>
     );
   }

@@ -42,6 +42,7 @@ import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Slider } from "~/components/ui/slider";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { Switch } from "~/components/ui/toggle";
 import {
   projectFilesQuery,
@@ -88,7 +89,7 @@ const alignments: { how: Alignment; label: string }[] = [
  */
 export function StagePlanPage({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
-  const { data, error } = useQuery({
+  const { data, error, refetch } = useQuery({
     ...stagePlansQuery(projectId),
     enabled: can("view_production"),
   });
@@ -102,14 +103,14 @@ export function StagePlanPage({ projectId }: { projectId: string }) {
         return (
           <ProductionBody projectId={projectId} current="stage" can={can}>
             {!can("view_production") ? (
-              <Empty
+              <Refused
                 title="Not among what your role shows"
                 text="Stage plans are shown to the roles the project's access gives the production tools."
               />
             ) : error ? (
-              <p className="m-0 text-signal">{error.message}</p>
+              <Failed what="The stage plans" error={error} retry={refetch} />
             ) : !data ? (
-              <p className="m-0 text-ink-3">Loading</p>
+              <Loading />
             ) : !plan ? (
               <Empty
                 title="No stage plan yet"

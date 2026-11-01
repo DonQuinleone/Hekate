@@ -41,6 +41,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { Failed } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import {
   ago,
@@ -1385,7 +1386,7 @@ export function Comments({
   /** On a document or picture: the page shown and the region drawn on it. */
   pages?: PageComments;
 }) {
-  const { data, error } = useQuery(commentsQuery(fileId));
+  const { data, error, refetch } = useQuery(commentsQuery(fileId));
   const { guest } = useViewer();
   const can = useProjectCan(guest ? undefined : projectId);
   // A guest reviewer may comment on the files of their review when it allows, never triage.
@@ -2018,7 +2019,15 @@ export function Comments({
               </>
             )}
             <div className="scroll-quiet flex flex-col gap-3 px-3 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:px-4">
-              {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
+              {error && (
+                <Failed
+                  what="The comments"
+                  error={error}
+                  retry={refetch}
+                  size="panel"
+                  className="px-0"
+                />
+              )}
               {data && listed.length === 0 && (
                 <p className="m-0 py-8 text-center text-[13px] text-ink-3">
                   {query?.trim()

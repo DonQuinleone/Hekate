@@ -13,6 +13,7 @@ import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "rea
 import { Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
+import { failureText } from "~/components/ui/states";
 import { actionCopy } from "~/lib/access-log";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
@@ -138,7 +139,7 @@ export function Inspect({
               </p>
             )}
             {result.isError && (
-              <p className="m-0 text-[13px] text-signal">{result.error.message}</p>
+              <p className="m-0 text-[13px] text-signal">{failureText(result.error)}</p>
             )}
             {target && result.data === null && (
               <p className="m-0 text-[13px] text-ink-2">

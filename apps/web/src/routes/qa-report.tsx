@@ -7,7 +7,8 @@ import { PageHeader } from "~/components/page-header";
 import { QaReportDocument } from "~/components/qa-report";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
-import { fileQuery, projectQuery, qaDocumentQuery } from "~/lib/queries";
+import { Failed, failureText, isRefusal, Loading, referenceOf } from "~/components/ui/states";
+import { ApiError, fileQuery, projectQuery, qaDocumentQuery } from "~/lib/queries";
 import { useViewer } from "~/lib/viewer";
 
 /** Takes a report away in a format: the server marks the PDF for whoever asked and logs it. */
@@ -20,7 +21,7 @@ const download = (fileId: string, format: "pdf" | "csv" | "json") =>
  */
 export function QaReportPage({ fileId }: { fileId: string }) {
   const { guest } = useViewer();
-  const { data: doc, error } = useQuery(qaDocumentQuery(fileId));
+  const { data: doc, error, refetch } = useQuery(qaDocumentQuery(fileId));
   const { data: file } = useQuery(fileQuery(fileId));
   const { data: project } = useQuery({
     ...projectQuery(file?.projectId ?? ""),
@@ -91,9 +92,13 @@ export function QaReportPage({ fileId }: { fileId: string }) {
       />
       <Page width="narrow">
         {error ? (
-          <Empty title="No report for this file" text={error.message} />
+          isRefusal(error) || referenceOf(error) || !(error instanceof ApiError) ? (
+            <Failed what="The report" error={error} retry={refetch} />
+          ) : (
+            <Empty title="No report for this file" text={failureText(error)} />
+          )
         ) : !doc ? (
-          <p className="m-0 text-ink-3">Loading</p>
+          <Loading />
         ) : (
           <QaReportDocument doc={doc} />
         )}

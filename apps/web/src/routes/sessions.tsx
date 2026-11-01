@@ -14,6 +14,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { formatDates } from "~/lib/locale";
 import {
   editDecisionsQuery,
@@ -51,7 +52,11 @@ export function SessionsPage({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
   const [making, setMaking] = useState(false);
   const [importing, setImporting] = useState(false);
-  const { data: sessions, error } = useQuery({
+  const {
+    data: sessions,
+    error,
+    refetch,
+  } = useQuery({
     ...projectSessionsQuery(projectId),
     enabled: can("view_takes"),
   });
@@ -82,14 +87,14 @@ export function SessionsPage({ projectId }: { projectId: string }) {
       {(project) => (
         <ProductionBody projectId={projectId} current="sessions" can={can}>
           {!can("view_takes") ? (
-            <Empty
+            <Refused
               title="Not among what your role shows"
               text="Sessions and takes are shown to the roles the project's access gives them."
             />
           ) : error ? (
-            <p className="m-0 text-signal">{error.message}</p>
+            <Failed what="The sessions" error={error} retry={refetch} />
           ) : !sessions ? (
-            <p className="m-0 text-ink-3">Loading</p>
+            <Loading />
           ) : sessions.length === 0 ? (
             <Empty
               title="No sessions yet"
@@ -295,7 +300,7 @@ function SessionDialog({
  * only gathers those made on the day.
  */
 export function SessionPage({ sessionId }: { sessionId: string }) {
-  const { data: session, error } = useQuery(sessionQuery(sessionId));
+  const { data: session, error, refetch } = useQuery(sessionQuery(sessionId));
   const { data: project } = useQuery({
     ...projectQuery(session?.projectId ?? ""),
     enabled: Boolean(session),
@@ -311,8 +316,8 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
     queries: trackIds.map((id) => ({ ...editDecisionsQuery(id), retry: false })),
   });
   const decisions = new Map(trackIds.map((id, i) => [id, lists[i]?.data ?? null]));
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!session || !project) return <p className="p-8 text-ink-3">Loading</p>;
+  if (error) return <Failed what="This session" error={error} retry={refetch} />;
+  if (!session || !project) return <Loading />;
   const canEdit = can("edit_takes") && !project.archivedAt;
   const rows = session.takeRows;
   return (

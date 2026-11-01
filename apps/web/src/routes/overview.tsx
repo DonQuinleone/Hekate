@@ -20,6 +20,7 @@ import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
 import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
+import { Failed, Loading } from "~/components/ui/states";
 import { StatusDot } from "~/components/ui/status";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
@@ -212,8 +213,9 @@ export function ProjectOverview({ project }: { project: Project }) {
   const noun = project.profile === "video" ? "Deliverables" : "Tracks";
   const names = sectionNames(noun);
 
-  if (overview.error) return <p className="m-0 text-signal">{overview.error.message}</p>;
-  if (!overview.data) return <p className="m-0 text-ink-3">Loading</p>;
+  if (overview.error)
+    return <Failed what="The overview" error={overview.error} retry={overview.refetch} />;
+  if (!overview.data) return <Loading />;
   const o: OverviewData = overview.data;
   const f = o.figures;
   const sections = sectionsOf(o.layout).filter(

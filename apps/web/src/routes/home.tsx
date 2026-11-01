@@ -10,6 +10,7 @@ import { NewProjectTile, ProjectCard } from "~/components/project-card";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
+import { Failed } from "~/components/ui/states";
 import { StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { type Attention, attentionFor, deadlinesOf, dueIn, figures, greeting } from "~/lib/home";
@@ -126,7 +127,7 @@ function ComingUp({ reviews, now }: { reviews: MyReview[]; now: number }) {
 }
 
 /** Placeholders in the page's shape while its figures arrive, so nothing jumps. */
-function Loading() {
+function HomeSkeleton() {
   const block = "animate-pulse rounded-panel-lg bg-raised/40";
   return (
     <div role="status" aria-busy="true" aria-label="Loading" className="flex flex-col gap-8">
@@ -173,9 +174,15 @@ export function HomePage() {
 
   let content: ReactNode;
   if (error) {
-    content = <p className="m-0 text-signal">{error.message}</p>;
+    content = (
+      <Failed
+        what="Home"
+        error={error}
+        retry={() => Promise.all([home.refetch(), mine.refetch()])}
+      />
+    );
   } else if (!home.data || !mine.data) {
-    content = <Loading />;
+    content = <HomeSkeleton />;
   } else if (home.data.projects.length === 0 && mine.data.length === 0) {
     content = (
       <Empty

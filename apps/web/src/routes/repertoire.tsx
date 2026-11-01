@@ -10,6 +10,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { repertoireQuery, useProjectCan, useRepertoire } from "~/lib/queries";
 import { ProjectFrame } from "./project";
 
@@ -31,20 +32,20 @@ function Frame({
   }) => ReactNode;
 }) {
   const can = useProjectCan(projectId);
-  const { data, error } = useRepertoireData(projectId, can("view_production"));
+  const { data, error, refetch } = useRepertoireData(projectId, can("view_production"));
   return (
     <ProjectFrame projectId={projectId} title={title}>
       {(project) => (
         <ProductionBody projectId={projectId} current={current} can={can}>
           {!can("view_production") ? (
-            <Empty
+            <Refused
               title="Not among what your role shows"
               text="The repertoire and venues are shown to the roles the project's access gives the production tools."
             />
           ) : error ? (
-            <p className="m-0 text-signal">{error.message}</p>
+            <Failed what="The repertoire" error={error} retry={refetch} />
           ) : !data ? (
-            <p className="m-0 text-ink-3">Loading</p>
+            <Loading />
           ) : (
             children({
               canEdit: can("edit_production") && !project.archivedAt,

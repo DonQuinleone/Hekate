@@ -28,6 +28,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Failed, Loading } from "~/components/ui/states";
 import { ReviewerDot, type ReviewerDotState, StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
@@ -856,7 +857,7 @@ export function ReviewBody({
   /** Record that you have seen it. Off for a review shown only because it came first. */
   markViewed?: boolean;
 }) {
-  const { data: review, error } = useQuery(reviewQuery(reviewId));
+  const { data: review, error, refetch } = useQuery(reviewQuery(reviewId));
   const { guest } = useViewer();
   const { data: me } = useQuery({ ...meQuery, enabled: !guest });
   const { data: project } = useQuery({
@@ -880,8 +881,8 @@ export function ReviewBody({
     }
   }, [markViewed, mine?.state, viewed]);
 
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!review) return <p className="p-8 text-ink-3">Loading</p>;
+  if (error) return <Failed what="This review" error={error} retry={refetch} />;
+  if (!review) return <Loading />;
   const state = reviewState(review);
   const due = review.dueAt ? dueIn(review.dueAt) : null;
   const overdue = review.status === "open" && due !== null && due.days < 0;

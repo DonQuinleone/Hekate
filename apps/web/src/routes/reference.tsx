@@ -20,6 +20,7 @@ import { ColourInput, InlineInput, Input, Select, Textarea } from "~/components/
 import { ActionMenu, Dropdown, MenuList } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { Slider } from "~/components/ui/slider";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import {
   ReviewerDot,
   type ReviewerDotState,
@@ -39,6 +40,7 @@ import { FrameGuides, GoToTimecode } from "~/components/video-frame";
 import { GroupLegend, KindLegend } from "~/components/workflow-kinds";
 import { cn } from "~/lib/cn";
 import { categoryTones } from "~/lib/comments";
+import { ApiError } from "~/lib/queries";
 
 /*
  * The design system as a reference for whoever builds screens: the brand, the tokens, and
@@ -1076,6 +1078,60 @@ function Components() {
               <Icon name="close" size={13} />
             </Button>
           </span>
+        </Spec>
+        <Spec
+          name="Loading"
+          rule="The content's shape in quiet blocks while it comes: never a word or a spinner, and nothing moves when it arrives. A page or pane, a list's rows, or one value in a line."
+        >
+          <div className="flex w-full flex-col gap-2">
+            <Card className="w-full">
+              <Loading rows={3} />
+            </Card>
+            <Card className="w-full">
+              <Loading size="panel" />
+            </Card>
+            <span className="text-[13px] text-ink-2">
+              Uploaded by <Loading size="line" />
+            </span>
+          </div>
+        </Spec>
+        <Spec
+          name="Failed"
+          rule="What could not be loaded, why in plain words, the reference to quote with Copy, and Try again. In a list or a section it is one row."
+        >
+          <div className="flex w-full flex-col gap-2">
+            <Card className="w-full">
+              <Failed
+                what="The board"
+                error={new ApiError("Something went wrong", "internal", "HK-7F3A-2C")}
+                retry={() => undefined}
+              />
+            </Card>
+            <Card className="w-full">
+              <Failed
+                what="The takes"
+                error={new TypeError("Failed to fetch")}
+                retry={() => undefined}
+                size="panel"
+              />
+            </Card>
+          </div>
+        </Spec>
+        <Spec
+          name="Refused"
+          rule="What cannot be opened and why, never whether it exists, with a way on. A refusal from the server is shown this way by Failed itself."
+        >
+          <div className="flex w-full flex-col gap-2">
+            <Card className="w-full">
+              <Refused
+                title="Not among what your role shows"
+                text="The schedule is shown to the roles the project's access gives the production tools."
+              />
+            </Card>
+            <Card className="w-full">
+              <Refused size="panel" />
+            </Card>
+          </div>
         </Spec>
         <Spec name="Problem" rule="Inline, next to what is wrong, with the fix in the sentence.">
           <span className="rounded-panel border border-signal/40 bg-signal/10 px-3 py-2 text-[12px] text-ink">

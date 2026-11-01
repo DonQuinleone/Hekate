@@ -25,6 +25,7 @@ import { Choice } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { FileInput, Input, Select, Textarea } from "~/components/ui/input";
+import { Failed, Loading } from "~/components/ui/states";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
@@ -215,7 +216,7 @@ export const ticketLine = (t: TicketRow) =>
 
 /** One of the workspace's tickets as a thread, with a reply box and Mark resolved. */
 function TicketDialog({ id, onClose }: { id: string; onClose: () => void }) {
-  const { data, error } = useQuery(ticketQuery(id));
+  const { data, error, refetch } = useQuery(ticketQuery(id));
   const reply = useReplyToTicket(id);
   const resolve = useResolveTicket(id);
   const [body, setBody] = useState("");
@@ -257,7 +258,8 @@ function TicketDialog({ id, onClose }: { id: string; onClose: () => void }) {
         )
       }
     >
-      {error && <p className="m-0 text-[13px] text-signal">{error.message}</p>}
+      {error && <Failed what="The ticket" error={error} retry={refetch} size="panel" />}
+      {!ticket && !error && <Loading size="panel" />}
       {ticket && (
         <div className="flex flex-col gap-4">
           <Thread
@@ -381,7 +383,7 @@ function DocumentationRow({ docsUrl }: { docsUrl: string }) {
 }
 
 function Tickets({ onNew, onOpen }: { onNew: () => void; onOpen: (id: string) => void }) {
-  const { data, error } = useQuery(workspaceSupportQuery);
+  const { data, error, refetch } = useQuery(workspaceSupportQuery);
   return (
     <Section
       title="Your tickets"
@@ -394,9 +396,9 @@ function Tickets({ onNew, onOpen }: { onNew: () => void; onOpen: (id: string) =>
       }
     >
       {error ? (
-        <p className="m-0 px-4 py-3 text-[13px] text-signal">{error.message}</p>
+        <Failed what="Your tickets" error={error} retry={refetch} size="panel" />
       ) : !data ? (
-        <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+        <Loading size="panel" />
       ) : data.tickets.length === 0 ? (
         <Row
           name="No tickets yet"

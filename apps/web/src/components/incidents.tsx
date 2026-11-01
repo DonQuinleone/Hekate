@@ -20,6 +20,7 @@ import { Choice } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
+import { Failed, Loading } from "~/components/ui/states";
 import { ago } from "~/lib/comments";
 import {
   incidentsQuery,
@@ -45,7 +46,7 @@ const instantOf = (value: string) => (value ? new Date(value).toISOString() : un
  * are answered in the app.
  */
 export function StatusSection() {
-  const { data, error } = useQuery(incidentsQuery);
+  const { data, error, refetch } = useQuery(incidentsQuery);
   const { data: desk } = useQuery(supportDeskQuery);
   const [posting, setPosting] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -67,7 +68,8 @@ export function StatusSection() {
         </Button>
       }
     >
-      {error && <p className="m-0 px-4 py-3 text-[13px] text-signal">{error.message}</p>}
+      {error && <Failed what="Incidents" error={error} retry={refetch} size="panel" />}
+      {!data && !error && <Loading size="panel" />}
       {data && incidents.length === 0 && (
         <Row
           name="Nothing posted yet"

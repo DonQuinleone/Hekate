@@ -5,6 +5,7 @@ import { Icon } from "~/components/icons";
 import { PageHeader } from "~/components/page-header";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
+import { Failed, Loading } from "~/components/ui/states";
 import { StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
@@ -81,12 +82,22 @@ export function InboxPage({ item, show = "needs" }: { item?: string; show?: Inbo
   const home = useQuery(homeQuery);
   const error = mine.error ?? home.error;
 
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
+  if (error)
+    return (
+      <>
+        <PageHeader title="Inbox" />
+        <Failed
+          what="Your inbox"
+          error={error}
+          retry={() => Promise.all([mine.refetch(), home.refetch()])}
+        />
+      </>
+    );
   if (!mine.data || !home.data) {
     return (
       <>
         <PageHeader title="Inbox" />
-        <p className="p-8 text-ink-3">Loading</p>
+        <Loading />
       </>
     );
   }

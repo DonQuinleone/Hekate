@@ -16,6 +16,7 @@ import { Button } from "~/components/ui/button";
 import { Select } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { Switch } from "~/components/ui/toggle";
 import { WorkflowCanvas } from "~/components/workflow-canvas";
 import { WorkflowCode } from "~/components/workflow-code";
@@ -141,7 +142,11 @@ export function WorkflowsPage({
   // As in the prototype: the builder is for those who edit workflows, and for those who run
   // the project's roles, who see what a role takes part in without changing it.
   const mayView = mayEdit || (can("manage_roles") && can("view_workflows"));
-  const { data: workflows, error } = useQuery({
+  const {
+    data: workflows,
+    error,
+    refetch,
+  } = useQuery({
     ...projectWorkflowsQuery(projectId),
     enabled: mayView,
   });
@@ -273,14 +278,14 @@ export function WorkflowsPage({
           <div className="scroll-quiet min-h-0 flex-1 overflow-y-auto">
             <div className={body}>
               {!mayView ? (
-                <Empty
+                <Refused
                   title="Not among what your role does"
                   text="Seeing a project's workflows needs the permission in a project role. Ask whoever runs the project."
                 />
               ) : error ? (
-                <p className="m-0 text-signal">{error.message}</p>
+                <Failed what="The workflows" error={error} retry={refetch} />
               ) : !workflows ? (
-                <p className="m-0 text-ink-3">Loading</p>
+                <Loading />
               ) : workflows.length === 0 ? (
                 <Empty
                   title="No workflows yet"

@@ -21,6 +21,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Icon } from "~/components/icons";
+import { Failed, Loading } from "~/components/ui/states";
 import { formatDates } from "~/lib/locale";
 import {
   instanceBillingQuery,
@@ -117,14 +118,14 @@ export function InstanceBilling() {
 
 /** What the workspaces pay, who is on trial, who owes, and each workspace's next invoice. */
 function Overview() {
-  const { data, error } = useQuery(instanceBillingQuery);
+  const { data, error, refetch } = useQuery(instanceBillingQuery);
   const [changing, setChanging] = useState<BillingWorkspaceRow | null>(null);
   const [waiving, setWaiving] = useState<BillingWorkspaceRow | null>(null);
   const [applying, setApplying] = useState<BillingWorkspaceRow | null>(null);
   const [crediting, setCrediting] = useState<BillingWorkspaceRow | null>(null);
   const [notice, setNotice] = useState<{ text: string; failed?: boolean } | null>(null);
-  if (error) return <p className="m-0 text-[13px] text-signal">{error.message}</p>;
-  if (!data) return null;
+  if (error) return <Failed what="Billing" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const [main, ...others] = data.revenue;
   const { trials, overdue, nextPayout } = data;
   return (
@@ -667,13 +668,13 @@ function Waive({ workspace: w, onClose }: { workspace: BillingWorkspaceRow; onCl
 
 /** The plans workspaces can be on: their prices, limits and what they include. */
 function Plans() {
-  const { data, error } = useQuery(instancePlansQuery);
+  const { data, error, refetch } = useQuery(instancePlansQuery);
   const save = useSavePlan();
   const retire = useRetirePlan();
   const [editing, setEditing] = useState<{ plan: Plan | null; copy?: boolean } | null>(null);
   const [retiring, setRetiring] = useState<Plan | null>(null);
-  if (error) return <p className="m-0 text-[13px] text-signal">{error.message}</p>;
-  if (!data) return null;
+  if (error) return <Failed what="The plans" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const plans = byPrice(data.plans.filter((p) => !p.retiredAt));
   const retired = data.plans.filter((p) => p.retiredAt);
   const toggleHidden = (p: Plan) =>
@@ -1065,15 +1066,15 @@ const promoLive = (p: PromoCode) =>
 
 /** The promo codes: a percentage or an amount off, for some months, for the first so many. */
 function Promos() {
-  const { data, error } = useQuery(instancePromosQuery);
+  const { data, error, refetch } = useQuery(instancePromosQuery);
   const plans = useQuery(instancePlansQuery).data?.plans ?? [];
   const end = useEndPromo();
   const [editing, setEditing] = useState<{ promo: PromoCode | null } | null>(null);
   const [uses, setUses] = useState<PromoCode | null>(null);
   const [ending, setEnding] = useState<PromoCode | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
-  if (error) return <p className="m-0 text-[13px] text-signal">{error.message}</p>;
-  if (!data) return null;
+  if (error) return <Failed what="The promo codes" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const nameOf = new Map(plans.map((p) => [p.id, p.name]));
   const forPlans = (p: PromoCode) =>
     p.planIds.length === 0
@@ -1373,7 +1374,7 @@ const useWords = { held: "checkout open", taken: "paid", released: "checkout lap
 
 /** Who used a code: each workspace, the plan, and whether its checkout was paid. */
 function PromoUses({ promo, onClose }: { promo: PromoCode; onClose: () => void }) {
-  const { data, error } = useQuery(promoUsesQuery(promo.id));
+  const { data, error, refetch } = useQuery(promoUsesQuery(promo.id));
   return (
     <Dialog
       title={`Who used ${promo.code}`}
@@ -1381,10 +1382,10 @@ function PromoUses({ promo, onClose }: { promo: PromoCode; onClose: () => void }
       onClose={onClose}
     >
       {error ? (
-        <p role="alert" className="m-0 text-[13px] text-signal">
-          {error.message}
-        </p>
-      ) : !data ? null : data.uses.length === 0 ? (
+        <Failed what="Its uses" error={error} retry={refetch} size="panel" className="px-0" />
+      ) : !data ? (
+        <Loading size="panel" className="px-0" />
+      ) : data.uses.length === 0 ? (
         <p className="m-0 text-[13px] text-ink-2">Nobody yet.</p>
       ) : (
         <div className="flex flex-col divide-y divide-line rounded-panel-lg border border-line">

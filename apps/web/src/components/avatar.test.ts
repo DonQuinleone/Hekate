@@ -9,22 +9,26 @@ const styles = join(import.meta.dirname, "..", "styles");
 /** Each theme's custom properties: the brand's own in tokens.css, each palette's over them. */
 function themes(): Map<string, Map<string, string>> {
   const props = (block: string) =>
-    new Map([...block.matchAll(/(--hk-[\w-]+):\s*([^;]+);/g)].map((m) => [m[1]!, m[2]!.trim()]));
-  const base = props(
-    readFileSync(join(styles, "tokens.css"), "utf8").match(/:root \{([^}]*)\}/)![1]!,
-  );
+    new Map(
+      [...block.matchAll(/(--hk-[\w-]+):\s*([^;]+);/g)].map((m) => [
+        m[1] ?? "",
+        (m[2] ?? "").trim(),
+      ]),
+    );
+  const tokens = readFileSync(join(styles, "tokens.css"), "utf8");
+  const base = props(tokens.match(/:root \{([^}]*)\}/)?.[1] ?? "");
   const all = new Map([["signal-dark", base]]);
   for (const m of readFileSync(join(styles, "themes.css"), "utf8").matchAll(
     /:root\[data-theme="([\w-]+)"\] \{([^}]*)\}/g,
   )) {
-    all.set(m[1]!, new Map([...base, ...props(m[2]!)]));
+    all.set(m[1] ?? "", new Map([...base, ...props(m[2] ?? "")]));
   }
   return all;
 }
 
 const resolve = (theme: Map<string, string>, value: string): string => {
-  const ref = value.match(/^var\((--hk-[\w-]+)\)$/);
-  return ref ? resolve(theme, theme.get(ref[1]!) ?? "") : value;
+  const ref = value.match(/^var\((--hk-[\w-]+)\)$/)?.[1];
+  return ref ? resolve(theme, theme.get(ref) ?? "") : value;
 };
 
 /** An oklch colour as sRGB hex, clipped into the gamut as a browser draws it. */

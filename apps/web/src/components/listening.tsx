@@ -7,6 +7,7 @@ import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
 import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
+import { Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { followStep, leaderState } from "~/lib/listening";
 import {
@@ -514,7 +515,7 @@ export function ListeningRoomPage({ roomId }: { roomId: string }) {
   const navigate = useNavigate();
   const { data, error, isPending } = useQuery(listeningRoomQuery(roomId));
   const label = useFileLabel(data?.room.fileId ?? null);
-  if (isPending) return <p className="p-8 text-ink-3">Loading</p>;
+  if (isPending) return <Loading />;
   const open = Boolean(data?.open) && !error;
   return (
     <div className="mx-auto flex max-w-md flex-col items-start gap-4 px-6 py-16">

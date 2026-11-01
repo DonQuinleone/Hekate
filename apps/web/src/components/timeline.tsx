@@ -28,6 +28,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Card } from "~/components/page";
 import { Button } from "~/components/ui/button";
+import { Failed, Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { dayHere, formatDates } from "~/lib/locale";
 import {
@@ -95,7 +96,7 @@ function Handle({ onPointerDown }: { onPointerDown: (e: ReactPointerEvent<HTMLEl
  * Moved by three weeks at a time.
  */
 export function ProjectTimeline({ projectId }: { projectId: string }) {
-  const { data, error } = useQuery(projectBoardQuery(projectId));
+  const { data, error, refetch } = useQuery(projectBoardQuery(projectId));
   const { words } = useItemWords(projectId);
   const can = useProjectCan(projectId);
   const { updateTrack } = useTrackMutations(projectId);
@@ -210,8 +211,8 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
     );
   };
 
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data) return null;
+  if (error) return <Failed what="The timeline" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   if (data.cards.length === 0 && entries.length === 0)
     return (
       <Empty

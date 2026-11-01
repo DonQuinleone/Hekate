@@ -21,6 +21,7 @@ import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import { scheduleQuery, useProjectCan, useSchedule } from "~/lib/queries";
@@ -63,20 +64,20 @@ const useScheduleData = (projectId: string, enabled: boolean) =>
  */
 export function SchedulePage({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
-  const { data, error } = useScheduleData(projectId, can("view_production"));
+  const { data, error, refetch } = useScheduleData(projectId, can("view_production"));
   return (
     <ProjectFrame projectId={projectId} title="Schedule">
       {(project) => (
         <ProductionBody projectId={projectId} current="schedule" can={can}>
           {!can("view_production") ? (
-            <Empty
+            <Refused
               title="Not among what your role shows"
               text="The schedule is shown to the roles the project's access gives the production tools."
             />
           ) : error ? (
-            <p className="m-0 text-signal">{error.message}</p>
+            <Failed what="The schedule" error={error} retry={refetch} />
           ) : !data ? (
-            <p className="m-0 text-ink-3">Loading</p>
+            <Loading />
           ) : (
             <Schedule
               projectId={projectId}

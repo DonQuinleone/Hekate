@@ -13,6 +13,7 @@ import { TakeManager } from "~/components/takes";
 import { TrackHeading, TrackVersions } from "~/components/track-versions";
 import { Button } from "~/components/ui/button";
 import { Segmented } from "~/components/ui/segmented";
+import { Failed, Loading } from "~/components/ui/states";
 import type { Picked } from "~/lib/picked-files";
 import {
   projectQuery,
@@ -31,7 +32,7 @@ import { primaryOf } from "~/lib/versions";
  * settled, opened by the button or by dropping files on the takes.
  */
 export function TrackPage({ trackId, view }: { trackId: string; view?: "versions" | "takes" }) {
-  const { data: track, error } = useQuery(trackQuery(trackId));
+  const { data: track, error, refetch } = useQuery(trackQuery(trackId));
   const { data: project } = useQuery({
     ...projectQuery(track?.projectId ?? ""),
     enabled: Boolean(track),
@@ -58,8 +59,8 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
       setAdding(true);
     },
   });
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!track || !project) return <p className="p-8 text-ink-3">Loading</p>;
+  if (error) return <Failed what="This track" error={error} retry={refetch} />;
+  if (!track || !project) return <Loading />;
   const latest = track.versions.at(-1);
   const playable = latest && primaryOf(latest);
   const next = track.versions.length + 1;

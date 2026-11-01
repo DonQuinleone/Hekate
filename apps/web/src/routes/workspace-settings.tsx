@@ -76,6 +76,7 @@ import { Field } from "~/components/ui/field";
 import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
+import { Failed, Loading } from "~/components/ui/states";
 import { StorageUsageRow, UsageRows } from "~/components/usage";
 import { DeleteWorkspace, WorkspaceExports } from "~/components/workspace-lifecycle";
 import { WhereFilesGo } from "~/components/workspace-storage";
@@ -1233,12 +1234,12 @@ function Guests() {
  * operators', under Instance, Operations.
  */
 function Operations({ role }: { role: Role }) {
-  const { data, error } = useQuery(workspaceOperationsQuery);
+  const { data, error, refetch } = useQuery(workspaceOperationsQuery);
   const { data: usage } = useQuery(storageUsageQuery);
   const { data: me } = useQuery(meQuery);
   const workspace = me?.organisations.find((o) => o.id === me.activeOrganisationId);
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data || !me || !workspace) return null;
+  if (error) return <Failed what="This page" error={error} retry={refetch} />;
+  if (!data || !me || !workspace) return <Loading />;
   return (
     <>
       <Section title="This workspace">
@@ -1742,7 +1743,9 @@ function AccessLog() {
         </ul>
       )}
       {log.isPending ? (
-        <p className="px-4 py-3 text-[13px] text-ink-3">Loading</p>
+        <Loading size="panel" />
+      ) : log.isError ? (
+        <Failed what="The log" error={log.error} retry={log.refetch} size="panel" />
       ) : events.length === 0 ? (
         <div className="p-4">
           {filtered(filters) ? (
