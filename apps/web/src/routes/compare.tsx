@@ -41,6 +41,8 @@ type Which = "a" | "b";
  * Two versions of a track side by side (#137): heard in step, one key flipping between them at
  * the same musical position, level-matched; where the audio says the same music sits in each;
  * what the checks found fixed and new; and the earlier one's comments where they fall now.
+ * Two cuts of a deliverable are compared in the player, where their pictures are (#569): here
+ * they have only their comments and findings, with the way to the pictures.
  */
 export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?: number }) {
   const navigate = useNavigate();
@@ -51,7 +53,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
   });
   const can = useProjectCan(data?.track.projectId);
   const { words, versionLabel, video } = useItemWords(data?.track.projectId);
-  const compareTitle = `Compare ${words.versions}`;
+  const compareTitle = video ? "Comments and findings" : `Compare ${words.versions}`;
   const realign = useRealign(trackId);
   const [blind, setBlind] = useState(false);
   /** Blind: whether key 1 is B rather than A. */
@@ -208,21 +210,30 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
         ]}
         title={compareTitle}
         actions={
-          <Button
-            variant={blind ? "primary" : "secondary"}
-            size="sm"
-            onClick={blind ? reveal : startBlind}
-          >
-            <Icon name="eyeOff" size={14} />
-            {blind ? "Reveal" : "Blind A/B"}
-          </Button>
+          video ? (
+            <Button variant="secondary" size="sm" asChild>
+              <Link to="/files/$fileId" params={{ fileId: data.b.fileId }} search={{ cuts: "side" }}>
+                <Icon name="compare" size={14} />
+                Compare the pictures
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              variant={blind ? "primary" : "secondary"}
+              size="sm"
+              onClick={blind ? reveal : startBlind}
+            >
+              <Icon name="eyeOff" size={14} />
+              {blind ? "Reveal" : "Blind A/B"}
+            </Button>
+          )
         }
       />
       <Page className="gap-6">
         <div className="flex flex-wrap items-center gap-3">
           {(["a", "b"] as const).map((which) => (
+            // The keys are shown once, on the lanes (#569).
             <label key={which} className="flex items-center gap-2 text-[13px] text-ink-2">
-              <Kbd>{which === "a" ? "1" : "2"}</Kbd>
               <span className="sr-only">
                 {which === "a" ? `First ${words.version}` : `Second ${words.version}`}
               </span>
@@ -244,8 +255,8 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
               </Select>
             </label>
           ))}
-          <AlignmentState comparison={data} />
-          {mayRealign && (
+          {!video && <AlignmentState comparison={data} />}
+          {!video && mayRealign && (
             <Button
               variant="ghost"
               size="sm"
@@ -258,7 +269,14 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
           )}
         </div>
         {realign.error && <p className="m-0 text-[13px] text-signal">{realign.error.message}</p>}
-        <div className="grid gap-6 @5xl/app:grid-cols-[minmax(0,1fr)_280px]">
+        <div
+          className={cn(
+            "grid gap-6",
+            !video && "@5xl/app:grid-cols-[minmax(0,1fr)_280px]",
+            video && "max-w-[640px]",
+          )}
+        >
+          {!video && (
           <div className="flex min-w-0 flex-col gap-3">
             {order.map((which) => {
               const side = data[which];
@@ -293,9 +311,12 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
                         {side.notes ? ` · ${side.notes}` : ""}
                       </span>
                     )}
-                    <span className="tabular ml-auto shrink-0 text-ink-3">
-                      {gainLabel(gainOf(which))}
-                    </span>
+                    {/* Only the one turned down says so, and says why (#569). */}
+                    {gainOf(which) < 1 && (
+                      <span className="tabular ml-auto shrink-0 text-ink-3">
+                        Level-matched {gainLabel(gainOf(which))}
+                      </span>
+                    )}
                   </div>
                   {element ? (
                     <Waveform
@@ -363,21 +384,26 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
               />
             )}
           </div>
+          )}
           <aside className="flex min-w-0 flex-col gap-5">
-            <AlignmentPath comparison={data} label={label} video={video} />
-            <Findings
-              title={`Fixed in ${label(later)}`}
-              findings={data.findings.fixed}
-              measured={data.findings.measured}
-              none="Nothing fixed."
-              fixed
-            />
-            <Findings
-              title={`New in ${label(later)}`}
-              findings={data.findings.new}
-              measured={data.findings.measured}
-              none="Nothing new."
-            />
+            {!video && <AlignmentPath comparison={data} label={label} video={video} />}
+            {/* Each fact once (#569): a section only where it holds something. */}
+            {!data.findings.measured ||
+            (data.findings.fixed.length === 0 && data.findings.new.length === 0) ? (
+              <section className="flex flex-col gap-1.5">
+                <h2 className="label m-0">Findings</h2>
+                <span className="text-[12px] text-ink-3">
+                  {data.findings.measured
+                    ? `The checks found nothing fixed or new in ${label(later)}.`
+                    : "Not measured yet."}
+                </span>
+              </section>
+            ) : (
+              <>
+                <Findings title={`Fixed in ${label(later)}`} findings={data.findings.fixed} fixed />
+                <Findings title={`New in ${label(later)}`} findings={data.findings.new} />
+              </>
+            )}
             <section className="flex flex-col gap-1.5">
               <h2 className="label m-0">
                 Comments mapped · {data.alignment.status === "ready" ? data.comments.length : 0}
@@ -400,13 +426,11 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
                 </ul>
               )}
               {!blind && (
-                <Link
-                  to="/files/$fileId"
-                  params={{ fileId: data.b.fileId }}
-                  className="text-[13px] text-ink-2 hover:text-ink"
-                >
-                  Open {label("b")}
-                </Link>
+                <Button variant="secondary" size="sm" asChild className="mt-1 self-start">
+                  <Link to="/files/$fileId" params={{ fileId: data.b.fileId }}>
+                    Open {label("b")}
+                  </Link>
+                </Button>
               )}
             </section>
           </aside>
@@ -505,16 +529,13 @@ function AlignmentPath({
 function Findings({
   title,
   findings,
-  measured,
-  none,
   fixed = false,
 }: {
   title: string;
   findings: QaFinding[];
-  measured: boolean;
-  none: string;
   fixed?: boolean;
 }) {
+  if (findings.length === 0) return null;
   return (
     <section className="flex flex-col gap-1.5">
       <h2 className="label m-0">
@@ -534,9 +555,6 @@ function Findings({
           </span>
         </span>
       ))}
-      {findings.length === 0 && (
-        <span className="text-[12px] text-ink-3">{measured ? none : "Not measured yet."}</span>
-      )}
     </section>
   );
 }

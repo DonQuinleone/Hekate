@@ -12,6 +12,7 @@ export function Segmented<T extends string>({
   options,
   onChange,
   action,
+  disabled = false,
   className,
 }: {
   /** What the choice is, for assistive technology. */
@@ -31,12 +32,16 @@ export function Segmented<T extends string>({
   onChange: (value: T) => void;
   /** A way to add to the choices, at the end: its name (read and shown on hover) and icon. */
   action?: { label: string; icon: ReactNode; onSelect: () => void } | undefined;
+  /** Shown but not chosen from, where it does not apply to what is shown now. */
+  disabled?: boolean;
   className?: string;
 }) {
   return (
     <fieldset
+      disabled={disabled}
       className={cn(
         "m-0 flex h-8 min-w-0 items-center rounded-control border border-line bg-raised/40 p-0.5",
+        disabled && "opacity-50",
         className,
       )}
     >

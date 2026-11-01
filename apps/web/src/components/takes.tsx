@@ -53,7 +53,6 @@ import { Field } from "./ui/field";
 import { Input, Select, Textarea } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
-import { StatusDot } from "./ui/status";
 
 /** A take's rating as five dots, filled to the mark. */
 export function Rating({ value }: { value: number }) {
@@ -187,10 +186,17 @@ export function TakeManager({
         >
           <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-1.5 text-[13px]">
             <Icon name="take" size={14} className="text-ink-3" />
-            <span className="text-ink-3">
-              {takes.length} {takes.length === 1 ? "take" : "takes"}
-              {withBars &&
-                (gaps.length > 0 ? ` · no take of ${gapsLabel(gaps)}` : " · every bar covered")}
+            {/* What was found for the bar asked for, else the whole track's coverage (#662). */}
+            <span role="status" className="text-ink-3">
+              {asked && showing === "takes"
+                ? barFound(shown.length, wanted)
+                : `${takes.length} ${takes.length === 1 ? "take" : "takes"}${
+                    withBars
+                      ? gaps.length > 0
+                        ? ` · no take of ${gapsLabel(gaps)}`
+                        : " · every bar covered"
+                      : ""
+                  }`}
             </span>
             <div className="ml-auto flex flex-wrap items-center gap-2">
               {decisions && (
@@ -204,21 +210,38 @@ export function TakeManager({
                   ]}
                 />
               )}
-              {withBars && showing === "takes" && (
-                <Input
-                  size="sm"
-                  inputMode="numeric"
-                  value={bar}
-                  onChange={(e) => setBar(e.target.value.replace(/\D/g, ""))}
-                  placeholder="Bar"
-                  aria-label="Only the takes covering a bar"
-                  className="w-20"
-                />
+              {/* The toolbar keeps its controls in both views, those that do not apply
+                  disabled, so nothing moves as the view changes (#662). */}
+              {withBars && (
+                <span className="relative flex items-center">
+                  <Input
+                    size="sm"
+                    inputMode="numeric"
+                    value={showing === "takes" ? bar : ""}
+                    disabled={showing !== "takes"}
+                    onChange={(e) => setBar(e.target.value.replace(/\D/g, ""))}
+                    placeholder="Bar"
+                    aria-label="Only the takes covering a bar"
+                    className="w-24 pr-7"
+                  />
+                  {bar !== "" && showing === "takes" && (
+                    <Button
+                      variant="ghost"
+                      size="iconSm"
+                      aria-label="Clear the bar"
+                      onClick={() => setBar("")}
+                      className="absolute right-0.5 size-6"
+                    >
+                      <Icon name="close" size={12} />
+                    </Button>
+                  )}
+                </span>
               )}
-              {showing === "takes" && (
+              {(showing === "takes" || decisions) && (
                 <Segmented
                   label="Which takes"
                   value={which}
+                  disabled={showing !== "takes"}
                   onChange={setFilter}
                   options={[
                     { value: "all", label: "All" },
@@ -244,9 +267,10 @@ export function TakeManager({
               <ul
                 aria-label="Takes of this track"
                 className={cn(
-                  "grid grid-cols-[minmax(0,1fr)_40px]",
+                  "grid grid-cols-[minmax(0,1fr)_minmax(40px,auto)]",
                   // On a narrow screen a take's bars are written in its line instead of drawn.
-                  withBars && "@2xl/app:grid-cols-[minmax(220px,280px)_minmax(0,1fr)_40px]",
+                  withBars &&
+                    "@2xl/app:grid-cols-[minmax(220px,280px)_minmax(0,1fr)_minmax(40px,auto)]",
                 )}
               >
                 {withBars && (
@@ -269,6 +293,7 @@ export function TakeManager({
                           {i === 0 ? "bar 1" : i * 10}
                         </span>
                       ))}
+                      {asked && <BarMark bar={wanted} end={end} />}
                       {/* The bars no take covers, marked under the ruler. */}
                       {gaps.map(([from, to]) => (
                         <span
@@ -289,6 +314,7 @@ export function TakeManager({
                     key={t.id}
                     take={t}
                     end={withBars ? end : null}
+                    bar={asked ? wanted : null}
                     used={barsUsedOf(decisions, t.id)}
                     usedIn={
                       decisions?.uses.some((u) => u.takeId === t.id)
@@ -343,10 +369,29 @@ export function TakeManager({
   );
 }
 
+/** What a bar's search found, in words: "1 take covers bar 30". */
+export const barFound = (n: number, bar: number) =>
+  n === 0
+    ? `No take covers bar ${bar}`
+    : `${n} ${n === 1 ? "take covers" : "takes cover"} bar ${bar}`;
+
+/** The bar asked for, a line across the ruler and the lanes at its middle. */
+function BarMark({ bar, end }: { bar: number; end: number }) {
+  if (bar < 1 || bar > end) return null;
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute top-0 bottom-0 w-px bg-ink"
+      style={{ left: `${(bar - 0.5) * (100 / end)}%` }}
+    />
+  );
+}
+
 /** One take: play it in the player, where it lies in the piece, and what can be done with it. */
 function TakeLine({
   take,
   end,
+  bar,
   used,
   usedIn,
   canEdit,
@@ -357,6 +402,8 @@ function TakeLine({
   take: TakeRow;
   /** The ruler's last bar, or null where no take has bars. */
   end: number | null;
+  /** The bar asked for, marked across the lanes and heard from here; null for none. */
+  bar: number | null;
   /** The bars of it the latest version uses, from its edit decision list (#56). */
   used: [number, number][];
   /** The version whose list uses it ("V3"), or null. */
@@ -367,6 +414,8 @@ function TakeLine({
   onRemove: () => void;
 }) {
   const range = barsOf(take);
+  const heardAt =
+    bar !== null && take.file ? barSpan({ ...take, duration: take.file.duration }, bar) : null;
   // What is known of it, in a line; its bars only where the lane does not draw them.
   const meta = [
     { text: end === null ? null : (barsLabel(take) ?? "no bars"), narrow: true },
@@ -400,12 +449,8 @@ function TakeLine({
             />
           )}
           <Rating value={take.rating} />
-          {usedIn && (
-            <span className="flex items-center gap-1 text-[12px] text-ink-2">
-              <StatusDot state="approved" />
-              in {usedIn}
-            </span>
-          )}
+          {/* Where an edit uses it: a quiet fact, not a status (#703). */}
+          {usedIn && <span className="text-[12px] text-ink-3">in {usedIn}</span>}
         </span>
         <span className="block truncate text-[12px] text-ink-3">
           {take.file ? "" : "Its file is gone · "}
@@ -457,6 +502,7 @@ function TakeLine({
           ) : (
             <span className="absolute top-2.5 left-2 text-[12px] text-ink-3">No bars</span>
           )}
+          {bar !== null && <BarMark bar={bar} end={end} />}
           {/* What the version uses of it, under its bars. */}
           {used.map(([from, to]) => (
             <span
@@ -471,7 +517,21 @@ function TakeLine({
           ))}
         </span>
       )}
-      <span className="pr-2">
+      <span className="flex items-center justify-end gap-1 pr-2">
+        {/* "Any other options for bar 72?": each take heard at the bar, looped (#662). */}
+        {heardAt && take.file && bar !== null && (
+          <Button variant="ghost" size="sm" asChild>
+            <Link
+              to="/files/$fileId"
+              params={{ fileId: take.file.id }}
+              search={{ loop: barLoop(heardAt), t: barLoopStart(heardAt) }}
+              aria-label={`Play take ${take.number} at bar ${bar}, looped`}
+            >
+              <Icon name="play" size={10} fill="currentColor" strokeWidth={0} />
+              Bar {bar}
+            </Link>
+          </Button>
+        )}
         {canEdit && (
           <ActionMenu
             label={`take ${take.number}`}
@@ -511,27 +571,33 @@ function EditDecisionList({
         <span className="min-w-0 flex-1">{decisionsSummary(decisions)}</span>
         {decisions.dropFrame ? (
           // Drop frame exists only at 29.97: nothing to choose.
-          <span>{rateName(decisions.fps, true)}, as the list says</span>
+          <span>Frame rate {rateName(decisions.fps, true)}, as the list says</span>
         ) : (
-          <Select
-            size="sm"
-            aria-label="Timecode rate"
-            value={rate === undefined ? "" : String(rate)}
-            onChange={(e) =>
-              onRate(e.target.value === "" ? undefined : (Number(e.target.value) as EdlRate))
-            }
-            className="w-auto"
-          >
-            <option value="">
-              {rateName(decisions.fps, decisions.dropFrame)}
-              {decisions.fpsGuessed ? ", worked out" : ", as the list says"}
-            </option>
-            {edlRates.map((r) => (
-              <option key={r} value={String(r)}>
-                {rateName(r, r === 29.97)}
-              </option>
-            ))}
-          </Select>
+          <label className="flex items-center gap-2">
+            Frame rate
+            <Select
+              size="sm"
+              value={rate === undefined ? "" : String(rate)}
+              onChange={(e) =>
+                onRate(e.target.value === "" ? undefined : (Number(e.target.value) as EdlRate))
+              }
+              className="w-auto"
+            >
+              <option value="">{rateName(decisions.fps, decisions.dropFrame)}</option>
+              {edlRates.map((r) => (
+                <option key={r} value={String(r)}>
+                  {rateName(r, r === 29.97)}
+                </option>
+              ))}
+            </Select>
+            <span className="text-[12px] text-ink-3">
+              {rate !== undefined
+                ? "Chosen here"
+                : decisions.fpsGuessed
+                  ? "Guessed from the list"
+                  : "As the list says"}
+            </span>
+          </label>
         )}
       </div>
       {decisions.uses.length === 0 ? (
@@ -539,32 +605,45 @@ function EditDecisionList({
           The list has no edits from a recording.
         </p>
       ) : (
-        <ol aria-label="Edit decisions" className="m-0 list-none p-0">
-          {decisions.uses.map((use, i) => {
-            const line = editLine(use, numberOf);
-            return (
-              <li
-                key={`${use.event.number}-${String(i)}`}
-                className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] gap-x-4 border-b border-line px-4 py-2 text-[13px] last:border-b-0 @2xl/app:grid-cols-[8rem_minmax(0,14rem)_minmax(0,1fr)_minmax(0,9rem)]"
-              >
-                <span className="tabular text-ink-2">{line.when}</span>
-                <span className="min-w-0 truncate">
-                  {line.take ? (
-                    <span className="tabular font-medium text-ink">{line.take}</span>
-                  ) : (
-                    <span className="text-ink-3">{line.source}</span>
-                  )}
-                </span>
-                <span className="col-start-2 min-w-0 truncate text-ink-3 @2xl/app:col-start-auto">
-                  {line.place}
-                </span>
-                <span className="col-start-2 text-ink-3 @2xl/app:col-start-auto">
-                  {line.bars ?? ""}
-                </span>
-              </li>
-            );
-          })}
-        </ol>
+        <>
+          {/* Each column headed (#662), on a screen wide enough to set them as columns. */}
+          <div
+            aria-hidden="true"
+            className="hidden grid-cols-[8rem_minmax(0,14rem)_minmax(0,1fr)_minmax(0,9rem)] gap-x-4 border-b border-line px-4 py-1.5 @2xl/app:grid"
+          >
+            {[`In V${decisions.version.number}`, "Take", "From the take", "Bars"].map((h) => (
+              <span key={h} className="eyebrow">
+                {h}
+              </span>
+            ))}
+          </div>
+          <ol aria-label="Edit decisions" className="m-0 list-none p-0">
+            {decisions.uses.map((use, i) => {
+              const line = editLine(use, numberOf);
+              return (
+                <li
+                  key={`${use.event.number}-${String(i)}`}
+                  className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)] gap-x-4 border-b border-line px-4 py-2 text-[13px] last:border-b-0 @2xl/app:grid-cols-[8rem_minmax(0,14rem)_minmax(0,1fr)_minmax(0,9rem)]"
+                >
+                  <span className="tabular text-ink-2">{line.when}</span>
+                  <span className="min-w-0 truncate">
+                    {line.take ? (
+                      <span className="tabular font-medium text-ink">{line.take}</span>
+                    ) : (
+                      <span className="text-ink-3">{line.source}</span>
+                    )}
+                  </span>
+                  <span className="col-start-2 min-w-0 truncate text-ink-3 @2xl/app:col-start-auto">
+                    {line.place}
+                  </span>
+                  <span className="col-start-2 text-ink-3 @2xl/app:col-start-auto">
+                    {line.bars ?? ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </>
       )}
     </div>
   );
@@ -672,10 +751,7 @@ function EditTake({
           />
         </Field>
         {(sessions.length > 0 || session) && (
-          <Field
-            label="Session"
-            hint="The session it was recorded in. Whichever you choose, it stays this track's take"
-          >
+          <Field label="Session" hint="Where it was recorded. The take stays with this track.">
             <Select value={session} onChange={(e) => setSession(e.target.value)}>
               <option value="">None</option>
               {sessions.map((s) => (
@@ -688,10 +764,8 @@ function EditTake({
         )}
         <fieldset className="m-0 grid min-w-0 grid-cols-3 gap-4 border-0 p-0">
           <legend className="mb-2 text-[13px] text-ink-2">
-            Bars, when they matter
-            <span className="block text-[12px] text-ink-3">
-              A take with bars is found by the bars it covers.
-            </span>
+            Bars (optional)
+            <span className="block text-[12px] text-ink-3">Lets you find this take by bar.</span>
           </legend>
           <Field label="Score page">
             <Input inputMode="numeric" value={page} onChange={digits(setPage)} />
@@ -740,7 +814,7 @@ export function OtherTakes({
    * was heard: its file, its number and where the bar lies in it.
    */
   onAudition?: (take: { fileId: string; number: number; span: [number, number] }) => void;
-  /** For those who triage (#133): the takes the thread already has, and how to share more. */
+  /** For those who triage (#133): the takes the thread already has, and how to attach more. */
   share?: { shared: string[]; onShare: (takeIds: string[]) => Promise<unknown> };
 }) {
   const { data: takes, error, refetch } = useQuery(trackTakesQuery(trackId));
@@ -755,17 +829,14 @@ export function OtherTakes({
   });
   const notes = marksAtBar(marking?.marks ?? [], bar);
   const list = takes ? takesForBar(takes, bar, notes) : [];
-  const [mode, setMode] = useState<"ticked" | "all" | "except">("ticked");
   /** The take being auditioned, to say so and to press its button. */
   const [auditioning, setAuditioning] = useState<string | null>(null);
   const [ticked, setTicked] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const chosen = list
-    .filter((t) =>
-      mode === "all" ? true : mode === "ticked" ? ticked.has(t.id) : !ticked.has(t.id),
-    )
-    .map((t) => t.id);
+  // The ticks are the choice (#647): what is ticked is attached, and Select all ticks the rest.
+  const chosen = list.filter((t) => ticked.has(t.id)).map((t) => t.id);
+  const all = list.length > 0 && chosen.length === list.length;
   const tick = (id: string) =>
     setTicked((was) => {
       const next = new Set(was);
@@ -781,7 +852,7 @@ export function OtherTakes({
       await share.onShare(chosen);
       setTicked(new Set());
     } catch (e) {
-      setFailure(e instanceof Error ? e.message : "Could not share the takes");
+      setFailure(e instanceof Error ? e.message : "Could not attach the takes");
     } finally {
       setSending(false);
     }
@@ -822,13 +893,13 @@ export function OtherTakes({
             const span = t.file ? barSpan({ ...t, duration: t.file.duration }, bar) : null;
             return (
               <li key={t.id} className="flex items-center border-b border-line last:border-b-0">
-                {share && mode !== "all" && (
+                {share && (
                   // A cell of its own, so the box keeps its distance from the take's link.
                   <span className="flex w-10 shrink-0 items-center justify-center self-stretch">
                     <Checkbox
                       checked={ticked.has(t.id)}
                       onChange={() => tick(t.id)}
-                      aria-label={`Tick take ${t.number}`}
+                      aria-label={`Attach take ${t.number}`}
                     />
                   </span>
                 )}
@@ -885,18 +956,17 @@ export function OtherTakes({
         </p>
       )}
       {share && list.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2">
-          <Select
-            size="sm"
-            value={mode}
-            onChange={(e) => setMode(e.target.value as typeof mode)}
-            aria-label="Which takes to share with this thread"
-            className="w-auto min-w-0 flex-1"
-          >
-            <option value="ticked">The ticked takes</option>
-            <option value="all">Every take of the bar</option>
-            <option value="except">All but the ticked</option>
-          </Select>
+        <div className="flex flex-wrap items-center gap-2 border-t border-line py-2 pr-3">
+          <label className="flex min-w-0 flex-1 items-center text-[13px] text-ink-2">
+            <span className="flex w-10 shrink-0 items-center justify-center">
+              <Checkbox
+                checked={all}
+                indeterminate={chosen.length > 0 && !all}
+                onChange={() => setTicked(all ? new Set() : new Set(list.map((t) => t.id)))}
+              />
+            </span>
+            Select all
+          </label>
           <Button
             variant="primary"
             size="sm"
@@ -904,7 +974,7 @@ export function OtherTakes({
             disabled={sending || chosen.length === 0}
             onClick={() => void send()}
           >
-            Share {chosen.length}
+            {chosen.length > 0 ? `Attach ${chosen.length}` : "Attach"}
           </Button>
           {failure && (
             <p role="alert" className="m-0 w-full text-[12px] text-signal">
@@ -963,13 +1033,9 @@ function OtherTake({
             />
           )}
           <Rating value={take.rating} />
-          {usedIn && (
-            <span className="flex items-center gap-1 text-[12px] text-ink-2">
-              <StatusDot state="approved" />
-              in {usedIn}
-            </span>
-          )}
-          {shared && <Chip>shared</Chip>}
+          {/* Where an edit uses it: a quiet fact, not a status (#703). */}
+          {usedIn && <span className="text-[12px] text-ink-3">in {usedIn}</span>}
+          {shared && <Chip>attached</Chip>}
         </span>
         <span className="block truncate text-[12px] text-ink-3">
           {[barsLabel(take), take.label, take.notes].filter(Boolean).join(" · ")}
