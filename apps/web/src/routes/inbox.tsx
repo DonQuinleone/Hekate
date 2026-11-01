@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
+import { NeedsYouDot } from "~/components/needs-you";
 import { PageHeader } from "~/components/page-header";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
@@ -30,6 +31,9 @@ function Row({ item, active, show }: { item: InboxItem; active: boolean; show: I
       <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center">
         {item.kind === "failed" ? (
           <Icon name="warning" size={14} className="text-signal" />
+        ) : item.review?.yourTurn && item.review.status === "open" ? (
+          // Your turn: the signal, as for whatever needs a person (#613).
+          <NeedsYouDot />
         ) : (
           item.review && <StatusDot state={reviewState(item.review)} />
         )}
@@ -110,7 +114,7 @@ export function InboxPage({ item, show = "needs" }: { item?: string; show?: Inbo
         <PageHeader title="Inbox" />
         <div className="p-5 @3xl/app:p-8">
           <Empty
-            title="Nothing waiting on you"
+            title="Nothing needs you"
             text="Reviews you are asked for, and files that need replacing, arrive here."
             action={
               <Button variant="primary" asChild>

@@ -282,7 +282,7 @@ export function InboxPage({ item: selectedId }: { item?: string }) {
       empty={
         <div className="p-8">
           <Empty
-            title="Nothing waiting on you"
+            title="Nothing needs you"
             text="Reviews you are asked for, comments assigned to you and anything to triage arrive here."
             action={
               viewer.projects().length === 0 ? (

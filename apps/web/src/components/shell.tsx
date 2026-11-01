@@ -1,18 +1,20 @@
 import {
   type InstanceSection,
-  incidentImpactNames,
   instanceSections,
   instanceSectionsFor,
+  overallLine,
   reachesInstance,
+  serviceStateNames,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { Fragment, type ReactNode, useCallback, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useEffect, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Lockup, Mark, WorkspaceLogo } from "~/components/brand";
 import { CommandPalette } from "~/components/command-palette";
 import { Icon, type IconName } from "~/components/icons";
 import { paletteKey } from "~/components/kbd";
+import { NeedsYouDot } from "~/components/needs-you";
 import { NotificationsMenu } from "~/components/notifications";
 import { HeaderSlotsProvider, useHeaderSlots } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-cover";
@@ -20,10 +22,15 @@ import { StateDot } from "~/components/status";
 import { DialogLayer } from "~/components/ui/dialog";
 import { Floating } from "~/components/ui/floating";
 import { MenuList, usePopover } from "~/components/ui/menu";
-import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
-import { type Connection, connectionOf, connectionWords } from "~/lib/connection";
+import {
+  type Connection,
+  connectionOf,
+  connectionWords,
+  tryingAgain,
+  useReach,
+} from "~/lib/connection";
 import { useDensitySync } from "~/lib/density";
 import { docsUrl } from "~/lib/links";
 import { localeKey, setLocale } from "~/lib/locale";
@@ -31,18 +38,29 @@ import {
   fileQuery,
   healthQuery,
   instanceAccessQuery,
-  type MyReview,
   meQuery,
   myReviewsQuery,
   type Project,
   projectsQuery,
+  projectTasksQuery,
   reviewQuery,
   sessionQuery,
+  takeQuery,
   trackQuery,
   useProjectCan,
   useSwitchOrganisation,
 } from "~/lib/queries";
+import {
+  type Opened,
+  openedAt,
+  readOpened,
+  recentShown,
+  switcherOrder,
+  withOpened,
+  writeOpened,
+} from "~/lib/recent";
 import { useAnnounce, useShortcuts } from "~/lib/shortcuts";
+import { listsNeedsYou, sectionAt } from "~/lib/sidebar";
 import { statusNowQuery } from "~/lib/status";
 import { useThemeSync } from "~/lib/theme";
 import { mayOpenSettings } from "~/routes/project-settings";
@@ -164,7 +182,10 @@ function useCurrentProjectId(): string | undefined {
   const file = useQuery({ ...fileQuery(id), enabled: head === "files" && Boolean(id) });
   const review = useQuery({ ...reviewQuery(id), enabled: head === "reviews" && Boolean(id) });
   const session = useQuery({ ...sessionQuery(id), enabled: head === "sessions" && Boolean(id) });
+  // A take's page is its project's as a session's is (#612, #480).
+  const take = useQuery({ ...takeQuery(id), enabled: head === "takes" && Boolean(id) });
   if (head === "projects" && id) return id;
+  if (head === "takes") return take.data?.track.projectId;
   if (head === "sessions") return session.data?.projectId;
   if (head === "tracks") return track.data?.projectId;
   if (head === "files") return file.data?.projectId;
@@ -181,35 +202,11 @@ const projectSections = [
   { id: "tasks", label: "Tasks", icon: "task", to: "/projects/$projectId/tasks" },
   { id: "people", label: "People", icon: "users", to: "/projects/$projectId/people" },
   // The production tools (#21, #45, #47), as in the prototype: the repertoire, the schedule,
-  // sessions, score marking, the stage plan, the patch list, personnel and venues.
-  {
-    id: "sessions",
-    label: "Production",
-    icon: "mic",
-    to: "/projects/$projectId/sessions",
-    also: ["repertoire", "schedule", "score-marking", "stage", "patch", "personnel", "venues"],
-  },
-  {
-    id: "settings",
-    label: "Settings",
-    icon: "sliders",
-    to: "/projects/$projectId/settings",
-    // The workflow builder opens from the settings, and is shown as part of them.
-    also: ["workflow"],
-  },
+  // sessions and takes, score marking, the stage plan, the patch list, personnel, venues and
+  // import. Which pages each section holds is `sectionAt`'s.
+  { id: "sessions", label: "Production", icon: "mic", to: "/projects/$projectId/sessions" },
+  { id: "settings", label: "Settings", icon: "sliders", to: "/projects/$projectId/settings" },
 ] as const;
-
-/** Whether a project's section holds the page at this part of the address. */
-const sectionHolds = (item: (typeof projectSections)[number], section: string) =>
-  item.id === section || ("also" in item && (item.also as readonly string[]).includes(section));
-
-const reviewState = (r: MyReview): ReviewState => {
-  if (r.status === "cancelled") return "cancelled";
-  if (r.outcome === "approved") return "approved";
-  if (r.outcome === "changes_requested") return "changes_requested";
-  if (r.status === "completed") return "submitted";
-  return "in_review";
-};
 
 /** The open project, and the way to any other. */
 function ProjectSwitcher({
@@ -229,6 +226,7 @@ function ProjectSwitcher({
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
+        title={collapsed ? project.name : undefined}
         aria-label={`Project: ${project.name}. Switch project`}
         onClick={() => setOpen(!open)}
         className={cn(
@@ -251,7 +249,8 @@ function ProjectSwitcher({
         <Floating
           anchor={box}
           align="start"
-          side="bottom"
+          // Beside the rail when the sidebar is collapsed, over the pane, not over the rail.
+          side={collapsed ? "right" : "bottom"}
           onClose={() => setOpen(false)}
           role="menu"
           aria-label="Switch project"
@@ -293,7 +292,10 @@ function ProjectSwitcher({
   );
 }
 
-/** The account and the workspace, at the foot of the sidebar; the menu opens upward. */
+/**
+ * The account and the workspace, at the foot of the sidebar; the menu opens upward, or beside
+ * the rail when the sidebar is collapsed.
+ */
 function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: boolean }) {
   const { data: me } = useQuery(meQuery);
   const client = useQueryClient();
@@ -358,8 +360,8 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
       {open && (
         <Floating
           anchor={box}
-          align={tab ? "end" : "start"}
-          side="top"
+          align={tab || collapsed ? "end" : "start"}
+          side={collapsed && !tab ? "right" : "top"}
           onClose={() => setOpen(false)}
           role="menu"
           aria-label="Account and workspace"
@@ -447,7 +449,8 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
  * Help, beside the bell: the documentation, the status page with what is open on it (#183),
  * and with the support module (#181) the workspace's tickets and a new one, which knows the
  * file or review it was asked from; or the operators' own desk or mailbox where the instance
- * answers elsewhere. An open incident marks the button.
+ * answers elsewhere. The button carries a dot only while the status is not normal, and says
+ * why when pointed at; the status's dot sits after its words, so every label starts at one edge.
  */
 function HelpMenu() {
   const [open, setOpen, box] = usePopover();
@@ -456,6 +459,14 @@ function HelpMenu() {
   const { data: me } = useQuery(meQuery);
   const { data: status } = useQuery(statusNowQuery);
   const incidents = status?.open ?? [];
+  const state = status?.state ?? "operational";
+  const unusual = state !== "operational" || incidents.length > 0;
+  const why =
+    incidents.length > 1
+      ? `${incidents.length} incidents are open`
+      : state === "operational" && incidents[0]
+        ? `An incident is open: ${serviceStateNames[incidents[0].impact]}`
+        : overallLine[state];
   const support = me?.support;
   const statusUrl = support?.statusUrl ?? "/status";
   const docs = support?.docsUrl ?? docsUrl;
@@ -473,8 +484,8 @@ function HelpMenu() {
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={incidents.length > 0 ? "Help: an incident is open" : "Help"}
-        title="Help"
+        aria-label={unusual ? `Help. ${why}` : "Help"}
+        title={unusual ? `Help · ${why}` : "Help"}
         onClick={() => setOpen(!open)}
         className={cn(
           "relative flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink",
@@ -482,7 +493,7 @@ function HelpMenu() {
         )}
       >
         <Icon name="help" size={18} />
-        {incidents.length > 0 && (
+        {unusual && (
           <span
             aria-hidden="true"
             className="absolute top-1 right-1 size-2 rounded-full bg-signal ring-2 ring-pane"
@@ -507,13 +518,15 @@ function HelpMenu() {
             },
             {
               label: "Status",
-              icon: <StateDot state={status?.state ?? "operational"} />,
+              // In the status page's own words (#617): its line for the whole, or the
+              // incident's state, or how many are open.
               hint:
                 incidents.length === 0
-                  ? "Every service running"
+                  ? overallLine[state]
                   : incidents.length === 1
-                    ? incidentImpactNames[incidents[0]?.impact ?? "degraded"]
+                    ? serviceStateNames[incidents[0]?.impact ?? "degraded"]
                     : `${incidents.length} incidents`,
+              trail: <StateDot state={state} />,
               onSelect: () => window.open(statusUrl, "_blank", "noopener"),
             },
             ...(support?.mode === "app"
@@ -571,7 +584,11 @@ function SideSection({
   );
 }
 
-/** The way to the instance side, beside the bell, for operators and workspace owners (#155). */
+/**
+ * The way to the instance side, beside the bell, for operators and workspace owners (#155):
+ * the server it runs on, named Instance. A phone keeps its four slots for the page; the
+ * account menu leads there instead.
+ */
 function InstanceLink() {
   const { data: access } = useQuery(instanceAccessQuery);
   const { pathname } = useLocation();
@@ -580,15 +597,15 @@ function InstanceLink() {
   return (
     <Link
       to="/instance"
-      aria-label="Instance management"
-      title="Instance management"
+      aria-label="Instance"
+      title="Instance"
       aria-current={here ? "page" : undefined}
       className={cn(
-        "flex size-8 items-center justify-center rounded-control transition-colors hover:bg-raised/60 hover:text-ink",
+        "hidden size-8 items-center justify-center rounded-control transition-colors hover:bg-raised/60 hover:text-ink @3xl/app:flex",
         here ? "bg-signal/15 text-signal" : "text-ink-3",
       )}
     >
-      <Icon name="fingerprint" size={18} />
+      <Icon name="instance" size={18} />
     </Link>
   );
 }
@@ -603,6 +620,8 @@ function TopBar({
   onActions: (el: HTMLElement | null) => void;
   onSearch: () => void;
 }) {
+  // The search page has its own field; a second way in would repeat it (#620).
+  const onSearchPage = useLocation().pathname === "/search";
   return (
     <header className="relative flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 border-b border-line px-3 @3xl/app:flex-nowrap @3xl/app:px-6">
       <div ref={onTrail} className="flex h-12 min-w-0 flex-1 items-center" />
@@ -613,17 +632,20 @@ function TopBar({
       />
       <div className="flex shrink-0 items-center gap-1.5">
         {/* On a phone there is no sidebar, so search sits beside the bell. */}
-        <button
-          type="button"
-          aria-label="Search and commands"
-          onClick={onSearch}
-          className="flex size-8 items-center justify-center rounded-control text-ink-2 transition-colors hover:bg-raised hover:text-ink @3xl/app:hidden"
-        >
-          <Icon name="search" />
-        </button>
+        {!onSearchPage && (
+          <button
+            type="button"
+            aria-label="Search and commands"
+            onClick={onSearch}
+            className="flex size-8 items-center justify-center rounded-control text-ink-2 transition-colors hover:bg-raised hover:text-ink @3xl/app:hidden"
+          >
+            <Icon name="search" />
+          </button>
+        )}
+        {/* In the prototype's order: help, the instance, the bell. */}
+        <HelpMenu />
         <InstanceLink />
         <NotificationsMenu />
-        <HelpMenu />
       </div>
     </header>
   );
@@ -631,8 +653,9 @@ function TopBar({
 
 /**
  * The sidebar's foot (the prototype's Shell): whether the app reaches its server, and the
- * server's version, from the health check. Losing the server turns it to the signal colour and
- * says so; it clears on its own once the server answers again.
+ * server's version, from the health check and the app's own requests. Losing the server turns
+ * it to the signal colour and says so in plain words, with "Trying again" where the version
+ * was; it clears on its own once the server answers again.
  */
 function ConnectionFoot({ connection, collapsed }: { connection: Connection; collapsed: boolean }) {
   const words = connectionWords[connection.state];
@@ -641,7 +664,13 @@ function ConnectionFoot({ connection, collapsed }: { connection: Connection; col
   return (
     <output
       aria-live="polite"
-      title={version ? `${words} · Hekate ${version}` : words}
+      title={
+        lost
+          ? `${words}. ${tryingAgain}.${version ? ` Hekate ${version}` : ""}`
+          : version
+            ? `${words} · Hekate ${version}`
+            : words
+      }
       className={cn(
         "flex h-6 items-center gap-2 px-2.5 text-[11px]",
         lost ? "text-signal" : "text-ink-3",
@@ -659,15 +688,84 @@ function ConnectionFoot({ connection, collapsed }: { connection: Connection; col
         )}
       />
       {collapsed ? (
-        <span className="sr-only">{words}</span>
+        <span className="sr-only">{lost ? `${words}. ${tryingAgain}.` : words}</span>
       ) : (
         <>
           <span className="truncate">{words}</span>
-          {version && <span className="tabular ml-auto shrink-0 text-ink-3">{version}</span>}
+          {lost ? (
+            <span className="ml-auto shrink-0 text-ink-3">{tryingAgain}</span>
+          ) : (
+            version && <span className="tabular ml-auto shrink-0 text-ink-3">{version}</span>
+          )}
         </>
       )}
     </output>
   );
+}
+
+const sideLink =
+  "flex h-8 items-center gap-2.5 rounded-control px-2.5 text-[13px] text-ink-2 transition-colors hover:bg-raised/60 hover:text-ink";
+
+/**
+ * One thing opened lately, by its name as it is now: something gone, or no longer open to the
+ * viewer, drops out rather than leading to a refusal.
+ */
+function RecentLink({ opened }: { opened: Opened }) {
+  const file = useQuery({ ...fileQuery(opened.id), enabled: opened.kind === "file" });
+  const track = useQuery({ ...trackQuery(opened.id), enabled: opened.kind === "track" });
+  const review = useQuery({ ...reviewQuery(opened.id), enabled: opened.kind === "review" });
+  const lead = (name: IconName) => (
+    <span className="flex w-4 shrink-0 items-center justify-center text-ink-3">
+      <Icon name={name} size={14} />
+    </span>
+  );
+  if (opened.kind === "file" && file.data)
+    return (
+      <Link to="/files/$fileId" params={{ fileId: opened.id }} className={sideLink}>
+        {lead(file.data.kind === "video" ? "film" : file.data.kind === "audio" ? "music" : "file")}
+        <span className="min-w-0 flex-1 truncate">{file.data.name}</span>
+      </Link>
+    );
+  if (opened.kind === "track" && track.data)
+    return (
+      <Link to="/tracks/$trackId" params={{ trackId: opened.id }} className={sideLink}>
+        {lead("track")}
+        <span className="min-w-0 flex-1 truncate">{track.data.name}</span>
+      </Link>
+    );
+  if (opened.kind === "review" && review.data)
+    return (
+      <Link to="/reviews/$reviewId" params={{ reviewId: opened.id }} className={sideLink}>
+        {lead("review")}
+        <span className="min-w-0 flex-1 truncate">{review.data.title}</span>
+      </Link>
+    );
+  return null;
+}
+
+/** What this person opened lately in this workspace, remembered as each page opens. */
+function useOpened(pathname: string, projectId: string | undefined): Opened[] {
+  const { data: me } = useQuery(meQuery);
+  const userId = me?.user.id;
+  const organisationId = me?.activeOrganisationId;
+  const [list, setList] = useState<Opened[]>([]);
+  useEffect(() => {
+    if (userId && organisationId) setList(readOpened(userId, organisationId));
+  }, [userId, organisationId]);
+  useEffect(() => {
+    if (!userId || !organisationId) return;
+    const here = openedAt(pathname);
+    const at = Date.now();
+    setList((before) => {
+      let next = here ? withOpened(before, { ...here, at }) : before;
+      // A file, a track or a session opens its project too, for the switcher's order.
+      if (projectId) next = withOpened(next, { kind: "project", id: projectId, at });
+      if (next === before) return before;
+      writeOpened(userId, organisationId, next);
+      return next;
+    });
+  }, [pathname, projectId, userId, organisationId]);
+  return list;
 }
 
 export function Shell({ children }: { children: ReactNode }) {
@@ -686,10 +784,20 @@ export function Shell({ children }: { children: ReactNode }) {
   const projectId = useCurrentProjectId();
   const current = projects.find((p) => p.id === projectId);
   const { pathname } = useLocation();
-  const section = pathname.split("/")[3] ?? "";
+  const section = sectionAt(pathname);
   const { data: instanceAccess } = useQuery(instanceAccessQuery);
   const health = useQuery(healthQuery);
-  const connection = connectionOf(health.data, health.isError);
+  // The health check, and what the app's own requests found (#616): a failed write turns the
+  // foot at once, and asks the health check again so it clears as soon as the server answers.
+  const reach = useReach();
+  const { refetch: checkHealth } = health;
+  useEffect(() => {
+    if (reach === "lost") void checkHealth();
+  }, [reach, checkHealth]);
+  const connection = connectionOf(health.data, health.isError || reach === "lost");
+  const opened = useOpened(pathname, projectId);
+  const here = openedAt(pathname);
+  const recent = recentShown(opened, here);
   const atInstance = pathname === "/instance" || pathname.startsWith("/instance/");
   const instanceView = atInstance ? pathname.split("/")[2] || "overview" : "";
   const instanceNav =
@@ -709,8 +817,21 @@ export function Shell({ children }: { children: ReactNode }) {
   // Production opens at its sessions, or at the repertoire for a role that sees no sessions.
   const destinationOf = (item: (typeof projectSections)[number]) =>
     item.id === "sessions" && !can("view_takes") ? "/projects/$projectId/repertoire" : item.to;
-  const waitingAll = reviews?.filter((r) => r.yourTurn) ?? [];
+  const waitingAll = reviews?.filter((r) => r.yourTurn && r.status === "open") ?? [];
   const waitingHere = current ? waitingAll.filter((r) => r.projectId === current.id) : waitingAll;
+  // Home and the inbox list what waits on you themselves; the sidebar would repeat it (#613).
+  const showNeedsYou = waitingHere.length > 0 && !listsNeedsYou(pathname) && !atInstance;
+  // The prototype's counts (#618): reviews in this project waiting on you, and your open tasks.
+  const tasks = useQuery({
+    ...projectTasksQuery(current?.id ?? ""),
+    enabled: Boolean(current) && can("view"),
+  });
+  const myTasks =
+    tasks.data?.tasks.filter((t) => t.assignee?.id === signedIn?.user.id && t.status !== "done")
+      .length ?? 0;
+  const countOf = (id: string) =>
+    id === "reviews" ? waitingHere.length : id === "tasks" ? myTasks : 0;
+  const switcher = switcherOrder(projects, current?.id, opened);
 
   const navigate = useNavigate();
   const [palette, setPalette] = useState(false);
@@ -720,16 +841,16 @@ export function Shell({ children }: { children: ReactNode }) {
     say(collapsed ? "Sidebar shown" : "Sidebar hidden");
   }, [collapsed, setCollapsed, say]);
 
-  // Ctrl or ⌘ K opens the palette anywhere, "/" outside a field; "[" shows or hides the
-  // labels, as in Linear; "g" then h, i or p jumps. The palette, once open, keeps its keys.
+  // Ctrl or ⌘ K opens the palette anywhere, "/" outside a field, under one name (#699); "["
+  // shows or hides the labels, as in Linear; "g" then h, i or p jumps. The palette, once open,
+  // keeps its keys.
   useShortcuts("global", "Everywhere", [
     {
-      keys: ["Mod+K"],
+      keys: ["Mod+K", "/"],
       label: "Search and commands",
       run: () => setPalette((open) => !open),
       anywhere: true,
     },
-    { keys: ["/"], label: "Search", run: () => setPalette(true) },
     { keys: ["["], label: "Show or hide the sidebar", run: toggleSidebar },
     { keys: ["g h"], label: "Go home", run: () => void navigate({ to: "/" }) },
     { keys: ["g i"], label: "Go to the inbox", run: () => void navigate({ to: "/inbox" }) },
@@ -782,37 +903,48 @@ export function Shell({ children }: { children: ReactNode }) {
               count={waitingAll.length}
               exact
             />
-            <NavItem to="/projects" icon="folder" label="Projects" collapsed={collapsed} />
+            {/* With a project open, only its section is current: Projects never lights up
+                beside it, as Linear's fixed links do not with a child (#612). */}
+            <NavItem
+              to="/projects"
+              icon="folder"
+              label="Projects"
+              collapsed={collapsed}
+              exact={Boolean(projectId)}
+            />
             {current ? (
               <>
                 <div className="mt-4 mb-1">
-                  <ProjectSwitcher project={current} projects={projects} collapsed={collapsed} />
+                  <ProjectSwitcher project={current} projects={switcher} collapsed={collapsed} />
                 </div>
-                {sectionsHere.map((item) => (
-                  <Link
-                    key={item.id}
-                    to={destinationOf(item)}
-                    params={{ projectId: current.id }}
-                    // The overview's address sits above every other section's.
-                    activeOptions={{ exact: item.id === "" }}
-                    title={collapsed ? item.label : undefined}
-                    aria-current={
-                      (sectionHolds(item, section) && pathname.startsWith("/projects/")) ||
-                      // A session's own page is in Production too.
-                      (item.id === "sessions" && pathname.startsWith("/sessions/"))
-                        ? "page"
-                        : undefined
-                    }
-                    className={cn(
-                      navClass,
-                      "aria-[current=page]:bg-raised aria-[current=page]:text-ink aria-[current=page]:shadow-1",
-                      collapsed && "justify-center px-0",
-                    )}
-                  >
-                    <Icon name={item.icon} />
-                    {!collapsed && <span className="truncate">{item.label}</span>}
-                  </Link>
-                ))}
+                {sectionsHere.map((item) => {
+                  const count = countOf(item.id);
+                  return (
+                    <Link
+                      key={item.id}
+                      to={destinationOf(item)}
+                      params={{ projectId: current.id }}
+                      // Marked by `sectionAt`; the router's own match is only ever the same item.
+                      activeOptions={{ exact: true, includeSearch: false }}
+                      title={collapsed ? item.label : undefined}
+                      aria-label={
+                        collapsed && count ? `${item.label}, ${count} for you` : undefined
+                      }
+                      aria-current={section === item.id ? "page" : undefined}
+                      className={cn(
+                        navClass,
+                        "aria-[current=page]:bg-raised aria-[current=page]:text-ink aria-[current=page]:shadow-1",
+                        collapsed && "justify-center px-0",
+                      )}
+                    >
+                      <Icon name={item.icon} />
+                      {!collapsed && <span className="truncate">{item.label}</span>}
+                      {count > 0 && !collapsed && (
+                        <span className="tabular ml-auto text-[12px] text-ink-3">{count}</span>
+                      )}
+                    </Link>
+                  );
+                })}
               </>
             ) : instanceNav.length > 0 ? (
               <>
@@ -823,7 +955,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   )}
                 >
                   <span className="flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-raised text-ink-2">
-                    <Icon name="fingerprint" size={14} />
+                    <Icon name="instance" size={14} />
                   </span>
                   {!collapsed && (
                     <span className="min-w-0 flex-1">
@@ -857,17 +989,18 @@ export function Shell({ children }: { children: ReactNode }) {
               </>
             ) : null}
           </div>
-          {waitingHere.length > 0 && (
-            <SideSection title="Waiting on you" count={waitingHere.length} collapsed={collapsed}>
+          {showNeedsYou && (
+            <SideSection title="Needs you" count={waitingHere.length} collapsed={collapsed}>
               {waitingHere.slice(0, 4).map((r) => (
                 <Link
                   key={r.id}
                   to="/reviews/$reviewId"
                   params={{ reviewId: r.id }}
-                  className="flex h-8 items-center gap-2.5 rounded-control px-2.5 text-[13px] text-ink-2 transition-colors hover:bg-raised/60 hover:text-ink data-[status=active]:bg-raised data-[status=active]:text-ink"
+                  className={sideLink}
                 >
+                  {/* Your turn: the signal, as for whatever needs a person (#613). */}
                   <span className="flex w-4 shrink-0 items-center justify-center">
-                    <StatusDot state={reviewState(r)} />
+                    <NeedsYouDot />
                   </span>
                   <span className="min-w-0 flex-1 truncate">{r.title}</span>
                   {!current && (
@@ -882,6 +1015,14 @@ export function Shell({ children }: { children: ReactNode }) {
                   and {waitingHere.length - 4} more
                 </Link>
               )}
+            </SideSection>
+          )}
+          {/* The prototype's Recent (#618): the last things this person opened here. */}
+          {!atInstance && recent.length > 0 && (
+            <SideSection title="Recent" collapsed={collapsed}>
+              {recent.map((o) => (
+                <RecentLink key={`${o.kind}-${o.id}`} opened={o} />
+              ))}
             </SideSection>
           )}
         </div>
@@ -919,12 +1060,8 @@ export function Shell({ children }: { children: ReactNode }) {
                     key={item.id}
                     to={destinationOf(item)}
                     params={{ projectId: current.id }}
-                    activeOptions={{ exact: item.id === "" }}
-                    aria-current={
-                      sectionHolds(item, section) && pathname.startsWith("/projects/")
-                        ? "page"
-                        : undefined
-                    }
+                    activeOptions={{ exact: true, includeSearch: false }}
+                    aria-current={section === item.id ? "page" : undefined}
                     className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 transition-colors aria-[current=page]:bg-raised aria-[current=page]:text-ink"
                   >
                     {item.label}
@@ -958,7 +1095,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 className="m-0 flex shrink-0 items-center gap-2 border-b border-line px-4 py-2 text-[13px] text-ink-2 @3xl/app:hidden"
               >
                 <StateDot state="major" />
-                {connectionWords[connection.state]}. Trying again.
+                {connectionWords[connection.state]}. {tryingAgain}.
               </p>
             )}
             <main className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-auto">{page}</main>

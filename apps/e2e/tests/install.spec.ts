@@ -124,7 +124,7 @@ test("a clean server installs through the browser alone", async ({ page }) => {
   await heading(page, "Hekate is ready");
   await capture(page, "install-ready");
   await proceed(page, "Open Hekate");
-  await expect(page.getByText("Nothing here yet")).toBeVisible();
+  await expect(page.getByText("No projects yet")).toBeVisible();
 
   // Installed, it never installs again.
   const res = await page.request.post("/api/install/finish", {

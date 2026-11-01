@@ -11,6 +11,7 @@ import {
   tasks,
   trackById,
 } from "~/data";
+import { needsYou } from "~/lib/reviews";
 import type { Viewer } from "~/viewer/context";
 
 /** The project the current page belongs to, whatever the page is: the sidebar follows it. */
@@ -46,17 +47,22 @@ export function projectNav(project: Project, viewer: Viewer): ProjectNavItem[] {
     { id: "overview", label: "Overview", icon: "dashboard" },
     { id: "files", label: "Files", icon: "folder" },
     { id: "board", label: "Board", icon: "board" },
+    // What is the viewer's: reviews in it waiting on them, and their open tasks (#618).
     {
       id: "reviews",
       label: "Reviews",
       icon: "review",
-      count: reviews.filter((r) => r.projectId === project.id && r.status === "open").length,
+      count: reviews.filter((r) => r.projectId === project.id && needsYou(r, viewer.reviewerIn(r)))
+        .length,
     },
     {
       id: "tasks",
       label: "Tasks",
       icon: "task",
-      count: tasks.filter((t) => t.projectId === project.id && t.status !== "done").length,
+      count: tasks.filter(
+        (t) =>
+          t.projectId === project.id && t.status !== "done" && t.assigneeId === viewer.personId,
+      ).length,
     },
     { id: "people", label: "People", icon: "users" },
   ];

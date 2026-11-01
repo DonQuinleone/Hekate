@@ -7,6 +7,7 @@ import { Empty } from "~/components/empty";
 import { LinkedFiles } from "~/components/file-picker";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
+import { NeedsYou, NeedsYouDot } from "~/components/needs-you";
 import { Card, Page, SectionHead } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { Crop, Gauge, Verdict } from "~/components/qa-report";
@@ -109,7 +110,7 @@ const type: { name: string; className: string; use: string; sample: string }[] =
     name: "Eyebrow",
     className: "eyebrow",
     use: "A quiet heading over a group",
-    sample: "Waiting on you",
+    sample: "Needs you",
   },
   {
     name: "Tabular",
@@ -939,6 +940,18 @@ function Components() {
           </span>
         </Spec>
         <Spec
+          name="Needs you"
+          rule="One name and one mark for what waits on you: the signal dot with its halo, and the badge on a project's card or row."
+        >
+          <span className="flex flex-wrap items-center gap-3 text-[12px] text-ink-2">
+            <span className="flex items-center gap-1.5">
+              <NeedsYouDot />
+              Your turn
+            </span>
+            <NeedsYou count={2} />
+          </span>
+        </Spec>
+        <Spec
           name="Comment category"
           rule="A 3 px bar at the thread's left edge, by the category's place in the project's list; six tones, then round again. Its name is in the thread's menu and on hover, never a pill."
         >
@@ -1072,7 +1085,7 @@ function Components() {
         </Spec>
         <Spec name="Eyebrow" rule="Heads a group; a count follows in small tabular figures.">
           <span className="flex items-center gap-2">
-            <span className="eyebrow">Waiting on you</span>
+            <span className="eyebrow">Needs you</span>
             <span className="tabular text-[12px] text-ink-3">2</span>
           </span>
         </Spec>
