@@ -299,7 +299,8 @@ function Playback({
       onMarker={onMarker}
       activeMarker={activeMarker}
       findings={findings}
-      edits={variant ? edits : []}
+      // Triage's passage is the passage alone (#632): no lane of edits under it.
+      edits={variant && !passage ? edits : []}
       loop={loop}
       onLoop={onLoop}
       cue={cue}

@@ -17,7 +17,7 @@ export interface PanelLayout {
 }
 
 export const COMMENTS_WIDTH = { min: 300, max: 640, default: 400 } as const;
-export const SCORE_WIDTH = { min: 280, max: 760, default: 420 } as const;
+export const SCORE_WIDTH = { min: 280, max: 760, default: 360 } as const;
 export const defaultPanelLayout: PanelLayout = {
   comments: "right",
   width: COMMENTS_WIDTH.default,

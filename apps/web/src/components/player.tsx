@@ -1467,7 +1467,8 @@ export function Player({
             className={cn(settingsOpen && "bg-raised text-ink")}
           >
             <Icon name="waveform" size={14} />
-            View
+            {/* On a phone the icon alone, so the row fits one line (#637). */}
+            <span className="sr-only sm:not-sr-only">View</span>
           </Button>
           {viewPanel}
         </div>
@@ -2203,6 +2204,12 @@ export function Player({
           >
             <span className="sr-only">Normalised playback</span>
             <span aria-hidden="true">Normalised</span>
+            {/* On, the level it plays at, a quiet word after the name, as Captions' track is. */}
+            {normalised && normalisation && (
+              <span aria-hidden="true" className="tabular text-ink-3">
+                {normalisation.target.toFixed(0).replace("-", "−")} LUFS
+              </span>
+            )}
           </button>
         )}
         <VolumeControl
@@ -2273,7 +2280,7 @@ export function Player({
             {failure ? (
               failed
             ) : (
-              <div className="flex h-[120px] min-h-0 flex-col">{audioSurface}</div>
+              <div className="flex h-[120px] min-h-0 flex-col overflow-hidden">{audioSurface}</div>
             )}
           </>
         ) : (
@@ -2487,7 +2494,12 @@ function TimeReadout({
       className="tabular ml-1 h-8 cursor-text rounded-control border-0 bg-transparent px-1.5 text-left text-[15px] text-ink hover:bg-raised disabled:cursor-default"
     >
       {shown} <span className="text-[13px] text-ink-3">/ {total}</span>
-      {bar !== null && <span className="ml-2 text-[13px] text-ink-3">bar {bar}</span>}
+      {bar !== null && (
+        <>
+          {" "}
+          <span className="ml-1 text-[13px] text-ink-3">bar {bar}</span>
+        </>
+      )}
     </button>
   );
 }

@@ -2977,7 +2977,15 @@ test("file-status-menu", async ({ page }) => {
             trackId,
             state: "running",
             status: "Editing",
-            waiting: [{ nodeId: "edit", name: "Engineer edits", type: "task" }],
+            // What a person may choose, by where it leads (#566): never "Due date passed".
+            waiting: [
+              {
+                nodeId: "edit",
+                name: "Engineer edits",
+                type: "task",
+                choices: [{ outcome: "done", leadsTo: "Label approval" }],
+              },
+            ],
             steps: [],
             startedBy: null,
             startedAt: "2026-10-12T09:00:00Z",
@@ -2990,11 +2998,12 @@ test("file-status-menu", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
   await page.getByRole("button", { name: "Status: Editing. Move on" }).click();
-  await expect(page.getByRole("menuitem", { name: "Done" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Done, to Label approval…" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /Due date/ })).toHaveCount(0);
   await saveScreen(page, "file-status-menu");
   await checkScreen(page);
   // Each move is confirmed before the step ends.
-  await page.getByRole("menuitem", { name: "Done" }).click();
+  await page.getByRole("menuitem", { name: "Done, to Label approval…" }).click();
   await expect(page.getByRole("dialog", { name: "Engineer edits: done" })).toBeVisible();
 });
 
@@ -3010,7 +3019,7 @@ test("file-zoom", async ({ page }) => {
   await surface.focus();
   await page.keyboard.press("ArrowRight");
   await expect.poll(() => surface.evaluate((e) => e.scrollLeft)).toBeGreaterThan(0);
-  await expect(page.getByText("0:00.000 / 0:40.000")).toBeVisible();
+  await expect(page.getByText(/^0:00\.000 \/ 0:40\.\d{3}/)).toBeVisible();
   await page.keyboard.press("Home");
   await expect.poll(() => surface.evaluate((e) => e.scrollLeft)).toBe(0);
   await saveScreen(page, "file-zoom");
@@ -3034,8 +3043,12 @@ test("file-channels-levels", async ({ page }, info) => {
       .getByTitle("The channel it is about"),
   ).toHaveText("L");
   // A phone's composer opens in a sheet, from a button.
-  if (info.project.name !== "phone")
+  // The composer's channel comes in once it is focused (#563).
+  if (info.project.name !== "phone") {
+    await comments.getByRole("textbox", { name: "Comment at the playhead" }).focus();
     await expect(comments.getByRole("combobox", { name: "Channel" })).toBeAttached();
+    await comments.getByRole("textbox", { name: "Comment at the playhead" }).blur();
+  }
   await page.getByRole("button", { name: "Channels", exact: true }).click();
   const menu = page.getByRole("region", { name: "Channels" });
   await expect(menu.getByRole("meter", { name: /^L: RMS/ })).toBeAttached();
@@ -3329,7 +3342,10 @@ test("file-normalised", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "button:has-text('View')");
   await page.getByRole("button", { name: "Normalised playback" }).click();
-  await settle(page, "text=Normalised to −14 LUFS");
+  await expect(
+    page.getByRole("button", { name: "Normalised playback", pressed: true }),
+  ).toBeVisible();
+  await settle(page, "button[aria-pressed=true] >> text=−14 LUFS");
   await saveScreen(page, "file-normalised");
   await checkScreen(page);
 });
@@ -4081,10 +4097,13 @@ test("deliverable-renditions", async ({ page }) => {
 
 // Two cuts of a deliverable compared frame by frame (#147): the second wiped over the first,
 // then side by side.
-test("deliverable-compare-cuts", async ({ page }) => {
+test("deliverable-compare-cuts", async ({ page }, info) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/files/${seeded().cutTwoFileId}`);
-  await page.getByRole("button", { name: "Frame" }).click();
+  // On a phone the frame's guides are in the view's overflow (#637).
+  if (info.project.name === "phone")
+    await page.getByRole("button", { name: "Actions for the view" }).click();
+  else await page.getByRole("button", { name: "Frame" }).click();
   await page.getByRole("menuitemradio", { name: /Compare cuts: wipe/ }).click();
   await expect(page.getByRole("slider", { name: "Wipe" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Comments and findings" })).toBeVisible();

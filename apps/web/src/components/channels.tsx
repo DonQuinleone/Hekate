@@ -38,7 +38,9 @@ export function ChannelsButton({
       className={cn(open && "bg-raised text-ink")}
     >
       <Icon name="volume" size={14} />
-      Channels{heard ? " " : ""}
+      {/* On a phone the icon alone, so the player's row fits one line (#637). */}
+      <span className="sr-only sm:not-sr-only">Channels</span>
+      {heard ? " " : ""}
       {heard && <span className="tabular text-signal">{heard}</span>}
     </Button>
   );

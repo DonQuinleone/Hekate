@@ -116,6 +116,13 @@ describe("comment threads", () => {
       comment("answer", { parentId: "new", body: "The pedal again" }),
     ]);
     expect(arrangeThreads(open).map((t) => t.comment.id)).toEqual(["old", "new"]);
+    // In the order they play, as their markers are numbered (#562), a bar by its moment.
+    const { open: mixed } = threadsOf([
+      comment("late", { anchor: { kind: "time", start: 21, end: 23 } }),
+      comment("whole"),
+      comment("bar", { anchor: { kind: "bar", from: { bar: 9, beat: 1 }, at: 14 } }),
+    ]);
+    expect(arrangeThreads(mixed).map((t) => t.comment.id)).toEqual(["bar", "late", "whole"]);
     expect(arrangeThreads(open, { newest: true }).map((t) => t.comment.id)).toEqual(["new", "old"]);
     expect(arrangeThreads(open, { query: " PEDAL " }).map((t) => t.comment.id)).toEqual([
       "old",

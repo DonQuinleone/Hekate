@@ -1042,9 +1042,12 @@ function ThreadView({
   const chip =
     "tabular inline-flex h-6 min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-chip border border-edge bg-transparent px-2 text-[11px] text-ink hover:border-signal";
   /** Its number, as its marker over the media shows it (#562); not read out, as the chip is. */
-  const n = (marker?.n ?? number) !== undefined && (
+  // A region on a page is numbered as the page's markers are; anything with a moment, as the
+  // media's markers are.
+  const shownNumber = (pages ? marker?.n : undefined) ?? number;
+  const n = shownNumber !== undefined && (
     <span aria-hidden="true" className="shrink-0 text-ink-3">
-      #{marker?.n ?? number}
+      #{shownNumber}
     </span>
   );
   /** Where it points, as one chip at the end of its first line; nothing for the whole file. */
@@ -1807,7 +1810,8 @@ export function Comments({
   const composerBody = (
     <Composer
       lead={lead}
-      keepOpen={bars.trim() !== "" || scorePage.trim() !== "" || beat.trim() !== ""}
+      // A phone's sheet holds it open: there is room, and nothing moves as focus leaves it.
+      keepOpen={sheet || bars.trim() !== "" || scorePage.trim() !== "" || beat.trim() !== ""}
       // A comment begun from a finding starts with its words; a new one starts empty.
       key={seed?.key ?? 0}
       initial={seed?.body ?? ""}
