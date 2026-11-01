@@ -178,10 +178,11 @@ const allSections: SectionSpec[] = [
   },
   {
     id: "email",
-    label: "Email templates",
+    label: "Email",
     group: "Workspace",
     from: "admin",
-    intro: "The messages Hekate sends for the workspace, as each kind of mail client shows them.",
+    intro:
+      "Where the workspace's mail is sent from, and the messages Hekate sends for it, as each kind of mail client shows them.",
   },
   {
     id: "defaults",

@@ -1,10 +1,13 @@
 import { useState } from "react";
 import { Mark } from "~/components/brand";
+import { Icon } from "~/components/icons";
 import { Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Input, Select } from "~/components/ui/input";
+import { ActionMenu } from "~/components/ui/menu";
 import { organisation } from "~/data";
 import { cn } from "~/lib/cn";
+import { useScreenState } from "~/viewer/state-gate";
 
 interface Template {
   id: string;
@@ -64,15 +67,67 @@ const templates: Template[] = [
   },
 ];
 
-/** What a transactional email looks like: one message, one action, the lockup, and nothing to configure but the words. */
+/**
+ * The workspace's mail, set up and explained in one place (#591): where it is sent from (the
+ * instance's, or the workspace's own provider, with its bounces), then what every message looks
+ * like: one message, one action, the lockup, and nothing to configure but the words.
+ */
 export function EmailSection() {
+  const state = useScreenState();
   const [id, setId] = useState("review");
   const [view, setView] = useState<"light" | "dark" | "text">("light");
   const light = view !== "dark";
   const t = templates.find((x) => x.id === id) ?? templates[0];
+  // The processing state is an instance that writes its mail to the log, and a workspace with none of its own.
+  const own = state !== "processing";
   if (!t) return null;
   return (
     <>
+      {!own && (
+        <div
+          role="status"
+          className="flex items-start gap-2.5 rounded-panel border border-signal/30 bg-signal/[0.06] px-3.5 py-2.5 text-[13px] text-ink"
+        >
+          <Icon name="warning" size={14} className="mt-0.5 shrink-0 text-signal" />
+          <span>
+            This instance writes email to its log; nothing is sent. Give the workspace its own mail
+            below, and members, guests and invitations are sent from it.
+          </span>
+        </div>
+      )}
+      <Section title="Sending">
+        <Row
+          name={
+            <span className="flex items-center gap-2.5">
+              <span className="flex size-7 shrink-0 items-center justify-center rounded-control bg-raised text-ink-2">
+                <Icon name="mail" size={16} />
+              </span>
+              {own ? "Resend" : "Mail"}
+            </span>
+          }
+          hint={
+            own
+              ? "smtp.resend.com:465 · from Endless Hall Records <mail@endlesshall.example> · 2 not sent to after a bounce"
+              : "Through the instance's mail. Give the workspace its own, and members, guests and invitations are sent from it."
+          }
+        >
+          <Button variant="secondary" size="md">
+            {own ? "Test" : "Use the workspace's own"}
+          </Button>
+          {own && (
+            <ActionMenu
+              always
+              label="Mail"
+              actions={[
+                { label: "Edit…", onSelect: () => {} },
+                { label: "Bounced addresses…", onSelect: () => {} },
+                "divider",
+                { label: "Back to the instance's mail…", danger: true, onSelect: () => {} },
+              ]}
+            />
+          )}
+        </Row>
+      </Section>
       <Section
         title="Templates"
         intro="Every message is the same shape: who, what, one action, and a line about why you got it. The words below are the workspace's to change."
@@ -192,9 +247,6 @@ export function EmailSection() {
         <Row name="Subject">
           <Input key={t.id} defaultValue={t.subject} className="w-full @3xl/app:w-96" />
         </Row>
-        <Row name="Sent from" hint="Set in Notifications and integrations">
-          <span className="text-[13px] text-ink-2">Hekate &lt;hekate@endlesshall.example&gt;</span>
-        </Row>
         <Row
           name="Try it"
           hint="A copy of this template, to your own address, with sample content."
@@ -203,24 +255,6 @@ export function EmailSection() {
             Send me a test
           </Button>
         </Row>
-      </Section>
-      <Section title="Rules" intro="What keeps every message recognisable.">
-        <Row
-          name="One action"
-          hint="One button, in the signal colour, that goes straight to the thing. No second links in the body."
-        />
-        <Row
-          name="Plain words, and plain text"
-          hint="Who did what, and what is asked. The text part is written to be read as it is, not squeezed out of the HTML."
-        />
-        <Row
-          name="Why you got it"
-          hint="A line at the foot, every time, with the way to change it."
-        />
-        <Row
-          name="Both clients"
-          hint="Set for light and dark mail clients; the mark is drawn, not an image, so nothing reports that a message was opened."
-        />
       </Section>
     </>
   );

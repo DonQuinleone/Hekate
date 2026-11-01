@@ -2432,3 +2432,13 @@ Some organisations must keep their material in storage they own, and a workspace
 - **What each scope allows is the documentation's.** The read-only list became one row, *Scopes*, under the tokens, linking to the table in *Use, API tokens*.
 - **The log reads.** `readableCall` (shared, tested) folds every identifier in a path to "…", so nothing is cut mid-identifier, and the workspace's own log names the project a call reached beneath it, from the projects the reader can see. The instance's log, which spans workspaces, folds the identifiers alone.
 - The prototype went first.
+
+## 372. The workspace's mail is set up and explained on one Email page
+
+#591. The workspace's mail was a row among the chat channels on Notifications and integrations, under a banner telling everyone to set mail up under Instance, Settings while the row below offered "Use the workspace's own"; it never appeared in the events matrix; and Email templates said the sender was "set in Notifications and integrations", stating the log-only fact as a hint, above four "Rules" rows of design principles styled exactly like settings that do nothing.
+
+- **One page.** *Email* (it was Email templates) opens with *Sending*: the instance's mail or the workspace's own provider, its test, its bounced addresses and the way back to the instance's (`WorkspaceMailSection`, moved whole from the channels). The templates, their subjects and the test send follow. The "Sent from" row went: the sending row says it.
+- **The banner once, with the fix that is the workspace's.** Where the instance writes mail to its log and the workspace has none of its own, the Email page says so once and offers the workspace's own mail, set up just below; the operator's way (Instance, Settings) stays on the pages where nothing else can fix it, such as the account's Notifications. A workspace sending through its own provider is not told the instance's mail goes nowhere.
+- **The channels are chat and webhooks.** Mail is not a channel: members choose what reaches them by mail. The channels page lost the row and the banner; the prototype's channel dialog no longer offers mail providers as kinds of channel.
+- **No inert rows.** The Rules were how every template is made (one action, plain text, why you got it, both clients), not settings anyone can change; the templates keep them, and the page no longer lists them.
+- The prototype went first; the suite's mail screens moved to the Email page.

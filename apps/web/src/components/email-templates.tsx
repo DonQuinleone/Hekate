@@ -5,12 +5,10 @@ import {
   unknownPlaceholders,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Failed } from "~/components/ui/states";
 import {
   emailPreviewQuery,
-  useMailSender,
   useSaveWorkspaceSettings,
   useSendTestEmail,
   workspaceSettingsQuery,
@@ -19,6 +17,7 @@ import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
 import { Input, Select } from "./ui/input";
 import { Segmented } from "./ui/segmented";
+import { WorkspaceMailSection } from "./workspace-mail";
 
 type View = "light" | "dark" | "text";
 
@@ -117,15 +116,18 @@ function SubjectRow({ template, current }: { template: EmailTemplateId; current?
   );
 }
 
-/** Workspace settings, Email templates: each message previewed, its subject, and a test send. */
+/**
+ * Workspace settings, Email (#591): where the workspace's mail is sent from, then each message
+ * previewed, its subject, and a test send.
+ */
 export function EmailTemplatesSection() {
   const { data: settings } = useQuery(workspaceSettingsQuery);
   const [template, setTemplate] = useState<EmailTemplateId>("review_requested");
   const [view, setView] = useState<View>("light");
   const test = useSendTestEmail();
-  const sender = useMailSender();
   return (
     <>
+      <WorkspaceMailSection />
       <Section
         title="Templates"
         intro="Every message is the same shape: who did what, one action, and a line about why you got it. Each goes as plain text and HTML together."
@@ -166,26 +168,6 @@ export function EmailTemplatesSection() {
           template={template}
           current={settings?.emailSubjects[template]}
         />
-        {sender && (
-          <Row
-            name="Sent from"
-            hint={
-              <>
-                {sender.own ? "The workspace's own mail" : "The instance's mail"}, set in{" "}
-                <Link
-                  to="/settings/$section"
-                  params={{ section: "notifications" }}
-                  className="text-ink-2 underline decoration-line-strong underline-offset-2 transition-colors hover:text-ink hover:decoration-ink"
-                >
-                  Notifications and integrations
-                </Link>
-                {sender.logOnly ? "; written to the log, not sent" : ""}
-              </>
-            }
-          >
-            <span className="tabular min-w-0 truncate text-[13px] text-ink-2">{sender.from}</span>
-          </Row>
-        )}
         <Row name="Try it" hint="This message, with sample content, to your own address.">
           <Button
             variant="secondary"
@@ -197,24 +179,6 @@ export function EmailTemplatesSection() {
           {test.data && <span className="text-[13px] text-ink-2">Sent to {test.data.to}</span>}
           {test.error && <span className="text-[13px] text-signal">{test.error.message}</span>}
         </Row>
-      </Section>
-      <Section title="Rules" intro="What keeps every message recognisable.">
-        <Row
-          name="One action"
-          hint="One button, in the signal colour, that goes straight to the thing. No second links in the body."
-        />
-        <Row
-          name="Plain words, and plain text"
-          hint="Who did what, and what is asked. The text part is written to be read as it is, not squeezed out of the HTML."
-        />
-        <Row
-          name="Why you got it"
-          hint="A line at the foot, every time, with the way to change it."
-        />
-        <Row
-          name="Both clients, nothing fetched"
-          hint="Set for light and dark mail clients; the mark is drawn, not an image, so nothing reports that a message was opened."
-        />
       </Section>
     </>
   );

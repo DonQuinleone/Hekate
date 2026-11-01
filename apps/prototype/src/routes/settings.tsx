@@ -57,7 +57,8 @@ const intros: Record<string, string> = {
     "The workspace's logo and accent, on its sign-in page, guest pages and email. Hekate's own mark stays in the app.",
   brand:
     "The mark, the colours, the type, and every reusable component with the rule for using it.",
-  email: "What every message from Hekate looks like, and the words the workspace sends.",
+  email:
+    "Where the workspace's mail is sent from, what every message from Hekate looks like, and the words the workspace sends.",
   members: "Who has an account here, who is invited, and which guests hold a link.",
   security:
     "How members sign in: the ways allowed, the second factor, single sign-on or a directory, and how long a session lasts.",
@@ -102,14 +103,8 @@ const unlisted = [
 /** Earlier names of pages, which links still use. */
 const formerly: Record<string, string> = { notifications: "channels", operations: "general" };
 
+/** The workspace's channels: chat and webhooks. Its mail is set up on the Email page (#591). */
 const channels = [
-  {
-    id: "smtp",
-    name: "SMTP",
-    state: "on",
-    hint: "mail.endlesshall.example:587, STARTTLS",
-    events: "Everything by mail",
-  },
   {
     id: "slack",
     name: "Slack",
@@ -126,20 +121,7 @@ const channels = [
   },
   { id: "discord", name: "Discord", state: "off", hint: "Not connected", events: "" },
 ];
-const providers = [
-  "SMTP",
-  "SparkPost",
-  "Resend",
-  "Mailgun",
-  "SendGrid",
-  "Postal",
-  "Google Workspace",
-  "Microsoft 365",
-  "Slack",
-  "Discord",
-  "Microsoft Teams",
-  "Webhook",
-];
+const providers = ["Slack", "Discord", "Microsoft Teams", "Webhook"];
 /** Where each chat or webhook kind's address comes from, as the product's dialog asks for it. */
 const channelAddress: Record<string, string> = {
   Slack: "https://hooks.slack.com/services/…",
@@ -353,7 +335,7 @@ export function SettingsPage({
   const elevated =
     viewer.persona.organisationRole === "owner" || viewer.persona.organisationRole === "admin";
   const [adding, setAdding] = useState(false);
-  const [channelKind, setChannelKind] = useState("Resend");
+  const [channelKind, setChannelKind] = useState("Slack");
   const [leak, setLeak] = useState<"idle" | "scanning" | "match" | "none">("idle");
   // An OAuth client's menu (#447): who has connected it, or its secret rotated (shown once).
   const [clientDialog, setClientDialog] = useState<{
@@ -1387,24 +1369,6 @@ export function SettingsPage({
       )}
       {sec === "channels" && (
         <>
-          {state === "processing" && (
-            <div
-              role="status"
-              className="flex items-start gap-2.5 rounded-panel border border-signal/30 bg-signal/[0.06] px-3.5 py-2.5 text-[13px] text-ink"
-            >
-              <Icon name="warning" size={14} className="mt-0.5 shrink-0 text-signal" />
-              <span>
-                This instance writes email to its log; nothing is sent. Set up mail under{" "}
-                <a
-                  href="/instance/settings"
-                  className="text-ink underline decoration-edge underline-offset-2 hover:decoration-ink-3"
-                >
-                  Instance, Settings
-                </a>
-                .
-              </span>
-            </div>
-          )}
           <Section
             title="Channels"
             intro="Where events go. Each channel has its own fields and a test; a channel that keeps failing pauses itself."
@@ -1860,38 +1824,20 @@ export function SettingsPage({
                   ))}
                 </Select>
               </label>
-              {channelAddress[channelKind] ? (
-                <>
-                  {/* A chat channel or a webhook: a name, its address, and the events it hears of. */}
-                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                    Name
-                    <Input placeholder={channelKind === "Webhook" ? "Release desk" : "#masters"} />
-                  </label>
-                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                    Address
-                    <Input type="url" placeholder={channelAddress[channelKind]} />
-                    <span className="text-[12px] text-ink-3">
-                      {channelKind === "Webhook"
-                        ? "Each event arrives as JSON, signed; the signing secret is shown once, when the webhook is made."
-                        : "Kept sealed: settings show only its host."}
-                    </span>
-                  </label>
-                </>
-              ) : (
-                <>
-                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                    API key
-                    <Input type="password" placeholder="re_…" />
-                  </label>
-                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                    From
-                    <Input defaultValue="Hekate <hekate@endlesshall.example>" />
-                  </label>
-                  <Button variant="secondary" size="md" className="self-start">
-                    Send a test
-                  </Button>
-                </>
-              )}
+              {/* A chat channel or a webhook: a name, its address, and the events it hears of. */}
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Name
+                <Input placeholder={channelKind === "Webhook" ? "Release desk" : "#masters"} />
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Address
+                <Input type="url" placeholder={channelAddress[channelKind]} />
+                <span className="text-[12px] text-ink-3">
+                  {channelKind === "Webhook"
+                    ? "Each event arrives as JSON, signed; the signing secret is shown once, when the webhook is made."
+                    : "Kept sealed: settings show only its host."}
+                </span>
+              </label>
             </div>
           ) : sec === "storage" ? (
             <div className="flex flex-col gap-4">

@@ -16,7 +16,7 @@ An event names things (the project, the review, the track, who acted) and links 
 
 ## The workspace's own mail
 
-The first row of *Channels* is the workspace's mail. Until an admin chooses otherwise, it is the instance's: whatever the operator set up. *Use the workspace's own* gives the workspace a provider of its own, with the same choices the installer offers (SMTP, Resend, SparkPost, Mailgun, SendGrid, Amazon SES, Postal, Plunk, Google Workspace, Microsoft 365 or Mailcoach) and an address to send from.
+The workspace's mail is set up in *Workspace settings*, *Email*, under *Sending*, above the templates it sends. Until an admin chooses otherwise, it is the instance's: whatever the operator set up. *Use the workspace's own* gives the workspace a provider of its own, with the same choices the installer offers (SMTP, Resend, SparkPost, Mailgun, SendGrid, Amazon SES, Postal, Plunk, Google Workspace, Microsoft 365 or Mailcoach) and an address to send from.
 
 - **What it sends.** Everything sent for the workspace: notifications and digests, review requests and shares, guest links and codes, reminders, upload requests and invitations. Mail that belongs to an account rather than a workspace, such as a password reset, stays with the instance.
 - **Sealed.** The password, API key, token or client secret is encrypted with the workspace's key and never shown again; leave it empty when editing to keep it.
