@@ -258,7 +258,14 @@ export function Row({
         {hint && <div className="mt-0.5 text-[13px] text-ink-3">{hint}</div>}
       </div>
       {children && (
-        <div className={cn("flex shrink-0 items-center gap-2", stacked && "w-full")}>
+        <div
+          className={cn(
+            "flex shrink-0 items-center gap-2",
+            // Every select in a row is one width, whatever its words, so a page's controls line up.
+            "[&>[data-control=select]]:w-full",
+            stacked ? "w-full" : "@3xl/app:[&>[data-control=select]]:w-72",
+          )}
+        >
           {children}
         </div>
       )}

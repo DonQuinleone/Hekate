@@ -1,5 +1,13 @@
-import type { InputHTMLAttributes, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import {
+  type InputHTMLAttributes,
+  type Ref,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import { cn } from "~/lib/cn";
+import { Icon } from "../icons";
 
 export const fieldClass =
   "w-full rounded-control border border-line-strong bg-ground/70 px-3 text-[14px] text-ink shadow-1 transition-colors placeholder:text-ink-3 hover:border-edge focus:border-edge-strong focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 aria-[invalid=true]:border-signal/60";
@@ -28,16 +36,85 @@ export function Textarea({
   return <textarea ref={ref} className={cn(fieldClass, "resize-y py-2", className)} {...props} />;
 }
 
+/** One drawing context, kept, to measure a chosen option's words against its select. */
+let measurer: OffscreenCanvasRenderingContext2D | null | undefined;
+const textWidth = (text: string, font: string) => {
+  if (measurer === undefined)
+    measurer =
+      typeof OffscreenCanvas === "undefined" ? null : new OffscreenCanvas(1, 1).getContext("2d");
+  if (!measurer) return 0;
+  measurer.font = font;
+  return measurer.measureText(text).width;
+};
+
+/** The chosen option's words as the select's title, but only where they are cut short. */
+function titleCut(select: HTMLSelectElement) {
+  const text = select.selectedOptions[0]?.text ?? "";
+  const style = getComputedStyle(select);
+  const room =
+    select.clientWidth -
+    Number.parseFloat(style.paddingLeft) -
+    Number.parseFloat(style.paddingRight);
+  const cut = text !== "" && room > 0 && textWidth(text, style.font) > room;
+  if (cut) select.title = text;
+  else select.removeAttribute("title");
+}
+
+/**
+ * One of a known list, drawn as a field with the brand's chevron (the same as `Dropdown`'s)
+ * rather than the browser's. Its width is the caller's (a settings row gives every select the
+ * same one); a choice longer than that ends in an ellipsis, with the whole of it as the title.
+ */
 export function Select({
   className,
   size = "md",
+  ref,
+  onChange,
   ...props
-}: Omit<SelectHTMLAttributes<HTMLSelectElement>, "size"> & { size?: ControlSize }) {
+}: Omit<SelectHTMLAttributes<HTMLSelectElement>, "size"> & {
+  size?: ControlSize;
+  ref?: Ref<HTMLSelectElement>;
+}) {
+  const own = useRef<HTMLSelectElement | null>(null);
+  // After every render, as the chosen value may have been changed by whoever holds it.
+  useLayoutEffect(() => {
+    if (own.current) titleCut(own.current);
+  });
   return (
-    <select
-      className={cn(fieldClass, heights[size], size === "sm" ? "pr-6" : "pr-8", className)}
-      {...props}
-    />
+    <span
+      data-control="select"
+      className={cn(
+        "relative inline-flex w-full min-w-0 shrink",
+        size === "sm" ? "h-7 text-[12px]" : "h-9 text-[14px]",
+        className,
+      )}
+    >
+      <select
+        ref={(el) => {
+          own.current = el;
+          if (typeof ref === "function") return ref(el);
+          if (ref) ref.current = el;
+        }}
+        onChange={(e) => {
+          titleCut(e.currentTarget);
+          onChange?.(e);
+        }}
+        className={cn(
+          fieldClass,
+          "peer h-full min-w-0 cursor-pointer appearance-none truncate text-[length:inherit] disabled:cursor-not-allowed",
+          size === "sm" ? "pr-6 pl-2" : "pr-8",
+        )}
+        {...props}
+      />
+      <Icon
+        name="chevronDown"
+        size={12}
+        className={cn(
+          "pointer-events-none absolute top-1/2 -translate-y-1/2 text-ink-3 peer-disabled:opacity-60",
+          size === "sm" ? "right-2" : "right-3",
+        )}
+      />
+    </span>
   );
 }
 

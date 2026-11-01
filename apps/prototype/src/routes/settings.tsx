@@ -956,7 +956,7 @@ export function SettingsPage({
             {/* #481: dates read in ISO 8601 unless the instance or the workspace chose otherwise. */}
             <Row name="Dates" hint="How dates read here, in lists, comments, mail and exports.">
               <Select defaultValue="" className="w-56">
-                <option value="">Instance default (ISO 8601)</option>
+                <option value="">As the instance (ISO 8601)</option>
                 <option value="iso">ISO 8601 (2026-10-29)</option>
                 <option value="day-month-year">Day, month, year (29 Oct 2026)</option>
                 <option value="month-day-year">Month, day, year (Oct 29, 2026)</option>
@@ -964,7 +964,7 @@ export function SettingsPage({
             </Row>
             <Row name="Times" hint="The clock beside them.">
               <Select defaultValue="" className="w-56">
-                <option value="">Instance default (24-hour)</option>
+                <option value="">As the instance (24-hour)</option>
                 <option value="24h">24-hour (14:05)</option>
                 <option value="12h">12-hour (2:05 pm)</option>
               </Select>

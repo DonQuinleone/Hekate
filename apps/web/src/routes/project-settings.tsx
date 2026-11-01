@@ -983,7 +983,6 @@ function Comments({ project }: { project: Project }) {
               }
             >
               <Select
-                size="sm"
                 value={t.commentReferences ? (referenceSetOf(t.commentReferences) ?? "") : ""}
                 aria-label={`References of ${t.name}`}
                 disabled={!can("edit_project")}
@@ -1098,7 +1097,6 @@ function Comments({ project }: { project: Project }) {
               }
             >
               <Select
-                size="sm"
                 value={t.normalisation ?? ""}
                 aria-label={`Normalised playback of ${t.name}`}
                 disabled={!can("edit_project") || playsTrack.isPending}
@@ -1258,7 +1256,6 @@ function Workflow({ project }: { project: Project }) {
             projectId={project.id}
             value={project.commentAssignment ?? { assign: null }}
             disabled={!edit || update.isPending}
-            size="sm"
             aria-label="Assign new comments to"
             className="w-full @3xl/app:w-56"
             onChange={(rule) => update.mutate({ commentAssignment: rule })}
@@ -1286,7 +1283,6 @@ function Workflow({ project }: { project: Project }) {
                 value={t.commentAssignment}
                 inherits="Project default"
                 disabled={!edit}
-                size="sm"
                 aria-label={`Assign new comments on ${t.name} to`}
                 className="w-full @3xl/app:w-56"
                 onChange={(assignment) => onTrack.mutate({ trackId: t.id, assignment })}
@@ -1394,7 +1390,6 @@ function Delivery({ project }: { project: Project }) {
               }
             >
               <Select
-                size="sm"
                 value={t.deliveryProfile ?? ""}
                 aria-label={`Delivery profile of ${t.name}`}
                 disabled={!edit}

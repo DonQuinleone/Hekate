@@ -475,7 +475,7 @@ function WorkspaceRows() {
           value={settings.dateFormat ?? ""}
           onChange={(e) => change({ dateFormat: (e.target.value || null) as DateFormat | null })}
         >
-          <option value="">Instance default ({dateFormatLabels[instance.dateFormat]})</option>
+          <option value="">As the instance ({dateFormatLabels[instance.dateFormat]})</option>
           {dateFormatChoices.map((c) => (
             <option key={c.value} value={c.value}>
               {c.label}
@@ -491,7 +491,7 @@ function WorkspaceRows() {
           value={settings.timeFormat ?? ""}
           onChange={(e) => change({ timeFormat: (e.target.value || null) as TimeFormat | null })}
         >
-          <option value="">Instance default ({timeFormatLabels[instance.timeFormat]})</option>
+          <option value="">As the instance ({timeFormatLabels[instance.timeFormat]})</option>
           {timeFormatChoices.map((c) => (
             <option key={c.value} value={c.value}>
               {c.label}

@@ -480,9 +480,19 @@ function Components() {
             <option value="linear">Linear</option>
           </Select>
         </Spec>
-        <Spec name="Select" rule="For one of a known list; a menu when the choices are actions.">
+        <Spec
+          name="Select"
+          rule="For one of a known list; a menu when the choices are actions. The brand's chevron, as on a dropdown. In a settings row every select is one width; a longer choice ends in an ellipsis, the whole of it on hover."
+        >
           <Select defaultValue="Producer" className="w-40" aria-label="Role">
             <option>Producer</option>
+            <option>Engineer</option>
+          </Select>
+          <Select defaultValue="dmy" className="w-44" aria-label="Dates, cut short">
+            <option value="dmy">Day, month, year (29 Oct 2026)</option>
+            <option value="iso">ISO 8601 (2026-10-29)</option>
+          </Select>
+          <Select disabled defaultValue="Engineer" className="w-40" aria-label="Fixed role">
             <option>Engineer</option>
           </Select>
         </Spec>
