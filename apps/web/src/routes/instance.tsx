@@ -24,7 +24,7 @@ import {
   type InstanceSettings,
   type InstanceWorkspace,
   type InstanceWorkspaceDetail,
-  instanceActions,
+  instanceActionLabel,
   instanceSections,
   instanceSectionsFor,
   type LogKeepDays,
@@ -360,7 +360,7 @@ function Overview() {
                 <span>
                   <span className="text-ink">{r.target ?? "Instance"}</span>{" "}
                   <span className="text-ink-2">
-                    {instanceActions[r.action] ?? r.action}
+                    {instanceActionLabel(r.action, import.meta.env.DEV)}
                     {r.actor ? ` by ${r.actor}` : " at setup"}
                   </span>
                 </span>
@@ -1720,7 +1720,7 @@ const mailResults: Record<MailLogRow["result"], string> = {
 /** What an audit row did, in words: an operator's action, or a workspace's. */
 const auditAction = (r: AuditLogRow) =>
   r.source === "instance"
-    ? `${r.target ?? ""} ${instanceActions[r.action] ?? r.action}`.trim()
+    ? `${r.target ?? ""} ${instanceActionLabel(r.action, import.meta.env.DEV)}`.trim()
     : (actionCopy[r.action] ?? r.action);
 
 /**

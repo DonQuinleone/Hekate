@@ -367,7 +367,23 @@ export const instanceActions: Record<string, string> = {
   "incident.updated": "given an update on the status page",
   "incident.resolved": "resolved on the status page",
   "incident.removed": "taken off the status page",
+  "support.replied": "answered",
+  "support.state": "moved to a new state",
+  "support.reply_saved": "saved as a canned reply",
+  "support.reply_removed": "removed from the canned replies",
+  "support.on_call": "given someone new on call",
+  "support.status_page": "given a new status page",
+  "workspace.export_requested": "set to be exported, everything in it",
+  "workspace.export_downloaded": "had its export downloaded",
+  "dates.format": "changed",
 };
+
+/**
+ * An instance event's action in words (#597). One the catalogue lacks reads "did something",
+ * with its key only where `showKey` (development), so a dotted key never reaches an operator.
+ */
+export const instanceActionLabel = (action: string, showKey = false) =>
+  instanceActions[action] ?? (showKey ? `did something (${action})` : "did something");
 
 /** Where a workspace stands, from its record. */
 export const workspaceStateOf = (w: { suspendedAt: Date | string | null }): WorkspaceState =>
