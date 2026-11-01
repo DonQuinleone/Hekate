@@ -13,6 +13,7 @@ import {
   shiftDay,
   shiftInstant,
   shiftMonth,
+  weekBars,
 } from "./calendar.ts";
 
 describe("a month on the calendar", () => {
@@ -28,6 +29,40 @@ describe("a month on the calendar", () => {
   it("moves a month at a time, across a year", () => {
     expect(shiftMonth("2026-01", -1)).toBe("2025-12");
     expect(shiftMonth("2026-12", 1)).toBe("2027-01");
+  });
+  it("lays something over several days as one bar, cut at the week's ends", () => {
+    const week = monthGrid("2026-10").days.slice(14, 21); // 12 to 18 October
+    const { bars, more } = weekBars(
+      week,
+      [
+        { id: "a", date: "2026-10-14" },
+        { id: "b", date: "2026-10-13", end: "2026-10-14" },
+        { id: "c", date: "2026-10-08", end: "2026-10-12" },
+        { id: "d", date: "2026-10-18", end: "2026-10-20" },
+        { id: "e", date: "2026-10-20" },
+      ],
+      3,
+    );
+    const at = (id: string) => bars.find((b) => b.item.id === id);
+    expect(at("c")).toMatchObject({ column: 0, span: 1, lane: 0, before: true, after: false });
+    expect(at("b")).toMatchObject({ column: 1, span: 2, lane: 0, before: false });
+    // The 14th's lone entry goes beneath the bar that already covers it.
+    expect(at("a")).toMatchObject({ column: 2, span: 1, lane: 1 });
+    expect(at("d")).toMatchObject({ column: 6, span: 1, lane: 0, after: true });
+    expect(at("e")).toBeUndefined();
+    expect(more).toEqual([0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it("counts what does not fit under each day it falls on", () => {
+    const week = monthGrid("2026-10").days.slice(14, 21);
+    const items = [
+      { date: "2026-10-12", end: "2026-10-13" },
+      { date: "2026-10-12" },
+      { date: "2026-10-13" },
+    ];
+    const { bars, more } = weekBars(week, items, 1);
+    expect(bars).toHaveLength(1);
+    expect(more).toEqual([1, 1, 0, 0, 0, 0, 0]);
   });
 });
 
