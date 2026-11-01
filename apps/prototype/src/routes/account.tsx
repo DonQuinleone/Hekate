@@ -121,9 +121,9 @@ export const themes = [
 
 /** Every kind of notification (#504): the event, its line, and whether it is on in the app and by mail. */
 const notificationEvents: [string, string, boolean, boolean][] = [
-  ["Review asked of me", "A review asks for your decision or feedback.", true, true],
+  ["Review requested", "A review asks for your decision or feedback.", true, true],
   [
-    "Decision on a review I asked for",
+    "Decision recorded",
     "A reviewer decided, or gave feedback, on a review you asked for.",
     true,
     true,
@@ -595,7 +595,7 @@ export function AccountPage({ section }: { section: string }) {
               <Row key={title} name={title} hint={description}>
                 {(
                   [
-                    ["App", app, title === "Review asked of me" || title === "Mention"],
+                    ["App", app, title === "Review requested" || title === "Mention"],
                     ["Mail", mail, false],
                   ] as const
                 ).map(([channel, on, locked]) => (

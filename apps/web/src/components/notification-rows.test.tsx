@@ -37,7 +37,7 @@ describe("the account's notification rows", () => {
         onChange={onChange}
       />,
     );
-    expect(getByRole("switch", { name: "Review asked of me, App" })).toHaveProperty(
+    expect(getByRole("switch", { name: "Review requested, App" })).toHaveProperty(
       "disabled",
       true,
     );

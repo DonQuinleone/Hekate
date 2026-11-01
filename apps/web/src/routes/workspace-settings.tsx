@@ -243,7 +243,7 @@ const allSections: SectionSpec[] = [
   },
   {
     id: "channels",
-    label: "Notifications and integrations",
+    label: "Channels",
     group: "Integrations",
     from: "admin",
     intro: "Where the workspace's events go: Slack, Discord, Microsoft Teams and webhooks.",

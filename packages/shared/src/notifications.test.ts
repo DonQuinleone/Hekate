@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { eventLabels } from "./events.ts";
 import {
   channelsFor,
   mentionAt,
@@ -22,6 +23,14 @@ describe("the event catalogue", () => {
       expect(description, kind).toMatch(/^[A-Z].*\.$/);
       expect(description, kind).not.toBe(title);
     }
+  });
+
+  it("names the events the workspace's channels hear of as the channels do (#681)", () => {
+    expect(notificationCatalogue.review_requested.title).toBe(eventLabels["review.requested"]);
+    expect(notificationCatalogue.decision.title).toBe(eventLabels["decision.recorded"]);
+    expect(notificationCatalogue.version.title).toBe(eventLabels["version.arrived"]);
+    expect(notificationCatalogue.mention.title).toBe(eventLabels["comment.mentioned"]);
+    expect(notificationCatalogue.processing_failed.title).toBe(eventLabels["processing.failed"]);
   });
 
   it("heads the channels App and Mail, whatever the event says", () => {

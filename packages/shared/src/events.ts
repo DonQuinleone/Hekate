@@ -20,17 +20,30 @@ export const eventKinds = [
 export type EventKind = (typeof eventKinds)[number];
 export const eventKind = z.enum(eventKinds);
 
-/** How each kind reads in the events matrix. */
+/**
+ * The names of the events a workspace's channels and a member's notifications both hear of
+ * (#681): one name for each, so the workspace's Channels and the account's Notifications call
+ * the same thing the same way.
+ */
+export const eventNames = {
+  review: "Review requested",
+  decision: "Decision recorded",
+  version: "New version",
+  mention: "Mention",
+  processing: "Processing failed",
+} as const;
+
+/** How each kind reads in the events matrix: a name, as the account's Notifications has it. */
 export const eventLabels: Record<EventKind, string> = {
-  "review.requested": "A review is requested",
-  "decision.recorded": "A decision is recorded",
-  "feedback.submitted": "Feedback is submitted",
-  "version.arrived": "A new version arrives",
-  "stage.started": "A stage starts",
-  "comment.mentioned": "A comment mentions someone",
-  "guest.signed_in": "A guest signs in",
-  "file.downloaded": "A download happens",
-  "processing.failed": "Processing fails",
+  "review.requested": eventNames.review,
+  "decision.recorded": eventNames.decision,
+  "feedback.submitted": "Feedback submitted",
+  "version.arrived": eventNames.version,
+  "stage.started": "Stage started",
+  "comment.mentioned": eventNames.mention,
+  "guest.signed_in": "Guest signed in",
+  "file.downloaded": "Download",
+  "processing.failed": eventNames.processing,
 };
 
 const named = z.object({ id: z.uuid(), name: z.string() });

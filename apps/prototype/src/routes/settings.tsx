@@ -336,6 +336,8 @@ export function SettingsPage({
     viewer.persona.organisationRole === "owner" || viewer.persona.organisationRole === "admin";
   const [adding, setAdding] = useState(false);
   const [channelKind, setChannelKind] = useState("Slack");
+  // The Events matrix's one channel on a phone (#681).
+  const [eventsChannel, setEventsChannel] = useState("slack");
   const [leak, setLeak] = useState<"idle" | "scanning" | "match" | "none">("idle");
   // An OAuth client's menu (#447): who has connected it, or its secret rotated (shown once).
   const [clientDialog, setClientDialog] = useState<{
@@ -1410,8 +1412,7 @@ export function SettingsPage({
       {sec === "channels" && (
         <>
           <Section
-            title="Channels"
-            intro="Where events go. Each channel has its own fields and a test; a channel that keeps failing pauses itself."
+            intro="Each channel has its own fields and a test; a channel that keeps failing pauses itself."
             action={
               <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
                 <Icon name="plus" size={14} />
@@ -1472,32 +1473,61 @@ export function SettingsPage({
               </Row>
             ))}
           </Section>
-          <Section title="Events" intro="Which events each channel carries.">
-            <Matrix
-              heading="Event"
-              columns={channels
-                .filter((c) => c.state !== "off")
-                .map((c) => ({ id: c.id, label: c.name }))}
-              rows={[
-                "A review is requested",
-                "A decision is recorded",
-                "Feedback is submitted",
-                "A new version arrives",
-                "A stage starts",
-                "A comment mentions someone",
-                "A guest signs in",
-                "A download happens",
-                "Processing fails",
-              ].map((e) => ({ id: e, label: e }))}
-              value={(row, col) =>
-                col === "webhook"
-                  ? true
-                  : col === "slack"
-                    ? ["A decision is recorded", "A new version arrives"].includes(row)
-                    : true
-              }
-              onToggle={() => {}}
-            />
+          {/* #681: on a phone one channel's column at a time, chosen as Tool access chooses a role. */}
+          <Section
+            title="Events"
+            intro="Which events each channel carries."
+            action={
+              <label className="flex items-center gap-2 text-[13px] text-ink-3 @3xl/app:hidden">
+                Channel
+                <Select
+                  value={eventsChannel}
+                  onChange={(e) => setEventsChannel(e.target.value)}
+                  className="w-auto"
+                >
+                  {channels
+                    .filter((c) => c.state !== "off")
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                </Select>
+              </label>
+            }
+          >
+            {(["all", "one"] as const).map((view) => (
+              <div
+                key={view}
+                className={view === "all" ? "hidden @3xl/app:block" : "@3xl/app:hidden"}
+              >
+                <Matrix
+                  heading="Event"
+                  columns={channels
+                    .filter((c) => c.state !== "off" && (view === "all" || c.id === eventsChannel))
+                    .map((c) => ({ id: c.id, label: c.name }))}
+                  rows={[
+                    "Review requested",
+                    "Decision recorded",
+                    "Feedback submitted",
+                    "New version",
+                    "Stage started",
+                    "Mention",
+                    "Guest signed in",
+                    "Download",
+                    "Processing failed",
+                  ].map((e) => ({ id: e, label: e }))}
+                  value={(row, col) =>
+                    col === "webhook"
+                      ? true
+                      : col === "slack"
+                        ? ["Decision recorded", "New version"].includes(row)
+                        : true
+                  }
+                  onToggle={() => {}}
+                />
+              </div>
+            ))}
           </Section>
         </>
       )}

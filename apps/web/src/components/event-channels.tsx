@@ -70,9 +70,9 @@ export function ChannelsSection() {
     });
   return (
     <>
+      {/* The page is Channels (#681): its first section needs no heading of its own. */}
       <Section
-        title="Channels"
-        intro="Where events go. Each channel has its own fields and a test; a channel that keeps failing pauses itself."
+        intro="Each channel has its own fields and a test; a channel that keeps failing pauses itself."
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
             <Icon name="plus" size={14} />
@@ -183,7 +183,11 @@ export function ChannelsSection() {
   );
 }
 
-/** Which events each channel carries: a row for each kind, a column for each channel. */
+/**
+ * Which events each channel carries: a row for each kind, a column for each channel. On a phone
+ * one channel's column is shown at a time, chosen above the table, as Defaults' Tool access does
+ * (#681), so every channel is reachable without a sideways scroll that hides the others.
+ */
 function EventsMatrix({
   channels,
   onToggle,
@@ -193,24 +197,50 @@ function EventsMatrix({
   onToggle: (c: ChannelRow, kind: EventKind) => void;
   disabled: boolean;
 }) {
+  const [chosen, setChosen] = useState<string | null>(null);
+  const shown = channels.find((c) => c.id === chosen)?.id ?? channels[0]?.id;
+  const column = (c: ChannelRow) => (c.id === shown ? "" : "hidden @3xl/app:table-cell");
   return (
     <section aria-label="Events" className="flex flex-col gap-3">
-      <div className="min-w-0">
-        <h2 className="text-[16px] font-medium text-ink">Events</h2>
-        <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">
-          Which events each channel carries.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[16px] font-medium text-ink">Events</h2>
+          <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">
+            Which events each channel carries.
+          </p>
+        </div>
+        {channels.length > 1 && (
+          <div className="flex items-center gap-2 text-[13px] text-ink-3 @3xl/app:hidden">
+            <label htmlFor="events-channel-shown">Channel</label>
+            <Select
+              id="events-channel-shown"
+              size="sm"
+              value={shown}
+              onChange={(event) => setChosen(event.target.value)}
+              className="w-auto"
+            >
+              {channels.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
       </div>
       <div className="scroll-quiet overflow-x-auto rounded-panel-lg border border-line bg-raised/25 shadow-1">
         <table
-          className="w-full min-w-[var(--events-width)] border-collapse text-[13px]"
+          className="w-full border-collapse text-[13px] @3xl/app:min-w-[var(--events-width)]"
           style={{ "--events-width": `${240 + channels.length * 112}px` } as CSSProperties}
         >
           <thead>
             <tr>
               <th className="label px-4 py-2 text-left font-normal">Event</th>
               {channels.map((c) => (
-                <th key={c.id} className="w-[112px] px-2 py-2 text-center font-normal last:pr-4">
+                <th
+                  key={c.id}
+                  className={cn("w-[112px] px-2 py-2 text-center font-normal last:pr-4", column(c))}
+                >
                   <span className="label block truncate">{c.name}</span>
                 </th>
               ))}
@@ -221,7 +251,7 @@ function EventsMatrix({
               <tr key={kind} className="border-t border-line">
                 <td className="px-4 py-2 text-ink">{eventLabels[kind]}</td>
                 {channels.map((c) => (
-                  <td key={c.id} className="px-2 py-2 text-center last:pr-4">
+                  <td key={c.id} className={cn("px-2 py-2 text-center last:pr-4", column(c))}>
                     <Checkbox
                       aria-label={`${eventLabels[kind]}, to ${c.name}`}
                       checked={c.events.includes(kind)}

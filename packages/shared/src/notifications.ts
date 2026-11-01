@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { EmailTemplateId } from "./email.ts";
+import { eventNames } from "./events.ts";
 
 /**
  * What tells a member something happened (docs/domain.md, Notifications). Each kind can reach
@@ -49,21 +50,21 @@ export const notificationCatalogue: Record<
   { title: string; description: string }
 > = {
   review_requested: {
-    title: "Review asked of me",
+    title: eventNames.review,
     description: "A review asks for your decision or feedback.",
   },
   decision: {
-    title: "Decision on a review I asked for",
+    title: eventNames.decision,
     description: "A reviewer decided, or gave feedback, on a review you asked for.",
   },
   reply: {
     title: "Reply",
     description: "Someone replied in a thread you started or took part in.",
   },
-  mention: { title: "Mention", description: "Someone mentioned you in a comment." },
-  version: { title: "New version", description: "A new version of a track you follow." },
+  mention: { title: eventNames.mention, description: "Someone mentioned you in a comment." },
+  version: { title: eventNames.version, description: "A new version of a track you follow." },
   processing_failed: {
-    title: "Processing failed",
+    title: eventNames.processing,
     description: "A file you uploaded could not be processed.",
   },
   guest_opened: {

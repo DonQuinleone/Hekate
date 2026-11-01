@@ -3,7 +3,7 @@ title: Channels and webhooks
 description: How a workspace's events reach Slack, Discord, Microsoft Teams or a receiver of your own, how a webhook is checked, and the workspace's own mail.
 ---
 
-A workspace can tell other places what happens in it: a review asked for, a decision recorded, a new version, a stage that starts, a download. Each place is a **channel**. Admins set them up in *Workspace settings*, *Notifications and integrations*.
+A workspace can tell other places what happens in it: a review asked for, a decision recorded, a new version, a stage that starts, a download. Each place is a **channel**. Admins set them up in *Workspace settings*, *Channels*, under *Integrations*.
 
 - **Kinds.** A Slack incoming webhook, a Discord webhook, a Microsoft Teams workflow webhook, or a webhook of your own. Slack, Discord and Teams get one line and a link into Hekate; a webhook gets the whole event as JSON.
 - **Which events.** The *Events* table has a row for each kind of event and a column for each channel; *Which events…* on a channel's menu does the same for one channel.

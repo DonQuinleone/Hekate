@@ -6,6 +6,7 @@ import {
   eventData,
   eventKinds,
   eventLabels,
+  eventNames,
   eventSummary,
   eventsSummary,
   retryDelaySeconds,
@@ -20,6 +21,12 @@ describe("events (#161)", () => {
       expect(eventData[kind]).toBeDefined();
       expect(eventLabels[kind]).toMatch(/^[A-Z]/);
     }
+  });
+
+  it("names an event as the account's notifications do (#681)", () => {
+    expect(eventLabels["review.requested"]).toBe(eventNames.review);
+    expect(eventLabels["comment.mentioned"]).toBe(eventNames.mention);
+    for (const kind of eventKinds) expect(eventLabels[kind]).not.toMatch(/\.$|^An? /);
   });
 
   it("says each event in a sentence", () => {
