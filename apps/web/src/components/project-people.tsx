@@ -96,7 +96,7 @@ function Members({ projectId }: { projectId: string }) {
     manageReviewers
       ? [
           {
-            label: "Review permissions…",
+            label: "Permissions in reviews…",
             onSelect: () => setGranting({ kind: "member", id: m.userId, name: m.name }),
           },
         ]
@@ -123,7 +123,10 @@ function Members({ projectId }: { projectId: string }) {
   return (
     <>
       <section aria-label="Owners" className="flex flex-col gap-3">
-        <SectionHead title="Owners" hint="everything in this project, whatever their role" />
+        <SectionHead title="Owners" />
+        <p className="m-0 text-[13px] text-ink-3">
+          Owners can do everything in this project, whatever their role.
+        </p>
         {error && !adding && !leaving && <p className="text-[13px] text-signal">{error.message}</p>}
         <Card>
           <ul className="m-0 list-none p-0">
@@ -460,7 +463,6 @@ function Reviewers({ projectId }: { projectId: string }) {
     <section aria-label="Reviewers" className="flex flex-col gap-3">
       <SectionHead
         title="Reviewers"
-        hint="guests, who reach a review by link"
         action={
           manage && (
             <Button variant="secondary" size="md" onClick={() => setInviting(true)}>
@@ -470,6 +472,9 @@ function Reviewers({ projectId }: { projectId: string }) {
           )
         }
       />
+      <p className="m-0 text-[13px] text-ink-3">
+        Guests reach a review through a link, without an account.
+      </p>
       {error && <p className="text-[13px] text-signal">{error.message}</p>}
       {sent && <p className="text-[13px] text-ink-2">{sent}</p>}
       <Card>
@@ -530,7 +535,7 @@ function Reviewers({ projectId }: { projectId: string }) {
                   label={g.name}
                   actions={[
                     {
-                      label: "Review permissions…",
+                      label: "Permissions in reviews…",
                       hint: "For every review of this project that asks them",
                       onSelect: () => setGranting({ kind: "guest", id: g.id, name: g.name }),
                     },
@@ -791,6 +796,7 @@ function StandingDialog({
   const initial = theirs ? (applyPermissions(defaults, theirs.grant).data ?? defaults) : defaults;
   const target = { kind: person.kind, personId: person.id };
   const error = set.error ?? clear.error;
+  const formId = `standing-${person.id}`;
   return (
     <Dialog
       title={`${person.name} in this project's reviews`}
@@ -800,8 +806,34 @@ function StandingDialog({
           : "The workspace's defaults, until you change them here."
       }
       onClose={onClose}
+      footer={
+        <>
+          {theirs && (
+            <Button
+              variant="ghost"
+              className="mr-auto"
+              disabled={clear.isPending}
+              onClick={() => clear.mutate(target, { onSuccess: onClose })}
+            >
+              Back to the defaults
+            </Button>
+          )}
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="submit"
+            form={formId}
+            disabled={set.isPending || clear.isPending}
+          >
+            Save
+          </Button>
+        </>
+      }
     >
       <ReviewerPermissionsEditor
+        formId={formId}
         name={person.name}
         kind="approval"
         guest={person.kind === "guest"}
@@ -817,18 +849,6 @@ function StandingDialog({
         }}
         onCancel={onClose}
       />
-      {theirs && (
-        <div className="mt-3 flex justify-start">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={clear.isPending}
-            onClick={() => clear.mutate(target, { onSuccess: onClose })}
-          >
-            Back to the workspace's defaults
-          </Button>
-        </div>
-      )}
     </Dialog>
   );
 }

@@ -139,7 +139,6 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
     <section aria-label="Groups" className="flex flex-col gap-3">
       <SectionHead
         title="Groups"
-        hint="people a review or a tool exception can name as one"
         action={
           manage && (
             <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
@@ -149,14 +148,15 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
           )
         }
       />
+      <p className="m-0 text-[13px] text-ink-3">
+        A group is a set of people a review or a tool exception can name at once.
+      </p>
       {(error ?? remove.error) && (
         <p className="m-0 text-xs text-signal">{(error ?? remove.error)?.message}</p>
       )}
       {groups && groups.length === 0 && (
         <Card className="px-4 py-4 text-[13px] text-ink-3">
-          No groups yet. A group such as Soloists is a set of people, members and reviewers alike,
-          that a review or a tool exception can name as one: ask the group, and everyone in it is
-          asked together.
+          {manage ? "No groups yet. Make a group to ask several people at once." : "No groups yet."}
         </Card>
       )}
       {groups && groups.length > 0 && (
