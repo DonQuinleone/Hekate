@@ -690,6 +690,19 @@ test.describe("guest", () => {
   // Every guest page carries the label's logo and accent (#185), seeded.
   for (const screen of screens.filter((s) => s.as === "guest")) capture(screen);
 
+  // A guest opening a file from their review (#666): the review in the trail, its decision
+  // beside the comments, and the review kept in the address as the version changes.
+  test("guest-file-from-review", async ({ page }) => {
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto(`/g/files/${seeded().dryFileId}?review=${seeded().reviewId}`);
+    await settle(page, "section[aria-label=Comments] li");
+    await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText(
+      "Maple Leaf Rag",
+    );
+    await saveScreen(page, "guest-file-from-review");
+    await checkScreen(page);
+  });
+
   // A guest whose review gives them compare (#44, #55) flips between what it gives them,
   // opened from the transport as the prototype's (#15).
   test("guest-file-compare", async ({ page }) => {

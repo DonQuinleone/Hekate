@@ -446,8 +446,8 @@ export function Compare({
       aria-label="Compare"
       className="flex shrink-0 flex-col gap-3 border-t border-line px-3 py-3 lg:px-4"
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="m-0 text-[13px] font-medium text-ink">Compare</h2>
+      {/* The pressed Compare above names it (#666): no head repeating it, only what to do. */}
+      <div className="flex flex-wrap items-baseline gap-2">
         <span className="text-xs text-ink-3">
           {comparing
             ? `Keys 1 ${sources.length === 2 ? "and" : "to"} ${sources.length} switch at the same position${matched ? ", level-matched" : ""}.`
@@ -457,6 +457,17 @@ export function Compare({
       {/* The sources stay put while listening blind, so each key keeps its source. */}
       <fieldset disabled={blind} className="m-0 flex flex-wrap gap-1 border-0 p-0">
         <legend className="sr-only">Sources to compare</legend>
+        {/* What plays now, first and pressed (#666): what the others are compared with. */}
+        <span
+          aria-current="true"
+          className={cn(
+            chip,
+            "inline-flex cursor-default items-center border-edge bg-raised text-ink",
+          )}
+        >
+          ✓ {self.label}
+          <span className="ml-1 text-ink-3">playing</span>
+        </span>
         {candidates.map((c) => {
           const on = pinned.includes(c.fileId);
           return (
@@ -470,7 +481,7 @@ export function Compare({
                 chip,
                 on
                   ? "border-edge bg-raised text-ink"
-                  : "border-transparent bg-transparent text-ink-3 hover:text-ink",
+                  : "border-line bg-transparent text-ink-2 hover:border-edge hover:text-ink",
               )}
             >
               {on ? "✓ " : "+ "}

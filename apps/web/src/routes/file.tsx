@@ -77,6 +77,7 @@ import {
   playbackQuery,
   projectQuery,
   qaQuery,
+  reviewQuery,
   trackTakesQuery,
   useMarks,
   usePreferences,
@@ -518,6 +519,11 @@ export function FilePage({
     setTranscriptId(null);
   }, [fileId]);
   const can = useProjectCan(guest || !file ? undefined : file.projectId);
+  // A guest's trail names the review the file was opened from (#666).
+  const { data: openedFrom } = useQuery({
+    ...reviewQuery(reviewId ?? ""),
+    enabled: Boolean(guest && reviewId),
+  });
   // Guests see the files of their reviews, never the project around them.
   const { data: project } = useQuery({
     ...projectQuery(file?.projectId ?? ""),
@@ -639,7 +645,22 @@ export function FilePage({
     ["Added", dateFormat.format(new Date(file.createdAt))],
   ];
   const crumbs: Crumb[] = guest
-    ? [{ key: "reviews", link: <Link to="/g">Your reviews</Link> }]
+    ? [
+        { key: "reviews", link: <Link to="/g">Your reviews</Link> },
+        // The review it was opened from (#666), so a guest never loses which one they are in.
+        ...(reviewId && openedFrom
+          ? [
+              {
+                key: "review",
+                link: (
+                  <Link to="/g/reviews/$reviewId" params={{ reviewId }}>
+                    {openedFrom.title}
+                  </Link>
+                ),
+              },
+            ]
+          : []),
+      ]
     : [
         {
           key: "project",
