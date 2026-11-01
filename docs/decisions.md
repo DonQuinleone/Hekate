@@ -2461,3 +2461,11 @@ Some organisations must keep their material in storage they own, and a workspace
 - **Ids only for support.** The report carries, beside each problem written for people, the line in the file's own ids (`support`, additive), and the preview keeps those, with the unknown events, the unread fields and what was set aside by their types, under *Details for support*. Everywhere else the preview says what they are (`reportLines` in `apps/web/src/lib/croom.ts`, tested).
 - **One quiet colour, the signal once.** The lines to look over are in ink with a warning mark; the signal is only the count beside *To look over*. *Not brought over* is the shared folding section, not the browser's disclosure triangle.
 - The prototype's import preview, in `apps/prototype/src/routes/production.tsx`, belongs to the production batch and follows there.
+
+## 316. Uploads belong to the shell: they keep going, and stay in view, on any page
+
+#552. The Files page held its uploads: following any link mid-upload unmounted them, their progress went, and the guard that asks before closing the tab went with it while transfers might still be running.
+
+- **One queue, in the shell.** `UploadQueueProvider` (`apps/web/src/components/upload-queue.tsx`) holds every upload started from a project's Files (a drop anywhere on the page, the Upload button, the context menu's Upload) and its `beforeunload` guard, for as long as the member is in the app. The Files page only starts uploads; where it listed them it lists nothing (`UploadList` draws nothing until its place goes).
+- **The tray.** At the pane's foot on the right, as Frame.io, Dropbox and Google Drive keep theirs: each file's name, its progress and size, Cancel, and Retry once it has failed; folded to one line with the count and how far along by bytes (`traySummary`, tested); a file that arrives is marked done a moment and leaves, and the tray closes once nothing is left. On a phone it sits above the bottom bar.
+- **What follows.** The other upload dialogs (a new version, a variant, the audio dialog, take import) still send their own files while open, since each goes on to make something of them; they can hand their files to the queue (`useUploadQueue().send`) as their pages change. The prototype's files page shows its uploads in place and follows with them.

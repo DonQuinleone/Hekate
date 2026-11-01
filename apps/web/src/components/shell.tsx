@@ -22,6 +22,7 @@ import { StateDot } from "~/components/status";
 import { DialogLayer } from "~/components/ui/dialog";
 import { Floating } from "~/components/ui/floating";
 import { MenuList, usePopover } from "~/components/ui/menu";
+import { UploadQueueProvider, UploadTray } from "~/components/upload-queue";
 import { authClient } from "~/lib/auth";
 import { cn } from "~/lib/cn";
 import {
@@ -858,283 +859,289 @@ export function Shell({ children }: { children: ReactNode }) {
   ]);
 
   return (
-    <div className="relative flex h-full flex-col @3xl/app:flex-row">
-      <Ambient />
-      <CommandPalette
-        open={palette}
-        onClose={() => setPalette(false)}
-        onToggleSidebar={toggleSidebar}
-      />
-      <nav
-        aria-label="Main"
-        className={cn(
-          "relative z-10 hidden shrink-0 flex-col px-2.5 pt-3 pb-2.5 transition-[width] duration-200 @3xl/app:flex",
-          collapsed ? "w-14" : "w-[240px]",
-        )}
-      >
-        <div className={cn("flex h-9 items-center gap-1 px-1", collapsed && "justify-center px-0")}>
-          <Link
-            to="/"
-            aria-label="Hekate"
-            className="flex min-w-0 flex-1 items-center rounded-control px-1 py-1 text-ink transition-opacity hover:opacity-80"
-          >
-            {collapsed ? <Mark size={22} /> : <Lockup size={20} />}
-          </Link>
-          {!collapsed && (
-            <button
-              type="button"
-              aria-label="Search and commands"
-              title={`Search and commands (${paletteKey})`}
-              onClick={() => setPalette(true)}
-              className="flex size-8 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink"
-            >
-              <Icon name="search" />
-            </button>
+    // The app's uploads live here, not on the page that started them (#552).
+    <UploadQueueProvider>
+      <div className="relative flex h-full flex-col @3xl/app:flex-row">
+        <Ambient />
+        <CommandPalette
+          open={palette}
+          onClose={() => setPalette(false)}
+          onToggleSidebar={toggleSidebar}
+        />
+        <nav
+          aria-label="Main"
+          className={cn(
+            "relative z-10 hidden shrink-0 flex-col px-2.5 pt-3 pb-2.5 transition-[width] duration-200 @3xl/app:flex",
+            collapsed ? "w-14" : "w-[240px]",
           )}
-        </div>
-        <div className="scroll-quiet mt-5 flex min-h-0 flex-1 flex-col overflow-y-auto">
-          <div className="flex flex-col gap-0.5">
-            <NavItem to="/" icon="dashboard" label="Home" collapsed={collapsed} exact />
-            <NavItem
-              to="/inbox"
-              icon="inbox"
-              label="Inbox"
-              collapsed={collapsed}
-              count={waitingAll.length}
-              exact
-            />
-            {/* With a project open, only its section is current: Projects never lights up
+        >
+          <div
+            className={cn("flex h-9 items-center gap-1 px-1", collapsed && "justify-center px-0")}
+          >
+            <Link
+              to="/"
+              aria-label="Hekate"
+              className="flex min-w-0 flex-1 items-center rounded-control px-1 py-1 text-ink transition-opacity hover:opacity-80"
+            >
+              {collapsed ? <Mark size={22} /> : <Lockup size={20} />}
+            </Link>
+            {!collapsed && (
+              <button
+                type="button"
+                aria-label="Search and commands"
+                title={`Search and commands (${paletteKey})`}
+                onClick={() => setPalette(true)}
+                className="flex size-8 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink"
+              >
+                <Icon name="search" />
+              </button>
+            )}
+          </div>
+          <div className="scroll-quiet mt-5 flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <div className="flex flex-col gap-0.5">
+              <NavItem to="/" icon="dashboard" label="Home" collapsed={collapsed} exact />
+              <NavItem
+                to="/inbox"
+                icon="inbox"
+                label="Inbox"
+                collapsed={collapsed}
+                count={waitingAll.length}
+                exact
+              />
+              {/* With a project open, only its section is current: Projects never lights up
                 beside it, as Linear's fixed links do not with a child (#612). */}
-            <NavItem
-              to="/projects"
-              icon="folder"
-              label="Projects"
-              collapsed={collapsed}
-              exact={Boolean(projectId)}
-            />
-            {current ? (
-              <>
-                <div className="mt-4 mb-1">
-                  <ProjectSwitcher project={current} projects={switcher} collapsed={collapsed} />
-                </div>
-                {sectionsHere.map((item) => {
-                  const count = countOf(item.id);
-                  return (
+              <NavItem
+                to="/projects"
+                icon="folder"
+                label="Projects"
+                collapsed={collapsed}
+                exact={Boolean(projectId)}
+              />
+              {current ? (
+                <>
+                  <div className="mt-4 mb-1">
+                    <ProjectSwitcher project={current} projects={switcher} collapsed={collapsed} />
+                  </div>
+                  {sectionsHere.map((item) => {
+                    const count = countOf(item.id);
+                    return (
+                      <Link
+                        key={item.id}
+                        to={destinationOf(item)}
+                        params={{ projectId: current.id }}
+                        // Marked by `sectionAt`; the router's own match is only ever the same item.
+                        activeOptions={{ exact: true, includeSearch: false }}
+                        title={collapsed ? item.label : undefined}
+                        aria-label={
+                          collapsed && count ? `${item.label}, ${count} for you` : undefined
+                        }
+                        aria-current={section === item.id ? "page" : undefined}
+                        className={cn(
+                          navClass,
+                          "aria-[current=page]:bg-raised aria-[current=page]:text-ink aria-[current=page]:shadow-1",
+                          collapsed && "justify-center px-0",
+                        )}
+                      >
+                        <Icon name={item.icon} />
+                        {!collapsed && <span className="truncate">{item.label}</span>}
+                        {count > 0 && !collapsed && (
+                          <span className="tabular ml-auto text-[12px] text-ink-3">{count}</span>
+                        )}
+                      </Link>
+                    );
+                  })}
+                </>
+              ) : instanceNav.length > 0 ? (
+                <>
+                  <div
+                    className={cn(
+                      "mt-4 mb-1 flex h-10 items-center gap-2.5 px-2",
+                      collapsed && "justify-center px-0",
+                    )}
+                  >
+                    <span className="flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-raised text-ink-2">
+                      <Icon name="instance" size={14} />
+                    </span>
+                    {!collapsed && (
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[14px] font-medium text-ink">
+                          Instance
+                        </span>
+                        <span className="block truncate text-[11px] text-ink-3">
+                          {window.location.host}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                  {instanceNav.map((id) => (
                     <Link
-                      key={item.id}
-                      to={destinationOf(item)}
-                      params={{ projectId: current.id }}
-                      // Marked by `sectionAt`; the router's own match is only ever the same item.
-                      activeOptions={{ exact: true, includeSearch: false }}
-                      title={collapsed ? item.label : undefined}
-                      aria-label={
-                        collapsed && count ? `${item.label}, ${count} for you` : undefined
-                      }
-                      aria-current={section === item.id ? "page" : undefined}
+                      key={id}
+                      to={id === "overview" ? "/instance" : "/instance/$section"}
+                      params={{ section: id }}
+                      activeOptions={{ exact: true }}
+                      title={collapsed ? instanceSections[id].label : undefined}
+                      aria-current={instanceView === id ? "page" : undefined}
                       className={cn(
                         navClass,
                         "aria-[current=page]:bg-raised aria-[current=page]:text-ink aria-[current=page]:shadow-1",
                         collapsed && "justify-center px-0",
                       )}
                     >
-                      <Icon name={item.icon} />
-                      {!collapsed && <span className="truncate">{item.label}</span>}
-                      {count > 0 && !collapsed && (
-                        <span className="tabular ml-auto text-[12px] text-ink-3">{count}</span>
-                      )}
+                      <Icon name={instanceIcons[id]} />
+                      {!collapsed && <span className="truncate">{instanceSections[id].label}</span>}
                     </Link>
-                  );
-                })}
-              </>
-            ) : instanceNav.length > 0 ? (
-              <>
-                <div
-                  className={cn(
-                    "mt-4 mb-1 flex h-10 items-center gap-2.5 px-2",
-                    collapsed && "justify-center px-0",
-                  )}
-                >
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-[6px] bg-raised text-ink-2">
-                    <Icon name="instance" size={14} />
-                  </span>
-                  {!collapsed && (
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[14px] font-medium text-ink">
-                        Instance
-                      </span>
-                      <span className="block truncate text-[11px] text-ink-3">
-                        {window.location.host}
-                      </span>
-                    </span>
-                  )}
-                </div>
-                {instanceNav.map((id) => (
+                  ))}
+                </>
+              ) : null}
+            </div>
+            {showNeedsYou && (
+              <SideSection title="Needs you" count={waitingHere.length} collapsed={collapsed}>
+                {waitingHere.slice(0, 4).map((r) => (
                   <Link
-                    key={id}
-                    to={id === "overview" ? "/instance" : "/instance/$section"}
-                    params={{ section: id }}
-                    activeOptions={{ exact: true }}
-                    title={collapsed ? instanceSections[id].label : undefined}
-                    aria-current={instanceView === id ? "page" : undefined}
-                    className={cn(
-                      navClass,
-                      "aria-[current=page]:bg-raised aria-[current=page]:text-ink aria-[current=page]:shadow-1",
-                      collapsed && "justify-center px-0",
+                    key={r.id}
+                    to="/reviews/$reviewId"
+                    params={{ reviewId: r.id }}
+                    className={sideLink}
+                  >
+                    {/* Your turn: the signal, as for whatever needs a person (#613). */}
+                    <span className="flex w-4 shrink-0 items-center justify-center">
+                      <NeedsYouDot />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">{r.title}</span>
+                    {!current && (
+                      <span className="max-w-[40%] shrink-0 truncate text-[12px] text-ink-3">
+                        {r.projectName}
+                      </span>
                     )}
-                  >
-                    <Icon name={instanceIcons[id]} />
-                    {!collapsed && <span className="truncate">{instanceSections[id].label}</span>}
                   </Link>
                 ))}
-              </>
-            ) : null}
+                {waitingHere.length > 4 && (
+                  <Link to="/inbox" className="px-2.5 text-[12px] text-ink-3 hover:text-ink">
+                    and {waitingHere.length - 4} more
+                  </Link>
+                )}
+              </SideSection>
+            )}
+            {/* The prototype's Recent (#618): the last things this person opened here. */}
+            {!atInstance && recent.length > 0 && (
+              <SideSection title="Recent" collapsed={collapsed}>
+                {recent.map((o) => (
+                  <RecentLink key={`${o.kind}-${o.id}`} opened={o} />
+                ))}
+              </SideSection>
+            )}
           </div>
-          {showNeedsYou && (
-            <SideSection title="Needs you" count={waitingHere.length} collapsed={collapsed}>
-              {waitingHere.slice(0, 4).map((r) => (
-                <Link
-                  key={r.id}
-                  to="/reviews/$reviewId"
-                  params={{ reviewId: r.id }}
-                  className={sideLink}
-                >
-                  {/* Your turn: the signal, as for whatever needs a person (#613). */}
-                  <span className="flex w-4 shrink-0 items-center justify-center">
-                    <NeedsYouDot />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate">{r.title}</span>
-                  {!current && (
-                    <span className="max-w-[40%] shrink-0 truncate text-[12px] text-ink-3">
-                      {r.projectName}
-                    </span>
-                  )}
-                </Link>
-              ))}
-              {waitingHere.length > 4 && (
-                <Link to="/inbox" className="px-2.5 text-[12px] text-ink-3 hover:text-ink">
-                  and {waitingHere.length - 4} more
-                </Link>
+          <div className="mt-2 flex flex-col gap-1 border-t border-line pt-2">
+            <button
+              type="button"
+              onClick={() => setCollapsed(!collapsed)}
+              // Named by its word while it shows one; by what it does once only the icon is left.
+              aria-label={collapsed ? "Show labels" : undefined}
+              title={`${collapsed ? "Show labels" : "Show icons only"} ([)`}
+              className={cn(
+                "flex h-7 items-center gap-2.5 rounded-control px-2.5 text-[12px] text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink",
+                collapsed && "justify-center px-0",
               )}
-            </SideSection>
-          )}
-          {/* The prototype's Recent (#618): the last things this person opened here. */}
-          {!atInstance && recent.length > 0 && (
-            <SideSection title="Recent" collapsed={collapsed}>
-              {recent.map((o) => (
-                <RecentLink key={`${o.kind}-${o.id}`} opened={o} />
-              ))}
-            </SideSection>
-          )}
-        </div>
-        <div className="mt-2 flex flex-col gap-1 border-t border-line pt-2">
-          <button
-            type="button"
-            onClick={() => setCollapsed(!collapsed)}
-            // Named by its word while it shows one; by what it does once only the icon is left.
-            aria-label={collapsed ? "Show labels" : undefined}
-            title={`${collapsed ? "Show labels" : "Show icons only"} ([)`}
-            className={cn(
-              "flex h-7 items-center gap-2.5 rounded-control px-2.5 text-[12px] text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink",
-              collapsed && "justify-center px-0",
-            )}
-          >
-            <Icon name="sidebar" size={14} />
-            {!collapsed && <span>Collapse</span>}
-          </button>
-          <WorkspaceMenu collapsed={collapsed} />
-          <ConnectionFoot connection={connection} collapsed={collapsed} />
-        </div>
-      </nav>
+            >
+              <Icon name="sidebar" size={14} />
+              {!collapsed && <span>Collapse</span>}
+            </button>
+            <WorkspaceMenu collapsed={collapsed} />
+            <ConnectionFoot connection={connection} collapsed={collapsed} />
+          </div>
+        </nav>
 
-      <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col @3xl/app:py-2.5 @3xl/app:pr-2.5">
-        <Pane>
-          <HeaderSlotsProvider slots={slots}>
-            <TopBar onTrail={onTrail} onActions={onActions} onSearch={() => setPalette(true)} />
-            {current && (
-              <SubNav
-                label={current.name}
-                className="shrink-0 gap-1 border-b border-line px-3 py-1.5 @3xl/app:hidden"
-              >
-                {sectionsHere.map((item) => (
-                  <Link
-                    key={item.id}
-                    to={destinationOf(item)}
-                    params={{ projectId: current.id }}
-                    activeOptions={{ exact: true, includeSearch: false }}
-                    aria-current={section === item.id ? "page" : undefined}
-                    className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 transition-colors aria-[current=page]:bg-raised aria-[current=page]:text-ink"
-                  >
-                    {item.label}
-                  </Link>
-                ))}
-              </SubNav>
-            )}
-            {instanceNav.length > 1 && (
-              <SubNav
-                label="Instance"
-                className="shrink-0 gap-1 border-b border-line px-3 py-1.5 @3xl/app:hidden"
-              >
-                {instanceNav.map((id) => (
-                  <Link
-                    key={id}
-                    to={id === "overview" ? "/instance" : "/instance/$section"}
-                    params={{ section: id }}
-                    activeOptions={{ exact: true }}
-                    aria-current={instanceView === id ? "page" : undefined}
-                    className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 transition-colors aria-[current=page]:bg-raised aria-[current=page]:text-ink"
-                  >
-                    {instanceSections[id].label}
-                  </Link>
-                ))}
-              </SubNav>
-            )}
-            {/* A phone has no sidebar foot, so losing the server says so above the page. */}
-            {(connection.state === "unreachable" || connection.state === "degraded") && (
-              <p
-                role="status"
-                className="m-0 flex shrink-0 items-center gap-2 border-b border-line px-4 py-2 text-[13px] text-ink-2 @3xl/app:hidden"
-              >
-                <StateDot state="major" />
-                {connectionWords[connection.state]}. {tryingAgain}.
-              </p>
-            )}
-            <main className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-auto">{page}</main>
-          </HeaderSlotsProvider>
-          <nav
-            aria-label="Main"
-            className="flex h-14 shrink-0 items-stretch border-t border-line bg-ground @3xl/app:hidden"
-          >
-            {(
-              [
-                { to: "/", icon: "dashboard", label: "Home", count: 0, exact: true },
-                {
-                  to: "/inbox",
-                  icon: "inbox",
-                  label: "Inbox",
-                  count: waitingAll.length,
-                  exact: true,
-                },
-                { to: "/projects", icon: "folder", label: "Projects", count: 0, exact: false },
-              ] as const
-            ).map((item) => (
-              <Link
-                key={item.to}
-                to={item.to}
-                activeOptions={{ exact: item.exact }}
-                className="relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] text-ink-3 transition-colors data-[status=active]:text-ink"
-              >
-                <Icon name={item.icon} size={18} />
-                <span>{item.label}</span>
-                {item.count ? (
-                  <span className="absolute top-2 right-[calc(50%-18px)] size-1.5 rounded-full bg-signal" />
-                ) : null}
-              </Link>
-            ))}
-            <WorkspaceMenu collapsed={false} tab />
-          </nav>
-        </Pane>
+        <div className="relative z-10 flex min-h-0 min-w-0 flex-1 flex-col @3xl/app:py-2.5 @3xl/app:pr-2.5">
+          <Pane>
+            <HeaderSlotsProvider slots={slots}>
+              <TopBar onTrail={onTrail} onActions={onActions} onSearch={() => setPalette(true)} />
+              {current && (
+                <SubNav
+                  label={current.name}
+                  className="shrink-0 gap-1 border-b border-line px-3 py-1.5 @3xl/app:hidden"
+                >
+                  {sectionsHere.map((item) => (
+                    <Link
+                      key={item.id}
+                      to={destinationOf(item)}
+                      params={{ projectId: current.id }}
+                      activeOptions={{ exact: true, includeSearch: false }}
+                      aria-current={section === item.id ? "page" : undefined}
+                      className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 transition-colors aria-[current=page]:bg-raised aria-[current=page]:text-ink"
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </SubNav>
+              )}
+              {instanceNav.length > 1 && (
+                <SubNav
+                  label="Instance"
+                  className="shrink-0 gap-1 border-b border-line px-3 py-1.5 @3xl/app:hidden"
+                >
+                  {instanceNav.map((id) => (
+                    <Link
+                      key={id}
+                      to={id === "overview" ? "/instance" : "/instance/$section"}
+                      params={{ section: id }}
+                      activeOptions={{ exact: true }}
+                      aria-current={instanceView === id ? "page" : undefined}
+                      className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 transition-colors aria-[current=page]:bg-raised aria-[current=page]:text-ink"
+                    >
+                      {instanceSections[id].label}
+                    </Link>
+                  ))}
+                </SubNav>
+              )}
+              {/* A phone has no sidebar foot, so losing the server says so above the page. */}
+              {(connection.state === "unreachable" || connection.state === "degraded") && (
+                <p
+                  role="status"
+                  className="m-0 flex shrink-0 items-center gap-2 border-b border-line px-4 py-2 text-[13px] text-ink-2 @3xl/app:hidden"
+                >
+                  <StateDot state="major" />
+                  {connectionWords[connection.state]}. {tryingAgain}.
+                </p>
+              )}
+              <main className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-auto">{page}</main>
+              <UploadTray />
+            </HeaderSlotsProvider>
+            <nav
+              aria-label="Main"
+              className="flex h-14 shrink-0 items-stretch border-t border-line bg-ground @3xl/app:hidden"
+            >
+              {(
+                [
+                  { to: "/", icon: "dashboard", label: "Home", count: 0, exact: true },
+                  {
+                    to: "/inbox",
+                    icon: "inbox",
+                    label: "Inbox",
+                    count: waitingAll.length,
+                    exact: true,
+                  },
+                  { to: "/projects", icon: "folder", label: "Projects", count: 0, exact: false },
+                ] as const
+              ).map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  activeOptions={{ exact: item.exact }}
+                  className="relative flex flex-1 flex-col items-center justify-center gap-0.5 text-[11px] text-ink-3 transition-colors data-[status=active]:text-ink"
+                >
+                  <Icon name={item.icon} size={18} />
+                  <span>{item.label}</span>
+                  {item.count ? (
+                    <span className="absolute top-2 right-[calc(50%-18px)] size-1.5 rounded-full bg-signal" />
+                  ) : null}
+                </Link>
+              ))}
+              <WorkspaceMenu collapsed={false} tab />
+            </nav>
+          </Pane>
+        </div>
       </div>
-    </div>
+    </UploadQueueProvider>
   );
 }
 

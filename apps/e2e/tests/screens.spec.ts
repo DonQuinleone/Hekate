@@ -5192,3 +5192,30 @@ test("loading", async ({ page }) => {
   await saveScreen(page, "loading");
   await checkScreen(page);
 });
+
+// Uploads keep going, and stay in view, after leaving the Files page (#552): a file started on
+// a project's Files, its upload held open, still in the shell's tray on Home, and leaving the
+// tab while it goes still asks first.
+test("upload-tray", async ({ page }) => {
+  await page.route("**/api/uploads**", () => undefined);
+  await page.goto(`/projects/${seeded().videoProjectId}/files`);
+  await settle(page, "main >> text=Upload");
+  await page.locator("input[type=file][aria-label='Files to upload']").setInputFiles({
+    name: "Title sequence, cut 4.mov",
+    mimeType: "video/quicktime",
+    buffer: Buffer.alloc(4096),
+  });
+  await expect(page.getByRole("region", { name: "Uploads" })).toContainText("Uploading 1 file");
+  // Away by the sidebar (the bottom bar on a phone), not by loading the page again.
+  await page
+    .getByRole("link", { name: "Home", exact: true })
+    .filter({ visible: true })
+    .first()
+    .click();
+  await settle(page, "main section[aria-label=Activity] li a");
+  await expect(page.getByRole("region", { name: "Uploads" })).toContainText(
+    "Title sequence, cut 4.mov",
+  );
+  await saveScreen(page, "upload-tray");
+  await checkScreen(page);
+});

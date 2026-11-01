@@ -1,11 +1,5 @@
-import {
-  type FileKind,
-  formatBytes,
-  formatChannels,
-  formatDuration,
-  type MediaInfo,
-} from "@hekate/shared";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { type FileKind, formatChannels, formatDuration, type MediaInfo } from "@hekate/shared";
+import { useQuery } from "@tanstack/react-query";
 import {
   createContext,
   type ReactNode,
@@ -26,12 +20,12 @@ import {
   useItemWords,
   useProjectCan,
 } from "~/lib/queries";
-import { cancelUpload, type UploadProgress, uploadFile } from "~/lib/upload";
 import { isAudio } from "~/lib/upload-plan";
 import { Icon, type IconName } from "./icons";
 import { Button } from "./ui/button";
 import { FileInput } from "./ui/input";
 import { AudioUploadDialog } from "./upload-choice";
+import { type QueuedUpload, useUploadQueue } from "./upload-queue";
 
 export const kindIcon: Record<FileKind, IconName> = {
   audio: "music",
@@ -94,15 +88,8 @@ export function fileSummary(file: {
   return format ? `${format} file` : file.contentType;
 }
 
-interface Pending {
-  key: string;
-  file: File;
-  /** Where it is going, which stays the same if the browser moves to another folder. */
-  folderId: string | null;
-  progress: UploadProgress;
-  error?: string;
-  controller: AbortController;
-}
+/** An upload under way: the shell's queue holds it, whatever page is open (#552). */
+type Pending = QueuedUpload;
 
 interface Uploads {
   /** Send files to a folder (the open one unless told otherwise), or onto a track's row. */
@@ -232,7 +219,8 @@ export function DropHint({ text, quiet = false }: { text: string; quiet?: boolea
 
 /**
  * Uploads for one project: files dropped anywhere on the page, or chosen with the Upload
- * button, go to the open folder. Progress shows where the list is placed. In a music project
+ * button, go to the open folder. They go up through the shell's queue, so they keep going, and
+ * show in its tray, on any page (#552); this page only starts them. In a music project
  * audio is asked what it becomes first (#485), in the upload dialog: a drop on a track's row
  * opens it on a new version of that track.
  */
@@ -252,8 +240,11 @@ export function UploadProvider({
   enabled: boolean;
   children: ReactNode;
 }) {
-  const client = useQueryClient();
-  const [pending, setPending] = useState<Pending[]>([]);
+  const queue = useUploadQueue();
+  const pending = useMemo(
+    () => queue?.pending.filter((p) => p.projectId === projectId) ?? [],
+    [queue, projectId],
+  );
   const { data: project } = useQuery(projectQuery(projectId));
   const music = project?.profile === "music";
   const can = useProjectCan(projectId);
@@ -269,43 +260,10 @@ export function UploadProvider({
   const [aimed, setAimed] = useState<string | null>(null);
   const aimedTrack = aimed ? tracks?.find((t) => t.id === aimed) : undefined;
 
-  const update = useCallback((key: string, change: Partial<Pending>) => {
-    setPending((list) => list.map((p) => (p.key === key ? { ...p, ...change } : p)));
-  }, []);
-
   /** Send files as they are, to a folder. */
   const send = useCallback(
-    (files: File[], into: string | null) => {
-      for (const file of files) {
-        const key = `${file.name}:${file.size}:${file.lastModified}:${Math.random()}`;
-        const controller = new AbortController();
-        setPending((list) => [
-          ...list,
-          {
-            key,
-            file,
-            folderId: into,
-            controller,
-            progress: { sent: 0, total: file.size, phase: "starting" },
-          },
-        ]);
-        uploadFile(file, {
-          projectId,
-          folderId: into,
-          signal: controller.signal,
-          onProgress: (progress) => update(key, { progress }),
-        })
-          .then(() => {
-            setPending((list) => list.filter((p) => p.key !== key));
-            void client.invalidateQueries({ queryKey: ["projects", projectId, "files"] });
-          })
-          .catch((error: unknown) => {
-            if (controller.signal.aborted) return;
-            update(key, { error: error instanceof Error ? error.message : "Upload failed" });
-          });
-      }
-    },
-    [client, projectId, update],
+    (files: File[], into: string | null) => queue?.send(files, { projectId, folderId: into }),
+    [queue, projectId],
   );
 
   const start = useCallback(
@@ -330,31 +288,8 @@ export function UploadProvider({
     [asks, folderId, send],
   );
 
-  const cancel = useCallback(
-    (p: Pending) => {
-      p.controller.abort();
-      setPending((list) => list.filter((x) => x.key !== p.key));
-      void cancelUpload(projectId, p.folderId, p.file);
-    },
-    [projectId],
-  );
-
-  const retry = useCallback(
-    (p: Pending) => {
-      setPending((list) => list.filter((x) => x.key !== p.key));
-      send([p.file], p.folderId);
-    },
-    [send],
-  );
-
-  // Warn before closing the page mid-upload; choosing the same files again resumes them.
-  useEffect(() => {
-    const active = pending.some((p) => !p.error);
-    if (!active) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [pending]);
+  const cancel = useCallback((p: Pending) => queue?.cancel(p), [queue]);
+  const retry = useCallback((p: Pending) => queue?.retry(p), [queue]);
 
   // Files dropped anywhere on the page upload to the open folder; while the dialog is open,
   // its own zone takes them.
@@ -378,7 +313,7 @@ export function UploadProvider({
   );
 
   return (
-    <UploadContext.Provider value={enabled ? value : null}>
+    <UploadContext.Provider value={enabled && queue ? value : null}>
       <AimContext.Provider value={over ? aimed : null}>{children}</AimContext.Provider>
       {over &&
         (aimedTrack ? (
@@ -448,66 +383,10 @@ export function UploadButton() {
   );
 }
 
-/** Uploads under way, each with its progress, and a way to cancel or retry. */
+/**
+ * Uploads under way used to be listed on the Files page; they are in the shell's tray now, on
+ * every page (#552). This draws nothing, for the places that still put it.
+ */
 export function UploadList() {
-  const uploads = useContext(UploadContext);
-  if (!uploads || uploads.pending.length === 0) return null;
-  return (
-    <ul className="m-0 flex list-none flex-col p-0" aria-label="Uploads in progress">
-      {uploads.pending.map((p) => {
-        const share = p.progress.total === 0 ? 1 : p.progress.sent / p.progress.total;
-        const label = p.error
-          ? p.error
-          : p.progress.phase === "completing"
-            ? "Finishing"
-            : p.progress.phase === "starting"
-              ? "Starting"
-              : `${Math.floor(share * 100)}%`;
-        return (
-          <li key={p.key} className="flex flex-col gap-2 border-b border-hairline px-2 py-2.5">
-            <div className="flex items-center gap-3">
-              <Icon name="upload" size={14} className="shrink-0 text-ink-3" />
-              <span className="min-w-0 flex-1 truncate text-[13px]">{p.file.name}</span>
-              <span className="tabular hidden shrink-0 text-xs text-ink-3 sm:inline">
-                {formatBytes(p.progress.sent)} of {formatBytes(p.progress.total)}
-              </span>
-              <span
-                className={cn(
-                  "tabular w-20 shrink-0 text-right text-xs",
-                  p.error ? "text-signal" : "text-ink-2",
-                )}
-              >
-                {label}
-              </span>
-              {p.error && (
-                <Button size="sm" variant="ghost" onClick={() => uploads.retry(p)}>
-                  Retry
-                </Button>
-              )}
-              <Button
-                size="icon"
-                variant="ghost"
-                aria-label={`Cancel ${p.file.name}`}
-                onClick={() => uploads.cancel(p)}
-              >
-                <Icon name="close" size={12} />
-              </Button>
-            </div>
-            <div
-              className="h-0.5 w-full overflow-hidden rounded-full bg-hairline"
-              aria-hidden="true"
-            >
-              <div
-                className={cn(
-                  "h-full transition-[width] duration-300",
-                  p.error ? "bg-ink-3" : "bg-signal",
-                )}
-                style={{ width: `${Math.max(2, share * 100)}%` }}
-              />
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
+  return null;
 }
