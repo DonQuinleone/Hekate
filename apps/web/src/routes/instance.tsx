@@ -3345,7 +3345,7 @@ function NewWorkspace({ onClose, onMade }: { onClose: () => void; onMade: (id: s
   return (
     <Dialog
       title="New workspace"
-      description="A tenant of its own: members, projects, settings and keys. Its first owner is invited by email."
+      description="A workspace of its own: members, projects, settings and keys. Its first owner is invited by email."
       onClose={onClose}
       width="sm"
       footer={
@@ -3373,19 +3373,20 @@ function NewWorkspace({ onClose, onMade }: { onClose: () => void; onMade: (id: s
               setName(e.target.value);
               if (!slugTouched) setSlug(slugFrom(e.target.value));
             }}
-            placeholder="Lantern Pictures"
             required
             autoFocus
           />
         </Field>
-        <Field label="Subdomain" hint="Lower-case letters, digits and hyphens.">
+        <Field
+          label="Subdomain"
+          hint="Lower-case letters, digits and hyphens; made from the name until you change it."
+        >
           <Input
             value={slug}
             onChange={(e) => {
               setSlugTouched(true);
               setSlug(e.target.value);
             }}
-            placeholder="lantern"
             required
           />
         </Field>
@@ -3394,7 +3395,6 @@ function NewWorkspace({ onClose, onMade }: { onClose: () => void; onMade: (id: s
             type="email"
             value={ownerEmail}
             onChange={(e) => setOwnerEmail(e.target.value)}
-            placeholder="owner@lantern.example"
             autoComplete="off"
             required
           />

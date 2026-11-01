@@ -30,7 +30,7 @@ export const instanceSections: { id: string; label: string; icon: IconName; hint
     id: "workspaces",
     label: "Workspaces",
     icon: "building",
-    hint: "Every tenant, with its people, projects, storage, settings and keys",
+    hint: "Every workspace, with its people, projects, storage, settings and keys",
   },
   {
     id: "operators",
@@ -664,7 +664,7 @@ function NewOrganisation({ onClose }: { onClose: () => void }) {
   return (
     <Dialog
       title="New workspace"
-      description="A tenant of its own: subdomain, members, projects, settings and keys."
+      description="A workspace of its own: members, projects, settings and keys. Its first owner is invited by email."
       onClose={onClose}
       footer={
         <>
@@ -680,18 +680,18 @@ function NewOrganisation({ onClose }: { onClose: () => void }) {
       <div className="flex flex-col gap-4">
         <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
           Name
-          <Input placeholder="Lantern Pictures" autoFocus />
+          <Input autoFocus />
         </label>
         <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
           Subdomain
           <span className="flex items-center gap-2">
-            <Input placeholder="lantern" className="w-40" />
+            <Input className="w-40" />
             <span className="text-[13px] text-ink-3">.review.endlesshall.example</span>
           </span>
         </label>
         <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
           First owner's email
-          <Input placeholder="owner@lantern.example" />
+          <Input type="email" />
         </label>
       </div>
     </Dialog>

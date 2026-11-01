@@ -26,7 +26,7 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
   overview: { label: "Overview", hint: "What needs an operator, and what moved" },
   workspaces: {
     label: "Workspaces",
-    hint: "Every tenant, with its people, projects and storage",
+    hint: "Every workspace, with its people, projects and storage",
   },
   operators: { label: "Operators", hint: "The accounts that may manage the instance" },
   billing: { label: "Billing", hint: "Plans, trials, invoices and what each workspace pays" },
