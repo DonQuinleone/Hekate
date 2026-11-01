@@ -15,12 +15,34 @@ import { useViewer } from "~/viewer/context";
 import { useScreenState } from "~/viewer/state-gate";
 
 const sections = [
-  { id: "account", label: "Account" },
-  { id: "security", label: "Passkeys and sessions" },
-  { id: "tokens", label: "API tokens" },
-  { id: "apps", label: "Connected apps" },
-  { id: "notifications", label: "Notifications" },
-  { id: "appearance", label: "Appearance" },
+  { id: "account", label: "Account", intro: "Who you are to Hekate." },
+  {
+    id: "security",
+    label: "Passkeys and sessions",
+    intro:
+      "How you sign in and how it is guarded, and every browser and device signed in as you. Sign out any you do not recognise, then change your password.",
+  },
+  {
+    id: "tokens",
+    label: "API tokens",
+    intro: "For scripts and tools of your own, against Hekate's API.",
+  },
+  {
+    id: "apps",
+    label: "Connected apps",
+    intro: "Applications that act for you here, with what each may do.",
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    intro: "What reaches you, and how. These choices are yours, in this workspace.",
+  },
+  {
+    id: "appearance",
+    label: "Appearance",
+    intro:
+      "How Hekate looks, what the recording page shows you, and how the player behaves. Yours alone.",
+  },
 ];
 
 const tokens = [
@@ -162,6 +184,7 @@ export function AccountPage({ section }: { section: string }) {
   const [digest, setDigest] = useState<"instant" | "digest">("instant");
   usePageHeader({ title: "Account", heading: "page" });
   const sec = sections.some((s) => s.id === section) ? section : "account";
+  const current = sections.find((s) => s.id === sec);
   const keys = [
     { name: "MacBook Touch ID", kind: "Passkey", used: "today" },
     { name: "YubiKey 5C", kind: "Hardware security key", used: "3 Oct" },
@@ -169,8 +192,8 @@ export function AccountPage({ section }: { section: string }) {
   ];
   return (
     <SettingsLayout
-      title={person.name}
-      intro="Who you are to Hekate, how you sign in, what reaches you, and how it looks."
+      title={current?.label ?? "Account"}
+      intro={current?.intro}
       sections={sections}
       current={sec}
       base="/account/$section"
@@ -196,13 +219,6 @@ export function AccountPage({ section }: { section: string }) {
               hint="Endless Hall Records (owner), North Choir Collective (member). Switch from the menu at the foot of the sidebar."
             />
           </Section>
-          <Section title="Password">
-            <Row name="Change password" hint="12 characters or more. Passkeys keep working.">
-              <Button variant="secondary" size="md">
-                Change…
-              </Button>
-            </Row>
-          </Section>
           <Danger>
             <Row
               name="Delete your account"
@@ -217,6 +233,14 @@ export function AccountPage({ section }: { section: string }) {
       )}
       {sec === "security" && (
         <>
+          {/* #594: the password with the other sign-in settings, as GitHub and Linear have it. */}
+          <Section title="Password">
+            <Row name="Change password" hint="12 characters or more. Passkeys keep working.">
+              <Button variant="secondary" size="md">
+                Change…
+              </Button>
+            </Row>
+          </Section>
           <Section
             title="Second factor"
             intro="A code from an app on your phone, asked for after your password."

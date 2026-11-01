@@ -135,7 +135,8 @@ function EmailField({ email }: { email: string }) {
   );
 }
 
-/** Who you are to Hekate: picture, name, address, language, time zone, and workspaces. */
+/** Who you are to Hekate: picture, name, address, language, time zone, and workspaces. How you
+ * sign in is Security's (#594). */
 export function ProfileSection() {
   const { data: me } = useQuery(meQuery);
   const update = useUpdateProfile();
@@ -207,7 +208,6 @@ export function ProfileSection() {
           </div>
         )}
       </Section>
-      <PasswordSection />
       <DeleteAccount email={me.user.email} />
     </>
   );
@@ -295,8 +295,8 @@ function DeleteAccount({ email }: { email: string }) {
   );
 }
 
-/** A new password, with the current one to prove it is you. */
-function PasswordSection() {
+/** A new password, with the current one to prove it is you: first on Security (#594). */
+export function PasswordSection() {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");

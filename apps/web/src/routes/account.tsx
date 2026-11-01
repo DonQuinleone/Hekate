@@ -2,6 +2,7 @@ import { channelsFor, type NotificationPreferences } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import {
   AppearanceSection,
+  PasswordSection,
   ProfileSection,
   SecondFactorSection,
   SessionsSection,
@@ -28,13 +29,13 @@ const sections: (NavSection & { intro: string })[] = [
   {
     id: "account",
     label: "Account",
-    intro: "Who you are to Hekate, and how you sign in.",
+    intro: "Who you are to Hekate.",
   },
   {
     id: "security",
     label: "Security",
     intro:
-      "How sign-in is guarded, and every browser and device signed in as you. Sign out any you do not recognise, then change your password.",
+      "How you sign in and how it is guarded, and every browser and device signed in as you. Sign out any you do not recognise, then change your password.",
   },
   {
     id: "tokens",
@@ -158,6 +159,7 @@ export function AccountPage({ section }: { section: string }) {
         {current.id === "account" && <ProfileSection />}
         {current.id === "security" && (
           <>
+            <PasswordSection />
             <SecondFactorSection />
             <PasskeysSection />
             <SessionsSection />
