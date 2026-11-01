@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checksOutcome,
+  choosableOutcome,
   completeNode,
   flowShape,
   measuredState,
@@ -13,6 +14,7 @@ import {
   startRun,
   startRunAt,
   startsOn,
+  stepAfter,
   stopRun,
   type WorkflowConnector,
   type WorkflowContext,
@@ -545,6 +547,28 @@ describe("the step after the one an item waits at", () => {
   it("is nothing after the finish, or for a step it does not have", () => {
     expect(nextStep(flow, "done")).toBeNull();
     expect(nextStep(flow, "gone")).toBeNull();
+  });
+  it("follows the outcome it is given (#566)", () => {
+    expect(stepAfter(flow, "notes", "done")?.name).toBe("Engineer edits");
+    expect(stepAfter(flow, "notes", "overdue")?.name).toBe("Approved");
+    expect(stepAfter(flow, "edit", "done")?.name).toBe("Approved");
+  });
+});
+
+describe("the outcomes a person may choose (#566)", () => {
+  it("offers what a person decides, never what the clock or the checks raise", () => {
+    expect(choosableOutcome("task", "done")).toBe(true);
+    expect(choosableOutcome("task", "overdue")).toBe(false);
+    expect(choosableOutcome("feedback", "done")).toBe(true);
+    expect(choosableOutcome("feedback", "overdue")).toBe(false);
+    expect(choosableOutcome("approval", "changes")).toBe(true);
+    expect(choosableOutcome("wait", "elapsed")).toBe(false);
+    expect(choosableOutcome("checks", "passed")).toBe(false);
+  });
+  it("offers nothing for an event, a step done at once, or an outcome the kind lacks", () => {
+    expect(choosableOutcome("due", "happened")).toBe(false);
+    expect(choosableOutcome("notify", "sent")).toBe(false);
+    expect(choosableOutcome("task", "approved")).toBe(false);
   });
 });
 

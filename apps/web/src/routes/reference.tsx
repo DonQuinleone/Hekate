@@ -995,13 +995,7 @@ function Components() {
                 step: "Engineer edits",
                 outcome: "done",
                 label: "Done",
-              },
-              {
-                runId: "run",
-                nodeId: "edit",
-                step: "Engineer edits",
-                outcome: "overdue",
-                label: "Due date passed",
+                leadsTo: "Mastering",
               },
             ]}
             onMove={() => {}}

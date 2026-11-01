@@ -1,8 +1,11 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  choosableOutcome,
   nextStep,
+  outcomesOf,
   projectStatuses,
   sameStatus,
+  stepAfter,
   type WorkflowRunSummary,
   type WorkflowStanding,
   workflowRunStartInput,
@@ -41,7 +44,15 @@ const summaryOf = (
     status: run.engine.status,
     waiting: run.engine.active.flatMap((id) => {
       const node = run.definition.nodes.find((n) => n.id === id);
-      return node ? [{ nodeId: id, name: node.name, type: node.type }] : [];
+      if (!node) return [];
+      // What a person may end it by, each with where it leads (#566).
+      const choices = outcomesOf(node.type)
+        .filter((o) => choosableOutcome(node.type, o.id))
+        .map((o) => ({
+          outcome: o.id,
+          leadsTo: stepAfter(run.definition, id, o.id)?.name ?? null,
+        }));
+      return [{ nodeId: id, name: node.name, type: node.type, choices }];
     }),
     steps: steps.map((s) => ({
       nodeId: s.nodeId,
@@ -211,13 +222,27 @@ export const workflowRunRoutes = (runner: RunnerDeps) => {
       if (!run) throw new NotFound("Run");
       await can(db, actorOf(c.var), "edit_workflows", run.projectId);
       const { nodeId, outcome } = c.req.valid("json");
-      const moved = await completeStep(runner, {
-        organisationId,
-        runId: c.req.valid("param").id,
-        nodeId,
-        outcome,
-        userId: c.var.userId,
-      });
+      const moved = await completeStep(
+        runner,
+        {
+          organisationId,
+          runId: c.req.valid("param").id,
+          nodeId,
+          outcome,
+          userId: c.var.userId,
+        },
+        // Only an outcome a person decides (#566): a due date passing or a wait elapsing is the
+        // clock's, and what the checks found is theirs, so neither is ended by hand.
+        (locked) => {
+          const node = locked.definition.nodes.find((n) => n.id === nodeId);
+          const known = node && outcomesOf(node.type).some((o) => o.id === outcome);
+          if (node && known && !choosableOutcome(node.type, outcome))
+            throw new HTTPException(409, {
+              message: "That outcome is raised by an event, not chosen by hand",
+            });
+          return true;
+        },
+      );
       const [logged] = (await runsOf(db, organisationId, run.trackId)).filter(
         (r) => r.run.id === moved?.id,
       );
