@@ -118,7 +118,7 @@ test("a clean server installs through the browser alone", async ({ page }) => {
   await page.getByLabel("Workspace").fill("Endless Hall Records");
   await page.getByLabel("Your name").fill("Alex Rivera");
   await page.getByLabel("Email").fill("producer@example.test");
-  await page.getByLabel(/^Password/).fill("correct horse battery");
+  await page.getByLabel(/^New password/).fill("correct horse battery");
   await page.getByLabel("Confirm password").fill("correct horse battery");
   await proceed(page, "Create and finish");
   await heading(page, "Hekate is ready");

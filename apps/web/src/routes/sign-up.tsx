@@ -2,11 +2,12 @@ import { type SignUpLink, slugFrom } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { NewPassword, PASSWORDS_DIFFER, passwordsAgree } from "~/components/new-password";
 import { Button } from "~/components/ui/button";
 import { failureText, Loading } from "~/components/ui/states";
 import { api } from "~/lib/api";
 import { meQuery, quoting, signUpInfoQuery } from "~/lib/queries";
-import { ErrorLine, Field, Frame, PasswordMeter } from "./auth-pages";
+import { ErrorLine, Field, Frame } from "./auth-pages";
 
 /** The trial, in a sentence, or nothing. */
 const trialLine = (days: number | null) => (days ? ` It starts with a ${days}-day trial.` : "");
@@ -51,7 +52,7 @@ export function SignUpPage() {
         title={info.mode === "invite" ? "Workspaces are by invitation" : "Sign-up is closed"}
         intro={
           info.mode === "invite"
-            ? "Someone the instance's operators invite makes a workspace at the link in their invitation. Ask them for one."
+            ? "The instance's operators invite people to make a workspace. Ask them for an invitation."
             : "The instance's operators make its workspaces. To join one, ask its owner for an invitation."
         }
       >
@@ -183,8 +184,7 @@ export function SignUpLinkPage({ token }: { token: string }) {
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    if (!link.hasAccount && form.get("again") !== password)
-      return setError("The two passwords are not the same.");
+    if (!link.hasAccount && !passwordsAgree(form)) return setError(PASSWORDS_DIFFER);
     setPending(true);
     setError(null);
     const res = await api["sign-up"][":token"].$post({
@@ -224,43 +224,29 @@ export function SignUpLinkPage({ token }: { token: string }) {
             if (!slugTouched) setSlug(slugFrom(e.target.value));
           }}
         />
-        <div className="flex flex-col gap-1.5">
-          <Field
-            id="slug"
-            label="Subdomain"
-            autoComplete="off"
-            spellCheck={false}
-            maxLength={40}
-            value={slug}
-            onChange={(e) => {
-              setSlugTouched(true);
-              setSlug(e.target.value.toLowerCase());
-            }}
-          />
-          <p className="m-0 truncate text-xs text-ink-3">
-            {at ?? "Lower-case letters, digits and hyphens: how the workspace is named to sign in."}
-          </p>
-        </div>
+        {/* The hint wraps: it is never cut before its room runs out (#601). */}
+        <Field
+          id="slug"
+          label="Subdomain"
+          hint={
+            <span className="[overflow-wrap:anywhere]">
+              {at ??
+                "Lower-case letters, digits and hyphens: how the workspace is named to sign in."}
+            </span>
+          }
+          autoComplete="off"
+          spellCheck={false}
+          maxLength={40}
+          value={slug}
+          onChange={(e) => {
+            setSlugTouched(true);
+            setSlug(e.target.value.toLowerCase());
+          }}
+        />
         {!link.hasAccount && (
           <>
             <Field id="name" label="Your name" autoComplete="name" maxLength={120} />
-            <Field
-              id="password"
-              label="Password"
-              type="password"
-              autoComplete="new-password"
-              minLength={12}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-            <PasswordMeter password={password} />
-            <Field
-              id="again"
-              label="Again"
-              type="password"
-              autoComplete="new-password"
-              minLength={12}
-            />
+            <NewPassword value={password} onChange={setPassword} />
           </>
         )}
         <ErrorLine message={error} />

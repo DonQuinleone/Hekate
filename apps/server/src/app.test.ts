@@ -5180,6 +5180,8 @@ describe.runIf(url)("api", () => {
         role: "admin",
         status: "valid",
         hasAccount: false,
+        // Who sent it, by name (#688).
+        invitedBy: "Producer",
       });
 
       const accepted = await app.request(

@@ -13,6 +13,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { Lockup } from "~/components/brand";
 import { Icon } from "~/components/icons";
+import { NewPassword, PASSWORDS_DIFFER, passwordsAgree } from "~/components/new-password";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
 import { Field } from "~/components/ui/field";
@@ -987,13 +988,14 @@ function OwnerStep({
   const [typed, setTyped] = useState("");
   // A code from earlier in this tab may be stale if the server restarted: then ask for it.
   const [askCode, setAskCode] = useState(!code);
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    if (form.get("password") !== form.get("confirm")) {
-      setError("The passwords do not match.");
+    if (!passwordsAgree(form)) {
+      setError(PASSWORDS_DIFFER);
       return;
     }
     const usedCode = askCode || !code ? typed : code;
@@ -1005,7 +1007,7 @@ function OwnerStep({
         json: {
           name: String(form.get("name")),
           email: String(form.get("email")),
-          password: String(form.get("password")),
+          password,
           organisation: workspace,
         },
       },
@@ -1056,28 +1058,7 @@ function OwnerStep({
         <Field label="Email">
           <Input name="email" type="email" autoComplete="username" required className="h-10" />
         </Field>
-        <div className="grid gap-4 @md/app:grid-cols-2">
-          <Field label="Password" hint="12 characters or more.">
-            <Input
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              minLength={12}
-              required
-              className="h-10"
-            />
-          </Field>
-          <Field label="Confirm password">
-            <Input
-              name="confirm"
-              type="password"
-              autoComplete="new-password"
-              minLength={12}
-              required
-              className="h-10"
-            />
-          </Field>
-        </div>
+        <NewPassword value={password} onChange={setPassword} />
         <ErrorLine message={error} />
         <div className="flex items-center gap-2">
           <Button type="submit" variant="primary" size="lg" className="ml-auto" disabled={pending}>

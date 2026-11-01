@@ -7,6 +7,7 @@ import { Empty } from "~/components/empty";
 import { LinkedFiles } from "~/components/file-picker";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
+import { NewPassword } from "~/components/new-password";
 import { Card, Page, SectionHead } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { Crop, Gauge, Verdict } from "~/components/qa-report";
@@ -353,6 +354,7 @@ function Components() {
   const [uploading, setUploading] = useState(false);
   const [chips, setChips] = useState({ loops: true, score: false });
   const [confirming, setConfirming] = useState(false);
+  const [password, setPassword] = useState("a few words to keep");
   const [day, setDay] = useState("2026-10-12");
   const [time, setTime] = useState("13:05");
   const [moment, setMoment] = useState("2026-10-31T23:59");
@@ -527,6 +529,14 @@ function Components() {
           <Field label="Email" error="That is not an email address." className="w-56">
             <Input defaultValue="mira@" aria-invalid="true" />
           </Field>
+        </Spec>
+        <Spec
+          name="New password"
+          rule="The one way to set a password: its strength as wide as the field, the rule under it, then the confirmation. Reset, sign-up, an invitation and the installer alike."
+        >
+          <div className="flex w-72 flex-col gap-4">
+            <NewPassword value={password} onChange={setPassword} />
+          </div>
         </Spec>
         <Spec name="Small" rule="28 px, for dense toolbars such as the player's settings.">
           <Input size="sm" defaultValue="-90" className="tabular w-20" aria-label="Floor" />

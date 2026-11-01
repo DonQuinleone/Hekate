@@ -98,7 +98,7 @@ const screens: Screen[] = [
   {
     name: "sign-in-directory",
     path: () => "/sign-in?view=directory",
-    ready: "text=Sign in with a directory",
+    ready: "text=Sign in with your work account",
     as: "signed-out",
   },
   { name: "reference", path: () => "/reference", ready: "main h1", as: "signed-out" },
@@ -2045,7 +2045,7 @@ for (const [name, path, open, ready] of [
     "instance-support-ticket",
     "/instance/support",
     "button:Raise our quota before Friday",
-    "[role=dialog] >> text=Open the account",
+    "[role=dialog] >> text=Show in Members",
   ],
   [
     "instance-support-replies",
@@ -3774,7 +3774,7 @@ test("account-second-factor", async ({ page }) => {
   await page.goto("/account/security");
   await settle(page, "main >> text=Code app");
   await page.getByRole("button", { name: "Set up…" }).click();
-  const dialog = page.getByRole("dialog", { name: "Add a code app" });
+  const dialog = page.getByRole("dialog", { name: "Add an authenticator app" });
   await dialog.getByLabel("Password").fill("correct horse battery");
   await dialog.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("dialog", { name: "Scan the code" })).toBeVisible();

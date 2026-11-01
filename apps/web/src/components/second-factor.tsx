@@ -185,7 +185,7 @@ export function CodeAppSetup({
       setStage({ at: "scan", uri: data.totpURI, codes: data.backupCodes ?? [] });
     };
     return shell({
-      title: "Add a code app",
+      title: "Add an authenticator app",
       intro: `${reason ? `${reason} ` : ""}Any authenticator app works. First, your password, to be sure it is you.`,
       body: (
         <form onSubmit={submit} className="flex flex-col gap-4">
