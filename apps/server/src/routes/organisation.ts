@@ -1,8 +1,10 @@
 import { type Database, inOrg, schema } from "@hekate/db";
 import {
+  AUDIT_SEGMENTS_SHOWN,
   applyWorkspaceSettings,
   atLeast,
   auditQuery,
+  auditSessionParam,
   customProfileInput,
   emailTemplateId,
   emailTestInput,
@@ -21,7 +23,14 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { revokeMemberTokens } from "../api-tokens.ts";
-import { type Audit, csvHeader, csvRow, requestInfo } from "../audit.ts";
+import {
+  type Audit,
+  csvHeader,
+  csvRow,
+  requestInfo,
+  segmentCounts,
+  sessionSegments,
+} from "../audit.ts";
 import { SESSION_DAYS } from "../auth.ts";
 import { brandingOf, emailBrandOf } from "../branding.ts";
 import { instanceDateFormats, workspaceDateFormats } from "../dates.ts";
@@ -604,7 +613,13 @@ export const organisationRoutes = (
     })
     .get("/audit", requireRole("admin"), zValidator("query", auditQuery), async (c) => {
       const organisationId = c.var.organisationId;
-      const page = await audit.query(organisationId, c.req.valid("query"));
+      // Asked to, a playback's segments are read behind its entry, counted on it (#684).
+      const query = c.req.valid("query");
+      const grouped = query.segments === "grouped";
+      const page = await audit.query(organisationId, query);
+      const segments = grouped
+        ? await segmentCounts(db, organisationId, page.events)
+        : new Map<string, number>();
       // What each entry touched, by name, so repeated renders or downloads tell apart. A
       // file or review deleted since keeps its id and has no name.
       const fileIds = [...new Set(page.events.flatMap((e) => (e.fileId ? [e.fileId] : [])))];
@@ -631,9 +646,26 @@ export const organisationRoutes = (
           ...e,
           fileName: e.fileId ? (fileName.get(e.fileId) ?? null) : null,
           reviewTitle: e.reviewId ? (reviewTitle.get(e.reviewId) ?? null) : null,
+          ...(segments.has(e.id) ? { segments: segments.get(e.id) } : {}),
         })),
       });
     })
+    // A playback's segments, behind its entry (#684): only this workspace's, for its admins.
+    .get(
+      "/audit/sessions/:id/segments",
+      requireRole("admin"),
+      zValidator("param", auditSessionParam),
+      async (c) => {
+        const rows = await sessionSegments(
+          db,
+          c.var.organisationId,
+          c.req.valid("param").id,
+          AUDIT_SEGMENTS_SHOWN,
+        );
+        if (!rows) throw new NotFound("Playback");
+        return c.json({ events: rows });
+      },
+    )
     .get(
       "/audit.csv",
       requireRole("admin"),

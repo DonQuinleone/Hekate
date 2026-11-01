@@ -35,7 +35,7 @@ import {
   type WorkspaceSettingsInput,
 } from "@hekate/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, Fragment, useState } from "react";
 import { McpSection, TokensSection, WorkspaceApiLogSection } from "~/components/api-tokens";
 import { Avatar } from "~/components/avatar";
 import { BillingSection } from "~/components/billing";
@@ -66,6 +66,7 @@ import { SsoSection } from "~/components/sso";
 import { type AskedFrom, SupportSection } from "~/components/support";
 import { Button } from "~/components/ui/button";
 import { ToggleChip } from "~/components/ui/chip";
+import { Choice } from "~/components/ui/choice";
 import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Floating } from "~/components/ui/floating";
@@ -102,6 +103,7 @@ import {
   type Member,
   membersQuery,
   meQuery,
+  playbackSegmentsQuery,
   projectsQuery,
   type StorageUsage,
   ssoQuery,
@@ -133,6 +135,16 @@ const timeFormat = formatDates({
   hour: "2-digit",
   minute: "2-digit",
 });
+const secondFormat = formatDates({ hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+/** A segment's row behind its playback: which part, and of which rendition (#684). */
+const segmentWords = (e: AccessEvent) => {
+  const segment = typeof e.details?.segment === "number" ? e.details.segment + 1 : null;
+  const rendition = typeof e.details?.rendition === "string" ? e.details.rendition : null;
+  return [segment === null ? "A segment" : `Segment ${segment}`, rendition]
+    .filter(Boolean)
+    .join(" · ");
+};
 
 interface SectionSpec {
   id: string;
@@ -1506,9 +1518,14 @@ const personValue = (f: LogFilters) =>
 function AccessLogFilterMenu({
   filters,
   onChange,
+  every,
+  onEvery,
 }: {
   filters: LogFilters;
   onChange: (next: LogFilters) => void;
+  /** Each segment a row of its own, rather than behind its playback (#684). */
+  every: boolean;
+  onEvery: (every: boolean) => void;
 }) {
   const [open, setOpen, box] = usePopover();
   const { data: projects = [] } = useQuery(projectsQuery);
@@ -1612,6 +1629,13 @@ function AccessLogFilterMenu({
               ))}
             </Select>
           </Field>
+          <Choice
+            checked={every}
+            onChange={(e) => onEvery(e.target.checked)}
+            className="text-[13px] text-ink-2"
+          >
+            Show every segment
+          </Choice>
           <p className="m-0 text-[12px] text-ink-3">
             For one file or review, choose it from an entry's menu.
           </p>
@@ -1628,11 +1652,40 @@ function AccessLogFilterMenu({
   );
 }
 
+/**
+ * A playback's segments, opened from its entry (#684): each served part, in order, with the
+ * rendition it came from. Every one is in the log and its export; the page shows them on asking.
+ */
+function PlaybackSegments({ sessionId }: { sessionId: string }) {
+  const { data, error, refetch } = useQuery(playbackSegmentsQuery(sessionId));
+  if (error) return <Failed what="The segments" error={error} retry={refetch} size="panel" />;
+  if (!data) return <Loading size="panel" />;
+  return (
+    <ol
+      aria-label="Segments served"
+      className="m-0 flex list-none flex-col border-t border-hairline bg-ground/30 p-0 py-1"
+    >
+      {data.map((s) => (
+        <li
+          key={s.id}
+          className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 py-0.5 pr-4 pl-8 text-[12px] text-ink-3 @3xl/app:grid-cols-[130px_minmax(0,1fr)] @3xl/app:pl-4"
+        >
+          <span className="tabular">{secondFormat.format(new Date(s.occurredAt))}</span>
+          <span className="truncate">{segmentWords(s)}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function AccessLog() {
   const [filters, setFilters] = useState<LogFilters>({});
+  // Grouped, a playback's segments wait behind it (#684); "Show every segment" lists each.
+  const [every, setEvery] = useState(false);
+  const [opened, setOpened] = useState<string[]>([]);
   // What a filter chosen from an entry is called, as that entry named it.
   const [named, setNamed] = useState<Partial<Record<LogFilterKey, string>>>({});
-  const log = useInfiniteQuery(accessLogQuery(filters));
+  const log = useInfiniteQuery(accessLogQuery(filters, every ? "every" : "grouped"));
   const { data: projects = [] } = useQuery(projectsQuery);
   const { data: members = [] } = useQuery(membersQuery);
   const { data: guests = [] } = useQuery(workspaceGuestsQuery);
@@ -1740,7 +1793,12 @@ function AccessLog() {
       title="Entries"
       action={
         <span className="flex items-center gap-1.5">
-          <AccessLogFilterMenu filters={filters} onChange={setFilters} />
+          <AccessLogFilterMenu
+            filters={filters}
+            onChange={setFilters}
+            every={every}
+            onEvery={setEvery}
+          />
           <Button variant="secondary" asChild>
             <a href={exportUrl(filters)} download>
               <Icon name="download" size={14} />
@@ -1807,48 +1865,74 @@ function AccessLog() {
       ) : (
         <>
           {events.map((e) => (
-            <div
-              key={e.id}
-              data-log-entry
-              className="group grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-0.5 px-4 py-row-snug text-[13px] @3xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_auto] @6xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_140px_auto]"
-            >
-              <span className="tabular text-ink-3">
-                {timeFormat.format(new Date(e.occurredAt))}
-              </span>
-              <span className="justify-self-end @3xl/app:justify-self-start">
-                <span className="rounded-chip bg-raised px-1.5 py-0.5 text-[12px] text-ink-2">
-                  {actionCopy[e.action] ?? e.action}
-                </span>
-              </span>
-              <span className="row-span-2 self-center @3xl/app:order-last @3xl/app:row-span-1">
-                <ActionMenu
-                  label={`the entry at ${timeFormat.format(new Date(e.occurredAt))}`}
-                  actions={entryActions(e)}
-                />
-              </span>
-              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:col-span-1">
-                {/* The name alone, the address on hover (#596): the log keeps the whole label. */}
-                <span
-                  className="truncate text-ink-2"
-                  title={actorParts(e.actorLabel).address ?? undefined}
-                >
-                  {actorParts(e.actorLabel).name}
-                  {actorParts(e.actorLabel).guest && <span className="text-ink-3"> (guest)</span>}
-                </span>
-                {targetOf(e) && (
-                  <span className="truncate text-[12px] text-ink-3">{targetOf(e)}</span>
-                )}
-              </span>
-              <span className="tabular hidden truncate text-ink-3 @3xl/app:block">
-                {e.ipAddress ?? ""}
-              </span>
-              <span
-                className="hidden truncate text-ink-3 @6xl/app:block"
-                title={e.userAgent ?? undefined}
+            <Fragment key={e.id}>
+              <div
+                data-log-entry
+                className="group grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-0.5 px-4 py-row-snug text-[13px] @3xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_auto] @6xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_140px_auto]"
               >
-                {shortAgent(e.userAgent) ?? ""}
-              </span>
-            </div>
+                <span className="tabular text-ink-3">
+                  {timeFormat.format(new Date(e.occurredAt))}
+                </span>
+                <span className="justify-self-end @3xl/app:justify-self-start">
+                  <span className="rounded-chip bg-raised px-1.5 py-0.5 text-[12px] text-ink-2">
+                    {actionCopy[e.action] ?? e.action}
+                  </span>
+                </span>
+                <span className="row-span-2 self-center @3xl/app:order-last @3xl/app:row-span-1">
+                  <ActionMenu
+                    label={`the entry at ${timeFormat.format(new Date(e.occurredAt))}`}
+                    actions={entryActions(e)}
+                  />
+                </span>
+                <span className="col-span-2 flex min-w-0 flex-col @3xl/app:col-span-1">
+                  {/* The name alone, the address on hover (#596): the log keeps the whole label. */}
+                  <span
+                    className="truncate text-ink-2"
+                    title={actorParts(e.actorLabel).address ?? undefined}
+                  >
+                    {actorParts(e.actorLabel).name}
+                    {actorParts(e.actorLabel).guest && <span className="text-ink-3"> (guest)</span>}
+                  </span>
+                  {targetOf(e) && (
+                    <span className="truncate text-[12px] text-ink-3">{targetOf(e)}</span>
+                  )}
+                  {/* One playback is one row; what it served waits behind it (#684). */}
+                  {(e.segments ?? 0) > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-expanded={opened.includes(e.id)}
+                      onClick={() =>
+                        setOpened((o) =>
+                          o.includes(e.id) ? o.filter((id) => id !== e.id) : [...o, e.id],
+                        )
+                      }
+                      className="-ml-2 self-start text-ink-3"
+                    >
+                      {e.segments} {e.segments === 1 ? "segment" : "segments"}
+                      <Icon
+                        name="chevronDown"
+                        size={12}
+                        className={cn(
+                          "transition-transform",
+                          opened.includes(e.id) && "rotate-180",
+                        )}
+                      />
+                    </Button>
+                  )}
+                </span>
+                <span className="tabular hidden truncate text-ink-3 @3xl/app:block">
+                  {e.ipAddress ?? ""}
+                </span>
+                <span
+                  className="hidden truncate text-ink-3 @6xl/app:block"
+                  title={e.userAgent ?? undefined}
+                >
+                  {shortAgent(e.userAgent) ?? ""}
+                </span>
+              </div>
+              {opened.includes(e.id) && <PlaybackSegments sessionId={e.id} />}
+            </Fragment>
           ))}
           {log.hasNextPage && (
             <div className="px-4 py-2">

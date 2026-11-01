@@ -7606,6 +7606,90 @@ describe.runIf(url)("api", () => {
         expect(csv.trim().split("\r\n")).toHaveLength(2);
       });
 
+      it("reads a playback's segments behind it, and keeps every one in the log (#684)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const me = await audit.member((await db.select().from(schema.users))[0]?.id ?? "");
+        const file = "01999999-0000-7000-8000-0000000000d1";
+        const play = async (segments: number) => {
+          const session = await audit.record(organisationId, me, {
+            action: "stream.session",
+            fileId: file,
+          });
+          for (let i = 0; i < segments; i++)
+            await audit.record(organisationId, me, {
+              action: "stream.segment",
+              fileId: file,
+              details: { segment: i },
+            });
+          return session;
+        };
+        const first = await play(3);
+        await audit.record(organisationId, me, { action: "stream.key", fileId: file });
+        const second = await play(2);
+        await audit.record(organisationId, me, { action: "download", fileId: file });
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-segments" })
+          .returning();
+        // Another workspace's segment for the same file never counts here.
+        await audit.record(other?.id ?? "", me, { action: "stream.segment", fileId: file });
+
+        type Page = { events: { id: string; action: string; segments?: number }[] };
+        const grouped = (await (
+          await get("/api/organisation/audit?segments=grouped", owner)
+        ).json()) as Page;
+        expect(grouped.events.map((e) => e.action)).toEqual([
+          "download",
+          "stream.session",
+          "stream.key",
+          "stream.session",
+        ]);
+        expect(grouped.events.find((e) => e.id === second.id)?.segments).toBe(2);
+        expect(grouped.events.find((e) => e.id === first.id)?.segments).toBe(3);
+        // Unset, or asked for every one, each segment is a row of its own.
+        for (const query of ["", "?segments=every"]) {
+          const every = (await (await get(`/api/organisation/audit${query}`, owner)).json()) as Page;
+          expect(every.events.filter((e) => e.action === "stream.segment")).toHaveLength(5);
+          expect(every.events.some((e) => e.segments !== undefined)).toBe(false);
+        }
+        expect(
+          (
+            (await (
+              await get("/api/organisation/audit?segments=grouped&action=stream.segment", owner)
+            ).json()) as Page
+          ).events,
+        ).toHaveLength(5);
+        // The export holds every row.
+        const csv = await (await get("/api/organisation/audit.csv", owner)).text();
+        expect(csv.split("stream.segment").length - 1).toBe(5);
+
+        const behind = await get(`/api/organisation/audit/sessions/${first.id}/segments`, owner);
+        expect(behind.status).toBe(200);
+        const rows = ((await behind.json()) as { events: { details: { segment: number } }[] })
+          .events;
+        expect(rows.map((r) => r.details.segment)).toEqual([0, 1, 2]);
+        // Not a playback, another workspace's, or asked by a member: refused.
+        const key = grouped.events.find((e) => e.action === "stream.key")?.id;
+        expect((await get(`/api/organisation/audit/sessions/${key}/segments`, owner)).status).toBe(
+          404,
+        );
+        const theirs = await audit.record(other?.id ?? "", me, {
+          action: "stream.session",
+          fileId: file,
+        });
+        expect(
+          (await get(`/api/organisation/audit/sessions/${theirs.id}/segments`, owner)).status,
+        ).toBe(404);
+        const member = await joinAs(owner, "segments-member@example.test", "member");
+        expect(
+          (await get(`/api/organisation/audit/sessions/${first.id}/segments`, member)).status,
+        ).toBe(403);
+        expect((await get("/api/organisation/audit/sessions/nonsense/segments", owner)).status).toBe(
+          400,
+        );
+      });
+
       it("names the file each entry touched, and nothing for one it cannot find", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);

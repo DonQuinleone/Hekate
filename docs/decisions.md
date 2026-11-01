@@ -2470,3 +2470,12 @@ Some organisations must keep their material in storage they own, and a workspace
 - **The Redirect URI** is a read-only value with Copy, as Hekate's entity ID and reply address are.
 - **Watermarking is on Security, for owners.** The audio mark's switch moved there under *Watermarking*, with a line saying the visible mark on pages, pictures and video is set in each project's Asset security; the "Not yet" switches are gone until they ship. Leak tracing is the trace alone.
 - The prototype went first.
+
+## 376. The access log reads at the level people act on: a playback is one row, its segments behind it
+
+#684. One playback writes a "Playback started" entry and then one "Segment served" for every few seconds it plays, so a single listen buried the key issues and downloads an owner looks for under dozens of rows.
+
+- **Only the view groups.** Every segment is still written, before it is sent, and stays in the log and in its export (`docs/security.md`). The page asks the log for `segments=grouped`: segment entries are left out of its pages, and each "Playback started" entry carries how many segments that playback served. Unset (the export, a file's own activity, Hekate's reads) or `every`, each segment is a row as before; filtering on *Segment served* lists them whatever the grouping.
+- **Which segments are a playback's.** A segment carries no playback of its own, so it belongs to the latest start before it of the same file by the same person: after the start, and before that person's next start of that file (`segmentCounts`, `sessionSegments` in `apps/server/src/audit.ts`). Ids are UUIDv7 and sort by time, so the bounds are ids. Always within the workspace (`inOrg`).
+- **Behind the row.** A playback's row says "38 segments" and opens them beneath it, in the order served, with the rendition (`GET /api/organisation/audit/sessions/:id/segments`, admins, the first 200); another workspace's playback, or an entry that is not one, is not found, and a member is refused. *Show every segment*, in the Filter control, lists each as its own row.
+- The prototype went first.

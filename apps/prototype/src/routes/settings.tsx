@@ -2019,6 +2019,7 @@ const projectOf = (e: AccessEvent) =>
  */
 function AccessLogSection({ empty }: { empty: boolean }) {
   const [filters, setFilters] = useState<LogFilters>({});
+  const [everySegment, setEverySegment] = useState(false);
   const [open, setOpen, box] = usePopover();
   const without = (key: LogKey) => {
     const { [key]: _gone, ...rest } = filters;
@@ -2123,6 +2124,15 @@ function AccessLogSection({ empty }: { empty: boolean }) {
                     </Select>
                   </label>
                 ))}
+                {/* #684: a playback's segments wait behind it; this lists each as a row. */}
+                <label className="flex items-center gap-2 text-[13px] text-ink-2">
+                  <input
+                    type="checkbox"
+                    checked={everySegment}
+                    onChange={(e) => setEverySegment(e.target.checked)}
+                  />
+                  Show every segment
+                </label>
                 <p className="m-0 text-[12px] text-ink-3">
                   For one file or review, choose it from an entry's menu.
                 </p>
@@ -2197,11 +2207,20 @@ function AccessLogSection({ empty }: { empty: boolean }) {
                 {e.action}
               </span>
             </span>
-            <span className="hidden truncate text-ink-2 @3xl/app:block">
-              {e.personId ? personById(e.personId).name : "Someone"}
-              {e.guest ? " (guest)" : ""}
-              {e.fileId ? ` · ${fileById(e.fileId)?.name}` : ""}
-              {e.reviewId ? ` · ${reviewById(e.reviewId)?.title}` : ""}
+            <span className="hidden min-w-0 flex-col text-ink-2 @3xl/app:flex">
+              <span className="truncate">
+                {e.personId ? personById(e.personId).name : "Someone"}
+                {e.guest ? " (guest)" : ""}
+                {e.fileId ? ` · ${fileById(e.fileId)?.name}` : ""}
+                {e.reviewId ? ` · ${reviewById(e.reviewId)?.title}` : ""}
+              </span>
+              {/* #684: one playback is one row, its segments counted and behind it. */}
+              {e.action === "stream.session" && !everySegment && (
+                <Button variant="ghost" size="sm" className="-ml-2 self-start text-ink-3">
+                  38 segments
+                  <Icon name="chevronDown" size={12} />
+                </Button>
+              )}
             </span>
             <span className="tabular hidden truncate text-ink-3 @3xl/app:block">{e.address}</span>
             <span className="hidden truncate text-ink-3 @3xl/app:block">{e.agent}</span>
