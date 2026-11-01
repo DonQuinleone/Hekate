@@ -503,7 +503,7 @@ function Items({
   return (
     <section className="flex flex-col gap-3">
       <SectionHead
-        title={review.kind === "share" ? "Shared" : "Under review"}
+        title={review.kind === "share" ? "Items" : "Under review"}
         hint={plural(review.items.length, "item")}
         action={
           manage &&
@@ -796,7 +796,6 @@ export function ReviewBody({
   const navigate = useNavigate();
   const review = reviewById(reviewId);
   const me = review ? viewer.reviewerIn(review) : undefined;
-  const project = review ? projectById(review.projectId) : undefined;
   const allowed = review && (viewer.canSee(review.projectId) || me);
   const manage = Boolean(review && viewer.can(review.projectId, "manage_reviewers"));
   const mayRequest = Boolean(review && viewer.can(review.projectId, "request_reviews"));
@@ -817,24 +816,11 @@ export function ReviewBody({
     >
       <div className="flex min-w-0 flex-col gap-8">
         <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-3">
-            <span className="flex items-center gap-2 text-ink-2">
-              <Dot state={reviewDot(review.status, outcome)} />
-              {outcomeCopy(review)}
-            </span>
-            <span>
-              {kindCopy[review.kind]}
-              {review.kind !== "share" && `, ${ruleCopy(review).toLowerCase()}`}
-              {review.order === "sequence" && `, ${orderCopy.sequence.toLowerCase()}`}
-            </span>
-            {review.dueAt && due && (
-              <span className={cn(overdue && "text-signal")}>
-                {review.kind === "share" ? "Until" : "Due"} {formatDate(review.dueAt)}
-                {review.status === "open" && ` · ${due.label}`}
-              </span>
-            )}
+          {/* The title heads the review, its facts are in Properties once each (#575). */}
+          <div className="flex items-start gap-3">
+            <PageTitle className="min-w-0 flex-1">{review.title}</PageTitle>
             {!viewer.isGuest && (manage || mayRequest) && (
-              <span className="-my-1 ml-auto">
+              <span className="mt-0.5 shrink-0">
                 <ActionMenu
                   always
                   label="review"
@@ -872,10 +858,13 @@ export function ReviewBody({
               </span>
             )}
           </div>
-          <PageTitle>{review.title}</PageTitle>
-          <p className="flex items-center gap-2 text-[13px] text-ink-3">
-            <Avatar personId={review.requestedBy} size={18} />
-            {requester.name}, {formatLongDate(review.requestedAt)}
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-3">
+            <span className="flex items-center gap-2">
+              <Avatar personId={review.requestedBy} size={18} />
+              {review.kind === "share" ? "Shared by" : "Asked by"} {requester.name},{" "}
+              {formatLongDate(review.requestedAt)}
+            </span>
+            {overdue && due && <span className="text-signal">· {due.label}</span>}
           </p>
           {review.message && (
             <p className="max-w-[640px] text-[15px] leading-[24px] text-ink-2">{review.message}</p>
@@ -918,7 +907,7 @@ export function ReviewBody({
         )}
         {review.kind !== "share" && !viewer.isGuest && (
           <section className="flex flex-col gap-3">
-            <SectionHead title="Steps" hint={orderCopy[review.order]} />
+            <SectionHead title="Steps" />
             <Steps review={review} />
           </section>
         )}
@@ -933,27 +922,12 @@ export function ReviewBody({
             <Dot state={reviewDot(review.status, outcome)} />
             {outcomeCopy(review)}
           </Property>
-          <Property name="Kind">{kindCopy[review.kind]}</Property>
+          {review.kind !== "share" && <Property name="Kind">{kindCopy[review.kind]}</Property>}
           {review.kind !== "share" && <Property name="Order">{orderCopy[review.order]}</Property>}
           {review.kind === "approval" && <Property name="Rule">{ruleCopy(review)}</Property>}
           {review.dueAt && (
             <Property name={review.kind === "share" ? "Until" : "Due"}>
               <span className={cn(overdue && "text-signal")}>{formatLongDate(review.dueAt)}</span>
-            </Property>
-          )}
-          <Property name="Asked by">
-            <Avatar personId={review.requestedBy} size={18} />
-            {requester.name}
-          </Property>
-          {project && !viewer.isGuest && (
-            <Property name="Project">
-              <Link
-                to="/projects/$projectId"
-                params={{ projectId: project.id }}
-                className="truncate hover:text-signal"
-              >
-                {project.name}
-              </Link>
             </Property>
           )}
           {!viewer.isGuest &&
@@ -973,7 +947,7 @@ export function ReviewBody({
         {viewer.isGuest && me && (
           <p className="text-[12px] leading-[18px] text-ink-3">
             Your link is yours alone and was sent to {personById(me.personId).email}. What you open
-            here is logged for {projectById(review.projectId)?.name}.
+            here is logged for {requester.name}.
           </p>
         )}
       </aside>

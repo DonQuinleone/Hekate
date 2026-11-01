@@ -131,23 +131,24 @@ export function InboxPage({ item, show = "needs" }: { item?: string; show?: Inbo
   const chosen = selected ? mine.data.find((r) => r.id === selected) : undefined;
   return (
     <>
-      {chosen ? (
-        <PageHeader
-          crumbs={[
-            {
-              key: "inbox",
-              link: (
-                <Link to="/inbox" search={{ show }}>
-                  Inbox
-                </Link>
-              ),
-            },
-          ]}
-          title={chosen.title}
-        />
-      ) : (
-        <PageHeader title="Inbox" />
-      )}
+      {/* The trail stays the inbox's (#575): the review's title heads its pane. Chosen on a
+          phone, where the list is hidden, the name leads back to it. */}
+      <PageHeader
+        title={
+          chosen ? (
+            <Link
+              to="/inbox"
+              search={{ show }}
+              className="inline-flex items-center gap-1 text-ink no-underline"
+            >
+              <Icon name="chevronLeft" size={14} className="shrink-0 @3xl/app:hidden" />
+              Inbox
+            </Link>
+          ) : (
+            "Inbox"
+          )
+        }
+      />
       <div className="flex h-full min-h-0 flex-col @3xl/app:flex-row">
         <div
           className={cn(
@@ -198,7 +199,6 @@ export function InboxPage({ item, show = "needs" }: { item?: string; show?: Inbo
               key={shown}
               reviewId={shown}
               embedded
-              titled={shown === selected}
               // Shown only because it came first (and hidden on a phone): not yet looked at.
               markViewed={shown === selected}
             />

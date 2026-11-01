@@ -172,7 +172,7 @@ function Steps({ review }: { review: ReviewDetail }) {
       <Node
         icon="send"
         title="Requested"
-        sub={`${(review.createdByName ?? "A former member").split(" ")[0]}, ${shortDate.format(new Date(review.createdAt))}`}
+        sub={shortDate.format(new Date(review.createdAt))}
         state="done"
         first
       />
@@ -453,7 +453,7 @@ function Items({ review }: { review: ReviewDetail }) {
   return (
     <section className="flex flex-col gap-3">
       <SectionHead
-        title={sharing ? "Shared" : "Under review"}
+        title={sharing ? "Items" : "Under review"}
         hint={plural(review.items.length, "item")}
       />
       <Card>
@@ -664,7 +664,6 @@ function YourTurn({ review }: { review: ReviewDetail }) {
             </Button>
           )}
         </p>
-        {me.note && <p className="m-0 pl-5 text-[14px] text-ink-2">“{me.note}”</p>}
       </div>
     );
   if (!review.you.canDecide) return null;
@@ -749,6 +748,8 @@ function activityText(a: ReviewActivity): string {
 }
 
 function Activity({ review }: { review: ReviewDetail }) {
+  // A decision's note is read in its reviewer's row (#575): here only what is not there.
+  const inRows = new Set(review.reviewers.map((r) => r.note).filter(Boolean));
   if (review.activity.length === 0) return null;
   return (
     <section className="flex flex-col gap-3">
@@ -772,7 +773,9 @@ function Activity({ review }: { review: ReviewDetail }) {
                   {shortDate.format(new Date(a.at))}, {time.format(new Date(a.at))}
                 </span>
               </p>
-              {a.note && <p className="mt-1 mb-0 text-[14px] text-ink-2">“{a.note}”</p>}
+              {a.note && !inRows.has(a.note) && (
+                <p className="mt-1 mb-0 text-[14px] text-ink-2">“{a.note}”</p>
+              )}
             </div>
           </li>
         ))}
@@ -827,20 +830,17 @@ export function ReviewPage({ reviewId }: { reviewId: string }) {
 }
 
 /**
- * A review in the order it is read: where it stands and what is asked of you, its steps, who
- * is reviewing and what they said, the items, then the activity. On its own
- * page the title goes to the top bar; embedded (the inbox's reading pane) it heads the pane.
+ * A review in the order it is read: its title and who asked, what is asked of you, its steps,
+ * who is reviewing and what they said, the items, then the activity; its facts beside, in
+ * Properties, once each (#575). The title heads it on its own page and in the inbox alike.
  */
 export function ReviewBody({
   reviewId,
   embedded = false,
-  titled = false,
   markViewed = true,
 }: {
   reviewId: string;
   embedded?: boolean;
-  /** Embedded, with the title already in the top bar: the pane leaves it out. */
-  titled?: boolean;
   /** Record that you have seen it. Off for a review shown only because it came first. */
   markViewed?: boolean;
 }) {
@@ -885,8 +885,16 @@ export function ReviewBody({
         {
           key: "project",
           link: (
-            <Link to="/projects/$projectId/files" params={{ projectId: review.projectId }}>
+            <Link to="/projects/$projectId" params={{ projectId: review.projectId }}>
               {project?.name ?? "Project"}
+            </Link>
+          ),
+        },
+        {
+          key: "reviews",
+          link: (
+            <Link to="/projects/$projectId/reviews" params={{ projectId: review.projectId }}>
+              Reviews
             </Link>
           ),
         },
@@ -921,24 +929,12 @@ export function ReviewBody({
       >
         <div className="flex min-w-0 flex-col gap-8">
           <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-3">
-              <span className="flex items-center gap-2 text-ink-2">
-                <StatusDot state={state} />
-                {status}
-              </span>
-              <span>
-                {kind}
-                {!sharing && `, ${ruleCopy(review).toLowerCase()}`}
-                {review.order === "sequence" && `, ${reviewOrderNames.sequence.toLowerCase()}`}
-              </span>
-              {review.dueAt && due && (
-                <span className={cn("tabular", overdue && "text-signal")}>
-                  Due {shortDate.format(new Date(review.dueAt))}
-                  {review.status === "open" && ` · ${due.label}`}
-                </span>
-              )}
+            {/* The title heads the page, for members and guests, in the inbox too (#575); the
+                facts about it are in Properties, and only what is urgent is said here. */}
+            <div className="flex items-start gap-3">
+              <h2 className="title m-0 min-w-0 flex-1 [overflow-wrap:anywhere]">{review.title}</h2>
               {!guest && (
-                <span className="-my-1 ml-auto">
+                <span className="mt-0.5 shrink-0">
                   <ActionMenu
                     always
                     label="review"
@@ -1005,22 +1001,26 @@ export function ReviewBody({
                 </span>
               )}
             </div>
-            {embedded && !titled && <h2 className="title m-0">{review.title}</h2>}
-            <p className="m-0 flex items-center gap-2 text-[13px] text-ink-3">
-              <Avatar
-                person={review.createdBy ?? "former"}
-                name={review.createdByName ?? "A former member"}
-                size={18}
-              />
-              {review.createdByName ?? "A former member"},{" "}
-              {longDate.format(new Date(review.createdAt))}
+            <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-3">
+              <span className="flex items-center gap-2">
+                <Avatar
+                  person={review.createdBy ?? "former"}
+                  name={review.createdByName ?? "A former member"}
+                  size={18}
+                />
+                {sharing ? "Shared by" : "Asked by"} {review.createdByName ?? "a former member"},{" "}
+                {longDate.format(new Date(review.createdAt))}
+              </span>
+              {overdue && due && <span className="tabular text-signal">· {due.label}</span>}
             </p>
             {review.message && (
               <p className="m-0 max-w-[640px] whitespace-pre-wrap text-[15px] leading-[24px] text-ink-2">
                 {review.message}
               </p>
             )}
-            {review.status === "cancelled" && (
+            {/* Members read who cancelled and why in Activity; guests and a share's people,
+                who see no Activity, read it here. */}
+            {review.status === "cancelled" && (guest || sharing) && (
               <p className="m-0 flex items-center gap-2 text-[14px] text-ink-2">
                 <StatusDot state="cancelled" />
                 {sharing ? "No longer shared" : "Cancelled"}
@@ -1056,7 +1056,7 @@ export function ReviewBody({
           {sharing && mine && review.status === "open" && <ShareNote me={mine} />}
           {!guest && !sharing && (
             <section className="flex flex-col gap-3">
-              <SectionHead title="Steps" hint={reviewOrderNames[review.order]} />
+              <SectionHead title="Steps" />
               <Steps review={review} />
             </section>
           )}
@@ -1074,26 +1074,15 @@ export function ReviewBody({
                   {status}
                 </span>
               </Property>
-              <Property name="Kind">{kind}</Property>
+              {/* A share's status says it is one; a kind beside it would say it again. */}
+              {!sharing && <Property name="Kind">{kind}</Property>}
               {!sharing && <Property name="Order">{reviewOrderNames[review.order]}</Property>}
               {review.kind === "approval" && <Property name="Rule">{ruleCopy(review)}</Property>}
               {review.dueAt && (
-                <Property name="Due">
+                <Property name={sharing ? "Until" : "Due"}>
                   <span className={cn(overdue && "text-signal")}>
                     {longDate.format(new Date(review.dueAt))}
                   </span>
-                </Property>
-              )}
-              <Property name="Asked by">{review.createdByName ?? "A former member"}</Property>
-              {project && !guest && (
-                <Property name="Project">
-                  <Link
-                    to="/projects/$projectId"
-                    params={{ projectId: project.id }}
-                    className="truncate text-ink no-underline hover:text-signal"
-                  >
-                    {project.name}
-                  </Link>
                 </Property>
               )}
             </dl>
