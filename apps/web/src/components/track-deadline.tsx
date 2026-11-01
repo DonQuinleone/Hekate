@@ -31,9 +31,9 @@ export function TrackDeadline({ track, className }: { track: Track; className?: 
   if (!editable && !track.dueAt) return null;
   const face = (
     <>
-      <Icon name="flag" size={13} className={cn(late ? "text-signal" : "text-ink-3")} />
-      <span className={cn(late && "text-signal")}>{words}</span>
-      {late && <span className="text-signal">· late</span>}
+      <Icon name="flag" size={13} className={cn(late ? "text-ink" : "text-ink-3")} />
+      <span className={cn(late && "text-ink")}>{words}</span>
+      {late && <span className="font-medium text-ink">· late</span>}
     </>
   );
   if (!editable)

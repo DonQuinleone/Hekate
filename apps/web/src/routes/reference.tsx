@@ -510,7 +510,10 @@ function Components() {
           <ColourInput label="Unfinished" value="#4fb" invalid onChange={noop} />
           <ColourInput label="Fixed" value="#4fb3a9" disabled onChange={noop} />
         </Spec>
-        <Spec name="Switch" rule="A setting that takes effect at once.">
+        <Spec
+          name="Switch"
+          rule="A setting that takes effect at once. Ink when on, never the signal, so a page of switches leaves the signal for its one action."
+        >
           <Switch label="On" checked={on} onChange={setOn} />
           <Switch label="Off" checked={false} onChange={noop} />
           <Switch label="Fixed" checked disabled onChange={noop} />

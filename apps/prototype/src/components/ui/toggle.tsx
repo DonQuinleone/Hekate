@@ -45,14 +45,15 @@ export function Switch({
       onClick={() => onChange(!checked)}
       className={cn(
         "relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-50",
-        checked ? "bg-signal" : "bg-edge enabled:hover:bg-edge-strong",
+        // Neutral when on: the signal is kept for the one thing on a surface that needs it.
+        checked ? "bg-ink" : "bg-edge enabled:hover:bg-edge-strong",
       )}
     >
       <span
         aria-hidden="true"
         className={cn(
-          "absolute top-[2px] size-4 rounded-full bg-ink shadow-[0_1px_2px_rgb(0_0_0/0.4)] transition-[left] duration-200 ease-out",
-          checked ? "left-[18px]" : "left-[2px]",
+          "absolute top-[2px] size-4 rounded-full shadow-[0_1px_2px_rgb(0_0_0/0.4)] transition-[left,background-color] duration-200 ease-out",
+          checked ? "left-[18px] bg-ground" : "left-[2px] bg-ink",
         )}
       />
     </button>

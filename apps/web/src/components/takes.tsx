@@ -52,6 +52,7 @@ import { Field } from "./ui/field";
 import { Input, Select, Textarea } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
+import { StatusDot } from "./ui/status";
 
 /** A take's rating as five dots, filled to the mark. */
 export function Rating({ value }: { value: number }) {
@@ -271,7 +272,7 @@ export function TakeManager({
                       {gaps.map(([from, to]) => (
                         <span
                           key={from}
-                          className="absolute bottom-0 h-1 rounded-full bg-signal/60"
+                          className="absolute bottom-0 h-1 rounded-full bg-ink-3/60"
                           style={{
                             left: `${(from - 1) * (100 / end)}%`,
                             width: `${(to - from + 1) * (100 / end)}%`,
@@ -398,7 +399,12 @@ function TakeLine({
             />
           )}
           <Rating value={take.rating} />
-          {usedIn && <span className="text-[12px] text-signal">in {usedIn}</span>}
+          {usedIn && (
+            <span className="flex items-center gap-1 text-[12px] text-ink-2">
+              <StatusDot state="approved" />
+              in {usedIn}
+            </span>
+          )}
         </span>
         <span className="block truncate text-[12px] text-ink-3">
           {take.file ? "" : "Its file is gone · "}
@@ -455,7 +461,7 @@ function TakeLine({
             <span
               key={from}
               aria-hidden="true"
-              className="absolute top-7 h-1 rounded-full bg-signal"
+              className="absolute top-7 h-1 rounded-full bg-ink"
               style={{
                 left: `${(Math.max(from, 1) - 1) * (100 / end)}%`,
                 width: `${(to - Math.max(from, 1) + 1) * (100 / end)}%`,
@@ -956,7 +962,12 @@ function OtherTake({
             />
           )}
           <Rating value={take.rating} />
-          {usedIn && <span className="text-[12px] text-signal">in {usedIn}</span>}
+          {usedIn && (
+            <span className="flex items-center gap-1 text-[12px] text-ink-2">
+              <StatusDot state="approved" />
+              in {usedIn}
+            </span>
+          )}
           {shared && <Chip>shared</Chip>}
         </span>
         <span className="block truncate text-[12px] text-ink-3">
