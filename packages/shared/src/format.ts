@@ -1,4 +1,5 @@
 import type { Anchor } from "./anchor.ts";
+import type { MediaInfo } from "./media.ts";
 
 const pad = (n: number, width = 2) => String(Math.trunc(n)).padStart(width, "0");
 
@@ -145,4 +146,88 @@ export function channelNames(channels: number, layout?: string): string[] {
     if (channels === 2) return ["L", "R"];
   }
   return Array.from({ length: channels }, (_, i) => String(i + 1));
+}
+
+/**
+ * A sound's encoding as people say it (#635), never ffmpeg's id: "PCM 16-bit", "FLAC", "AAC",
+ * "Dolby Digital Plus". The bit depth goes with PCM, which is nothing without it.
+ */
+export function audioCodecName(codec: string, bitDepth?: number): string {
+  const pcm = /^pcm_([suf])(\d+)/.exec(codec);
+  if (pcm) {
+    const bits = pcm[2] ?? (bitDepth ? String(bitDepth) : "");
+    return pcm[1] === "f" ? `PCM ${bits}-bit float` : `PCM ${bits}-bit`;
+  }
+  const named: Record<string, string> = {
+    flac: "FLAC",
+    alac: "Apple Lossless",
+    aac: "AAC",
+    mp3: "MP3",
+    opus: "Opus",
+    vorbis: "Vorbis",
+    ac3: "Dolby Digital",
+    eac3: "Dolby Digital Plus",
+    truehd: "Dolby TrueHD",
+    dts: "DTS",
+  };
+  return named[codec] ?? codec.toUpperCase();
+}
+
+/** Containers by the type a file was given, where ffprobe names a family of them. */
+const containers: Record<string, string> = {
+  "audio/wav": "WAV",
+  "audio/x-wav": "WAV",
+  "audio/wave": "WAV",
+  "audio/flac": "FLAC",
+  "audio/x-flac": "FLAC",
+  "audio/aiff": "AIFF",
+  "audio/x-aiff": "AIFF",
+  "audio/mpeg": "MP3",
+  "audio/mp4": "MPEG-4 audio",
+  "audio/x-m4a": "MPEG-4 audio",
+  "audio/ogg": "Ogg",
+  "video/quicktime": "QuickTime",
+  "video/mp4": "MP4",
+  "video/x-matroska": "Matroska",
+  "video/webm": "WebM",
+  "application/mxf": "MXF",
+  "video/mxf": "MXF",
+  "video/mpeg": "MPEG",
+  "video/x-msvideo": "AVI",
+};
+
+/**
+ * A file's container in words (#635): by its type, else the first of ffprobe's names for it.
+ * Never a MIME type.
+ */
+export const containerName = (format: string | undefined, contentType: string): string | null =>
+  containers[contentType] ?? format?.split(",")[0]?.toUpperCase() ?? null;
+
+/** A sound as one line (#635): "PCM 16-bit · 44.1 kHz · stereo". */
+export function soundLine(audio: NonNullable<MediaInfo["audio"]>): string {
+  const codec = audioCodecName(audio.codec, audio.bitDepth);
+  return [
+    codec,
+    `${audio.sampleRate / 1000} kHz`,
+    // PCM names its depth already; another codec says it apart, where it has one.
+    audio.bitDepth && !codec.includes("-bit") ? `${audio.bitDepth}-bit` : null,
+    formatChannels(audio.channels, audio.channelLayout),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/**
+ * A recording's or a video's format in one line, the one summary every place says it with
+ * (#635): "PCM 16-bit · 44.1 kHz · stereo", "1280 × 720 · 25 fps · AAC · stereo".
+ */
+export function mediaFormat(info: MediaInfo | null): string | null {
+  if (!info) return null;
+  const parts: string[] = [];
+  if (info.video) {
+    parts.push(`${info.video.width} × ${info.video.height}`);
+    if (info.video.fps) parts.push(`${Math.round(info.video.fps * 100) / 100} fps`);
+  }
+  if (info.audio) parts.push(soundLine(info.audio));
+  return parts.length > 0 ? parts.join(" · ") : null;
 }

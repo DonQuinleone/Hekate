@@ -389,7 +389,7 @@ describe("the appendices", () => {
       }),
     ).toEqual([
       ["Container", "wav"],
-      ["Codec", "pcm_s16le"],
+      ["Codec", "PCM 16-bit"],
       ["Sample rate", "44.1 kHz"],
       ["Bit depth", "16-bit"],
       ["Channels", "2 (stereo)"],

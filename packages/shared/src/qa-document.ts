@@ -1,4 +1,4 @@
-import { formatClock } from "./format.ts";
+import { audioCodecName, formatClock } from "./format.ts";
 import { layoutLabel } from "./layouts.ts";
 import type { LoudnessSummary } from "./loudness.ts";
 import type { MediaInfo } from "./media.ts";
@@ -725,7 +725,8 @@ export function formatRows(info: MediaInfo | null): [string, string][] {
     if (video.fps) rows.push(["Frame rate", `${frameRateName(video.fps)} fps`]);
   }
   if (audio) {
-    rows.push(["Codec", audio.codec]);
+    // In words (#635), never ffmpeg's id.
+    rows.push(["Codec", audioCodecName(audio.codec, audio.bitDepth)]);
     rows.push(["Sample rate", kHz(audio.sampleRate)]);
     if (audio.bitDepth) rows.push(["Bit depth", `${audio.bitDepth}-bit`]);
     rows.push([

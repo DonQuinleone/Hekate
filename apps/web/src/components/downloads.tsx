@@ -1,11 +1,27 @@
 import { allowsDownload, type DownloadKind } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useId, useState } from "react";
-import { downloadsQuery, useRequestDownload, useRequestScoresDownload } from "~/lib/queries";
+import {
+  downloadsQuery,
+  fileQuery,
+  useRequestDownload,
+  useRequestScoresDownload,
+} from "~/lib/queries";
 import { Icon } from "./icons";
 import { Button } from "./ui/button";
 import { ChoiceCard } from "./ui/choice";
 import { Dialog } from "./ui/dialog";
+
+/**
+ * What each download is called, in words people use (#635): the copy made for review, or the
+ * original, which a video's mark makes a new encode of.
+ */
+export const kindTitle = (kind: DownloadKind, fileKind?: string) =>
+  kind === "proxy"
+    ? "Review copy"
+    : fileKind === "video"
+      ? "Original, re-encoded with your mark"
+      : "Original";
 
 /**
  * The download permission at work (#136): what you get, and that it is made for you and
@@ -24,6 +40,8 @@ export function DownloadDialog({
   onClose: () => void;
 }) {
   const { data } = useQuery(downloadsQuery(fileId));
+  // A video's original is encoded again to carry the mark, and says so (#635).
+  const { data: file } = useQuery(fileQuery(fileId));
   const request = useRequestDownload(fileId);
   const id = useId();
   const usable = (kind: DownloadKind) =>
@@ -74,7 +92,7 @@ export function DownloadDialog({
               checked={which === kind}
               disabled={!usable(kind)}
               onChange={() => setPicked(kind)}
-              title={kind === "proxy" ? "Proxy" : "Original"}
+              title={kindTitle(kind, file?.kind)}
               hint={
                 data
                   ? allowed
@@ -168,7 +186,7 @@ export function ScoresDownloadDialog({
             checked={which === kind}
             disabled={!can[kind]}
             onChange={() => setPicked(kind)}
-            title={kind === "proxy" ? "Proxy" : "Original"}
+            title={kindTitle(kind)}
             hint={can[kind] ? hints[kind] : `${hints[kind]} · not in your permissions`}
             className="has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-50"
           />

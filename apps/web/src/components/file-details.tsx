@@ -8,9 +8,12 @@ import {
   captionKinds,
   captionLanguageOf,
   commonCaptionLanguages,
+  containerName,
   defaultCaptionLabel,
   formatBytes,
+  formatClock,
   languageName,
+  mediaFormat,
 } from "@hekate/shared";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -87,6 +90,29 @@ function Stage({ status, done }: { status: FileDetails["analysis"]["status"]; do
       </>
     );
   return <>{done}</>;
+}
+
+/**
+ * Where the file is kept and how it is delivered (#635): storage, encryption and renditions,
+ * folded under one heading, as they are the instance's business more than a reviewer's.
+ */
+function StorageAndDelivery({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="flex flex-col gap-3">
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="-mx-2 self-start text-ink-3"
+      >
+        <Icon name={open ? "chevronDown" : "chevronRight"} size={14} />
+        Storage and delivery
+      </Button>
+      {open && children}
+    </section>
+  );
 }
 
 /** What has been made from a file to show it, without ever handing out the original. */
@@ -630,13 +656,20 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
                   <span title={details.file.name}>{details.file.name}</span>
                 )}
               </Property>
+              {/* The format in words, said once (#635): never a MIME type or a codec's id. */}
               <Property name="Format">
-                {mediaSummary(
-                  details.file.kind,
-                  details.file.mediaInfo,
-                  details.file.streamStatus,
-                ) ?? details.file.contentType}
+                {mediaFormat(details.file.mediaInfo) ??
+                  mediaSummary(
+                    details.file.kind,
+                    details.file.mediaInfo,
+                    details.file.streamStatus,
+                  ) ??
+                  containerName(undefined, details.file.contentType) ??
+                  "File"}
               </Property>
+              {details.file.mediaInfo?.duration !== undefined && (
+                <Property name="Length">{formatClock(details.file.mediaInfo.duration)}</Property>
+              )}
               <Property name="Size">{formatBytes(details.file.byteSize)}</Property>
               <Property name="Checksum">
                 <Checksum sha256={details.storage.sha256} />
@@ -655,40 +688,45 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
                   dateTime.format(new Date(details.file.createdAt))
                 )}
               </Property>
-              <Property name="Storage">{details.storage.backend}</Property>
-              <Property name="At rest">
-                {details.storage.encrypted ? (
-                  <span
-                    title={
-                      details.storage.keySince
-                        ? `Workspace key ${details.storage.keyVersion}, in use since ${shortDate.format(new Date(details.storage.keySince))}`
-                        : undefined
-                    }
-                  >
-                    Encrypted · key {details.storage.keyVersion}
-                  </span>
-                ) : (
-                  "Not encrypted"
-                )}
-              </Property>
-              {(details.file.kind === "audio" || details.file.kind === "video") && (
-                <Property name="Analysis">
-                  <Stage
-                    status={details.analysis.status}
-                    done={
-                      [
-                        details.analysis.peaks && "Waveform",
-                        details.analysis.loudness && "loudness",
-                        details.analysis.spectrogram && "spectrogram",
-                      ]
-                        .filter(Boolean)
-                        .join(", ") || "None"
-                    }
-                  />
-                </Property>
-              )}
             </dl>
-            <Renditions details={details} />
+            {/* What only whoever runs the instance acts on, folded (#635). */}
+            <StorageAndDelivery>
+              <dl className="m-0 flex flex-col">
+                <Property name="Storage">{details.storage.backend}</Property>
+                <Property name="At rest">
+                  {details.storage.encrypted ? (
+                    <span
+                      title={
+                        details.storage.keySince
+                          ? `Workspace key ${details.storage.keyVersion}, in use since ${shortDate.format(new Date(details.storage.keySince))}`
+                          : undefined
+                      }
+                    >
+                      Encrypted · key {details.storage.keyVersion}
+                    </span>
+                  ) : (
+                    "Not encrypted"
+                  )}
+                </Property>
+                {(details.file.kind === "audio" || details.file.kind === "video") && (
+                  <Property name="Analysis">
+                    <Stage
+                      status={details.analysis.status}
+                      done={
+                        [
+                          details.analysis.peaks && "Waveform",
+                          details.analysis.loudness && "loudness",
+                          details.analysis.spectrogram && "spectrogram",
+                        ]
+                          .filter(Boolean)
+                          .join(", ") || "None"
+                      }
+                    />
+                  </Property>
+                )}
+              </dl>
+              <Renditions details={details} />
+            </StorageAndDelivery>
             {(details.file.kind === "video" || details.file.kind === "audio") && (
               <Captions
                 fileId={fileId}

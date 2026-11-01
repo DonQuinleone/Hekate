@@ -1862,15 +1862,7 @@ export function Player({
           ]}
           className="h-7 min-w-0 px-1.5 text-[12px] text-ink-3"
         />
-      ) : (
-        choices[0] && (
-          // A flex item shrinks below its words only with min-w-0; without it the line ran
-          // into the menus where the font is wider.
-          <span className="tabular hidden min-w-0 truncate px-1 sm:inline">
-            {renditionLabel(choices[0].rendition, info)}
-          </span>
-        )
-      )}
+      ) : null}
       {normalised && normalisation && (
         <span className="tabular min-w-0 truncate">
           {choices.length > 0 && <span className="hidden sm:inline">· </span>}

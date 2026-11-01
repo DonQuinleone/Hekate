@@ -1507,7 +1507,7 @@ test("score-marking-export", async ({ page }) => {
   await expect(dialog.getByText(/as reviewed, as a PDF/)).toBeVisible();
   await saveScreen(page, "score-marking-export");
   await checkScreen(page);
-  await dialog.getByText("Proxy").click();
+  await dialog.getByText("Review copy").click();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     dialog.getByRole("button", { name: "Download" }).click(),
@@ -1550,7 +1550,7 @@ test("score-marking-export-every", async ({ page }) => {
     await expect(dialog).toContainText("Every score, 2 tracks, with their marks");
     await saveScreen(page, "score-marking-export-every");
     await checkScreen(page);
-    await dialog.getByText("Proxy").click();
+    await dialog.getByText("Review copy").click();
     const [download] = await Promise.all([
       page.waitForEvent("download"),
       dialog.getByRole("button", { name: "Download" }).click(),
@@ -4007,9 +4007,14 @@ test("file-without-details", async ({ page }, info) => {
 test("file-details", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/files/${seeded().dryFileId}?sheet=details`);
-  await settle(page, "aside[aria-label=Details] >> text=Renditions");
   await settle(page, "aside[aria-label=Details] >> text=Access");
+  // Storage, encryption and renditions fold away (#635), opened on asking.
+  await expect(page.locator("aside[aria-label=Details]")).not.toContainText("Renditions");
   await saveScreen(page, "file-details");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Storage and delivery" }).click();
+  await settle(page, "aside[aria-label=Details] >> text=Renditions");
+  await saveScreen(page, "file-details-storage");
   await checkScreen(page);
 });
 
@@ -4145,6 +4150,7 @@ test("video-captions", async ({ page }) => {
     "Captions (SDH) · WebVTT · 3 captions",
   );
   // Its filmstrip (#16), made with its streams.
+  await details.getByRole("button", { name: "Storage and delivery" }).click();
   await expect(details).toContainText("Filmstrip, 12 frames");
   await details.getByText("Captions", { exact: true }).first().scrollIntoViewIfNeeded();
   await saveScreen(page, "video-captions-details");
@@ -4971,7 +4977,7 @@ test("file-download", async ({ page }) => {
   await expect(dialog.getByRole("radio", { name: /Original/ })).toBeChecked();
   await saveScreen(page, "file-download");
   await checkScreen(page);
-  await dialog.getByText("Proxy").click();
+  await dialog.getByText("Review copy").click();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     dialog.getByRole("button", { name: "Download" }).click(),
@@ -5023,11 +5029,12 @@ test("file-download-video", async ({ page }) => {
   await page.goto(`/files/${seeded().cutFileId}`);
   await openDownload(page);
   const dialog = page.getByRole("dialog", { name: "Download" });
-  await expect(dialog.getByText(/stream as reviewed, as MP4/)).toBeVisible();
-  await expect(dialog.getByText(/encoded again to carry the mark/)).toBeVisible();
+  await expect(dialog.getByText(/as reviewed, MP4/)).toBeVisible();
+  await expect(dialog.getByText(/at full quality, QuickTime/)).toBeVisible();
+  await expect(dialog.getByText("Original, re-encoded with your mark")).toBeVisible();
   await saveScreen(page, "file-download-video");
   await checkScreen(page);
-  await dialog.getByText("Proxy").click();
+  await dialog.getByText("Review copy").click();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     dialog.getByRole("button", { name: "Download" }).click(),

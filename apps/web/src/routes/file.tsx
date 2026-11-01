@@ -1,12 +1,15 @@
 import {
   type CaptionTrack,
+  containerName,
   fileStart,
+  findingLine,
   formatBytes,
-  formatChannels,
-  formatDuration,
+  formatClock,
   type MediaInfo,
+  mediaFormat,
   type QaFinding,
   type ReviewerTool,
+  soundLine,
   videoClock,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -40,7 +43,7 @@ import { EmbeddedMetadataPanel } from "~/components/metadata";
 import { type Crumb, PageHeader } from "~/components/page-header";
 import { CommentsSplitter, PanelPlacement } from "~/components/panel-placement";
 import { Player, PlayerStrip } from "~/components/player";
-import { checkNames, findingMarks, QualityChecks, qaIssues } from "~/components/qa";
+import { findingMarks, QaLayout, QualityChecks, qaIssues, soundStats } from "~/components/qa";
 import { VideoQa } from "~/components/qa-video";
 import { ScorePane } from "~/components/score";
 import { ShareDialog } from "~/components/share";
@@ -309,24 +312,36 @@ function Playback({
   );
 }
 
-/** The facts an engineer checks, in the order they check them. */
-function technicalDetails(info: MediaInfo | null): [string, string][] {
-  if (!info) return [];
-  const rows: [string, string][] = [];
-  if (info.video) {
-    rows.push(["Video", `${info.video.codec} · ${info.video.width} × ${info.video.height}`]);
-    if (info.video.fps) rows.push(["Frame rate", `${info.video.fps} fps`]);
-  }
-  if (info.audio) {
-    rows.push(["Audio", info.audio.codec]);
-    rows.push([
-      "Sample rate",
-      `${info.audio.sampleRate / 1000} kHz${info.audio.bitDepth ? ` · ${info.audio.bitDepth}-bit` : ""}`,
-    ]);
-    rows.push(["Channels", formatChannels(info.audio.channels, info.audio.channelLayout)]);
-  }
-  if (info.duration !== undefined) rows.push(["Duration", formatDuration(info.duration)]);
-  return rows;
+/** A guest's facts about the file (#635), folded under one "Details" until asked for. */
+function GuestDetails({ facts }: { facts: [string, string][] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-col border-t border-hairline">
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="-mx-2 mt-1 self-start text-ink-3"
+      >
+        <Icon name={open ? "chevronDown" : "chevronRight"} size={14} />
+        Details
+      </Button>
+      {open && (
+        <dl className="m-0 flex flex-col">
+          {facts.map(([term, value]) => (
+            <div
+              key={term}
+              className="grid grid-cols-[minmax(0,120px)_1fr] gap-x-6 border-b border-hairline py-2.5"
+            >
+              <dt className="text-[13px] text-ink-3">{term}</dt>
+              <dd className="tabular m-0 truncate text-[13px] text-ink-2">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
 }
 
 export type FileView = "review" | "qa" | "triage";
@@ -424,6 +439,8 @@ export function FilePage({
     ...fileDetailsQuery(fileId),
     enabled: !guest && view === "qa",
   });
+  // What QA measured, for its row of figures (#634); the checks keep the same query fresh.
+  const { data: qaData } = useQuery({ ...qaQuery(fileId), enabled: view === "qa" });
   const preferences = usePreferences();
   /** On a document: the page shown, and the region drawn or thread picked on it. */
   const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
@@ -537,7 +554,8 @@ export function FilePage({
     setSeed({
       key: Date.now(),
       at,
-      body: `${checkNames[finding.check]}: ${finding.summary}`,
+      // The check named once (#564): "True peak 0.9 dBTP", not "True peak: True peak 0.9 dBTP".
+      body: findingLine(finding),
       // Only a recording of two channels or more has one to be about.
       channel: (file.mediaInfo?.audio?.channels ?? 0) >= 2 ? finding.channel : null,
     });
@@ -572,31 +590,37 @@ export function FilePage({
   const comparing = comparable && shown === "review";
   const playerGain = comparing && compareOpen ? null : gain;
   const summary = mediaSummary(file.kind, file.mediaInfo, file.streamStatus);
-  const details: [string, string][] = [
-    ["Type", file.contentType],
-    ["Size", formatBytes(file.byteSize)],
-    ...technicalDetails(file.mediaInfo),
-    ["Added", dateFormat.format(new Date(file.createdAt))],
-    ...(file.uploadedBy ? [["Added by", file.uploadedBy] as [string, string]] : []),
+  /**
+   * The format's facts in words (#635), said once on the page: QA's Format for a recording, a
+   * guest's Details. Never a MIME type or a codec's id.
+   */
+  const container = containerName(file.mediaInfo?.format, file.contentType);
+  const formatFacts: [string, ReactNode][] = [
+    ...(file.mediaInfo?.audio
+      ? [["Sound", soundLine(file.mediaInfo.audio)] as [string, string]]
+      : []),
+    ["File", [container, formatBytes(file.byteSize)].filter(Boolean).join(" · ")],
+    // The checksum, with a copy, where the details have arrived (#491).
+    ...(fileDetails
+      ? [
+          ["Checksum", <Checksum key="sum" sha256={fileDetails.storage.sha256} />] as [
+            string,
+            ReactNode,
+          ],
+        ]
+      : []),
   ];
-  const detailRows = details.map(([term, value]) => (
-    <div
-      key={term}
-      className="grid grid-cols-[minmax(0,140px)_1fr] gap-x-6 border-b border-hairline py-2.5"
-    >
-      <dt className="label">{term}</dt>
-      <dd className="tabular m-0 truncate text-[13px] text-ink-2">{value}</dd>
-    </div>
-  ));
-  /** The checksum, with a copy, where QA shows the format and the details have arrived. */
-  const checksumRow = fileDetails && (
-    <div className="grid grid-cols-[minmax(0,140px)_1fr] gap-x-6 border-b border-hairline py-2.5">
-      <dt className="label">Checksum</dt>
-      <dd className="m-0 min-w-0 text-[13px] text-ink-2">
-        <Checksum sha256={fileDetails.storage.sha256} />
-      </dd>
-    </div>
-  );
+  /** What a file with no player is, in words (#635): never its MIME type. */
+  const fileWords = fileSummary(file) === file.contentType ? "File" : fileSummary(file);
+  /** What a guest may read of the file (#635), behind a disclosure so comments come first. */
+  const guestFacts: [string, string][] = [
+    ["Format", mediaFormat(file.mediaInfo) ?? fileWords],
+    ["File", [container, formatBytes(file.byteSize)].filter(Boolean).join(" · ")],
+    ...(file.mediaInfo?.duration !== undefined
+      ? [["Length", formatClock(file.mediaInfo.duration)] as [string, string]]
+      : []),
+    ["Added", dateFormat.format(new Date(file.createdAt))],
+  ];
   const crumbs: Crumb[] = guest
     ? [{ key: "reviews", link: <Link to="/g">Your reviews</Link> }]
     : [
@@ -616,7 +640,13 @@ export function FilePage({
   const title = file.variant ? file.variant.trackName : file.name;
   // What QA shows beside the checks, for a recording and for a video alike.
   const loudness = file.mediaInfo?.audio && allows("meters") && preferences.showLoudness && (
-    <Loudness fileId={file.id} media={media} layout={file.mediaInfo.audio.channelLayout} />
+    <Loudness
+      fileId={file.id}
+      media={media}
+      layout={file.mediaInfo.audio.channelLayout}
+      // QA's row of figures gives integrated loudness and true peak where QA is a tool here.
+      figures={!allows("qa")}
+    />
   );
   const metadata = file.mediaInfo?.metadata && (
     <EmbeddedMetadataPanel
@@ -776,9 +806,8 @@ export function FilePage({
   const below = layout.comments === "below";
   // A take shared with a guest is theirs to hear, with no comments (#133).
   const commented = shown === "review" && !file.grant?.listenOnly;
-  const detailList = (
-    <dl className="m-0 flex shrink-0 flex-col border-t border-hairline">{detailRows}</dl>
-  );
+  /** A guest's details, folded (#635): the comments come first under the player. */
+  const detailList = guest ? <GuestDetails facts={guestFacts} /> : null;
 
   /** What the column beside the comments holds: the player and what goes with it, or pages. */
   let main: ReactNode;
@@ -802,6 +831,7 @@ export function FilePage({
         </div>
         {qaShown ? (
           <div className="scroll-quiet p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:p-6">
+            {/* One layout for a recording and a video (#634). */}
             {picture && file.mediaInfo && allows("qa") ? (
               <VideoQa
                 fileId={file.id}
@@ -816,23 +846,29 @@ export function FilePage({
                 {loudness}
               </VideoQa>
             ) : (
-              <div className="flex min-w-0 flex-col gap-6">
-                {allows("qa") && (
-                  <QualityChecks
-                    fileId={file.id}
-                    media={media}
-                    canChoose={!guest && can("edit_workflows")}
-                    onLoop={allows("loops") ? hear : undefined}
-                    onComment={canComment ? commentOn : undefined}
-                  />
-                )}
+              <QaLayout
+                stats={[
+                  ...(allows("qa") ? soundStats(qaData?.findings ?? []) : []),
+                  ...(file.mediaInfo?.duration !== undefined
+                    ? [{ label: "Length", value: formatClock(file.mediaInfo.duration) }]
+                    : []),
+                ]}
+                checks={
+                  allows("qa") && (
+                    <QualityChecks
+                      fileId={file.id}
+                      media={media}
+                      canChoose={!guest && can("edit_workflows")}
+                      onLoop={allows("loops") ? hear : undefined}
+                      onComment={canComment ? commentOn : undefined}
+                    />
+                  )
+                }
+                format={formatFacts}
+                aside={metadata}
+              >
                 {loudness}
-                <dl className="m-0 flex flex-col border-t border-hairline">
-                  {detailRows}
-                  {checksumRow}
-                </dl>
-                {metadata}
-              </div>
+              </QaLayout>
             )}
           </div>
         ) : (
@@ -848,8 +884,8 @@ export function FilePage({
                 onHide={() => setLayout({ score: false })}
               />
             )}
-            {/* A recording's details belong to QA; one without it keeps them here. */}
-            {!hasQa && <div className="px-3 pb-4 lg:px-4">{detailList}</div>}
+            {/* A file's details are the Details sheet's (#635); a guest's fold away here. */}
+            {detailList && <div className="px-3 pb-4 lg:px-4">{detailList}</div>}
           </>
         )}
       </div>
@@ -863,7 +899,7 @@ export function FilePage({
           <FileChain file={file} />
           {playback}
         </div>
-        <div className="px-3 pb-4 lg:px-4">{detailList}</div>
+        {detailList && <div className="px-3 pb-4 lg:px-4">{detailList}</div>}
       </div>
     );
   } else {
@@ -878,7 +914,7 @@ export function FilePage({
           )}
           {playback}
         </div>
-        <div className="px-3 pb-4 lg:px-4">{detailList}</div>
+        {detailList && <div className="px-3 pb-4 lg:px-4">{detailList}</div>}
       </div>
     );
   }
@@ -893,7 +929,7 @@ export function FilePage({
         crumbs={crumbs}
         title={title}
         // Media formats show in the player; other files say what they are here.
-        meta={summary ? undefined : fileSummary(file)}
+        meta={summary ? undefined : fileWords}
         actions={
           guest ? (
             <>
