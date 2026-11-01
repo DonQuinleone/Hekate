@@ -10,7 +10,7 @@ import {
   videoClock,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Checksum } from "~/components/checksum";
 import {
@@ -417,6 +417,8 @@ export function FilePage({
   /** A source comparison should bring in and play first: before, for before and after. */
   const [focus, setFocus] = useState<CompareFocus | null>(null);
   const { guest } = useViewer();
+  const navigate = useNavigate();
+  const wide = useWide();
   // The checksum for QA's format panel (#491) comes with the details, which members may read.
   const { data: fileDetails } = useQuery({
     ...fileDetailsQuery(fileId),
@@ -606,23 +608,12 @@ export function FilePage({
             </Link>
           ),
         },
-        ...(file.variant
-          ? [
-              {
-                key: "track",
-                link: (
-                  <Link
-                    to="/tracks/$trackId"
-                    params={{ trackId: file.variant.trackId }}
-                    search={{ view: "versions" }}
-                  >
-                    {file.variant.trackName}
-                  </Link>
-                ),
-              },
-            ]
-          : []),
       ];
+  /**
+   * A track's file is titled by its track, in full (#561): the strip under the header says
+   * which version and variant it is, as the prototype has it. A loose file keeps its name.
+   */
+  const title = file.variant ? file.variant.trackName : file.name;
   // What QA shows beside the checks, for a recording and for a video alike.
   const loudness = file.mediaInfo?.audio && allows("meters") && preferences.showLoudness && (
     <Loudness fileId={file.id} media={media} layout={file.mediaInfo.audio.channelLayout} />
@@ -659,12 +650,7 @@ export function FilePage({
     lead:
       shown !== "triage" && (file.variant || file.chain.some((v) => v.id === file.id)) ? (
         <>
-          <FileContext
-            file={file}
-            media={media}
-            guest={guest}
-            takes={!guest && can("view_takes")}
-          />
+          <FileContext file={file} media={media} guest={guest} />
           <FileChain file={file} />
           {/* Where the track stands (#498), moved on from here by those who may. */}
           {file.variant && !guest && (
@@ -722,7 +708,7 @@ export function FilePage({
               key: "file",
               link: (
                 <Link to="/files/$fileId" params={{ fileId: file.id }}>
-                  {file.name}
+                  {title}
                 </Link>
               ),
             },
@@ -750,18 +736,18 @@ export function FilePage({
         />
       </>
     );
-  const downloadButton =
-    downloads && downloads.level !== "none" ? (
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setDownloading(true)}
-        title={`Download the ${downloads.level}, made for you and logged`}
-      >
-        <Icon name="download" size={14} />
-        Download
-      </Button>
-    ) : undefined;
+  const mayDownload = downloads !== undefined && downloads.level !== "none";
+  const downloadButton = mayDownload ? (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => setDownloading(true)}
+      title={`Download the ${downloads.level}, made for you and logged`}
+    >
+      <Icon name="download" size={14} />
+      Download
+    </Button>
+  ) : undefined;
   /** The comments shown or put away, from one place whatever their state, with how many are open. */
   const commentsButton =
     shown === "review" && !file.grant?.listenOnly ? (
@@ -905,7 +891,7 @@ export function FilePage({
       )}
       <PageHeader
         crumbs={crumbs}
-        title={file.name}
+        title={title}
         // Media formats show in the player; other files say what they are here.
         meta={summary ? undefined : fileSummary(file)}
         actions={
@@ -920,16 +906,8 @@ export function FilePage({
               {viewSwitch}
               {commentsButton}
               {plays && <ListenTogether fileId={file.id} projectId={file.projectId} />}
-              {downloadButton}
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-pressed={showDetails}
-                onClick={() => onDetails(!showDetails)}
-              >
-                <Icon name="info" size={14} />
-                Details
-              </Button>
+              {/* On a phone, Download goes into "…" so Share, the page's main action, stays in reach. */}
+              {wide && downloadButton}
               {/* Sharing this file (#489): the sheet the browser and a track's versions open too. */}
               {can("request_reviews") && project && !project.archivedAt && (
                 <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
@@ -937,31 +915,49 @@ export function FilePage({
                   Share
                 </Button>
               )}
-              {(canTriage || canVersion) && (
-                <ActionMenu
-                  always
-                  label="file"
-                  actions={[
-                    ...(canVersion
-                      ? [{ label: "New version…", onSelect: () => setVersioning(true) }]
-                      : []),
-                    ...(canTriage
-                      ? [
-                          { label: "Export comments…", onSelect: () => setExporting(true) },
-                          ...(plays
-                            ? [
-                                {
-                                  label: "Import a marker list…",
-                                  onSelect: () => setImporting(true),
-                                },
-                              ]
-                            : []),
-                          { label: "Triage comments", onSelect: () => onView("triage") },
-                        ]
-                      : []),
-                  ]}
-                />
-              )}
+              <ActionMenu
+                always
+                label="file"
+                actions={[
+                  ...(!wide && mayDownload
+                    ? [{ label: "Download…", onSelect: () => setDownloading(true) }]
+                    : []),
+                  ...(canVersion
+                    ? [{ label: "New version…", onSelect: () => setVersioning(true) }]
+                    : []),
+                  ...(canTriage
+                    ? [
+                        { label: "Export comments…", onSelect: () => setExporting(true) },
+                        ...(plays
+                          ? [
+                              {
+                                label: "Import a marker list…",
+                                onSelect: () => setImporting(true),
+                              },
+                            ]
+                          : []),
+                        { label: "Triage comments", onSelect: () => onView("triage") },
+                      ]
+                    : []),
+                  // A track's takes (#644): reached from here and the track page, never the version menu.
+                  ...(file.variant && can("view_takes")
+                    ? [
+                        {
+                          label: "Takes of this track",
+                          onSelect: () =>
+                            void navigate({
+                              to: "/tracks/$trackId",
+                              params: { trackId: file.variant?.trackId ?? "" },
+                              search: { view: "takes" },
+                            }),
+                        },
+                      ]
+                    : []),
+                  "divider" as const,
+                  // The details sheet (#561), as the prototype offers it: from the menu.
+                  { label: "Details", onSelect: () => onDetails(true) },
+                ]}
+              />
             </>
           )
         }
@@ -1046,6 +1042,23 @@ export function FilePage({
       </div>
     </>
   );
+}
+
+/** Whether the window is a wide screen's (Tailwind's `lg`), where the header has room for more. */
+function useWide(): boolean {
+  const query = "(min-width: 64rem)";
+  const [wide, setWide] = useState(
+    () => typeof matchMedia !== "function" || matchMedia(query).matches,
+  );
+  useEffect(() => {
+    if (typeof matchMedia !== "function") return;
+    const media = matchMedia(query);
+    const change = () => setWide(media.matches);
+    change();
+    media.addEventListener("change", change);
+    return () => media.removeEventListener("change", change);
+  }, []);
+  return wide;
 }
 
 const NORMALISED_KEY = "hekate.player.normalised";

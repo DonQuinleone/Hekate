@@ -3993,7 +3993,8 @@ test("file-without-details", async ({ page }, info) => {
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
   await expect(page.locator("aside[aria-label=Details]")).toHaveCount(0);
-  await page.getByRole("button", { name: "Details" }).click();
+  await page.getByRole("button", { name: "Actions for file" }).click();
+  await page.getByRole("menuitem", { name: "Details" }).click();
   await expect(page.locator("aside[aria-label=Details]")).toBeVisible();
 });
 
@@ -4129,7 +4130,8 @@ test("video-captions", async ({ page }) => {
   await saveScreen(page, "video-transcript-search");
   await checkScreen(page);
   await page.getByRole("tab", { name: "Comments" }).click();
-  await page.getByRole("button", { name: "Details" }).click();
+  await page.getByRole("button", { name: "Actions for file" }).click();
+  await page.getByRole("menuitem", { name: "Details" }).click();
   const details = page.getByRole("complementary", { name: "Details" });
   await expect(details.getByRole("list", { name: "Captions" })).toContainText(
     "Subtitles · SubRip · 4 captions",
@@ -4944,10 +4946,21 @@ test("file-triage", async ({ page }) => {
   await expect(page.getByRole("button", { name: /their list/ })).toHaveCount(0);
 });
 
+/** The file's download: in the header on a wide screen, in its "…" on a phone (#561). */
+async function openDownload(page: Page) {
+  const button = page.getByRole("button", { name: "Download", exact: true });
+  await page.getByRole("button", { name: "Actions for file" }).waitFor();
+  if (await button.isVisible()) await button.click();
+  else {
+    await page.getByRole("button", { name: "Actions for file" }).click();
+    await page.getByRole("menuitem", { name: "Download…" }).click();
+  }
+}
+
 // Downloads (#136): what you may take, made for you; the proxy is the stream's own AAC, whole.
 test("file-download", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);
-  await page.getByRole("button", { name: "Download", exact: true }).click();
+  await openDownload(page);
   const dialog = page.getByRole("dialog", { name: "Download" });
   await expect(dialog.getByText(/AAC \d+ kb\/s/)).toBeVisible();
   await expect(dialog.getByRole("radio", { name: /Original/ })).toBeChecked();
@@ -4976,7 +4989,7 @@ test("file-download", async ({ page }) => {
 // with the name of whoever asked, as a PDF.
 test("file-download-document", async ({ page }) => {
   await page.goto(`/files/${seeded().scoreFileId}`);
-  await page.getByRole("button", { name: "Download", exact: true }).click();
+  await openDownload(page);
   const dialog = page.getByRole("dialog", { name: "Download" });
   await expect(dialog.getByText(/at print resolution/)).toBeVisible();
   await expect(dialog.getByRole("radio", { name: /Original/ })).toBeChecked();
@@ -5003,7 +5016,7 @@ test("file-download-document", async ({ page }) => {
 // mark burned into the picture as it is sent.
 test("file-download-video", async ({ page }) => {
   await page.goto(`/files/${seeded().cutFileId}`);
-  await page.getByRole("button", { name: "Download", exact: true }).click();
+  await openDownload(page);
   const dialog = page.getByRole("dialog", { name: "Download" });
   await expect(dialog.getByText(/stream as reviewed, as MP4/)).toBeVisible();
   await expect(dialog.getByText(/encoded again to carry the mark/)).toBeVisible();
