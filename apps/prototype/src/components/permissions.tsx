@@ -50,7 +50,16 @@ export function Chip({
 }
 
 /** One person's permission set: what they see, what they can do, how long for. */
-export function Permissions({ guest, compact = false }: { guest: boolean; compact?: boolean }) {
+export function Permissions({
+  guest,
+  compact = false,
+  video = false,
+}: {
+  guest: boolean;
+  compact?: boolean;
+  /** A video project's words (#670): its earlier cuts, not versions. */
+  video?: boolean;
+}) {
   const [scope, setScope] = useState<"all" | "own_and_replies" | "own">(
     guest ? "own_and_replies" : "all",
   );
@@ -132,7 +141,7 @@ export function Permissions({ guest, compact = false }: { guest: boolean; compac
         <Label>History and download</Label>
         <div className="flex flex-wrap items-center gap-4 text-ink-2">
           <label className="flex items-center gap-1.5">
-            <input type="checkbox" defaultChecked={!guest} /> Earlier versions
+            <input type="checkbox" defaultChecked={!guest} /> Earlier {video ? "cuts" : "versions"}
           </label>
           <Seg
             size="md"
@@ -173,11 +182,13 @@ export function PermissionsDialog({
   personId,
   guest,
   reviewTitle,
+  video = false,
   onClose,
 }: {
   personId: string;
   guest: boolean;
   reviewTitle?: string;
+  video?: boolean;
   onClose: () => void;
 }) {
   const person = personById(personId);
@@ -204,7 +215,7 @@ export function PermissionsDialog({
         </>
       }
     >
-      <Permissions guest={guest} compact />
+      <Permissions guest={guest} compact video={video} />
     </Dialog>
   );
 }

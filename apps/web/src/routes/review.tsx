@@ -221,6 +221,7 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
   const { addReviewer, invite, sendLink, revoke, permissions, remind, removeReviewer } = actions;
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
+  const editingReviewer = review.reviewers.find((r) => r.id === editing);
   const manage = review.you.canManageReviewers && review.status === "open";
   // A reviewer whose grant allows it invites too, as a guest beside them (#55).
   const mayInvite = manage || review.you.canInvite;
@@ -407,24 +408,6 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                           {r.note}
                         </blockquote>
                       )}
-                      {editing === r.id && r.permissions && (
-                        <ReviewerPermissionsEditor
-                          name={r.name}
-                          kind={review.kind}
-                          guest={r.guest}
-                          initial={r.permissions}
-                          items={review.items.map((i) => ({ id: i.id, name: i.name }))}
-                          pending={permissions.isPending}
-                          error={permissions.error?.message ?? null}
-                          onCancel={() => setEditing(null)}
-                          onSave={(change) =>
-                            permissions.mutate(
-                              { reviewerId: r.id, permissions: change },
-                              { onSuccess: () => setEditing(null) },
-                            )
-                          }
-                        />
-                      )}
                     </li>
                   );
                 })}
@@ -433,6 +416,31 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
           ))}
         </ul>
       </Card>
+      {editingReviewer?.permissions && (
+        <Dialog
+          title={`${editingReviewer.name} in this review`}
+          description="An override for this review only; everyone else keeps the workspace's defaults."
+          onClose={() => setEditing(null)}
+        >
+          <ReviewerPermissionsEditor
+            name={editingReviewer.name}
+            kind={review.kind}
+            guest={editingReviewer.guest}
+            profile={review.profile}
+            initial={editingReviewer.permissions}
+            items={review.items.map((i) => ({ id: i.id, name: i.name }))}
+            pending={permissions.isPending}
+            error={permissions.error?.message ?? null}
+            onCancel={() => setEditing(null)}
+            onSave={(change) =>
+              permissions.mutate(
+                { reviewerId: editingReviewer.id, permissions: change },
+                { onSuccess: () => setEditing(null) },
+              )
+            }
+          />
+        </Dialog>
+      )}
       {error && <p className="m-0 text-[13px] text-signal">{error.message}</p>}
       {inviting && (
         <div className="rise-in flex flex-col gap-2 rounded-panel border border-line bg-raised/40 p-3">

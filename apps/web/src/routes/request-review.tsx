@@ -349,6 +349,8 @@ function ReviewForm({
   const { data: settings } = useQuery(workspaceSettingsQuery);
   const { data: known = [] } = useQuery(projectGuestsQuery(projectId));
   const { words, versionLabel } = useItemWords(projectId);
+  const { data: project } = useQuery(projectQuery(projectId));
+  const profile = project?.profile ?? null;
   const create = useCreateReview(projectId);
   // Whether everything in the workspace may be asked about (#501): offered only then. The
   // form is shown only to someone who may request reviews, so the question is always asked.
@@ -1054,6 +1056,7 @@ function ReviewForm({
           <ReviewerPermissionsEditor
             name={overridingLabel.name}
             kind={kind}
+            profile={profile}
             guest={overriding.startsWith("guest:")}
             initial={applyPermissions(defaults, overrides[overriding] ?? {}).data ?? defaults}
             pending={false}

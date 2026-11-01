@@ -5131,15 +5131,17 @@ test("file-download-video", async ({ page }) => {
   expect(bytes.toString("latin1", 4, 8)).toBe("ftyp");
 });
 
-// Per-reviewer permissions (#55): a guest's items, earlier versions, tools, download and plays.
+// Per-reviewer permissions (#55): a guest's items, earlier versions, tools, download and plays,
+// in the same dialog as the request page's (#670).
 test("review-reviewer-permissions", async ({ page }) => {
   await page.goto(`/reviews/${seeded().reviewId}`);
   await page.getByRole("button", { name: "Actions for Mira Solberg" }).click();
   await page.getByRole("menuitem", { name: "Override permissions for this review…" }).click();
-  const form = page.getByRole("form", { name: "What Mira Solberg may do" });
+  const dialog = page.getByRole("dialog", { name: "Mira Solberg in this review" });
+  const form = dialog.getByRole("form", { name: "What Mira Solberg may do" });
   await expect(form.getByRole("group", { name: "Items they see" })).toBeVisible();
   await expect(form.getByLabel("Plays of each file, at most")).toBeVisible();
-  await form.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await expect(form.getByText("Earlier versions")).toBeVisible();
   await saveScreen(page, "review-reviewer-permissions");
   await checkScreen(page);
 });

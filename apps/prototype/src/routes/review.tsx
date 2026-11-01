@@ -471,6 +471,7 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
           personId={permissionsFor}
           guest={guests.some((g) => g.personId === permissionsFor)}
           reviewTitle={review.title}
+          video={projectById(review.projectId)?.profile === "video"}
           onClose={() => setPermissionsFor(null)}
         />
       )}
