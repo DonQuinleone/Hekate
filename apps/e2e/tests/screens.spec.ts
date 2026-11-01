@@ -1450,7 +1450,13 @@ test("take-log-offline", async ({ page, context }, info) => {
   await settle(page, "main ul[aria-label=Takes] >> text=T3");
   await context.setOffline(true);
   await page.keyboard.press("Space");
-  await expect(page.getByText("Offline: written here, synced when back")).toBeVisible();
+  await expect(
+    page.getByText("Can't reach the server: written here, sent once it is back"),
+  ).toBeVisible();
+  // The shell's foot says the same, from the same failed writes (#616).
+  await expect(page.getByRole("navigation", { name: "Main" }).first()).toContainText(
+    "Can't reach the server",
+  );
   await expect(page.locator("main ul[aria-label=Takes]")).toContainText("T5");
   await page.keyboard.press("Space");
   await expect(page.getByText("2 waiting to send")).toBeVisible();
@@ -5039,12 +5045,12 @@ test("review-reviewer-permissions", async ({ page }) => {
   await checkScreen(page);
 });
 
-// The shell's foot (#4): with the server's health check unanswered, "API unreachable", in the
+// The shell's foot (#4): with the server's health check unanswered, "Can't reach the server", in the
 // sidebar's foot and, on a phone, above the page.
 test("shell-offline", async ({ page }) => {
   await page.route("**/api/health", (route) => route.abort());
   await page.goto("/");
-  await settle(page, "text=API unreachable >> visible=true");
+  await settle(page, "text=Can't reach the server >> visible=true");
   await saveScreen(page, "shell-offline");
   await checkScreen(page);
 });
