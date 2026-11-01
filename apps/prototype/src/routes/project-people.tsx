@@ -481,11 +481,11 @@ export function People({ project }: { project: Project }) {
               </label>
             </div>
             <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              Role, as shown beside their name
+              Shown as
               <Input
                 value={invite.label}
                 onChange={(e) => setInvite({ ...invite, label: e.target.value })}
-                placeholder="Conductor, Composer, Label (optional)"
+                placeholder="Beside their name, for example Conductor, Composer or Violin (optional)"
                 autoComplete="off"
               />
             </label>

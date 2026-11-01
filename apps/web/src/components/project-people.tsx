@@ -11,6 +11,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { ReviewerGroups } from "~/components/groups";
+import { shownAs } from "~/components/guest-fields";
 import { Icon } from "~/components/icons";
 import { Card, SectionHead } from "~/components/page";
 import { PeoplePicker, type Person } from "~/components/people-picker";
@@ -672,7 +673,7 @@ function InviteDialog({
             />
           </Field>
         </div>
-        <Field label="Role" hint="Shown beside their name: Conductor, Composer, Label. Optional.">
+        <Field label={shownAs.label} hint={`${shownAs.hint} Optional.`}>
           <Input
             value={form.label}
             maxLength={60}

@@ -414,7 +414,11 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
           <div className="grid gap-2 @3xl/app:grid-cols-3">
             <Input placeholder="Name" className="h-8" />
             <Input placeholder="Email" type="email" className="h-8" />
-            <Input placeholder="Label, such as Conductor (optional)" className="h-8" />
+            <Input
+              placeholder="Shown as, for example Violin (optional)"
+              aria-label="Shown as"
+              className="h-8"
+            />
           </div>
           <p className="text-[12px] text-ink-3">
             A member of the project gets a notification; anyone else gets a link, with the
