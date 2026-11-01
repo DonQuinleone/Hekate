@@ -230,8 +230,8 @@ function TaskPanel({
         >
           {me && <Avatar person={me.user.id} name={me.user.name} size={24} />}
           <Input
-            aria-label="Add a note"
-            placeholder="Add a note"
+            aria-label="Comment"
+            placeholder="Add a comment"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             maxLength={4000}
@@ -241,7 +241,7 @@ function TaskPanel({
             variant="secondary"
             disabled={!note.trim() || mutations.note.isPending}
           >
-            Add
+            Comment
           </Button>
         </form>
       )}
@@ -415,14 +415,14 @@ function TaskBody({
       )}
       {(edit || task.notes) && (
         <div className="flex flex-col gap-1.5">
-          <span className="eyebrow">Notes</span>
+          <span className="eyebrow">Description</span>
           {edit ? (
             <Textarea
-              aria-label="Notes"
+              aria-label="Description"
               rows={3}
               maxLength={4000}
               value={notes}
-              placeholder="Anything the owner should know."
+              placeholder="Add a description"
               onChange={(e) => setNotes(e.target.value)}
               onBlur={() =>
                 notes !== (task.notes ?? "") && onChange({ notes: notes.trim() || null })
@@ -577,9 +577,10 @@ function NewTaskDialog({
             </Select>
           </Field>
         )}
-        <Field label="Notes">
+        <Field label="Description">
           <Textarea
             rows={2}
+            placeholder="Add a description"
             value={notes}
             maxLength={4000}
             onChange={(e) => setNotes(e.target.value)}

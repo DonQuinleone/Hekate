@@ -165,6 +165,9 @@ describe("a task's activity", () => {
     expect(taskEventText("edited", { fields: ["title", "due date"] })).toBe(
       "changed the title and due date",
     );
+    // The notes are the description; an entry written before the word changed reads the same.
+    expect(taskEventText("edited", { fields: ["notes"] })).toBe("changed the description");
+    expect(taskEventText("note", null)).toBe("commented");
   });
 });
 

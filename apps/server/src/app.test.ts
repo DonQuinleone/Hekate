@@ -13751,7 +13751,7 @@ describe.runIf(url)("api", () => {
           const approved = await read(await change(first.id, { status: "done" }, s.owner));
           expect(approved.events.map((e) => e.text).slice(-3)).toEqual([
             "marked it done, waiting for approval",
-            "added a note",
+            "commented",
             "approved and closed it",
           ]);
 

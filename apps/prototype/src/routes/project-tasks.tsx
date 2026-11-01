@@ -218,7 +218,7 @@ function TaskPanel({
             </div>
           )}
           <div className="flex flex-col gap-1.5">
-            <Label>Notes</Label>
+            <Label>Description</Label>
             <Textarea
               rows={3}
               defaultValue={
@@ -226,7 +226,7 @@ function TaskPanel({
                   ? "Needs doing before the next round goes out; the conductor noticed it on headphones."
                   : ""
               }
-              placeholder="Anything the owner should know."
+              placeholder="Add a description"
             />
           </div>
           {status === "needs_approval" && viewer.can(project.id, "decide") && (
@@ -265,7 +265,7 @@ function TaskPanel({
       </div>
       <div className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-3">
         <Avatar personId={viewer.personId} size={24} />
-        <Input placeholder="Add a note" className="h-9" />
+        <Input aria-label="Comment" placeholder="Add a comment" className="h-9" />
       </div>
     </aside>
   );
@@ -497,8 +497,8 @@ export function ProjectTasks({
               </Select>
             </label>
             <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              Notes
-              <Textarea rows={2} />
+              Description
+              <Textarea rows={2} placeholder="Add a description" />
             </label>
           </div>
         </Dialog>

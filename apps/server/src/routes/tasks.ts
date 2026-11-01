@@ -185,7 +185,7 @@ async function taskOf(db: Database, vars: TenantVariables, id: string) {
 /** Names of the fields a change touches, as its activity line says them. */
 const fieldNames: Record<string, string> = {
   title: "title",
-  notes: "notes",
+  notes: "description",
   priority: "priority",
   dueOn: "due date",
   trackId: "track",
