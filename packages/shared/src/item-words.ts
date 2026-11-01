@@ -16,9 +16,6 @@ export interface ItemWords {
   versions: string;
   variant: string;
   variants: string;
-  /** @deprecated The names before decision 275, the same words; release 2 of the rename removes them. */
-  variation: string;
-  variations: string;
 }
 
 const musicWords: ItemWords = {
@@ -28,8 +25,6 @@ const musicWords: ItemWords = {
   versions: "versions",
   variant: "variant",
   variants: "variants",
-  variation: "variant",
-  variations: "variants",
 };
 
 const videoWords: ItemWords = {
@@ -39,8 +34,6 @@ const videoWords: ItemWords = {
   versions: "cuts",
   variant: "rendition",
   variants: "renditions",
-  variation: "rendition",
-  variations: "renditions",
 };
 
 export const itemWords = (profile: ProjectProfile | null | undefined): ItemWords =>
@@ -71,10 +64,6 @@ export const updateVariantInput = renditionTreatment
   .partial()
   .refine((v) => Object.keys(v).length > 0, { message: "Nothing to change" });
 export type UpdateVariantInput = z.infer<typeof updateVariantInput>;
-/** @deprecated The names before decision 275; release 2 of the rename removes them. */
-export const updateVariationInput = updateVariantInput;
-/** @deprecated See `UpdateVariantInput`. */
-export type UpdateVariationInput = UpdateVariantInput;
 
 /** The usual picture shapes, by the ratio of width to height they stand for. */
 const namedAspects: [ratio: number, name: string][] = [

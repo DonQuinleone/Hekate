@@ -1535,39 +1535,9 @@ export const versions = pgTable(
   ],
 );
 
-/** The columns of a variant: the two tables below share them while the rename runs. */
-const variantColumns = {
-  id: id(),
-  organisationId: organisationId(),
-  versionId: uuid("version_id")
-    .notNull()
-    .references(() => versions.id, { onDelete: "cascade" }),
-  fileId: uuid("file_id")
-    .notNull()
-    .references(() => files.id, { onDelete: "restrict" }),
-  name: text("name").notNull(),
-  isPrimary: boolean("is_primary").notNull().default(false),
-  position: integer("position").notNull().default(0),
-  /** A rendition's treatment (#16): subtitled or clean, graded or ungraded; null until said. */
-  subtitled: boolean("subtitled"),
-  graded: boolean("graded"),
-  ...timestamps,
-};
-
 /** A file within a version that differs in treatment, for example the dry or the wet mix. */
-export const variants = pgTable("variants", variantColumns, (t) => [
-  index("variants_org_idx").on(t.organisationId),
-  uniqueIndex("variants_file_idx").on(t.fileId),
-  uniqueIndex("variants_one_primary_idx").on(t.versionId).where(sql`${t.isPrimary}`),
-]);
-
-/**
- * @deprecated The variants table under its name before decision 275. Written beside `variants`
- * for one release so the release before still reads it, never read; a trigger carries what the
- * release before writes here into `variants`. Release 2 of the rename drops both.
- */
-export const variations = pgTable(
-  "variations",
+export const variants = pgTable(
+  "variants",
   {
     id: id(),
     organisationId: organisationId(),
@@ -1586,9 +1556,9 @@ export const variations = pgTable(
     ...timestamps,
   },
   (t) => [
-    index("variations_org_idx").on(t.organisationId),
-    uniqueIndex("variations_file_idx").on(t.fileId),
-    uniqueIndex("variations_one_primary_idx").on(t.versionId).where(sql`${t.isPrimary}`),
+    index("variants_org_idx").on(t.organisationId),
+    uniqueIndex("variants_file_idx").on(t.fileId),
+    uniqueIndex("variants_one_primary_idx").on(t.versionId).where(sql`${t.isPrimary}`),
   ],
 );
 

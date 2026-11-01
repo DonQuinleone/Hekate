@@ -6,7 +6,7 @@ Guidance for anyone, human or agent, working in this repository. Read it before 
 
 Hekate is an open-source (AGPL-3.0), self-hosted media review and approval system: a sovereign alternative to Dropbox Replay and Frame.io.
 
-- **Music first, never music only.** Classical music is first-class (tracks with versions and variations, bar numbers, score pages, session takes, a recording synced to its score). Video and general documents must work just as well. Nothing in the interface or the copy should make Hekate feel like a classical-music-only tool.
+- **Music first, never music only.** Classical music is first-class (tracks with versions and variants, bar numbers, score pages, session takes, a recording synced to its score). Video and general documents must work just as well. Nothing in the interface or the copy should make Hekate feel like a classical-music-only tool.
 - **Launch priority:** the music review experience.
 - **Fresh start.** There is no data migration from the legacy application, and no code, names or branding carry over from it.
 - **Multi-tenancy from day one.** Every tenant-owned table has an `organisation_id`. Every query is scoped to an organisation. A hosted offering may follow; nothing should need rewriting for it.
@@ -16,7 +16,7 @@ Hekate is an open-source (AGPL-3.0), self-hosted media review and approval syste
 The vocabulary is fixed and defined in `docs/domain.md`. Read it before naming anything.
 
 - **Project** contains **folders** and **files** of any kind. The **profile** (`music`, `video`, `general`) only decides which tools appear.
-- **Track** (a piece of music) has **versions** (successive edits, numbered), and each version has one or more **variations** (files differing in treatment, such as dry and wet mixes; one is primary).
+- **Track** (a piece of music) has **versions** (successive edits, numbered), and each version has one or more **variants** (files differing in treatment, such as dry and wet mixes; one is primary).
 - **Take** means a recording-session snippet and nothing else. A track has many takes; a take belongs to its track, never to a **session**, and sessions and tracks are linked many to many. A take is a scratch mix for now (one file per microphone follows), with an optional bar range and in and out points. Takes are reference material for producers and editors, not versions.
 - There are no movements.
 - **Comments** belong to a file and may carry an **anchor**: `time` (range or frame), `region` (normalised rectangle on a page or frame) or `bar` (bar and beat, or bar range). Anchors are defined once in `packages/shared`.
@@ -127,7 +127,7 @@ For anyone reviewing a pull request, human or agent. Review against this file an
 
 ### Important: flag these too
 
-- **Vocabulary.** Names that contradict `docs/domain.md`: workspace, project, folder, file, track, version, variation, take, session, comment, anchor, review, workflow, node, connector. Copy says "workspace", never "organisation" (decision 037); code keeps `organisation`. There are no movements; takes are never versions.
+- **Vocabulary.** Names that contradict `docs/domain.md`: workspace, project, folder, file, track, version, variant, take, session, comment, anchor, review, workflow, node, connector. Copy says "workspace", never "organisation" (decision 037); code keeps `organisation`. There are no movements; takes are never versions.
 - **Tests.** New behaviour without a test, especially tenancy and permission rules (prove another organisation and a lesser role are refused). Domain logic that belongs in a pure, tested function.
 - **Runtime.** Non-erasable TypeScript in server code (`enum`, `namespace`, parameter properties) or relative imports without `.ts`; `any` without a comment.
 - **Design system.** Hard-coded colours instead of tokens; stock shadcn styling; copy or UI that makes Hekate read as a classical-music-only tool.

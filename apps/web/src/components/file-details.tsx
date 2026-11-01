@@ -15,7 +15,7 @@ import {
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { actionCopy } from "~/lib/access-log";
+import { actionChoices, actionCopy } from "~/lib/access-log";
 import { formatDates } from "~/lib/locale";
 import {
   accessLogQuery,
@@ -495,7 +495,7 @@ function FileLog({ fileId }: { fileId: string }) {
           className="ml-auto h-7 w-40 text-[12px]"
         >
           <option value="">Every action</option>
-          {Object.entries(actionCopy).map(([id, label]) => (
+          {actionChoices.map(([id, label]) => (
             <option key={id} value={id}>
               {label}
             </option>

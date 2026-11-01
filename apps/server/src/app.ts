@@ -729,10 +729,6 @@ export function createApi(given: AppDeps) {
       .route("/versions", versionRoutes(deps.db))
       .use("/variants/*", ...member)
       .route("/variants", variantRoutes(deps.db, deps.jobs, deps.audit, deps.trustProxy ?? false))
-      // The same routes under their name before decision 275, for a client of the release
-      // before; release 2 of the rename takes them off.
-      .use("/variations/*", ...member)
-      .route("/variations", variantRoutes(deps.db, deps.jobs, deps.audit, deps.trustProxy ?? false))
       .use("/uploads/*", ...member)
       .use("/uploads", ...member)
       // Starting uploads, per member: a client in a loop is stopped before storage is.

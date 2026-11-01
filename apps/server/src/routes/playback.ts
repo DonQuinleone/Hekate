@@ -53,7 +53,6 @@ import {
   membershipOf,
   type SecondFactorRule,
 } from "../tenancy.ts";
-import { bothNames } from "../variants.ts";
 import { viewerMark } from "../viewer-mark.ts";
 import { noteOpened } from "./reviews.ts";
 
@@ -268,8 +267,6 @@ export const fileRoutes = (deps: PlaybackDeps) =>
             commentReferences,
           }),
           variant: variant ? shownVariant(variant) : null,
-          // The same under its old name, for a client of the release before (decision 275).
-          variation: variant ? shownVariant(variant) : null,
           // Its simple version chain (#149), as far as this person may open it.
           chain: await shownChain(deps.db, c.var.actor, file.id),
           grant: access?.grant ?? null,
@@ -357,9 +354,7 @@ export const fileRoutes = (deps: PlaybackDeps) =>
         });
         byVersion.set(r.versionId, version);
       }
-      return c.json({
-        versions: [...byVersion.values()].map((v) => ({ ...v, ...bothNames(v.variants) })),
-      });
+      return c.json({ versions: [...byVersion.values()] });
     })
     // Waveform peaks: an 8-bit envelope per channel, from which no audio can be rebuilt, so
     // members fetch them directly rather than through playback tokens.

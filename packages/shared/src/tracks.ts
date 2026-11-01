@@ -11,8 +11,6 @@ const label = (what: string, max: number) =>
 
 export const trackName = label("A track", 200);
 export const variantName = label("A variant", 80);
-/** @deprecated The name before decision 275; release 2 of the rename removes it. Use `variantName`. */
-export const variationName = variantName;
 
 export const createTrackInput = z.object({
   name: trackName,
@@ -51,44 +49,19 @@ const variantInput = z.object({
 export const carryChoices = ["open", "hidden", "fixed", "wont_fix"] as const;
 export type CarryChoice = (typeof carryChoices)[number];
 
-const versionVariants = z.array(variantInput).min(1, "A version needs at least one file").max(16);
-
-const versionFields = z.object({
-  notes: z.string().trim().max(2000).optional(),
-  /** The version's files, each a variant; one is primary. */
-  variants: versionVariants.optional(),
-  /**
-   * @deprecated The field's name before decision 275, read for one release so a client of the
-   * release before still lands versions; release 2 of the rename removes it. Send `variants`.
-   */
-  variations: versionVariants.optional(),
-  /** The previous version's threads, by id, where not simply carried and shown. */
-  carry: z.record(z.uuid(), z.enum(carryChoices)).optional(),
-  /** An edit decision list in the same project: how this version was cut from the takes. */
-  edlFileId: z.uuid().nullish(),
-  /** Let it in past the project's version checks: for those who may edit workflows. */
-  letThrough: z.boolean().optional(),
-  /** Start one of the track's workflows again from a stage (#25): for those who edit them. */
-  restartFrom: workflowRestartInput.nullish(),
-});
-
-/** A version as the routes read it: its variants under the one name, whichever was sent. */
-export type ParsedVersionInput = Omit<z.output<typeof versionFields>, "variations" | "variants"> & {
-  variants: z.output<typeof versionVariants>;
-};
-
-export const createVersionInput = versionFields
-  .transform(({ variations, variants, ...rest }, ctx): ParsedVersionInput => {
-    const given = variants ?? variations;
-    if (!given) {
-      ctx.addIssue({
-        code: "custom",
-        message: "A version needs at least one file",
-        path: ["variants"],
-      });
-      return z.NEVER;
-    }
-    return { ...rest, variants: given };
+export const createVersionInput = z
+  .object({
+    notes: z.string().trim().max(2000).optional(),
+    /** The version's files, each a variant; one is primary. */
+    variants: z.array(variantInput).min(1, "A version needs at least one file").max(16),
+    /** The previous version's threads, by id, where not simply carried and shown. */
+    carry: z.record(z.uuid(), z.enum(carryChoices)).optional(),
+    /** An edit decision list in the same project: how this version was cut from the takes. */
+    edlFileId: z.uuid().nullish(),
+    /** Let it in past the project's version checks: for those who may edit workflows. */
+    letThrough: z.boolean().optional(),
+    /** Start one of the track's workflows again from a stage (#25): for those who edit them. */
+    restartFrom: workflowRestartInput.nullish(),
   })
   .refine((v) => v.variants.filter((x) => x.primary).length <= 1, {
     message: "Only one variant can be primary",
@@ -102,8 +75,6 @@ export const createVersionInput = versionFields
 export type CreateVersionInput = z.input<typeof createVersionInput>;
 
 export const addVariantInput = variantInput;
-/** @deprecated The name before decision 275; release 2 of the rename removes it. Use `addVariantInput`. */
-export const addVariationInput = addVariantInput;
 
 /** A version's edit decision list (#56): an .edl file of the project, or null to take it off. */
 export const versionEdlInput = z.object({ fileId: z.uuid().nullable() });
@@ -128,13 +99,9 @@ export function variantNameFrom(fileName: string, trackName?: string): string {
   }
   return name.slice(0, 80) || "Main";
 }
-/** @deprecated The name before decision 275; release 2 of the rename removes it. Use `variantNameFrom`. */
-export const variationNameFrom = variantNameFrom;
 
 /** Replacing a variant's file: the new file takes its place, and its threads follow. */
 export const replaceVariantInput = z.object({ fileId: z.uuid() });
-/** @deprecated The name before decision 275; release 2 of the rename removes it. Use `replaceVariantInput`. */
-export const replaceVariationInput = replaceVariantInput;
 
 /** What a project checks before a new version lands; off unless the project asks. */
 export interface VersionChecks {

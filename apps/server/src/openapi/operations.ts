@@ -284,7 +284,6 @@ export const apiOperations: Record<string, ApiOperation> = {
         ...answers.file,
         uploadedBy: "Tomas Varga",
         variant: null,
-        variation: null,
         chain: [],
         tools: ["qa", "meters", "spectrogram"],
       },
@@ -465,27 +464,6 @@ export const apiOperations: Record<string, ApiOperation> = {
   "POST /variants/{id}/replace": {
     summary: "Replace a variant's file",
     description: "With another uploaded file, before anyone has commented on or reviewed it.",
-  },
-  // The variant calls under their name before decision 275, answered for one release.
-  "POST /versions/{id}/variations": {
-    summary: "Add a variant to a version (deprecated name)",
-    deprecated:
-      "Call `POST /versions/{id}/variants`, which answers the same; this name goes in the next release.",
-  },
-  "PATCH /variations/{id}": {
-    summary: "Rename a variant, or change its treatment (deprecated name)",
-    deprecated:
-      "Call `PATCH /variants/{id}`, which answers the same; this name goes in the next release.",
-  },
-  "POST /variations/{id}/primary": {
-    summary: "Make a variant its version's primary (deprecated name)",
-    deprecated:
-      "Call `POST /variants/{id}/primary`, which answers the same; this name goes in the next release.",
-  },
-  "POST /variations/{id}/replace": {
-    summary: "Replace a variant's file (deprecated name)",
-    deprecated:
-      "Call `POST /variants/{id}/replace`, which answers the same; this name goes in the next release.",
   },
 
   // Uploads.

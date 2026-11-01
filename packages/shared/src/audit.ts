@@ -52,7 +52,10 @@ export const auditActions = [
   "version.let_through",
   /** A version's file was replaced by another, its threads moving with it. */
   "variant.replace",
-  /** @deprecated How rows before decision 275 record `variant.replace`; read, never written. */
+  /**
+   * How rows before decision 275 record `variant.replace`: kept, as the log is append-only and
+   * an enum value stays once added (decision 295). Read as `variant.replace`, never written.
+   */
   "variation.replace",
   /** A guest was sent a magic link, used one, or had their links and sessions revoked. */
   "guest.link",
@@ -193,6 +196,27 @@ export const auditActions = [
 ] as const;
 export const auditAction = z.enum(auditActions);
 export type AuditAction = z.infer<typeof auditAction>;
+
+/**
+ * Actions that older entries hold under a name since changed, each with the action it now
+ * stands for (decision 295). The entries stay as written; they are read, and filtered, as the
+ * action they stand for, and no list of actions offers the old name.
+ */
+export const formerAuditActions: Partial<Record<AuditAction, AuditAction>> = {
+  "variation.replace": "variant.replace",
+};
+
+/** The action an entry stands for, under its current name. */
+export const currentAuditAction = (action: string): string =>
+  formerAuditActions[action as AuditAction] ?? action;
+
+/** Every stored value an action's entries may hold: its own, and any it was once written as. */
+export function storedAuditActions(action: AuditAction): AuditAction[] {
+  const former = Object.entries(formerAuditActions)
+    .filter(([, now]) => now === action)
+    .map(([old]) => old as AuditAction);
+  return [action, ...former];
+}
 
 /** A visitor is someone sending files through an upload request (#139), with no account. */
 export const auditActorTypes = ["member", "guest", "visitor", "system"] as const;
