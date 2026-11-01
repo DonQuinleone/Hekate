@@ -428,6 +428,12 @@ export function FilePage({
   const chain = file && !inTrack ? chainOf(file) : [];
   const latestInChain = !chain.length || chain[chain.length - 1]?.id === file?.id;
   const _trackName = inTrack?.track.name;
+  // Whether the file's "…" offers its track's takes.
+  const hasTakes =
+    isAudio &&
+    inTrack !== null &&
+    tools.has("takes") &&
+    allTakes.some((t) => t.trackId === inTrack.track.id && t.coverage);
 
   usePageHeader({
     crumbs: viewer.isGuest
@@ -535,6 +541,20 @@ export function FilePage({
                       },
                     ]
                   : []),
+                // A track's takes (#644): from here and the track page, never among its versions.
+                ...(hasTakes && inTrack
+                  ? [
+                      {
+                        label: "Takes of this track",
+                        onSelect: () =>
+                          navigate({
+                            to: "/tracks/$trackId",
+                            params: { trackId: inTrack.track.id },
+                            search: { view: "takes" },
+                          }),
+                      },
+                    ]
+                  : []),
                 { label: "Details", onSelect: () => setSheet("details") },
                 ...(project && viewer.can(project.id, "organise")
                   ? [
@@ -635,11 +655,6 @@ export function FilePage({
   const latestNumber = inTrack ? Math.max(...inTrack.track.versions.map((x) => x.number)) : 0;
   const decisionStrip =
     review && viewer.reviewerIn(review) ? <DecisionStrip reviewId={review.id} /> : null;
-  const hasTakes =
-    isAudio &&
-    inTrack !== null &&
-    tools.has("takes") &&
-    allTakes.some((t) => t.trackId === inTrack.track.id && t.coverage);
   // The version's edit decision list, as a lane under its waveform: the take of each stretch.
   const edits: EditStretch[] =
     isAudio && inTrack && tools.has("takes")
@@ -707,19 +722,6 @@ export function FilePage({
                     search: { view: "versions" },
                   }),
               },
-              ...(hasTakes
-                ? [
-                    {
-                      label: "Takes",
-                      onSelect: () =>
-                        navigate({
-                          to: "/tracks/$trackId",
-                          params: { trackId: inTrack.track.id },
-                          search: { view: "takes" },
-                        }),
-                    },
-                  ]
-                : []),
             ]),
       ]}
     />

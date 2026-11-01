@@ -12,7 +12,6 @@ import {
   projectTracksQuery,
   type Track,
   trackQuery,
-  trackTakesQuery,
   useItemWords,
   useProjectCan,
   useTrackMutations,
@@ -163,7 +162,7 @@ export function ScoreSwitch({
 /**
  * On a file that is a variant (#15): what leads the strip above the player, as the
  * prototype draws it. The version menu (the track's versions, newest first, then the way to
- * all of them and their notes, and to its takes) and the variant switch. A version or
+ * all of them and their notes; never its takes, which are not versions) and the variant switch. A version or
  * variant chosen starts at the same music as here, where the audio has said where that is,
  * else at the same time. A guest, who sees only what their review holds, is told which
  * version that is. Whoever may upload adds a variant from the switch itself (#486): it
@@ -173,14 +172,11 @@ export function FileContext({
   file,
   media = null,
   guest = false,
-  takes = false,
 }: {
   file: FileDetail;
   /** The player, whose position goes along to the version or variant chosen (#15). */
   media?: HTMLMediaElement | null;
   guest?: boolean;
-  /** Whether the version menu offers the track's takes: for those who may see them. */
-  takes?: boolean;
 }) {
   const variant = file.variant;
   const navigate = useNavigate();
@@ -194,10 +190,6 @@ export function FileContext({
     ...alignmentsQuery(file.id),
     enabled: Boolean(variant) && !guest,
     retry: false,
-  });
-  const { data: takeRows = [] } = useQuery({
-    ...trackTakesQuery(variant?.trackId ?? ""),
-    enabled: Boolean(variant) && takes && !guest,
   });
   const { words } = useItemWords(guest ? undefined : track?.projectId);
   const can = useProjectCan(guest ? undefined : track?.projectId);
@@ -278,19 +270,6 @@ export function FileContext({
                   search: { view: "versions" },
                 }),
             },
-            ...(takes && takeRows.length > 0
-              ? [
-                  {
-                    label: "Takes",
-                    onSelect: () =>
-                      void navigate({
-                        to: "/tracks/$trackId",
-                        params: { trackId: variant.trackId },
-                        search: { view: "takes" },
-                      }),
-                  },
-                ]
-              : []),
           ]}
         />
       )}
