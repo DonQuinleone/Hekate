@@ -39,9 +39,9 @@ const statusDot: Record<Status, DotState> = {
   done: "approved",
 };
 const priorityIcon: Record<Task["priority"], IconName> = {
-  high: "arrowUp",
-  normal: "list",
-  low: "chevronDown",
+  high: "priorityHigh",
+  normal: "priorityNormal",
+  low: "priorityLow",
 };
 const key = (t: Task) => `${t.projectId === "proj-joplin" ? "JR" : "OT"}-${t.id.split("-")[1]}`;
 
@@ -163,7 +163,7 @@ function TaskPanel({
                 </>
               ) : (
                 <button type="button" className="text-ink-3 hover:text-ink">
-                  Assign someone
+                  Unassigned
                 </button>
               )}
             </span>

@@ -46,9 +46,9 @@ const statusDot: Record<TaskStatus, ReviewerDotState> = {
   done: "approved",
 };
 const priorityIcon: Record<TaskPriority, IconName> = {
-  high: "arrowUp",
-  normal: "list",
-  low: "chevronDown",
+  high: "priorityHigh",
+  normal: "priorityNormal",
+  low: "priorityLow",
 };
 const priorityName: Record<TaskPriority, string> = { high: "High", normal: "Normal", low: "Low" };
 
@@ -301,12 +301,12 @@ function TaskBody({
                   {task.assignee.name}
                 </span>
               ) : (
-                <span className="text-ink-3">Nobody yet</span>
+                <span className="text-ink-3">Unassigned</span>
               )
             }
             actions={[
               {
-                label: "Nobody",
+                label: "Unassigned",
                 checked: !task.assignee,
                 onSelect: () => onChange({ assigneeId: null }),
               },
@@ -325,7 +325,7 @@ function TaskBody({
                 {task.assignee.name}
               </>
             ) : (
-              <span className="text-ink-3">Nobody yet</span>
+              <span className="text-ink-3">Unassigned</span>
             )}
           </span>
         )}
@@ -546,7 +546,7 @@ function NewTaskDialog({
         <div className="grid gap-4 @md/app:grid-cols-3">
           <Field label="Owner">
             <Select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-              <option value="">Nobody yet</option>
+              <option value="">Unassigned</option>
               {people.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -720,7 +720,7 @@ export function ProjectTasks({
                               <span className="truncate">{t.assignee.name}</span>
                             </>
                           ) : (
-                            <span className="text-ink-3">Nobody yet</span>
+                            <span className="text-ink-3">Unassigned</span>
                           )}
                         </span>
                         <span className="hidden text-[13px] text-ink-3 @3xl/app:block">

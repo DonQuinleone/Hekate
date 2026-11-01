@@ -87,6 +87,9 @@ import {
   Server,
   Settings,
   Shield,
+  SignalHigh,
+  SignalLow,
+  SignalMedium,
   SkipBack,
   SlidersHorizontal,
   Split,
@@ -230,6 +233,10 @@ const icons = {
   moon: Moon,
   settings: Settings,
   webhook: Webhook,
+  /** A task's priority, as bars rising with it (Linear's way), never a chevron or a list. */
+  priorityLow: SignalLow,
+  priorityNormal: SignalMedium,
+  priorityHigh: SignalHigh,
 } as const satisfies Record<string, LucideIcon>;
 
 /**
