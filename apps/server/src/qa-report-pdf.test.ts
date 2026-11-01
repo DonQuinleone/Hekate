@@ -205,6 +205,18 @@ describe("the QA report as a document (#515)", () => {
     expect((all.match(/ re /g) ?? []).length).toBeGreaterThan(200);
   });
 
+  it("heads the rules' columns, prints the format once and flows the findings on (#565)", () => {
+    const pages = qaReportPages(fixtureDocument(), look());
+    const all = pages.join("\n");
+    for (const head of ["Check", "Asks for", "Result"]) expect(all).toContain(`(${head}) Tj`);
+    expect(all).toContain("(None allowed) Tj");
+    expect(all).toContain("dBTP: exceeded) Tj");
+    // The format once, in the appendix; never a table of its own in the summary.
+    expect(all.match(/\(Codec\) Tj/g)?.length).toBe(1);
+    // The findings start on the summary's page rather than a page of their own.
+    expect(pages[1]).toContain("(Findings) Tj");
+  });
+
   it("never sets words into words, nor off the page, however many findings", () => {
     const many = Array.from({ length: 30 }, (_, i) =>
       finding({

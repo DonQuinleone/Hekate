@@ -183,13 +183,16 @@ export function qaReportPages(doc: QaDocument, look: ReportLook, layout?: SetWor
   heading("Summary");
   summary();
 
-  // The findings, by severity then time.
-  newPage();
+  // The findings, by severity then time, flowing on from the summary (#565): a new page only
+  // where this one has no room left.
+  y += 24;
+  need(160);
   heading("Findings");
   findings();
 
-  // The appendices.
-  newPage();
+  // The appendices, flowing on as the findings do.
+  y += 24;
+  need(160);
   heading("Appendix");
   appendix();
 
@@ -452,7 +455,7 @@ export function qaReportPages(doc: QaDocument, look: ReportLook, layout?: SetWor
       [
         "True peak",
         s.truePeak === null ? "Not measured" : `${decibels(s.truePeak)} dBTP`,
-        `Ceiling ${decibels(s.ceiling)} dBTP${s.truePeak !== null ? (s.truePeak > s.ceiling ? ", over it" : ", within it") : ""}`,
+        `Ceiling ${decibels(s.ceiling)} dBTP${s.truePeak !== null ? (s.truePeak > s.ceiling ? ": exceeded" : ": within") : ""}`,
         s.truePeak === null ? null : s.truePeak > s.ceiling ? "fail" : "pass",
       ],
       [
@@ -490,8 +493,9 @@ export function qaReportPages(doc: QaDocument, look: ReportLook, layout?: SetWor
     });
     y += 82;
 
-    // How many findings of each severity.
-    subheading("Findings");
+    // How many checks came to each severity (#564), as the QA view and its badge count them.
+    // The format and the file's metadata are set out once, in the appendix (#565).
+    subheading("Checks");
     const order: QaSeverity[] = ["fail", "warn", "info", "pass"];
     const quarter = W / 4;
     order.forEach((severity, i) => {
@@ -501,35 +505,6 @@ export function qaReportPages(doc: QaDocument, look: ReportLook, layout?: SetWor
       text("regular", 8.5, x + 14, y + 36, qaSeverityNames[severity], PRINT.ink2);
     });
     y += 58;
-
-    // The format and what the file says about itself.
-    const half = (W - 24) / 2;
-    const start = y;
-    subheadingAt("Format", M, half);
-    let left = y;
-    left = table(s.format.length > 0 ? s.format : [["Format", "Not read"]], M, left, half, 8);
-    y = start;
-    subheadingAt("Metadata", M + half + 24, half);
-    const shown = s.metadata.slice(0, 9);
-    let rightEnd = table(
-      shown.length > 0 ? shown : [["Metadata", "None read"]],
-      M + half + 24,
-      y,
-      half,
-      9,
-    );
-    if (s.metadata.length > shown.length) {
-      text("regular", 8, M + half + 24, rightEnd + 10, "The rest is in the appendix.", PRINT.ink3);
-      rightEnd += 14;
-    }
-    y = Math.max(left, rightEnd) + 10;
-  }
-
-  function subheadingAt(title: string, x: number, width: number) {
-    text("bold", 11, x, y + 11, title);
-    y += 18;
-    rule(y, PRINT.hairline, x, x + width);
-    y += 4;
   }
 
   /** Rows of a label and its value, the value wrapped; where the table ends. */
@@ -734,6 +709,12 @@ export function qaReportPages(doc: QaDocument, look: ReportLook, layout?: SetWor
 
     y += 22;
     subheading("C. Rules checked");
+    // Headed columns (#565): what each rule asks for, and what was found.
+    need(24);
+    text("bold", 8, M, y + 10, "Check", PRINT.ink3);
+    text("bold", 8, M + 180, y + 10, "Asks for", PRINT.ink3);
+    text("bold", 8, M + W - 96, y + 10, "Result", PRINT.ink3);
+    y += 18;
     const sources: [RuleLine["source"], string][] = [
       ["profile", `Delivery profile: ${doc.profile}`],
       ["signal", "Signal checks"],
