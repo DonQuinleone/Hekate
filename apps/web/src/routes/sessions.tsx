@@ -27,6 +27,7 @@ import {
 } from "~/lib/queries";
 import { slotMoment, slotTime } from "~/lib/take-log";
 import { coverageLabel, falseStartsLabel, timecodeSpan, usedInLabel } from "~/lib/take-page";
+import { PageFailed } from "~/routes/problem";
 import { ProjectFrame } from "~/routes/project";
 
 /** A session's own page, framed as the other pages of the project are. */
@@ -316,7 +317,7 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
     queries: trackIds.map((id) => ({ ...editDecisionsQuery(id), retry: false })),
   });
   const decisions = new Map(trackIds.map((id, i) => [id, lists[i]?.data ?? null]));
-  if (error) return <Failed what="This session" error={error} retry={refetch} />;
+  if (error) return <PageFailed what="This session" error={error} retry={refetch} />;
   if (!session || !project) return <Loading />;
   const canEdit = can("edit_takes") && !project.archivedAt;
   const rows = session.takeRows;

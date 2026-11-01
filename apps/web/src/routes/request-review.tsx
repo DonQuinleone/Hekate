@@ -30,7 +30,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { InlineInput, Input, Textarea } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
-import { Failed, Loading } from "~/components/ui/states";
+import { Loading } from "~/components/ui/states";
 import { Switch } from "~/components/ui/toggle";
 import { itemsIn } from "~/lib/browser";
 import { cn } from "~/lib/cn";
@@ -68,6 +68,7 @@ import {
 } from "~/lib/review-form";
 import { toggleScope, WORKSPACE_KEY } from "~/lib/review-scope";
 import { guestFromEmail } from "~/lib/shares";
+import { PageFailed } from "~/routes/problem";
 
 const kinds: { id: ReviewKind; label: string; hint: string }[] = [
   {
@@ -228,7 +229,7 @@ export function RequestReviewPage({
     enabled: Boolean(from) && mayRequest,
   });
 
-  if (error) return <Failed what="This project" error={error} retry={refetch} />;
+  if (error) return <PageFailed what="This project" error={error} retry={refetch} />;
   if (!project) return <Loading />;
   const crumbs = [
     { key: "projects", link: <Link to="/projects">Projects</Link> },

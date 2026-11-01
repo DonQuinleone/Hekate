@@ -32,6 +32,7 @@ import { GuestHomePage } from "~/routes/guest";
 import { InboxPage } from "~/routes/home";
 import { InstancePage } from "~/routes/instance";
 import { NotificationsPage, SearchPage } from "~/routes/misc";
+import { type ProblemKind, ProblemPage } from "~/routes/problem";
 import { ProjectPage } from "~/routes/project";
 import { ProjectsPage } from "~/routes/projects";
 import { QaReportPage } from "~/routes/qa-report";
@@ -80,15 +81,12 @@ function Root() {
 
 const root = createRootRoute({
   component: Root,
-  notFoundComponent: () => (
-    <div className="mx-auto max-w-md px-6 py-16">
-      <h1 className="text-[16px] font-medium">Not found</h1>
-      <p className="mt-1 text-ink-2">
-        There is nothing at this address, or you do not have access to it.
-      </p>
-    </div>
-  ),
+  notFoundComponent: () => <ProblemPage kind="not-found" framed />,
 });
+
+const problemKinds = ["not-found", "refused", "error"] as const;
+const kindOf = (kind: string): ProblemKind =>
+  (problemKinds as readonly string[]).includes(kind) ? (kind as ProblemKind) : "not-found";
 
 /** Scrolls the main pane to the top on each page. */
 function ScrollTop() {
@@ -421,6 +419,25 @@ const search = createRoute({
   },
 });
 
+/** When a page cannot be shown (#546), in the shell: not found, refused, or an error. */
+const problem = createRoute({
+  getParentRoute: () => app,
+  path: "/problem/$kind",
+  component: function ProblemRoute() {
+    const { kind } = problem.useParams();
+    return <ProblemPage kind={kindOf(kind)} />;
+  },
+});
+/** The same, signed out: on the standalone frame. */
+const problemFramed = createRoute({
+  getParentRoute: () => root,
+  path: "/problem/$kind/signed-out",
+  component: function ProblemFramedRoute() {
+    const { kind } = problemFramed.useParams();
+    return <ProblemPage kind={kindOf(kind)} framed />;
+  },
+});
+
 const guestApp = createRoute({ getParentRoute: () => root, id: "guest-app", component: GuestApp });
 const guestHome = createRoute({
   getParentRoute: () => guestApp,
@@ -485,8 +502,10 @@ export const router = createRouter({
     consent,
     uploadRequest,
     status,
+    problemFramed,
     app.addChildren([
       home,
+      problem,
       inbox,
       requestReview,
       review,

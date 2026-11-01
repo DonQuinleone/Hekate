@@ -28,7 +28,7 @@ import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
-import { Failed, Loading } from "~/components/ui/states";
+import { Loading } from "~/components/ui/states";
 import { ReviewerDot, type ReviewerDotState, StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
@@ -46,6 +46,7 @@ import {
 } from "~/lib/queries";
 import { shareLine, shareNote } from "~/lib/shares";
 import { useViewer } from "~/lib/viewer";
+import { PageFailed } from "~/routes/problem";
 
 const shortDate = formatDates({ day: "numeric", month: "short" });
 const longDate = formatDates({ day: "numeric", month: "long", year: "numeric" });
@@ -881,7 +882,7 @@ export function ReviewBody({
     }
   }, [markViewed, mine?.state, viewed]);
 
-  if (error) return <Failed what="This review" error={error} retry={refetch} />;
+  if (error) return <PageFailed what="This review" error={error} retry={refetch} />;
   if (!review) return <Loading />;
   const state = reviewState(review);
   const due = review.dueAt ? dueIn(review.dueAt) : null;

@@ -35,6 +35,7 @@ import {
 import { useShortcuts } from "~/lib/shortcuts";
 import { coverageLabel, falseStartsLabel, takeLoop, timecodeSpan } from "~/lib/take-page";
 import { primaryOf } from "~/lib/versions";
+import { PageFailed } from "~/routes/problem";
 
 /**
  * One take on its own page (#21, #45), as the prototype's: what is known of it in a line,
@@ -72,7 +73,7 @@ export function TakePage({ takeId }: { takeId: string }) {
     })),
     siblings.length > 1,
   );
-  if (error) return <Failed what="This take" error={error} retry={refetch} />;
+  if (error) return <PageFailed what="This take" error={error} retry={refetch} />;
   if (!take || !project) return <Loading />;
   const used = decisions?.uses.some((u) => u.takeId === take.id)
     ? `V${decisions.version.number}`

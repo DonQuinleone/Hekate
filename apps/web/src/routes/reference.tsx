@@ -41,6 +41,7 @@ import { GroupLegend, KindLegend } from "~/components/workflow-kinds";
 import { cn } from "~/lib/cn";
 import { categoryTones } from "~/lib/comments";
 import { ApiError } from "~/lib/queries";
+import { InShell, ProblemPage } from "~/routes/problem";
 
 /*
  * The design system as a reference for whoever builds screens: the brand, the tokens, and
@@ -1132,6 +1133,28 @@ function Components() {
               <Refused size="panel" />
             </Card>
           </div>
+        </Spec>
+        <Spec
+          name="Not found, refused, error"
+          rule="When a whole page cannot be shown: what happened and a way on. In the shell's pane when signed in, on the sign-in frame when not. A refusal names the account signed in; an error gives its reference when the server recorded one."
+        >
+          <InShell.Provider value="member">
+            <div className="grid w-full gap-2 @5xl/app:grid-cols-3">
+              <Card>
+                <ProblemPage kind="not-found" />
+              </Card>
+              <Card>
+                <ProblemPage kind="refused" />
+              </Card>
+              <Card>
+                <ProblemPage
+                  kind="error"
+                  error={new ApiError("Something went wrong", "internal", "HK-7F3A-2C")}
+                  reset={() => undefined}
+                />
+              </Card>
+            </div>
+          </InShell.Provider>
         </Spec>
         <Spec name="Problem" rule="Inline, next to what is wrong, with the fix in the sentence.">
           <span className="rounded-panel border border-signal/40 bg-signal/10 px-3 py-2 text-[12px] text-ink">

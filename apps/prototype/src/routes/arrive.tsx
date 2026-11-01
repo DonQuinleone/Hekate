@@ -9,7 +9,8 @@ import { organisation } from "~/data";
 import { cn } from "~/lib/cn";
 import { useViewer } from "~/viewer/context";
 
-function Frame({
+/** The standalone frame: sign-in, invitations and the pages for those signed out. */
+export function Frame({
   title,
   intro,
   children,

@@ -51,7 +51,7 @@ import { TriageView } from "~/components/triage";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
-import { Failed, failureText, Loading } from "~/components/ui/states";
+import { failureText, Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { threadsOf } from "~/lib/comments";
 import { compareSources, previousCut } from "~/lib/compare";
@@ -81,6 +81,7 @@ import {
 } from "~/lib/queries";
 import { fileKindWords } from "~/lib/shares";
 import { useViewer } from "~/lib/viewer";
+import { PageFailed } from "~/routes/problem";
 
 const dateFormat = formatDates({
   day: "numeric",
@@ -486,7 +487,7 @@ export function FilePage({
     ...projectQuery(file?.projectId ?? ""),
     enabled: Boolean(file) && !guest,
   });
-  if (error) return <Failed what="This file" error={error} retry={refetch} />;
+  if (error) return <PageFailed what="This file" error={error} retry={refetch} />;
   if (!file) return <Loading />;
   // A guest's review decides which tools they have; members have them all.
   // A guest's tools come with their review, a member's with their role (#240).

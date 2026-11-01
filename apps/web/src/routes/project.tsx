@@ -8,7 +8,7 @@ import { PageHeader } from "~/components/page-header";
 import { ProjectPeople } from "~/components/project-people";
 import { ProjectReviews } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
-import { Failed, Loading } from "~/components/ui/states";
+import { Loading } from "~/components/ui/states";
 import { type BrowserFilters, noFilters } from "~/lib/browser";
 import { formatDates } from "~/lib/locale";
 import {
@@ -20,6 +20,7 @@ import {
   useProjectDeletion,
 } from "~/lib/queries";
 import { ProjectOverview } from "~/routes/overview";
+import { PageFailed } from "~/routes/problem";
 
 /**
  * A project's pages share their frame: the trail back to the projects, the section's name as
@@ -40,7 +41,7 @@ export function ProjectFrame({
   children: (project: Project) => ReactNode;
 }) {
   const { data: project, error, refetch } = useQuery(projectQuery(projectId));
-  if (error) return <Failed what="This project" error={error} retry={refetch} />;
+  if (error) return <PageFailed what="This project" error={error} retry={refetch} />;
   if (!project) return <Loading />;
   return (
     <>

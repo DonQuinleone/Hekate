@@ -13,7 +13,7 @@ import { TakeManager } from "~/components/takes";
 import { TrackHeading, TrackVersions } from "~/components/track-versions";
 import { Button } from "~/components/ui/button";
 import { Segmented } from "~/components/ui/segmented";
-import { Failed, Loading } from "~/components/ui/states";
+import { Loading } from "~/components/ui/states";
 import type { Picked } from "~/lib/picked-files";
 import {
   projectQuery,
@@ -23,6 +23,7 @@ import {
   useProjectTool,
 } from "~/lib/queries";
 import { primaryOf } from "~/lib/versions";
+import { PageFailed } from "~/routes/problem";
 
 /**
  * A track (#131): it opens in the player on its latest version's primary file, like a
@@ -59,7 +60,7 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
       setAdding(true);
     },
   });
-  if (error) return <Failed what="This track" error={error} retry={refetch} />;
+  if (error) return <PageFailed what="This track" error={error} retry={refetch} />;
   if (!track || !project) return <Loading />;
   const latest = track.versions.at(-1);
   const playable = latest && primaryOf(latest);

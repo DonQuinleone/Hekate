@@ -5081,3 +5081,70 @@ test("search-fields", async ({ page }) => {
   await saveScreen(page, "search-fields");
   await checkScreen(page);
 });
+
+// When a page cannot be shown (#546): an address that leads nowhere, in the shell and signed
+// out; a project this account may not open; and a failure while loading the app, with its
+// reference to quote. And a page whose content could not be loaded (#545): Failed in its place,
+// with the reference and Try again.
+test("not-found", async ({ page }) => {
+  await page.goto("/no-such-page");
+  await settle(page, "main >> text=This page does not exist");
+  await saveScreen(page, "not-found");
+  await checkScreen(page);
+});
+
+test.describe("not found, signed out", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+  test("not-found-signed-out", async ({ page }) => {
+    await page.goto("/no-such-page");
+    await settle(page, "text=This page does not exist");
+    await saveScreen(page, "not-found-signed-out");
+    await checkScreen(page);
+  });
+});
+
+test("refused", async ({ page }) => {
+  const projectId = seeded().musicProjectId;
+  await page.route(`**/api/projects/${projectId}`, (route) =>
+    route.fulfill({
+      status: 403,
+      json: { error: { code: "forbidden", message: "Not allowed" } },
+    }),
+  );
+  await page.goto(`/projects/${projectId}`);
+  await settle(page, "main >> text=You cannot open this");
+  await saveScreen(page, "refused");
+  await checkScreen(page);
+});
+
+test("error-page", async ({ page }) => {
+  await page.route("**/api/me", (route) =>
+    route.fulfill({
+      status: 500,
+      json: {
+        error: { code: "internal", message: "Something went wrong", reference: "HK-7F3A-2C" },
+      },
+    }),
+  );
+  await page.goto("/");
+  await settle(page, "text=Something went wrong");
+  await expect(page.getByText("HK-7F3A-2C")).toBeVisible();
+  await saveScreen(page, "error-page");
+  await checkScreen(page);
+});
+
+test("failed", async ({ page }) => {
+  const projectId = seeded().musicProjectId;
+  await page.route(`**/api/projects/${projectId}/board`, (route) =>
+    route.fulfill({
+      status: 500,
+      json: {
+        error: { code: "internal", message: "Something went wrong", reference: "HK-2B91-E0" },
+      },
+    }),
+  );
+  await page.goto(`/projects/${projectId}/board`);
+  await settle(page, "main >> text=The board could not be loaded");
+  await saveScreen(page, "failed");
+  await checkScreen(page);
+});
