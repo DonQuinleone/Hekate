@@ -85,7 +85,11 @@ export function Avatar({
  * How far each avatar in a row tucks under the one before (#540). The ring, in the ground
  * colour, sits on top of that, so together they leave the initials of every face whole.
  */
-export const stackOverlap = (size: number) => Math.max(1, Math.round(size * 0.09));
+export const stackOverlap = (size: number) => {
+  // Two capitals take about 1.4 times the type's size; the ring takes 2 px of what is left.
+  const font = Math.max(9, Math.round(size * 0.4));
+  return Math.max(0, Math.floor((size - 1.4 * font) / 2 - 2.5));
+};
 
 /** A few people, overlapping, each ringed in the ground colour, with a count of the rest. */
 export function AvatarRow({

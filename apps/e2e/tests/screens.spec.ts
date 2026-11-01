@@ -5148,3 +5148,13 @@ test("failed", async ({ page }) => {
   await saveScreen(page, "failed");
   await checkScreen(page);
 });
+
+test("loading", async ({ page }) => {
+  const projectId = seeded().musicProjectId;
+  // The board's answer never comes: its place shows the content's shape, not a word.
+  await page.route(`**/api/projects/${projectId}/board`, () => undefined);
+  await page.goto(`/projects/${projectId}/board`);
+  await expect(page.locator("main output[aria-label='Loading']").first()).toBeVisible();
+  await saveScreen(page, "loading");
+  await checkScreen(page);
+});

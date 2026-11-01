@@ -100,7 +100,7 @@ export function SessionsPage({ projectId }: { projectId: string }) {
               }
             />
           ) : (
-            <>
+            <div className="flex flex-col gap-3">
               {/* Inside a project the view's actions sit at the right of its content (#548). */}
               {canEdit && !project.archivedAt && (
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -150,7 +150,7 @@ export function SessionsPage({ projectId }: { projectId: string }) {
                   </li>
                 ))}
               </ul>
-            </>
+            </div>
           )}
           {making && <SessionDialog projectId={project.id} onClose={() => setMaking(false)} />}
           {importing && (

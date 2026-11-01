@@ -761,7 +761,7 @@ function DeliveryProfiles() {
       {/* The workspace's own first, then the built-in ones under their own head (#609). */}
       <Section
         title="Yours"
-        count={customs.length}
+        count={customs.length || undefined}
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
             <Icon name="plus" size={14} />

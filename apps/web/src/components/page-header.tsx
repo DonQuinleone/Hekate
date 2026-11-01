@@ -159,34 +159,38 @@ function Trail({ crumbs, title, meta }: { crumbs: Crumb[]; title: ReactNode; met
       aria-label="Breadcrumb"
       className="relative flex min-w-0 flex-1 items-center gap-1.5 text-[13px]"
     >
-      {/* Every part at its natural width, out of sight, to measure what fits. */}
+      {/* Every part at its natural width, out of sight and out of the page's width, to measure what fits. */}
       <div
-        ref={measure}
         aria-hidden="true"
-        className="pointer-events-none invisible absolute top-0 left-0 flex items-center gap-1.5 whitespace-nowrap"
+        className="pointer-events-none invisible absolute top-0 left-0 size-0 overflow-hidden"
       >
-        {crumbs.map((c) => (
-          <CrumbItem key={c.key} crumb={c} />
-        ))}
-        <span data-more="" className="flex shrink-0 items-center gap-1.5">
-          <span className="w-7" />
-          <span className="text-edge">/</span>
-        </span>
-        <span data-title="" className="px-1 font-medium">
-          {title}
-        </span>
-        {meta && (
-          <span data-meta="" className="tabular text-[12px]">
-            {meta}
-          </span>
-        )}
-        {last && (
-          <span data-back="" className="flex items-center gap-1">
-            <span className="w-3.5" />
-            {last.link}
+        <div
+          ref={measure}
+          className="absolute top-0 left-0 flex items-center gap-1.5 whitespace-nowrap"
+        >
+          {crumbs.map((c) => (
+            <CrumbItem key={c.key} crumb={c} />
+          ))}
+          <span data-more="" className="flex shrink-0 items-center gap-1.5">
+            <span className="w-7" />
             <span className="text-edge">/</span>
           </span>
-        )}
+          <span data-title="" className="px-1 font-medium">
+            {title}
+          </span>
+          {meta && (
+            <span data-meta="" className="tabular text-[12px]">
+              {meta}
+            </span>
+          )}
+          {last && (
+            <span data-back="" className="flex items-center gap-1">
+              <span className="w-3.5" />
+              {last.link}
+              <span className="text-edge">/</span>
+            </span>
+          )}
+        </div>
       </div>
       {/* On a phone the trail shrinks to its last step, as the way back: whole beside the
           page's name, or the arrow alone when it would not fit. */}
