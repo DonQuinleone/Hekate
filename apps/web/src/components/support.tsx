@@ -119,7 +119,7 @@ export function Thread({
               <Icon name="bolt" size={13} />
             </span>
           ) : (
-            <Avatar id={m.authorId ?? m.name} name={m.name} size={28} />
+            <Avatar person={m.authorId ?? m.name} name={m.name} size={28} />
           )}
           <div
             className={cn(

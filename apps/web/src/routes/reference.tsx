@@ -726,11 +726,20 @@ function Components() {
       >
         <Spec
           name="Avatar"
-          rule="Initials on a hue of their own; a row overlaps and stops at four."
+          rule="Initials on the person's own hue, taken from who they are (a member's or guest's id), so one person is one colour everywhere. The ramp and the ink are the theme's, 4.5:1 in every theme. A row tucks each face under a ring of the ground, never over the initials, and stops at four."
         >
-          <Avatar id="alex" name="Alex Rivera" size={28} />
-          <Avatar id="mira" name="Mira Solberg" size={20} />
+          <Avatar person="alex" name="Alex Rivera" size={28} />
+          <Avatar person="mira" name="Mira Solberg" size={20} />
           <AvatarRow
+            size={20}
+            people={[
+              { id: "alex", name: "Alex Rivera" },
+              { id: "tomas", name: "Tomas Varga" },
+              { id: "ines", name: "Ines Arlow" },
+            ]}
+          />
+          <AvatarRow
+            total={7}
             people={[
               { id: "alex", name: "Alex Rivera" },
               { id: "tomas", name: "Tomas Varga" },

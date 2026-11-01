@@ -188,6 +188,7 @@ export async function taskDetail(
     events: events.map((e) => ({
       id: e.id,
       at: e.createdAt.toISOString(),
+      actorId: e.actorId,
       actorName: e.actorName,
       kind: e.kind,
       text: taskEventText(e.kind, e.detail),

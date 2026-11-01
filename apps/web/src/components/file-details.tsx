@@ -634,7 +634,7 @@ export function FileDetailsSheet({ fileId, onClose }: { fileId: string; onClose:
                 {details.file.uploadedBy && details.file.uploadedById ? (
                   <span className="inline-flex items-center gap-2">
                     <Avatar
-                      id={details.file.uploadedById}
+                      person={details.file.uploadedById}
                       name={details.file.uploadedBy}
                       size={18}
                     />

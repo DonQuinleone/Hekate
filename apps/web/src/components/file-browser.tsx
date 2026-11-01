@@ -1394,7 +1394,7 @@ export function FileBrowser({
         case "people":
           return f.uploadedBy && f.uploadedById ? (
             <span title={f.uploadedBy}>
-              <Avatar id={f.uploadedById} name={f.uploadedBy} size={22} />
+              <Avatar person={f.uploadedById} name={f.uploadedBy} size={22} />
             </span>
           ) : (
             "—"

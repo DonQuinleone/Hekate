@@ -1106,7 +1106,7 @@ function Members({ role: myRole }: { role: Role }) {
                 key={m.id}
                 className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-raised/30"
               >
-                <Avatar id={m.userId} name={m.name} size={28} />
+                <Avatar person={m.userId} name={m.name} size={28} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[14px] text-ink">
                     {m.name}
@@ -1195,7 +1195,7 @@ function Guests() {
       {revoke.error && <p className="px-4 py-2 text-[13px] text-signal">{revoke.error.message}</p>}
       {guests.map((g) => (
         <div key={g.id} className="group flex items-center gap-3 px-4 py-2.5">
-          <Avatar id={g.id} name={g.name} size={28} />
+          <Avatar person={g.id} name={g.name} size={28} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[14px] text-ink">
               {g.name}

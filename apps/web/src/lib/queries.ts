@@ -1893,6 +1893,8 @@ export interface Comment {
   anchor: Anchor | null;
   body: string;
   authorId: string | null;
+  /** The guest who wrote it, for their avatar (#604); members are told, guests never. */
+  authorGuestId: string | null;
   authorName: string | null;
   /** Written by a guest reviewer; their label (for example "Conductor") reads beside the name. */
   authorGuest: boolean;
@@ -2553,7 +2555,8 @@ export interface Variant {
 export interface Version {
   id: string;
   number: number;
-  /** Who added it, by name; null once their account is gone. */
+  /** Who added it; null once their account is gone. */
+  createdBy: string | null;
   createdByName: string | null;
   /** Who sent its file through an upload request, where no member added it (#425). */
   sentBy?: string | null;
@@ -3621,6 +3624,8 @@ export interface ReviewDetail {
     id: string;
     /** Null for a guest. */
     userId: string | null;
+    /** The guest, the same in every review (#604); for members only, null otherwise. */
+    guestId: string | null;
     name: string;
     guest: boolean;
     /** A guest's role on the production, such as "Conductor". */
@@ -3687,6 +3692,8 @@ export interface ReviewActivity {
     | "guest.view"
     | "guest.revoke";
   name: string;
+  /** Whose avatar it carries (#604): a user id or a guest id; null for a former member. */
+  person: string | null;
   at: string;
   decision: ReviewDecision | null;
   /** Who it concerned: the reviewer added, removed, reminded or revoked. */

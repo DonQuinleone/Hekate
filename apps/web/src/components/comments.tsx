@@ -76,7 +76,7 @@ import {
 } from "~/lib/queries";
 import { useShortcuts } from "~/lib/shortcuts";
 import { useViewer } from "~/lib/viewer";
-import { Avatar } from "./avatar";
+import { Avatar, personKey } from "./avatar";
 import { CommentAssignee } from "./comment-assignee";
 import { DeferDialog } from "./defer-dialog";
 import type { RegionMarker } from "./document-viewer";
@@ -405,7 +405,7 @@ function Composer({
                   i === index ? "bg-ground/60 text-ink" : "text-ink-2",
                 )}
               >
-                <Avatar id={person.id} name={person.name} size={18} />
+                <Avatar person={person.id} name={person.name} size={18} />
                 <span className="truncate">{person.name}</span>
               </div>
             ))}
@@ -666,7 +666,11 @@ function CommentBody({
     <div className="flex flex-col gap-1.5">
       <div className="flex min-w-0 items-center gap-2 text-xs">
         <Avatar
-          id={comment.authorId ?? comment.authorName ?? "former"}
+          person={personKey({
+            userId: comment.authorId,
+            guestId: comment.authorGuestId,
+            name: comment.authorName ?? "former",
+          })}
           name={comment.authorName ?? "Former member"}
           size={20}
         />

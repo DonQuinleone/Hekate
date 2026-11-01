@@ -226,7 +226,7 @@ function Card({
         <span className="flex items-center gap-2 text-[12px] text-ink-3">
           {display.fields.reviewers && card.waitingOn.length > 0 && (
             <>
-              <AvatarRow people={card.waitingOn} size={18} />
+              <AvatarRow people={card.waitingOn} size={20} />
               <span>waiting</span>
             </>
           )}

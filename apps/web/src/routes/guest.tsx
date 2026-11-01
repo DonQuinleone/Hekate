@@ -195,7 +195,7 @@ export function GuestShell({ children }: { children: ReactNode }) {
               {me?.organisation ? ` · ${me.organisation}` : ""}
             </span>
           </span>
-          {me && <Avatar id={me.guest.id} name={me.guest.name} size={28} />}
+          {me && <Avatar person={me.guest.id} name={me.guest.name} size={28} />}
           <Button
             variant="ghost"
             size="sm"

@@ -13,8 +13,13 @@ export interface Person {
   name: string;
   /** Under the name in the list: an email, a label, how many a group holds. */
   hint?: string;
+  /** Their avatar's key (#604), where it is not in `key`: a known guest's id. */
+  avatar?: string;
   kind: "member" | "group" | "guest";
 }
+
+/** Whose colour an avatar takes (#604): a member's user id, a known guest's id, or the address. */
+const avatarOf = (person: Person) => person.avatar ?? person.key.slice(person.key.indexOf(":") + 1);
 
 const emailOf = (person: Person) =>
   person.kind === "guest" ? person.key.slice("guest:".length) : null;
@@ -151,7 +156,7 @@ export function PeoplePicker({
               {person.kind === "group" ? (
                 <Icon name="users" size={13} className="mx-1 shrink-0 text-ink-3" />
               ) : (
-                <Avatar id={person.key} name={person.name} size={18} />
+                <Avatar person={avatarOf(person)} name={person.name} size={18} />
               )}
               <span className="min-w-0 truncate">{person.name}</span>
               <button
@@ -228,7 +233,7 @@ export function PeoplePicker({
                   <Icon name="users" size={14} />
                 </span>
               ) : (
-                <Avatar id={person.key} name={person.name} size={20} />
+                <Avatar person={avatarOf(person)} name={person.name} size={20} />
               )}
               <span className="min-w-0 flex-1 truncate">{person.name}</span>
               {person.hint && (

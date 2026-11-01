@@ -436,7 +436,13 @@ function ReviewForm({
       };
     }),
     ...[...guestsByKey].map(
-      ([key, g]): Person => ({ key, name: g.name, hint: g.label ?? g.email, kind: "guest" }),
+      ([key, g]): Person => ({
+        key,
+        avatar: known.find((k) => k.email === g.email)?.id,
+        name: g.name,
+        hint: g.label ?? g.email,
+        kind: "guest",
+      }),
     ),
   ];
 
@@ -476,7 +482,8 @@ function ReviewForm({
     return {
       name: g?.name ?? id,
       hint: `${g?.label ?? (fresh ? "New guest" : "Guest")} · ${id}`,
-      avatar: id,
+      // A guest the project knows takes their colour from who they are (#604), as everywhere.
+      avatar: known.find((k) => `guest:${k.email}` === key)?.id ?? id,
     };
   };
 
@@ -577,7 +584,7 @@ function ReviewForm({
             <Icon name="users" size={15} />
           </span>
         ) : (
-          <Avatar id={avatar} name={name} size={24} />
+          <Avatar person={avatar} name={name} size={24} />
         )}
         <span className="min-w-36 flex-1 basis-40">
           <span className={cn("block truncate text-[14px]", refusal ? "text-ink-3" : "text-ink")}>

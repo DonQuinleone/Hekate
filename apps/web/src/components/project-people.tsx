@@ -102,7 +102,7 @@ function Members({ projectId }: { projectId: string }) {
     mine(m) ? [{ label: "Leave project…", onSelect: () => setLeaving(true) }] : [];
   const person = (m: ProjectMember) => (
     <>
-      <Avatar id={m.userId} name={m.name} size={30} />
+      <Avatar person={m.userId} name={m.name} size={30} />
       <span className="min-w-0">
         <span className="block truncate text-[14px] text-ink">
           {m.name}
@@ -460,7 +460,7 @@ function Reviewers({ projectId }: { projectId: string }) {
               key={g.id}
               className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-line px-4 py-2.5 last:border-b-0 @3xl/app:grid-cols-[auto_minmax(0,1fr)_170px_170px_auto]"
             >
-              <Avatar id={g.email} name={g.name} size={30} />
+              <Avatar person={g.id} name={g.name} size={30} />
               <span className="min-w-0">
                 <span className="block truncate text-[14px] text-ink">
                   {g.name}

@@ -340,7 +340,7 @@ export function VersionNote({ file }: { file: FileDetail }) {
   const by = version.createdByName ?? version.sentBy ?? null;
   return (
     <div className="flex shrink-0 items-start gap-2.5 border-t border-line px-3 py-2.5 lg:px-4">
-      {by && <Avatar id={by} name={by} size={22} />}
+      {by && <Avatar person={version.createdBy ?? by} name={by} size={22} />}
       <p className="m-0 min-w-0 text-[13px] text-ink-2">
         {by && <span className="font-medium text-ink">{by}</span>}
         <span className="text-ink-3">

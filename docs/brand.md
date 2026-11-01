@@ -71,6 +71,7 @@ Anchors are always written the same way: `BAR 112.1`, `BARS 118–124`, `04:31.2
 ## Shape and space
 
 - Radius 6 px for controls, 8 px for panels, 4 px for chips. Full round only for status pills, avatars and markers.
+- Avatars are a person's initials on a ramp of their own hue. The hue comes from who they are (a member's user id, a guest's id), never from a name or a row, so one person has one colour on every screen and in every review. The ramp's lightness and the initials' ink are the theme's (`--hk-avatar-*`), holding 4.5:1 in every theme. In a row, each face tucks under the one before by a tenth of its size, ringed 2 px in the ground colour, so every face's initials stay whole.
 - 4 px spacing scale. Rows are 34 px; toolbars 40 px; the top bar 52 px.
 - Hit targets at least 28 px in dense tool bars and 44 px elsewhere.
 - Shadows only for what floats: menus, popovers, dialogs and the paper of a score, at a soft, layered weight. Everything that sits on the page is elevated by a step up the surface scale plus a hairline, never a shadow.

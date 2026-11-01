@@ -16,7 +16,7 @@ export function CommentAssignee({
       className={cn("inline-flex min-w-0 items-center gap-1 text-ink-2", className)}
       title="Who is to act on it"
     >
-      <Avatar id={id} name={name} size={14} />
+      <Avatar person={id} name={name} size={14} />
       <span className="truncate">{name}</span>
     </span>
   );

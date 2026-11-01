@@ -319,7 +319,7 @@ export function ProjectOverview({ project }: { project: Project }) {
                   <span className="hidden items-center gap-2 text-[13px] text-ink-3 @3xl/app:flex">
                     {t.waitingOn.length > 0 && (
                       <>
-                        <AvatarRow people={t.waitingOn} size={18} max={3} />
+                        <AvatarRow people={t.waitingOn} size={20} max={3} />
                         <span className="truncate">waiting</span>
                       </>
                     )}

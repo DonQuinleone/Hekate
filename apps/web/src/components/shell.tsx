@@ -339,7 +339,7 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
           </>
         ) : (
           <>
-            <Avatar id={me.user.id} name={me.user.name} size={28} />
+            <Avatar person={me.user.id} name={me.user.name} size={28} />
             {!collapsed && (
               <>
                 <span className="min-w-0 flex-1">
@@ -365,7 +365,7 @@ function WorkspaceMenu({ collapsed, tab = false }: { collapsed: boolean; tab?: b
           className="rise-in w-64 rounded-panel-lg bg-overlay p-1 shadow-4"
         >
           <div className="flex items-center gap-2.5 px-2.5 py-2">
-            <Avatar id={me.user.id} name={me.user.name} size={30} />
+            <Avatar person={me.user.id} name={me.user.name} size={30} />
             <div className="min-w-0">
               <div className="truncate text-[14px] font-medium text-ink">{me.user.name}</div>
               <div className="truncate text-[13px] text-ink-3">{me.user.email}</div>

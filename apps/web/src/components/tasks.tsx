@@ -14,7 +14,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
-import { Avatar } from "~/components/avatar";
+import { Avatar, personKey } from "~/components/avatar";
 import { Empty } from "~/components/empty";
 import { Icon, type IconName } from "~/components/icons";
 import { Card } from "~/components/page";
@@ -219,7 +219,7 @@ function TaskPanel({
           onSubmit={addNote}
           className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-3"
         >
-          {me && <Avatar id={me.user.id} name={me.user.name} size={24} />}
+          {me && <Avatar person={me.user.id} name={me.user.name} size={24} />}
           <Input
             aria-label="Add a note"
             placeholder="Add a note"
@@ -287,7 +287,7 @@ function TaskBody({
             value={
               task.assignee ? (
                 <span className="flex items-center gap-2 text-ink">
-                  <Avatar id={task.assignee.id} name={task.assignee.name} size={20} />
+                  <Avatar person={task.assignee.id} name={task.assignee.name} size={20} />
                   {task.assignee.name}
                 </span>
               ) : (
@@ -311,7 +311,7 @@ function TaskBody({
           <span className="flex items-center gap-2 text-ink">
             {task.assignee ? (
               <>
-                <Avatar id={task.assignee.id} name={task.assignee.name} size={20} />
+                <Avatar person={task.assignee.id} name={task.assignee.name} size={20} />
                 {task.assignee.name}
               </>
             ) : (
@@ -447,7 +447,7 @@ function TaskBody({
           {task.events.map((e) => (
             <li key={e.id} className="flex items-start gap-2.5 text-[13px]">
               <Avatar
-                id={e.actorName ?? "workflow"}
+                person={personKey({ userId: e.actorId, name: e.actorName ?? "workflow" })}
                 name={e.actorName ?? "Workflow"}
                 size={20}
                 className="mt-px"
@@ -723,7 +723,7 @@ export function ProjectTasks({
                         <span className="hidden min-w-0 items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
                           {t.assignee ? (
                             <>
-                              <Avatar id={t.assignee.id} name={t.assignee.name} size={20} />
+                              <Avatar person={t.assignee.id} name={t.assignee.name} size={20} />
                               <span className="truncate">{t.assignee.name}</span>
                             </>
                           ) : (

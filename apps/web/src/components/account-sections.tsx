@@ -145,7 +145,7 @@ export function ProfileSection() {
     <>
       <Section title="You">
         <Row name="Picture" hint="Made from your name and its colour.">
-          <Avatar id={user.id} name={user.name} size={36} />
+          <Avatar person={user.id} name={user.name} size={36} />
         </Row>
         <Row name="Name">
           <NameField key={user.name} name={user.name} />

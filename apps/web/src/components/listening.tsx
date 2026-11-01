@@ -143,7 +143,7 @@ export function ListenTogether({ fileId, projectId }: { fileId: string; projectI
                 <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
                   {room.listeners.map((p) => (
                     <li key={p.id} className="flex items-center gap-2.5 text-[13px] text-ink-2">
-                      <Avatar id={p.id} name={p.name} size={22} />
+                      <Avatar person={p.id} name={p.name} size={22} />
                       {p.name}
                     </li>
                   ))}
@@ -181,7 +181,7 @@ export function ListenTogether({ fileId, projectId }: { fileId: string; projectI
             <>
               {room ? (
                 <div className="flex items-center gap-2.5">
-                  <Avatar id={room.leader.id} name={room.leader.name} size={24} />
+                  <Avatar person={room.leader.id} name={room.leader.name} size={24} />
                   <span className="text-[14px] font-medium text-ink">
                     Following {room.leader.name}
                   </span>
@@ -218,7 +218,7 @@ function JoinRow({ room, onJoin }: { room: ListeningRoom; onJoin: () => void }) 
   const label = useFileLabel(room.fileId);
   return (
     <div className="flex items-center gap-2.5 py-1">
-      <Avatar id={room.leader.id} name={room.leader.name} size={24} />
+      <Avatar person={room.leader.id} name={room.leader.name} size={24} />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] text-ink">{room.leader.name}</span>
         <span className="block truncate text-[12px] text-ink-3">
@@ -521,7 +521,7 @@ export function ListeningRoomPage({ roomId }: { roomId: string }) {
       {open && data ? (
         <>
           <div className="flex items-center gap-3">
-            <Avatar id={data.room.leader.id} name={data.room.leader.name} size={36} />
+            <Avatar person={data.room.leader.id} name={data.room.leader.name} size={36} />
             <div className="flex flex-col">
               <h1 className="m-0 text-[16px] font-medium text-ink">
                 {data.room.leader.name} is leading

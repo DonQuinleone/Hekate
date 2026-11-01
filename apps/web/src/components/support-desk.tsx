@@ -483,7 +483,11 @@ function DeskTicket({ id, onClose }: { id: string; onClose: () => void }) {
             <div>
               <span className="eyebrow">Who</span>
               <div className="mt-1.5 flex items-center gap-2.5">
-                <Avatar id={ticket.who.id ?? ticket.who.name} name={ticket.who.name} size={32} />
+                <Avatar
+                  person={ticket.who.id ?? ticket.who.name}
+                  name={ticket.who.name}
+                  size={32}
+                />
                 <span className="min-w-0">
                   <span className="block truncate text-ink">{ticket.who.name}</span>
                   <span className="block truncate text-[12px] text-ink-3">
