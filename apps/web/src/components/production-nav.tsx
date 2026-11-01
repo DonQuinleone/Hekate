@@ -21,6 +21,12 @@ const sections = [
     needs: "view_takes",
   },
   {
+    id: "takelog",
+    label: "Take log",
+    to: "/projects/$projectId/take-log",
+    needs: "view_takes",
+  },
+  {
     id: "score",
     label: "Score marking",
     to: "/projects/$projectId/score-marking",
@@ -61,7 +67,9 @@ const sections = [
 /**
  * Production's frame, one for every section as the prototype draws it and as Settings is
  * drawn: the sections down the left (only those the role may see, so no entry leads to a
- * refusal), the current one's content at the right.
+ * refusal), the current one's content at the right. A session and its take log are framed by
+ * it too (#648), so moving between production's pages moves only the content. The sections
+ * are short, so the column is as wide as the longest, not settings' wider one.
  */
 export function ProductionBody({
   projectId,
@@ -82,6 +90,7 @@ export function ProductionBody({
           <SideNav
             label="Production"
             phoneLabel="Production"
+            fit
             sections={shown.map(({ id, label }) => ({ id, label }))}
             current={current}
             link={(id) => ({

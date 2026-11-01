@@ -90,3 +90,27 @@ export function slotTime(iso: string | null): string {
   const at = new Date(iso);
   return `${two(at.getHours())}:${two(at.getMinutes())}`;
 }
+
+/**
+ * Which session Production's Take log opens (#648), as the prototype opens the day's: the one
+ * recorded today, else the latest before it, else the soonest to come, else the first listed.
+ * Null for a project without sessions.
+ */
+export function takeLogSession(
+  sessions: readonly { id: string; recordedOn: string | null }[],
+  today: string,
+): string | null {
+  const dated = sessions.filter((s): s is { id: string; recordedOn: string } =>
+    Boolean(s.recordedOn),
+  );
+  const on = dated.find((s) => s.recordedOn === today);
+  if (on) return on.id;
+  const past = dated
+    .filter((s) => s.recordedOn < today)
+    .sort((a, b) => b.recordedOn.localeCompare(a.recordedOn))[0];
+  if (past) return past.id;
+  const next = dated
+    .filter((s) => s.recordedOn > today)
+    .sort((a, b) => a.recordedOn.localeCompare(b.recordedOn))[0];
+  return next?.id ?? sessions[0]?.id ?? null;
+}

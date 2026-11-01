@@ -7,12 +7,13 @@ import {
   takeLogCsv,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, Navigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { PageHeader } from "~/components/page-header";
+import { ProductionBody } from "~/components/production-nav";
 import { RecorderControl, useRecorderReadout } from "~/components/recorder";
 import { openShortcutMap } from "~/components/shortcut-map";
 import { TakeOverview } from "~/components/take-overview";
@@ -21,7 +22,7 @@ import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { Segmented } from "~/components/ui/segmented";
-import { Failed, Loading } from "~/components/ui/states";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
@@ -29,6 +30,7 @@ import {
   meQuery,
   patchQuery,
   projectQuery,
+  projectSessionsQuery,
   sessionQuery,
   useProjectCan,
   useTakeOutbox,
@@ -46,8 +48,11 @@ import {
   nextTrack,
   rolled,
   slotStatus,
+  takeLogSession,
 } from "~/lib/take-log";
+import { timecodeSpan } from "~/lib/take-page";
 import { withPending } from "~/lib/take-outbox";
+import { ProjectFrame } from "~/routes/project";
 
 type View = "engineer" | "producer" | "logger";
 
@@ -87,6 +92,55 @@ const stateWords = (t: LoggedTake) =>
       : t.lifecycle === "aborted"
         ? "aborted"
         : "";
+
+/** Today, as a session's day is written: "2026-10-14", on this device's calendar. */
+const todayOf = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/**
+ * Production's Take log (#648): the day's session's take log, as the prototype opens it, or
+ * where the project has no sessions, the way to make one.
+ */
+export function ProjectTakeLogPage({ projectId }: { projectId: string }) {
+  const can = useProjectCan(projectId);
+  const {
+    data: sessions,
+    error,
+    refetch,
+  } = useQuery({ ...projectSessionsQuery(projectId), enabled: can("view_takes") });
+  const chosen = sessions ? takeLogSession(sessions, todayOf(new Date())) : null;
+  if (chosen) return <Navigate to="/sessions/$sessionId/log" params={{ sessionId: chosen }} replace />;
+  return (
+    <ProjectFrame projectId={projectId} title="Take log">
+      {() => (
+        <ProductionBody projectId={projectId} current="takelog" can={can}>
+          {!can("view_takes") ? (
+            <Refused
+              title="Not among what your role shows"
+              text="Sessions and takes are shown to the roles the project's access gives them."
+            />
+          ) : error ? (
+            <Failed what="The sessions" error={error} retry={refetch} />
+          ) : !sessions ? (
+            <Loading />
+          ) : (
+            <Empty
+              title="No sessions yet"
+              text="The take log is kept per session. Make the day's session, then log its takes here."
+              action={
+                <Button variant="secondary" asChild>
+                  <Link to="/projects/$projectId/sessions" params={{ projectId }}>
+                    Go to Sessions
+                  </Link>
+                </Button>
+              }
+            />
+          )}
+        </ProductionBody>
+      )}
+    </ProjectFrame>
+  );
+}
 
 /**
  * The take log (#51): the control room's record of a session, keyboard first. Space starts the
@@ -273,6 +327,8 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
       ? `${timeOfDay.format(new Date(session.slotStart))}–${timeOfDay.format(new Date(session.slotEnd))}`
       : null;
   const trackName = (id: string | null) => session.tracks.find((t) => t.id === id)?.name ?? "";
+  // The logger's wall clock column, only where a take has one (#653).
+  const walled = rows.some((t) => t.wallIn);
 
   return (
     <>
@@ -317,7 +373,9 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
           </>
         }
       />
-      <div className="fade-in mx-auto flex w-full max-w-[1360px] flex-col gap-4 px-5 py-6 @3xl/app:px-10">
+      {/* In Production's frame (#648), as every production page is. */}
+      <ProductionBody projectId={project.id} current="takelog" can={can}>
+        <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Segmented label="View" value={view} options={views} onChange={setView} />
           <span className="text-[12px] text-ink-3">
@@ -361,9 +419,12 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
           <div
             className={cn(
               "grid items-start gap-4",
+              // The logger's table takes the width, with the tone and the notes beneath (#653).
               view === "producer"
                 ? "lg:grid-cols-[minmax(0,1fr)_320px]"
-                : "lg:grid-cols-[minmax(0,1fr)_260px]",
+                : view === "engineer"
+                  ? "lg:grid-cols-[minmax(0,1fr)_260px]"
+                  : "",
             )}
           >
             <div className="flex min-w-0 flex-col gap-4">
@@ -397,7 +458,9 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                       : (recorded ? recorderValue : next)
                         ? `Start take ${recorded ? recorderValue : next}`
                         : "Start the next take"}
-                  <Kbd>Space</Kbd>
+                  <span className="[@media(hover:none)]:hidden">
+                    <Kbd>Space</Kbd>
+                  </span>
                 </button>
                 <div className="flex min-w-0 flex-col">
                   <span className="tabular text-[28px] leading-8 text-ink">
@@ -498,7 +561,7 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                       }
                     }}
                     maxLength={4000}
-                    placeholder="Good opening; pick up bar 17"
+                    placeholder="Type a note, then Enter"
                     className="min-w-0 flex-1"
                   />
                 </div>
@@ -529,13 +592,13 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                           "Track",
                           "In",
                           "Out",
-                          "Wall clock",
+                          ...(walled ? ["Wall clock"] : []),
                           "Rating",
                           "False starts",
                           "Notes",
                           "Score",
                         ].map((h) => (
-                          <th key={h} className="px-3 py-2 font-normal">
+                          <th key={h} className="whitespace-nowrap px-3 py-2 font-normal">
                             {h}
                           </th>
                         ))}
@@ -551,23 +614,37 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                             t.lifecycle === "aborted" && "opacity-50",
                           )}
                         >
-                          <td className="tabular px-3 py-1.5 font-medium text-ink">T{t.number}</td>
-                          <td className="px-3 py-1.5 text-ink-2">{t.track.name}</td>
-                          <td className="tabular px-3 py-1.5 text-ink-3">{t.timecodeIn}</td>
-                          <td className="tabular px-3 py-1.5 text-ink-3">
+                          {/* One line a row (#653): the notes take what the rest leave. */}
+                          <td className="tabular whitespace-nowrap px-3 py-1.5 font-medium text-ink">
+                            T{t.number}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-1.5 text-ink-2">
+                            {t.track.name}
+                          </td>
+                          <td className="tabular whitespace-nowrap px-3 py-1.5 text-ink-3">
+                            {t.timecodeIn}
+                          </td>
+                          <td className="tabular whitespace-nowrap px-3 py-1.5 text-ink-3">
                             {t.timecodeOut ?? (t.lifecycle === "recording" ? "…" : "")}
                           </td>
-                          <td className="tabular px-3 py-1.5 text-ink-3">
-                            {t.wallIn ? timeOfDay.format(new Date(t.wallIn)) : ""}
-                          </td>
+                          {walled && (
+                            <td className="tabular whitespace-nowrap px-3 py-1.5 text-ink-3">
+                              {t.wallIn ? timeOfDay.format(new Date(t.wallIn)) : ""}
+                            </td>
+                          )}
                           <td className="px-3 py-1.5">
                             <Rating value={t.rating} />
                           </td>
                           <td className="tabular px-3 py-1.5 text-ink-3">{t.falseStarts || ""}</td>
-                          <td className="max-w-[320px] truncate px-3 py-1.5 text-ink-2">
+                          <td
+                            className="w-full max-w-0 truncate px-3 py-1.5 text-ink-2"
+                            title={t.notes ?? undefined}
+                          >
                             {t.notes || stateWords(t)}
                           </td>
-                          <td className="tabular px-3 py-1.5 text-ink-3">{scoreOf(t)}</td>
+                          <td className="tabular whitespace-nowrap px-3 py-1.5 text-ink-3">
+                            {scoreOf(t)}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -605,7 +682,8 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                         )}
                       </span>
                       <Rating value={t.rating} />
-                      <span className="min-w-0 flex-1 truncate text-ink-2">
+                      {/* On a phone the notes have a line of their own, under the take (#653). */}
+                      <span className="order-last w-full min-w-0 truncate pl-[60px] text-ink-2 empty:hidden @3xl/app:order-none @3xl/app:w-auto @3xl/app:flex-1 @3xl/app:pl-0 @3xl/app:empty:block">
                         {t.notes || stateWords(t)}
                       </span>
                       {session.tracks.length > 1 && (
@@ -621,7 +699,7 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
                       )}
                       {view === "engineer" && (t.timecodeIn || t.timecodeOut) && (
                         <span className="tabular text-[12px] text-ink-3">
-                          {t.timecodeIn ?? "…"} – {t.timecodeOut ?? "…"}
+                          {timecodeSpan(t.timecodeIn, t.timecodeOut)}
                         </span>
                       )}
                       {view === "engineer" && t.wallIn && (
@@ -648,7 +726,8 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
             />
           </div>
         )}
-      </div>
+        </div>
+      </ProductionBody>
       {large && (
         <TakeOverview
           session={session.name}
@@ -920,7 +999,14 @@ function TakeLogAside({
     setTodo("");
   };
   return (
-    <aside aria-label="Beside the log" className="flex min-w-0 flex-col gap-5">
+    <aside
+      aria-label="Beside the log"
+      className={cn(
+        "flex min-w-0 flex-col gap-5",
+        // Under the logger's table, side by side, so the table has the width (#653).
+        view === "logger" && "@3xl/app:grid @3xl/app:grid-cols-2 @3xl/app:items-start",
+      )}
+    >
       {view === "producer" && (
         <>
           {scoreFileId && (
@@ -990,7 +1076,7 @@ function TakeLogAside({
             disabled={!canLog}
             rows={2}
             maxLength={2000}
-            placeholder="Trio from bar 65; coda at 89"
+            placeholder="Cues and bar numbers for the room"
             onSave={(reference) => outbox.notes({ reference })}
           />
         </>
@@ -1001,7 +1087,7 @@ function TakeLogAside({
         value={session.notes}
         disabled={!canLog}
         maxLength={4000}
-        placeholder="Piano a touch bright after lunch"
+        placeholder="For everyone in the room"
         onSave={(text) => outbox.notes({ notes: text })}
       />
     </aside>
