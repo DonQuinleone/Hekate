@@ -1895,7 +1895,10 @@ test("workflows-code-import", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=code`);
   await settle(page, "main >> text=name: Album review");
   const template = readFileSync(
-    join(import.meta.dirname, "../../../packages/shared/src/workflow-templates/simple-approval.workflow.yaml"),
+    join(
+      import.meta.dirname,
+      "../../../packages/shared/src/workflow-templates/simple-approval.workflow.yaml",
+    ),
   );
   await page.locator("main input[type=file]").setInputFiles({
     name: "simple-approval.workflow.yaml",

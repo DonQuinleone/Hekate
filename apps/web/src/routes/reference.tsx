@@ -43,6 +43,7 @@ import {
 } from "~/components/ui/upload-dialog";
 import { FrameGuides, GoToTimecode } from "~/components/video-frame";
 import { GroupLegend, KindLegend } from "~/components/workflow-kinds";
+import { WorkflowState } from "~/components/workflow-state";
 import { cn } from "~/lib/cn";
 import { categoryTones } from "~/lib/comments";
 import { ApiError } from "~/lib/queries";
@@ -1090,6 +1091,15 @@ function Components() {
         <div className="px-4 py-4">
           <KindLegend />
         </div>
+        <Spec
+          name="A workflow's state"
+          rule="The status dot's shapes, never green: an ink dot while it runs, a ring while it is a draft (decision 363)."
+        >
+          <span className="flex items-center gap-4">
+            <WorkflowState active />
+            <WorkflowState active={false} />
+          </span>
+        </Spec>
       </Section>
       <Section
         title="Video frame"
