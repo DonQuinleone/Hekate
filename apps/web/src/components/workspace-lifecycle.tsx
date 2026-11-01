@@ -1,4 +1,5 @@
 import {
+  exportExpired,
   formatBytes,
   WORKSPACE_DELETE_GRACE_DAYS,
   WORKSPACE_EXPORT_DAYS,
@@ -91,6 +92,7 @@ function useExports(scope: ExportScope) {
 }
 
 const statusWords = (e: WorkspaceExport): string => {
+  if (exportExpired(e)) return "Expired: removed after its week";
   switch (e.status) {
     case "queued":
     case "building":
@@ -111,8 +113,9 @@ const statusWords = (e: WorkspaceExport): string => {
 };
 
 /**
- * Starting an export, and its exports: the latest few, each downloadable while ready. As rows
- * of a settings section, so it sits in General for owners and in Keys for operators.
+ * Starting an export, and its exports: the latest few, each downloadable while ready and within
+ * its week. As rows of a settings section, so it sits in General for owners and in Keys for
+ * operators.
  */
 export function WorkspaceExports({ scope, name }: { scope: ExportScope; name: string }) {
   const { data: exports } = useQuery(workspaceExportsQuery(scope));
@@ -135,7 +138,7 @@ export function WorkspaceExports({ scope, name }: { scope: ExportScope; name: st
           name={`${momentFormat.format(new Date(e.createdAt))}${e.byOperator ? " · by an operator" : ""}`}
           hint={statusWords(e)}
         >
-          {e.status === "ready" && (
+          {e.status === "ready" && !exportExpired(e) && (
             <Button
               variant="ghost"
               size="md"

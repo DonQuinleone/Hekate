@@ -46,7 +46,8 @@ import { toolCopy } from "./project-settings.tsx";
 
 const intros: Record<string, string> = {
   transfers: "Projects moving in from, or out to, another workspace, and what each waits for.",
-  general: "The workspace's name, how guests sign in, and what every project starts from.",
+  general:
+    "The workspace's name and address, how new projects start, guest links and its language; for owners, exporting or deleting it.",
   defaults:
     "What a review grants its reviewers, and what a new project starts with, unless the request or the project says otherwise.",
   categories:
@@ -60,38 +61,46 @@ const intros: Record<string, string> = {
   members: "Who has an account here, who is invited, and which guests hold a link.",
   security:
     "How members sign in: the ways allowed, the second factor, single sign-on or a directory, and how long a session lasts.",
-  notifications: "Where events go: mail, Slack, Discord, webhooks.",
+  channels: "Where the workspace's events go: Slack, Discord, Microsoft Teams and webhooks.",
   api: "Applications that connect on people's behalf, and tokens that act for the workspace itself.",
   billing: "The plan, what it includes, what it costs, and every invoice.",
   support: "Ask the people who run this instance, with the error reference if there is one.",
-  storage: "Where files live and how much they take.",
+  storage: "Where new files are kept. Everything is encrypted before any backend sees it.",
   leaks: "Find which recipient a leaked file was watermarked for.",
   log: "Every key issue, page render and download.",
-  operations:
-    "How the workspace's files are kept, what they take against the plan, and taking everything away or deleting it. The instance itself is its operators'.",
 };
 
+/**
+ * The settings' groups say what they hold, and none shares a name with a page (#589). Support
+ * is reached from the help menu, so it has no place here; the design system is the switcher's.
+ */
 const sections = [
   { id: "general", label: "General", group: "Workspace" },
-  { id: "defaults", label: "Defaults", group: "Workspace" },
-  { id: "categories", label: "Comment categories", group: "Workspace" },
-  { id: "delivery", label: "Delivery profiles", group: "Workspace" },
+  { id: "members", label: "Members", group: "Workspace" },
   { id: "branding", label: "Branding", group: "Workspace" },
-  { id: "brand", label: "Brand and design system", group: "Workspace" },
-  { id: "email", label: "Email templates", group: "Workspace" },
-  { id: "members", label: "Members", group: "Access" },
-  { id: "security", label: "Security", group: "Access" },
-  { id: "notifications", label: "Notifications and integrations", group: "Access" },
-  { id: "api", label: "API and OAuth clients", group: "Access" },
-  { id: "billing", label: "Billing", group: "Plan and help" },
-  // Shown only with the support module on (#181).
-  ...(env.support === "off" ? [] : [{ id: "support", label: "Support", group: "Plan and help" }]),
-  { id: "transfers", label: "Transfers", group: "Operations" },
-  { id: "storage", label: "Storage", group: "Operations" },
-  { id: "leaks", label: "Leak tracing", group: "Operations" },
-  { id: "log", label: "Access log", group: "Operations" },
-  { id: "operations", label: "Operations", group: "Operations" },
+  { id: "email", label: "Email", group: "Workspace" },
+  { id: "defaults", label: "Defaults", group: "Projects and reviews" },
+  { id: "categories", label: "Comment categories", group: "Projects and reviews" },
+  { id: "delivery", label: "Delivery profiles", group: "Projects and reviews" },
+  { id: "transfers", label: "Transfers", group: "Projects and reviews" },
+  { id: "security", label: "Security", group: "Security" },
+  { id: "leaks", label: "Leak tracing", group: "Security" },
+  { id: "log", label: "Access log", group: "Security" },
+  { id: "channels", label: "Channels", group: "Integrations" },
+  { id: "api", label: "API", group: "Integrations" },
+  { id: "billing", label: "Billing", group: "Plan" },
+  { id: "storage", label: "Storage", group: "Plan" },
 ];
+
+/** Pages reached from elsewhere: Support from the help menu, the design system from the switcher. */
+const unlisted = [
+  // Shown only with the support module on (#181).
+  ...(env.support === "off" ? [] : [{ id: "support", label: "Support" }]),
+  { id: "brand", label: "Brand and design system" },
+];
+
+/** Earlier names of pages, which links still use. */
+const formerly: Record<string, string> = { notifications: "channels", operations: "general" };
 
 const channels = [
   {
@@ -138,6 +147,27 @@ const channelAddress: Record<string, string> = {
   "Microsoft Teams": "https://…logic.azure.com/workflows/…",
   Webhook: "https://hooks.example/hekate",
 };
+
+/** A value people copy, such as the workspace's address: a quiet button that says it worked. */
+function CopyValue({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      size="iconSm"
+      variant="quiet"
+      aria-label={copied ? "Copied" : label}
+      title={copied ? "Copied" : label}
+      className="shrink-0"
+      onClick={() => {
+        void navigator.clipboard?.writeText(value).catch(() => {});
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      }}
+    >
+      <Icon name={copied ? "check" : "copy"} size={13} />
+    </Button>
+  );
+}
 
 function Test({ state }: { state: "idle" | "ok" | "failed" }) {
   const [s, setS] = useState(state);
@@ -336,10 +366,11 @@ export function SettingsPage({
     return (
       <Refused title="Not for your role" text="Workspace settings are for owners and admins." />
     );
-  const sec = sections.some((s) => s.id === section) ? section : "general";
+  const asked = formerly[section] ?? section;
+  const sec = [...sections, ...unlisted].some((s) => s.id === asked) ? asked : "general";
   return (
     <SettingsLayout
-      title={sections.find((x) => x.id === sec)?.label ?? organisation.name}
+      title={[...sections, ...unlisted].find((x) => x.id === sec)?.label ?? organisation.name}
       intro={intros[sec]}
       docs={docPages[sec]}
       sections={sections}
@@ -923,6 +954,16 @@ export function SettingsPage({
             <Row name="Name">
               <Input defaultValue={organisation.name} className="w-64" />
             </Row>
+            {/* #589: the address in General, where people look for it, in the interface's face. */}
+            <Row
+              name="Address"
+              hint="Someone moving a project here from a workspace you are not in gives it, and members signing in with the directory enter it."
+            >
+              <span className="flex min-w-0 items-center gap-1">
+                <span className="truncate text-[14px] text-ink">endless-hall</span>
+                <CopyValue value="endless-hall" label="Copy the address" />
+              </span>
+            </Row>
             <Row name="New projects start as" hint="The profile only decides which tools appear.">
               <Select defaultValue="music" className="w-40">
                 <option value="music">Music</option>
@@ -970,15 +1011,42 @@ export function SettingsPage({
               </Select>
             </Row>
           </Section>
-          <Section
-            title="Workspaces you are in"
-            intro="Switch from the menu at the top of the sidebar."
-          >
-            <Row name={organisation.name} hint="Owner">
-              <Dot state="approved" />
-            </Row>
-            <Row name="North Choir Collective" hint="Member" />
-          </Section>
+          {/* #186: an owner's export, encrypted with age to a key shown once, kept a week. */}
+          {viewer.persona.organisationRole === "owner" && (
+            <>
+              <Section
+                title="Export"
+                intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
+              >
+                <Row
+                  name="Export everything"
+                  hint="Every record as JSON and every file as it was uploaded, in one archive encrypted with age. Kept 7 days for its download."
+                >
+                  <Button variant="secondary" size="md">
+                    Start an export…
+                  </Button>
+                </Row>
+                <Row name="20 October, 18:04" hint="38.2 GB · 1,204 files · until 27 October">
+                  <Button variant="ghost" size="md">
+                    <Icon name="download" size={13} />
+                    Download
+                  </Button>
+                </Row>
+                {/* Past its week, an export is gone: it says so, and offers nothing. */}
+                <Row name="2 October, 09:12" hint="Expired: removed after its week" />
+              </Section>
+              <Danger>
+                <Row
+                  name="Delete this workspace"
+                  hint="Every project, file and review. Only an owner, with a second owner confirming."
+                >
+                  <Button variant="danger" size="md">
+                    Delete…
+                  </Button>
+                </Row>
+              </Danger>
+            </>
+          )}
         </>
       )}
       {sec === "defaults" && (
@@ -1314,7 +1382,7 @@ export function SettingsPage({
           </Section>
         </>
       )}
-      {sec === "notifications" && (
+      {sec === "channels" && (
         <>
           {state === "processing" && (
             <div
@@ -1463,6 +1531,17 @@ export function SettingsPage({
           </Section>
           <StorageChoice notOnPlan={state === "refused"} failed={state === "failed"} />
           <Section title="Backends" intro="What this workspace keeps in each.">
+            {/* #589: with the Operations page gone, how the files are encrypted is said here. */}
+            <Row
+              name="Encryption"
+              hint="Every file has its own key, wrapped by the workspace's key; storage only ever holds ciphertext."
+            >
+              <span className="text-[13px] text-ink-2">
+                {state === "processing"
+                  ? "Encrypted, moving to a new key: 41 to go"
+                  : "Encrypted, on a key from 2 Oct 2026"}
+              </span>
+            </Row>
             <Row
               name={
                 <span className="flex items-center gap-2">
@@ -1634,15 +1713,10 @@ export function SettingsPage({
       )}
       {sec === "transfers" && (
         <>
-          <Section title="This workspace">
-            <Row
-              name="Its address"
-              hint="Someone moving a project here from a workspace you are not in gives it."
-            >
-              <span className="tabular text-[14px] tracking-wide text-ink">endless-hall</span>
-            </Row>
-          </Section>
-          <Section title="Waiting">
+          <Section
+            title="Waiting"
+            intro="Someone moving a project here gives the workspace's address, shown in General."
+          >
             <Row
               name="Opening titles"
               hint="To Endless Hall Records East. Tomas Varga asked on 14 October. Waiting for approval by a second member of Endless Hall Records and acceptance by Endless Hall Records East."
@@ -1665,82 +1739,6 @@ export function SettingsPage({
         </>
       )}
       {sec === "log" && <AccessLogSection empty={state === "empty"} />}
-      {sec === "operations" && (
-        <>
-          {/* #510: only what an owner acts on; the queues, metrics and release are the operators'. */}
-          <Section title="This workspace">
-            <Row
-              name="Encryption"
-              hint="Every file has its own key, wrapped by the workspace's key; storage only ever holds ciphertext."
-            >
-              <span className="text-[13px] text-ink-2">
-                {state === "processing"
-                  ? "Encrypted, moving to a new key: 41 to go"
-                  : "Encrypted, on a key from 2 Oct 2026"}
-              </span>
-            </Row>
-            <Row name="Storage" hint="245 GB of the plan's 1.0 TB">
-              <span className="block h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
-                <span className="block h-full w-[24.5%] rounded-full bg-ink-2" />
-              </span>
-            </Row>
-            <Row
-              name="Run by this instance's operators"
-              hint={
-                env.support === "off"
-                  ? "They keep its backups, upgrades and workers. Support is not turned on here: ask whoever runs it."
-                  : env.support === "mail"
-                    ? "They keep its backups, upgrades and workers. Ask them by email."
-                    : "They keep its backups, upgrades and workers. Ask them through Support."
-              }
-            >
-              {env.support !== "off" && (
-                <Button
-                  variant="secondary"
-                  size="md"
-                  onClick={() =>
-                    env.support === "app"
-                      ? navigate({ to: "/settings/$section", params: { section: "support" } })
-                      : undefined
-                  }
-                >
-                  {env.support === "app" ? "Support" : "Ask them"}
-                </Button>
-              )}
-            </Row>
-          </Section>
-          {/* #186: an owner's export, encrypted with age to a key shown once, kept a week. */}
-          <Section
-            title="Export"
-            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
-          >
-            <Row
-              name="Export everything"
-              hint="Every record as JSON and every file as it was uploaded, in one archive encrypted with age. Kept 7 days for its download."
-            >
-              <Button variant="secondary" size="md">
-                Start an export…
-              </Button>
-            </Row>
-            <Row name="20 October, 18:04" hint="38.2 GB · 1,204 files · until 27 October">
-              <Button variant="ghost" size="md">
-                <Icon name="download" size={13} />
-                Download
-              </Button>
-            </Row>
-          </Section>
-          <Danger>
-            <Row
-              name="Delete this workspace"
-              hint="Every project, file and review. Only an owner, with a second owner confirming."
-            >
-              <Button variant="secondary" size="md" className="text-signal">
-                Delete…
-              </Button>
-            </Row>
-          </Danger>
-        </>
-      )}
       {adding && (
         <Dialog
           title={
@@ -1748,7 +1746,7 @@ export function SettingsPage({
               ? "New delivery profile"
               : sec === "storage"
                 ? "New storage backend"
-                : sec === "notifications"
+                : sec === "channels"
                   ? "New channel"
                   : sec === "api"
                     ? "New OAuth client"
@@ -1860,7 +1858,7 @@ export function SettingsPage({
                 ))}
               </fieldset>
             </div>
-          ) : sec === "notifications" ? (
+          ) : sec === "channels" ? (
             <div className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Kind

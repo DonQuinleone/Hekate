@@ -11,7 +11,6 @@ import {
   useSwitchOrganisation,
   useTransferMutations,
 } from "~/lib/queries";
-import { CopyButton } from "./copy-button";
 import { useIdentityCheck } from "./identity-check";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
@@ -317,8 +316,8 @@ const statusWords: Record<ProjectTransfer["status"], string> = {
 
 /**
  * The workspace's transfers (#240): projects asked to move in or out, what each waits for and
- * what the person may do about it, then those already settled. Owners and admins also see the
- * workspace's address, which someone moving a project here gives.
+ * what the person may do about it, then those already settled. Owners and admins are told where
+ * the workspace's address is (General), which someone moving a project here gives.
  */
 export function TransfersSection() {
   const { data: me } = useQuery(meQuery);
@@ -332,22 +331,14 @@ export function TransfersSection() {
     t.to.id === me?.activeOrganisationId ? `From ${t.from.name}` : `To ${t.to.name}`;
   return (
     <>
-      {admin && here && (
-        <Section title="This workspace">
-          <Row
-            name="Its address"
-            hint="Someone moving a project here from a workspace you are not in gives it."
-          >
-            <span className="flex min-w-0 items-center gap-1">
-              <span className="tabular truncate text-[14px] tracking-wide text-ink">
-                {here.address}
-              </span>
-              <CopyButton value={here.address} label="Copy the address" />
-            </span>
-          </Row>
-        </Section>
-      )}
-      <Section title="Waiting">
+      <Section
+        title="Waiting"
+        intro={
+          admin
+            ? "Someone moving a project here from a workspace you are not in gives the workspace's address, shown in General."
+            : undefined
+        }
+      >
         {waiting.length === 0 ? (
           <p className="m-0 px-4 py-3 text-[13px] text-ink-3">
             No project is waiting to move in or out. A project moves from the danger zone of its

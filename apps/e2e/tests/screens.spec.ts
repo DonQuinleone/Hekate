@@ -602,11 +602,6 @@ const screens: Screen[] = [
     path: () => "/instance/support",
     ready: "main >> text=Raise our quota before Friday",
   },
-  {
-    name: "settings-operations",
-    path: () => "/settings/operations",
-    ready: "main >> text=Run by this instance's operators",
-  },
 ];
 
 /** Fonts in, pictures drawn, nothing still on its way. */
@@ -2692,6 +2687,8 @@ test("project-settings-security-video-opened", async ({ page }) => {
 // answer is amended in the page alone, so nothing is exported. The key is put together here so
 // that no secret scanner mistakes the file for one holding a real key.
 test("settings-export", async ({ page }) => {
+  // Before the ready export's week is up, so it still offers its download.
+  await page.clock.setFixedTime(FIXED_TIME);
   await page.route("**/api/organisation/exports", async (route) => {
     if (route.request().method() === "GET") return route.fulfill({ json: exportsShown });
     await route.fulfill({
@@ -2702,7 +2699,7 @@ test("settings-export", async ({ page }) => {
       },
     });
   });
-  await page.goto("/settings/operations");
+  await page.goto("/settings/general");
   await settle(page, "main >> text=until 2026-10-27");
   await saveScreen(page, "settings-export");
   await checkScreen(page);
@@ -2734,7 +2731,7 @@ test("settings-workspace-deletion", async ({ page }) => {
       },
     });
   });
-  await page.goto("/settings/operations");
+  await page.goto("/settings/general");
   await settle(page, "main >> text=Deletion asked for");
   await saveScreen(page, "settings-workspace-deletion");
   await checkScreen(page);
@@ -2912,7 +2909,7 @@ test("settings-transfers", async ({ page }) => {
     }),
   );
   await page.goto("/settings/transfers");
-  await settle(page, "main >> text=Its address");
+  await settle(page, "main >> text=Opening titles");
   await saveScreen(page, "settings-transfers");
   await checkScreen(page);
 });

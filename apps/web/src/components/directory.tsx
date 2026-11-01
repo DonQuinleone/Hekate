@@ -84,7 +84,7 @@ function DirectoryForm({
     <form onSubmit={submit} className="contents">
       <Section
         title="Directory (LDAP)"
-        intro={`Members choose "Sign in with your workspace's directory" and enter ${workspace || "the workspace's short name"}. Their first sign-in makes their account.`}
+        intro={`Members choose "Sign in with your workspace's directory" and enter the workspace's address${workspace ? `, ${workspace}` : ""}, shown in General. Their first sign-in makes their account.`}
       >
         <SwitchRow
           name="Sign in with the directory"

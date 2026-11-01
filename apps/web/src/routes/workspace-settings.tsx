@@ -35,7 +35,6 @@ import {
   type WorkspaceSettingsInput,
 } from "@hekate/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import {
   ApiAndMcpSection,
@@ -47,6 +46,7 @@ import { Avatar } from "~/components/avatar";
 import { BillingSection } from "~/components/billing";
 import { BrandingSection } from "~/components/branding";
 import { CategoryDialog } from "~/components/category-dialog";
+import { CopyButton } from "~/components/copy-button";
 import { deliveryHint, ProfileEditor, ProfileOptions } from "~/components/delivery-profiles";
 import { DirectorySection } from "~/components/directory";
 import { EmailTemplatesSection } from "~/components/email-templates";
@@ -77,7 +77,7 @@ import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
 import { Failed, Loading } from "~/components/ui/states";
-import { StorageUsageRow, UsageRows } from "~/components/usage";
+import { UsageRows } from "~/components/usage";
 import { DeleteWorkspace, WorkspaceExports } from "~/components/workspace-lifecycle";
 import { WhereFilesGo } from "~/components/workspace-storage";
 import {
@@ -103,7 +103,6 @@ import {
   customProfilesQuery,
   directoryQuery,
   invitationsQuery,
-  type Me,
   type Member,
   membersQuery,
   meQuery,
@@ -147,9 +146,14 @@ interface SectionSpec {
   intro: string;
   /** Its page on the documentation site. */
   docs?: string;
+  /** Reached from elsewhere, so the sidebar lists it only while it is open: Support (#589). */
+  unlisted?: boolean;
 }
 
-/** The workspace's settings, grouped as in the prototype; more sections arrive with their issues. */
+/**
+ * The workspace's settings, grouped by subject (decision 370): no group shares a name with a
+ * page, and Support, which the help menu opens, has no place among them.
+ */
 const allSections: SectionSpec[] = [
   {
     id: "general",
@@ -157,30 +161,16 @@ const allSections: SectionSpec[] = [
     group: "Workspace",
     from: "admin",
     intro:
-      "The workspace's name, how new projects start, guest links and its language; for owners, exporting or deleting it.",
+      "The workspace's name and address, how new projects start, guest links and its language; for owners, exporting or deleting it.",
+    docs: "/use/export-and-delete/",
   },
   {
-    id: "defaults",
-    label: "Defaults",
+    id: "members",
+    label: "Members",
     group: "Workspace",
-    from: "admin",
-    intro:
-      "What a review grants its reviewers, and what a new project starts with, unless the request or the project says otherwise.",
-  },
-  {
-    id: "categories",
-    label: "Comment categories",
-    group: "Workspace",
-    from: "admin",
-    intro:
-      "The labels a comment can carry, such as Noise or Balance, and where triage sends each kind. Every new project starts with these, and may add its own.",
-  },
-  {
-    id: "delivery",
-    label: "Delivery profiles",
-    group: "Workspace",
-    from: "admin",
-    intro: "What QA measures recordings against: the built-in profiles, and the workspace's own.",
+    from: "member",
+    intro: "Who has an account here, who is invited, and which guests hold a link.",
+    docs: "/use/guests/",
   },
   {
     id: "branding",
@@ -199,26 +189,64 @@ const allSections: SectionSpec[] = [
     intro: "The messages Hekate sends for the workspace, as each kind of mail client shows them.",
   },
   {
-    id: "members",
-    label: "Members",
-    group: "Access",
+    id: "defaults",
+    label: "Defaults",
+    group: "Projects and reviews",
+    from: "admin",
+    intro:
+      "What a review grants its reviewers, and what a new project starts with, unless the request or the project says otherwise.",
+  },
+  {
+    id: "categories",
+    label: "Comment categories",
+    group: "Projects and reviews",
+    from: "admin",
+    intro:
+      "The labels a comment can carry, such as Noise or Balance, and where triage sends each kind. Every new project starts with these, and may add its own.",
+  },
+  {
+    id: "delivery",
+    label: "Delivery profiles",
+    group: "Projects and reviews",
+    from: "admin",
+    intro: "What QA measures recordings against: the built-in profiles, and the workspace's own.",
+  },
+  {
+    id: "transfers",
+    label: "Transfers",
+    group: "Projects and reviews",
     from: "member",
-    intro: "Who has an account here, who is invited, and which guests hold a link.",
-    docs: "/use/guests/",
+    intro: "Projects moving in from, or out to, another workspace, and what each waits for.",
   },
   {
     id: "security",
     label: "Security",
-    group: "Access",
+    group: "Security",
     from: "admin",
     intro:
       "How members sign in: the ways allowed, the second factor, single sign-on or a directory, and how long a session lasts.",
     docs: "/security/model/",
   },
   {
-    id: "notifications",
+    id: "leaks",
+    label: "Leak tracing",
+    group: "Security",
+    from: "owner",
+    intro: "Find which recipient a leaked file was watermarked for.",
+    docs: "/use/leak-tracing/",
+  },
+  {
+    id: "log",
+    label: "Access log",
+    group: "Security",
+    from: "admin",
+    intro: "Every key issue, page render and download, and the changes that matter.",
+    docs: "/security/model/#audit",
+  },
+  {
+    id: "channels",
     label: "Notifications and integrations",
-    group: "Access",
+    group: "Integrations",
     from: "admin",
     intro: "Where the workspace's events go: Slack, Discord, Microsoft Teams and webhooks.",
     docs: "/use/integrations/",
@@ -226,7 +254,7 @@ const allSections: SectionSpec[] = [
   {
     id: "api",
     label: "API and OAuth clients",
-    group: "Access",
+    group: "Integrations",
     from: "admin",
     intro:
       "Applications that ask people for access, tokens that act for the workspace, what either may be given, and every call one made.",
@@ -235,60 +263,35 @@ const allSections: SectionSpec[] = [
   {
     id: "billing",
     label: "Billing",
-    group: "Plan and help",
+    group: "Plan",
     from: "admin",
     intro: "The plan, what it includes, what it costs, and every invoice.",
     docs: "/operate/billing/",
   },
   {
-    id: "support",
-    label: "Support",
-    group: "Plan and help",
-    from: "member",
-    intro: "Ask the people who run this instance, with the error reference if there is one.",
-    docs: "/use/support/",
-  },
-  {
-    id: "transfers",
-    label: "Transfers",
-    group: "Operations",
-    from: "member",
-    intro: "Projects moving in from, or out to, another workspace, and what each waits for.",
-  },
-  {
     id: "storage",
     label: "Storage",
-    group: "Operations",
+    group: "Plan",
     from: "admin",
     intro: "Where new files are kept. Everything is encrypted before any backend sees it.",
     docs: "/install/storage/",
   },
   {
-    id: "leaks",
-    label: "Leak tracing",
-    group: "Operations",
-    from: "owner",
-    intro: "Find which recipient a leaked file was watermarked for.",
-    docs: "/use/leak-tracing/",
-  },
-  {
-    id: "log",
-    label: "Access log",
-    group: "Operations",
-    from: "admin",
-    intro: "Every key issue, page render and download, and the changes that matter.",
-    docs: "/security/model/#audit",
-  },
-  {
-    id: "operations",
-    label: "Operations",
-    group: "Operations",
-    from: "owner",
-    intro:
-      "How the workspace's files are kept, what they take against the plan, and taking everything away or deleting it. The instance itself is its operators'.",
-    docs: "/use/export-and-delete/",
+    id: "support",
+    label: "Support",
+    group: "Help",
+    from: "member",
+    intro: "Ask the people who run this instance, with the error reference if there is one.",
+    docs: "/use/support/",
+    unlisted: true,
   },
 ];
+
+/** Pages under their earlier names, which links in mail and elsewhere still use. */
+export const formerSections: Record<string, string> = {
+  notifications: "channels",
+  operations: "general",
+};
 
 const rank: Record<Role, number> = { owner: 3, admin: 2, member: 1 };
 
@@ -357,20 +360,32 @@ function General({ role }: { role: Role }) {
         {rename.error && (
           <p className="px-4 py-2 text-[13px] text-signal">{rename.error.message}</p>
         )}
+        {/* Where people look for it (#589): someone moving a project here, or signing in with
+            the directory, is asked for it. */}
+        <Row
+          name="Address"
+          hint="Someone moving a project here from a workspace you are not in gives it, and members signing in with the directory enter it."
+        >
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="truncate text-[14px] text-ink">{workspace.address}</span>
+            <CopyButton value={workspace.address} label="Copy the address" />
+          </span>
+        </Row>
         <WorkspaceRows />
       </Section>
-      <Section
-        title="Workspaces you are in"
-        intro="Switch from the menu at the foot of the sidebar."
-      >
-        {me.organisations.map((o) => (
-          <Row
-            key={o.id}
-            name={o.name}
-            hint={`${roleLabel[o.role]}${o.id === me.activeOrganisationId ? " · open now" : ""}`}
-          />
-        ))}
-      </Section>
+      {mayExportWorkspace(role) && (
+        <>
+          <Section
+            title="Export"
+            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
+          >
+            <WorkspaceExports scope={{ kind: "workspace" }} name={workspace.name} />
+          </Section>
+          <Danger>
+            <DeleteWorkspace name={workspace.name} />
+          </Danger>
+        </>
+      )}
     </>
   );
 }
@@ -1277,91 +1292,14 @@ function Guests() {
   );
 }
 
-/**
- * Operations (#165), for the owners: only what they act on (decision 288). How the files are
- * encrypted, the storage against the plan, the export and deletion, and who runs the instance
- * with where to ask them. The release, the worker, the queues and the metrics are the
- * operators', under Instance, Operations.
- */
-function Operations({ role }: { role: Role }) {
-  const { data, error, refetch } = useQuery(workspaceOperationsQuery);
-  const { data: usage } = useQuery(storageUsageQuery);
-  const { data: me } = useQuery(meQuery);
-  const workspace = me?.organisations.find((o) => o.id === me.activeOrganisationId);
-  if (error) return <Failed what="This page" error={error} retry={refetch} />;
-  if (!data || !me || !workspace) return <Loading />;
-  return (
-    <>
-      <Section title="This workspace">
-        <Row
-          name="Encryption"
-          hint="Every file has its own key, wrapped by the workspace's key; storage only ever holds ciphertext."
-        >
-          <span className="text-[13px] text-ink-2">
-            {encryptionWords(data.encryption, (iso) => dateFormat.format(new Date(iso)))}
-          </span>
-        </Row>
-        {usage && <StorageUsageRow usage={usage.usage} />}
-        <OperatorsRow support={me.support} />
-      </Section>
-      {mayExportWorkspace(role) && (
-        <>
-          <Section
-            title="Export"
-            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
-          >
-            <WorkspaceExports scope={{ kind: "workspace" }} name={workspace.name} />
-          </Section>
-          <Danger>
-            <DeleteWorkspace name={workspace.name} />
-          </Danger>
-        </>
-      )}
-    </>
-  );
-}
-
-/** Who runs the instance, and where to ask them, as the instance answers support (#181). */
-function OperatorsRow({ support }: { support: Me["support"] }) {
-  const mode = support?.mode ?? "off";
-  const keep = "They keep its backups, upgrades and workers.";
-  return (
-    <Row
-      name="Run by this instance's operators"
-      hint={
-        mode === "app"
-          ? `${keep} Ask them through Support.`
-          : mode === "link"
-            ? `${keep} Ask them at their own help desk.`
-            : mode === "mail" && support?.address
-              ? `${keep} Ask them by email, at ${support.address}.`
-              : `${keep} Support is not turned on here: ask whoever runs it.`
-      }
-    >
-      {mode === "app" ? (
-        <Button variant="secondary" size="md" asChild>
-          <Link to="/settings/$section" params={{ section: "support" }}>
-            Support
-          </Link>
-        </Button>
-      ) : mode === "link" && support?.address ? (
-        <Button variant="secondary" size="md" asChild>
-          <a href={support.address} target="_blank" rel="noopener noreferrer">
-            Open their desk
-          </a>
-        </Button>
-      ) : mode === "mail" && support?.address ? (
-        <Button variant="secondary" size="md" asChild>
-          <a href={`mailto:${support.address}`}>Write to them</a>
-        </Button>
-      ) : null}
-    </Row>
-  );
-}
-
 function Storage({ role }: { role: Role }) {
   const { data } = useQuery(workspaceStorageQuery);
   const { data: usage } = useQuery(storageUsageQuery);
+  // How the files are encrypted is the owners' to read (#165); with Operations gone it is here.
+  const { data: operations } = useQuery({
+    ...workspaceOperationsQuery,
+    enabled: role === "owner",
+  });
   if (!data) return null;
   const receiving = data.usesBucket ? null : (data.backend ?? data.defaultBackend);
   const usedIn = (name: string) => usage?.backends.find((b) => b.name === name);
@@ -1392,6 +1330,16 @@ function Storage({ role }: { role: Role }) {
         owner={role === "owner"}
       />
       <Section title="Backends" intro="What this workspace keeps in each.">
+        {operations && (
+          <Row
+            name="Encryption"
+            hint="Every file has its own key, wrapped by the workspace's key; storage only ever holds ciphertext."
+          >
+            <span className="text-[13px] text-ink-2">
+              {encryptionWords(operations.encryption, (iso) => dateFormat.format(new Date(iso)))}
+            </span>
+          </Row>
+        )}
         {data.available.map((b) => {
           const used = usedIn(b);
           return (
@@ -1885,9 +1833,11 @@ export function WorkspaceSettingsPage({
   if (!me) return null;
   const role = me.organisations.find((o) => o.id === me.activeOrganisationId)?.role ?? "member";
   const sections = sectionsFor(role, me.billing, me.support?.mode);
-  const current =
-    sections.find((s) => s.id === section) ?? sections.find((s) => s.id === "members");
+  const asked = formerSections[section] ?? section;
+  const current = sections.find((s) => s.id === asked) ?? sections.find((s) => s.id === "members");
   if (!current) return null;
+  // An unlisted page appears in the sidebar only while it is open, so the phone's control names it.
+  const listed = sections.filter((s) => !s.unlisted || s.id === current.id);
   return (
     <>
       <PageHeader title="Workspace settings" />
@@ -1895,7 +1845,7 @@ export function WorkspaceSettingsPage({
         title={current.label}
         intro={current.intro}
         docs={current.docs}
-        sections={sections}
+        sections={listed}
         current={current.id}
         base="/settings/$section"
         param="section"
@@ -1914,7 +1864,7 @@ export function WorkspaceSettingsPage({
             <DirectorySection />
           </>
         )}
-        {current.id === "notifications" && (
+        {current.id === "channels" && (
           <>
             <ChannelsSection />
             <ApiAndMcpSection />
@@ -1940,7 +1890,6 @@ export function WorkspaceSettingsPage({
         )}
         {current.id === "leaks" && <LeakTracingSection />}
         {current.id === "log" && <AccessLog />}
-        {current.id === "operations" && <Operations role={role} />}
       </SettingsLayout>
     </>
   );
