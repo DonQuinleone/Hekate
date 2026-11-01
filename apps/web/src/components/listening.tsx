@@ -1,13 +1,15 @@
 import type { ListeningRoom } from "@hekate/shared";
-import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
+import { PageHeader } from "~/components/page-header";
 import { Button } from "~/components/ui/button";
 import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
 import { Loading } from "~/components/ui/states";
+import { api } from "~/lib/api";
 import { cn } from "~/lib/cn";
 import { followStep, leaderState } from "~/lib/listening";
 import {
@@ -16,7 +18,7 @@ import {
   listeningRoomsQuery,
   useListening,
 } from "~/lib/listening-room";
-import { fileQuery, meQuery } from "~/lib/queries";
+import { fileQuery, meQuery, projectQuery } from "~/lib/queries";
 
 /**
  * Listening together (#200), as the prototype draws it: one control in the file page's header
@@ -509,57 +511,139 @@ export function ListeningPill({ onFile }: { onFile: string | null }) {
   );
 }
 
-/** Where a room's link lands: who leads and what they play, and Join. */
+/**
+ * Where a room's link lands (#650), titled "Listen together" as the prototype's page is: who
+ * leads, what they play and in which project, and Join; the leader is offered their own room's
+ * controls instead, the player and ending it for everyone.
+ */
 export function ListeningRoomPage({ roomId }: { roomId: string }) {
   const listening = useListening();
   const navigate = useNavigate();
+  const client = useQueryClient();
   const { data, error, isPending } = useQuery(listeningRoomQuery(roomId));
+  const { data: me } = useQuery(meQuery);
+  const { data: project } = useQuery({
+    ...projectQuery(data?.room.projectId ?? ""),
+    enabled: Boolean(data?.room.projectId),
+  });
   const label = useFileLabel(data?.room.fileId ?? null);
+  const [ending, setEnding] = useState(false);
   if (isPending) return <Loading />;
   const open = Boolean(data?.open) && !error;
+  const leads = Boolean(data && me && data.room.leader.id === me.user.id);
+  const end = async () => {
+    setEnding(true);
+    // In the room from this tab, the room ends through it; else straight to the server.
+    if (listening?.roomId === roomId && listening.leading) await listening.leave();
+    else
+      await api["listening-rooms"][":id"].end
+        .$post({ param: { id: roomId } })
+        .catch(() => undefined);
+    await client.invalidateQueries({ queryKey: listeningRoomQuery(roomId).queryKey });
+    setEnding(false);
+  };
+  const where = [project?.name, label].filter(Boolean).join(" · ");
   return (
-    <div className="mx-auto flex max-w-md flex-col items-start gap-4 px-6 py-16">
-      {open && data ? (
-        <>
-          <div className="flex items-center gap-3">
-            <Avatar person={data.room.leader.id} name={data.room.leader.name} size={36} />
-            <div className="flex flex-col">
-              <h1 className="m-0 text-[16px] font-medium text-ink">
-                {data.room.leader.name} is leading
-              </h1>
-              <span className="text-[13px] text-ink-3">
-                {label ? `${label} · ` : ""}
-                {data.room.listeners.length} listening
-              </span>
+    <>
+      <PageHeader
+        crumbs={
+          project
+            ? [
+                {
+                  key: "project",
+                  link: (
+                    <Link to="/projects/$projectId" params={{ projectId: project.id }}>
+                      {project.name}
+                    </Link>
+                  ),
+                },
+              ]
+            : []
+        }
+        title="Listen together"
+      />
+      <div className="mx-auto flex max-w-md flex-col items-start gap-4 px-6 py-16">
+        {open && data ? (
+          <>
+            <div className="flex items-center gap-3">
+              <Avatar person={data.room.leader.id} name={data.room.leader.name} size={36} />
+              <div className="flex flex-col">
+                <h2 className="m-0 text-[16px] font-medium text-ink">
+                  {leads ? "You are leading" : `${data.room.leader.name} is leading`}
+                </h2>
+                <span className="text-[13px] text-ink-3">
+                  {where ? `${where} · ` : ""}
+                  {data.room.listeners.length} listening
+                </span>
+              </div>
             </div>
-          </div>
-          <p className="m-0 text-ink-2">
-            Join, and your player follows theirs: play, pause, seeking and which file. You can leave
-            whenever you like.
-          </p>
-          <Button
-            variant="primary"
-            onClick={() => {
-              listening?.join(roomId);
-              if (data.room.fileId)
-                void navigate({ to: "/files/$fileId", params: { fileId: data.room.fileId } });
-            }}
-          >
-            Join
-          </Button>
-        </>
-      ) : (
-        <>
-          <h1 className="m-0 text-[16px] font-medium">This listening room is not open</h1>
-          <p className="m-0 text-ink-2">
-            Its leader has ended it, or it is in a project you are not part of.
-          </p>
-          <Button variant="secondary" onClick={() => void navigate({ to: "/" })}>
-            Go home
-          </Button>
-        </>
-      )}
-    </div>
+            {leads ? (
+              <>
+                <p className="m-0 text-ink-2">
+                  Everyone who joins hears what you play as you play it. Share this page's link with
+                  the project's members.
+                </p>
+                <span className="flex flex-wrap gap-2">
+                  {data.room.fileId && (
+                    <Button
+                      variant="primary"
+                      onClick={() => {
+                        if (listening?.roomId !== roomId) listening?.join(roomId);
+                        void navigate({
+                          to: "/files/$fileId",
+                          params: { fileId: data.room.fileId ?? "" },
+                        });
+                      }}
+                    >
+                      Open the player
+                    </Button>
+                  )}
+                  <Button variant="secondary" disabled={ending} onClick={() => void end()}>
+                    End for everyone
+                  </Button>
+                </span>
+              </>
+            ) : (
+              <>
+                <p className="m-0 text-ink-2">
+                  Join, and your player follows theirs: play, pause, seeking and which file. You can
+                  leave whenever you like.
+                </p>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    listening?.join(roomId);
+                    if (data.room.fileId)
+                      void navigate({ to: "/files/$fileId", params: { fileId: data.room.fileId } });
+                  }}
+                >
+                  Join
+                </Button>
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            <h2 className="m-0 text-[16px] font-medium">This listening room is not open</h2>
+            <p className="m-0 text-ink-2">
+              {project
+                ? `Its leader has ended it. Other rooms in ${project.name} are joined from a file's player.`
+                : "Its leader has ended it, or it is in a project you are not part of."}
+            </p>
+            <Button
+              variant="secondary"
+              onClick={() =>
+                void (project
+                  ? navigate({ to: "/projects/$projectId", params: { projectId: project.id } })
+                  : navigate({ to: "/" }))
+              }
+            >
+              {project ? `Go to ${project.name}` : "Go home"}
+            </Button>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 

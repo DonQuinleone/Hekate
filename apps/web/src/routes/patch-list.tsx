@@ -11,12 +11,18 @@ import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Failed, Loading, Refused } from "~/components/ui/states";
-import { patchQuery, usePatchList, useProjectCan } from "~/lib/queries";
+import {
+  patchQuery,
+  stagePlansQuery,
+  usePatchList,
+  useProjectCan,
+  useStagePlans,
+} from "~/lib/queries";
 import { ProjectFrame } from "./project";
 
 const directionWords: Record<PatchDirection, { heading: string; one: string }> = {
-  input: { heading: "In", one: "input" },
-  output: { heading: "Out", one: "output" },
+  input: { heading: "Input", one: "input" },
+  output: { heading: "Output", one: "output" },
 };
 
 /**
@@ -76,6 +82,13 @@ function PatchList({
   const { removeBox, removeRow } = usePatchList(projectId);
   const [confirm, confirmation] = useConfirm();
   const [editing, setEditing] = useState<Editing | null>(null);
+  // The rows a stage plan's microphone is linked to (#659), marked beside their source.
+  const { data: stage } = useQuery(stagePlansQuery(projectId));
+  const miked = new Set(
+    (stage?.plans ?? []).flatMap((p) =>
+      p.items.flatMap((i) => (i.kind === "mic" && i.patchRowId ? [i.patchRowId] : [])),
+    ),
+  );
   const addBox = (
     <Button variant="primary" onClick={() => setEditing({ kind: "box" })}>
       Add a stage box
@@ -150,22 +163,20 @@ function PatchList({
                     className="overflow-x-auto rounded-panel-lg border border-line bg-raised/25"
                   >
                     {/* The same columns for inputs and outputs, so the two tables line up. */}
-                    <table className="w-full min-w-[520px] table-fixed text-[13px]">
+                    <table className="w-full table-fixed text-[13px] @xl/app:min-w-[520px]">
                       <caption className="sr-only">
                         {box.name}, {words.one}s
                       </caption>
-                      <colgroup>
-                        <col className="w-14" />
-                        <col className="w-[22%]" />
-                        <col className="w-[22%]" />
-                        <col className="w-[12%]" />
-                        <col />
-                        <col className="w-10" />
-                      </colgroup>
                       <thead>
                         <tr className="text-left">
-                          {[words.heading, "Source", "Device", "Cable", "Notes"].map((h) => (
-                            <th key={h} className="px-3 py-2 font-normal">
+                          {[
+                            [words.heading, "w-[72px]"],
+                            ["Source", "w-[30%] @xl/app:w-[22%]"],
+                            ["Device", "w-[24%] @xl/app:w-[22%]"],
+                            ["Cable", "w-[14%] @xl/app:w-[12%]"],
+                            ["Notes", "hidden @xl/app:table-cell"],
+                          ].map(([h, width]) => (
+                            <th key={h} className={`px-3 py-2 font-normal ${width}`}>
                               <span className="label">{h}</span>
                             </th>
                           ))}
@@ -178,10 +189,30 @@ function PatchList({
                         {rows.map((r) => (
                           <tr key={r.id} className="group border-t border-line">
                             <td className="tabular px-3 py-1.5 text-ink-3">{r.channel}</td>
-                            <td className="truncate px-3 py-1.5 text-ink">{r.source}</td>
+                            <td className="px-3 py-1.5 text-ink">
+                              <span className="flex min-w-0 items-center gap-1.5">
+                                <span className="truncate">{r.source}</span>
+                                {miked.has(r.id) && (
+                                  <Icon
+                                    name="mic"
+                                    size={11}
+                                    aria-label="On the stage plan"
+                                    className="shrink-0 text-ink-3"
+                                  />
+                                )}
+                              </span>
+                              {/* On a phone the notes go under the source, never dropped (#659). */}
+                              {r.notes && (
+                                <span className="block truncate text-[12px] text-ink-3 @xl/app:hidden">
+                                  {r.notes}
+                                </span>
+                              )}
+                            </td>
                             <td className="truncate px-3 py-1.5 text-ink-2">{r.device}</td>
                             <td className="truncate tabular px-3 py-1.5 text-ink-2">{r.cable}</td>
-                            <td className="truncate px-3 py-1.5 text-ink-3">{r.notes}</td>
+                            <td className="hidden truncate px-3 py-1.5 text-ink-3 @xl/app:table-cell">
+                              {r.notes}
+                            </td>
                             <td className="px-1 py-1 text-right">
                               {canEdit && (
                                 <ActionMenu
@@ -300,13 +331,7 @@ function BoxDialog({
     >
       <form id="stage-box" onSubmit={save} className="flex flex-col gap-3">
         <Field label="Name" error={saving.error?.message}>
-          <Input
-            autoFocus
-            value={name}
-            maxLength={60}
-            placeholder="Stage box A"
-            onChange={(e) => setName(e.target.value)}
-          />
+          <Input autoFocus value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
         </Field>
       </form>
     </Dialog>
@@ -328,7 +353,25 @@ function RowDialog({
   onClose: () => void;
 }) {
   const { addRow, changeRow } = usePatchList(projectId);
+  const { sendStep, refresh } = useStagePlans(projectId);
+  const { data: stage } = useQuery(stagePlansQuery(projectId));
   const words = directionWords[direction];
+  // The stage plans' microphones (#659), each a source to choose, linked once the row is saved
+  // so its label on the plan follows the patch list.
+  const mics = (stage?.plans ?? []).flatMap((plan) =>
+    plan.items
+      .filter((i) => i.kind === "mic")
+      .map((i) => ({
+        planId: plan.id,
+        id: i.id,
+        label: i.label || "Microphone",
+        where: (stage?.plans.length ?? 0) > 1 ? plan.name : null,
+        linked: Boolean(row) && i.patchRowId === row?.id,
+      })),
+  );
+  const [mic, setMic] = useState<{ planId: string; id: string } | null>(null);
+  const [linkFailure, setLinkFailure] = useState<string | null>(null);
+  const linkedMic = mics.find((m) => (mic ? m.id === mic.id : m.linked));
   const [channel, setChannel] = useState(row ? String(row.channel) : "");
   const [source, setSource] = useState(row?.source ?? "");
   const [device, setDevice] = useState(row?.device ?? "");
@@ -343,15 +386,34 @@ function RowDialog({
     e.preventDefault();
     if (!valid) return;
     const fields = { source, device, cable, notes };
+    // The microphone chosen is linked to the row, so the plan and the list name it alike.
+    const link = async (rowId: string | undefined) => {
+      if (mic && rowId) {
+        try {
+          await sendStep(mic.planId, {
+            add: [],
+            change: [{ id: mic.id, patchRowId: rowId }],
+            remove: [],
+          });
+        } catch (failure) {
+          // The row is saved; the dialog stays open to say the link was not made.
+          setLinkFailure(failure instanceof Error ? failure.message : "Not linked");
+          return;
+        } finally {
+          refresh();
+        }
+      }
+      onClose();
+    };
     if (row)
       changeRow.mutate(
         { id: row.id, ...fields, ...(number ? { channel: number } : {}) },
-        { onSuccess: onClose },
+        { onSuccess: () => void link(row.id) },
       );
     else
       addRow.mutate(
         { boxId: box.id, direction, channel: number, ...fields },
-        { onSuccess: onClose },
+        { onSuccess: (made) => void link((made as { row?: { id: string } }).row?.id) },
       );
   };
   return (
@@ -376,35 +438,70 @@ function RowDialog({
       }
     >
       <form id="patch-row" onSubmit={save} className="grid grid-cols-1 gap-3 @xl/app:grid-cols-2">
+        {/* Named as the table heads its columns (#659). */}
         <Field
-          label="Channel"
-          hint={row ? undefined : "Left blank, the next free one"}
-          error={valid ? saving.error?.message : "A channel from 1 to 999"}
+          label={words.heading}
+          hint={row ? undefined : "Left blank, the next free one."}
+          error={
+            valid
+              ? (saving.error?.message ??
+                (linkFailure
+                  ? `Saved, but not linked to the stage plan: ${linkFailure}`
+                  : undefined))
+              : "A number from 1 to 999"
+          }
         >
           <Input inputMode="numeric" value={channel} onChange={(e) => setChannel(e.target.value)} />
         </Field>
-        <Field label="Source">
-          <Input
-            autoFocus
-            value={source}
-            maxLength={80}
-            placeholder={direction === "input" ? "Main L" : "Talkback"}
-            onChange={(e) => setSource(e.target.value)}
-          />
+        <Field
+          label="Source"
+          hint={
+            linkedMic
+              ? `The stage plan's ${linkedMic.label}: its label there follows this list.`
+              : undefined
+          }
+        >
+          <span className="flex gap-2">
+            <Input
+              autoFocus
+              value={source}
+              maxLength={80}
+              className="min-w-0 flex-1"
+              onChange={(e) => {
+                setSource(e.target.value);
+                if (mic && e.target.value !== linkedMic?.label) setMic(null);
+              }}
+            />
+            {direction === "input" && mics.length > 0 && (
+              <Dropdown
+                value="Stage plan"
+                align="right"
+                label="A microphone on the stage plan"
+                actions={mics.map((m) => ({
+                  label: m.where ? `${m.label} (${m.where})` : m.label,
+                  checked: m.id === linkedMic?.id,
+                  onSelect: () => {
+                    setMic({ planId: m.planId, id: m.id });
+                    setSource(m.label);
+                  },
+                }))}
+              />
+            )}
+          </span>
         </Field>
         <Field label="Device">
           <Input
             value={device}
             maxLength={80}
-            placeholder={direction === "input" ? "DPA 4006" : "Headphone amp"}
+            placeholder="Optional"
             onChange={(e) => setDevice(e.target.value)}
           />
         </Field>
-        <Field label="Cable or channel">
+        <Field label="Cable">
           <Input
             value={cable}
             maxLength={40}
-            placeholder="A1"
+            placeholder="Optional"
             onChange={(e) => setCable(e.target.value)}
           />
         </Field>
@@ -412,7 +509,7 @@ function RowDialog({
           <Input
             value={notes}
             maxLength={200}
-            placeholder={direction === "input" ? "Lid on the short stick" : "To the piano"}
+            placeholder="Optional"
             onChange={(e) => setNotes(e.target.value)}
           />
         </Field>

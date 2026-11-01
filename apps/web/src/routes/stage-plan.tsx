@@ -53,11 +53,14 @@ import {
   type ViewPage,
   viewQuery,
 } from "~/lib/queries";
+import { type LabelSide, labelSides, MARK } from "~/lib/stage-labels";
 import { uuidv7 } from "~/lib/uuidv7";
 import { ProjectFrame } from "./project";
 
 /** Pixels a metre: as wide as the panel allows, within what stays legible. */
-const SCALES = { fallback: 68, least: 40, most: 96 };
+const SCALES = { fallback: 68, least: 12, most: 160 };
+/** Each step of the zoom buttons and keys, as design tools step. */
+const ZOOM_STEP = 1.25;
 /** Room around the stage for the rulers, and for what stands just off it. */
 const PAD = { left: 30, top: 20, right: 20, bottom: 20 };
 
@@ -207,7 +210,13 @@ function Editor({
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const svg = useRef<SVGSVGElement>(null);
   const panel = useRef<HTMLElement>(null);
-  const [scale, setScale] = useState(SCALES.fallback);
+  /** The scale that fits the whole drawing across the panel (#570), kept as the panel resizes. */
+  const [fit, setFit] = useState(SCALES.fallback);
+  /** A scale chosen with the zoom; null fits the drawing, as it opens. */
+  const [zoom, setZoom] = useState<number | null>(null);
+  const scale = zoom ?? fit;
+  const zoomBy = (by: number) =>
+    setZoom(Math.min(SCALES.most, Math.max(SCALES.least, Math.round(scale * by))));
   // The floor plan's page, as the server drew it, for those who show it.
   const underlay = showUnderlay ? plan.underlay : null;
   const { data: underView } = useQuery({
@@ -229,13 +238,14 @@ function Editor({
         }
       : { left: 0, top: 0, right: plan.width, bottom: plan.depth };
   const across = extent.right - extent.left;
-  // The whole drawing across the panel where it fits; one too wide for it scrolls.
+  // The whole drawing across the panel, on load and as it resizes (#570), as Figma's Zoom to
+  // fit does; zoomed in past it, the panel scrolls.
   useEffect(() => {
     const el = panel.current;
     if (!el) return;
     const fitStage = () => {
       const room = el.clientWidth - 32 - PAD.left - PAD.right;
-      setScale(Math.min(SCALES.most, Math.max(SCALES.least, Math.floor(room / across))));
+      setFit(Math.min(SCALES.most, Math.max(SCALES.least, Math.floor(room / across))));
     };
     fitStage();
     const watch = new ResizeObserver(fitStage);
@@ -402,6 +412,17 @@ function Editor({
 
   const keys = (e: KeyboardEvent) => {
     const mod = e.metaKey || e.ctrlKey;
+    // Shift+1 fits the plan, as in Figma; + and - zoom.
+    if (e.shiftKey && e.code === "Digit1") {
+      e.preventDefault();
+      setZoom(null);
+      return;
+    }
+    if (!mod && (e.key === "+" || e.key === "=" || e.key === "-")) {
+      e.preventDefault();
+      zoomBy(e.key === "-" ? 1 / ZOOM_STEP : ZOOM_STEP);
+      return;
+    }
     if (mod && e.key.toLowerCase() === "z") {
       e.preventDefault();
       if (canEdit) (e.shiftKey ? stepForward : stepBack)();
@@ -448,6 +469,21 @@ function Editor({
     gesture?.kind === "move" && gesture.ids.includes(i.id)
       ? { ...i, x: i.x + gesture.dx, y: i.y + gesture.dy }
       : i;
+  // A microphone's label moves off a neighbouring mark it would run into (#570).
+  const sides = labelSides(
+    items
+      .filter((i) => i.kind === "mic")
+      .map((i) => {
+        const at = shown(i);
+        return {
+          id: i.id,
+          x: at.x,
+          y: at.y,
+          label: hidden.includes(i.group) ? null : shownLabel(i, channelOf(i), personOf(i)),
+        };
+      }),
+    scale,
+  );
 
   return (
     <div className="flex flex-col gap-3 @3xl/app:flex-row">
@@ -487,6 +523,39 @@ function Editor({
           <span className="tabular text-[12px] text-ink-3">
             {plan.width} × {plan.depth} m
           </span>
+          {/* The zoom, as Figma's: out, the scale, in, and back to the whole plan. */}
+          <span className="flex items-center">
+            <Button
+              variant="ghost"
+              size="iconSm"
+              aria-label="Zoom out"
+              title="Zoom out (-)"
+              disabled={scale <= SCALES.least}
+              onClick={() => zoomBy(1 / ZOOM_STEP)}
+            >
+              <Icon name="zoomOut" size={14} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-pressed={zoom === null}
+              title="Zoom to fit (Shift+1)"
+              onClick={() => setZoom(null)}
+              className="tabular min-w-[64px] px-1.5 aria-pressed:text-ink-3"
+            >
+              {zoom === null ? "Fit" : `${Math.round((scale / fit) * 100)}%`}
+            </Button>
+            <Button
+              variant="ghost"
+              size="iconSm"
+              aria-label="Zoom in"
+              title="Zoom in (+)"
+              disabled={scale >= SCALES.most}
+              onClick={() => zoomBy(ZOOM_STEP)}
+            >
+              <Icon name="zoomIn" size={14} />
+            </Button>
+          </span>
           <span className="ml-auto flex items-center gap-2 text-[12px] text-ink-3">
             {plan.underlay && (
               <span className="flex items-center gap-1.5">
@@ -508,20 +577,24 @@ function Editor({
             <Dropdown
               value="Export PDF"
               align="right"
-              actions={(
-                [
-                  ["a3", "A3, with rulers and scale bar"],
-                  ["a4", "A4"],
-                ] as const
-              ).map(([paper, label]) => ({
-                label,
-                onSelect: () => {
-                  const query = new URLSearchParams(hidden.map((g) => ["hide", g]));
-                  window.location.assign(
-                    `/api/stage-plans/${plan.id}/pdf/${paper}${hidden.length ? `?${query}` : ""}`,
-                  );
-                },
-              }))}
+              // The two papers as equals; what both carry is said once, over them (#570).
+              actions={[
+                { heading: "Both with rulers and a scale bar" },
+                ...(
+                  [
+                    ["a3", "A3"],
+                    ["a4", "A4"],
+                  ] as const
+                ).map(([paper, label]) => ({
+                  label,
+                  onSelect: () => {
+                    const query = new URLSearchParams(hidden.map((g) => ["hide", g]));
+                    window.location.assign(
+                      `/api/stage-plans/${plan.id}/pdf/${paper}${hidden.length ? `?${query}` : ""}`,
+                    );
+                  },
+                })),
+              ]}
             />
           </span>
         </div>
@@ -641,6 +714,7 @@ function Editor({
                   key={i.id}
                   item={shown(i)}
                   scale={scale}
+                  side={sides.get(i.id) ?? "right"}
                   label={hidden.includes(i.group) ? null : shownLabel(i, channelOf(i), personOf(i))}
                   selected={selected.includes(i.id)}
                   onPress={(e) => pressItem(e, i)}
@@ -975,12 +1049,15 @@ function UnderlayDialog({
 function Shape({
   item,
   scale,
+  side,
   label,
   selected,
   onPress,
 }: {
   item: StageItem;
   scale: number;
+  /** Where a microphone's label sits beside its mark, clear of its neighbours. */
+  side: LabelSide;
   label: string | null;
   selected: boolean;
   onPress: (e: PointerEvent) => void;
@@ -989,7 +1066,7 @@ function Shape({
   const fill = selected
     ? "color-mix(in oklab, var(--hk-signal) 22%, var(--hk-raised))"
     : "var(--hk-raised)";
-  const text = (x: number, y: number, anchor: "start" | "middle" = "middle") =>
+  const text = (x: number, y: number, anchor: "start" | "middle" | "end" = "middle") =>
     label === null ? null : (
       <text
         x={x}
@@ -1021,7 +1098,11 @@ function Shape({
           stroke={selected ? "var(--hk-signal)" : "var(--hk-ink-3)"}
         />
         <circle r={3} fill={selected ? "var(--hk-ground)" : "var(--hk-ink-2)"} />
-        {text(12, 4, "start")}
+        {side === "right"
+          ? text(MARK + 3, 4, "start")
+          : side === "left"
+            ? text(-MARK - 3, 4, "end")
+            : text(0, MARK + 13)}
       </g>
     );
   if (item.kind === "cable")
@@ -1252,11 +1333,11 @@ function ItemPanel({
           />
         </Field>
       )}
-      <Field label="Label group">
+      <Field label="Label group" hint="For example, Main pair: its labels show and hide together.">
         <Input
           defaultValue={item.group}
           maxLength={40}
-          placeholder="Main pair"
+          placeholder="None"
           onBlur={(e) => commit("group", e.target.value.trim())}
           onKeyDown={(e) => {
             if (e.key === "Enter") e.currentTarget.blur();

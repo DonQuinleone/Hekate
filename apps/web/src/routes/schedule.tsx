@@ -1,5 +1,4 @@
 import {
-  coverage,
   rowWords,
   type ScheduleDay,
   type ScheduleRow,
@@ -26,6 +25,7 @@ import { Failed, Loading, Refused } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import { scheduleQuery, useProjectCan, useSchedule } from "~/lib/queries";
+import { coverageTotals, slotDays } from "~/lib/schedule-coverage";
 import { ProjectFrame } from "./project";
 
 type Data = NonNullable<ReturnType<typeof useScheduleData>["data"]>;
@@ -411,9 +411,12 @@ function SlotTimer({
   );
 }
 
-/** Every track with its slots across the days, so a track with none stands out. */
+/**
+ * Every track with its slots across the days, so a track with none stands out. A slot for
+ * several tracks is shared time, counted once (#651), so the totals add up to what is booked.
+ */
 function Coverage({ data }: { data: Data }) {
-  const slots = coverage(
+  const { tracks, shared, booked } = coverageTotals(
     data.days,
     data.works,
     data.tracks.map((t) => t.id),
@@ -425,28 +428,45 @@ function Coverage({ data }: { data: Data }) {
       </p>
     );
   return (
-    <ul className="m-0 flex list-none flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25 p-0">
-      {data.tracks.map((t) => {
-        const held = slots.get(t.id) ?? [];
-        const minutes = held.reduce((n, s) => n + s.minutes, 0);
-        return (
-          <li key={t.id} className="flex items-center gap-3 px-4 py-2.5 text-[14px]">
-            <span className="min-w-0 flex-1 truncate text-ink">{t.name}</span>
-            <span className="min-w-0 truncate text-[13px] text-ink-3">
-              {held.map((s) => `${s.day} ${s.start}`).join(", ") || "No slot"}
-            </span>
-            <span
-              className={cn(
-                "tabular w-16 shrink-0 text-right text-[13px]",
-                minutes === 0 ? "text-signal" : "text-ink-2",
-              )}
+    <div className="flex flex-col gap-2">
+      <ul className="m-0 flex list-none flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25 p-0">
+        {data.tracks.map((t) => {
+          const held = tracks.get(t.id);
+          const none = !held || held.own + held.shared === 0;
+          return (
+            <li
+              key={t.id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-4 py-2.5 text-[14px]"
             >
-              {minutes} min
-            </span>
-          </li>
-        );
-      })}
-    </ul>
+              <span className="min-w-0 flex-1 truncate text-ink">{t.name}</span>
+              <span className="tabular min-w-0 truncate text-[13px] text-ink-3">
+                {(held && slotDays(held.days)) || "No slot"}
+              </span>
+              <span
+                className={cn(
+                  "tabular shrink-0 text-right text-[13px]",
+                  none ? "text-signal" : "text-ink-2",
+                )}
+              >
+                {none
+                  ? "0 min"
+                  : [
+                      held.own > 0 || held.shared === 0 ? `${held.own} min` : null,
+                      held.shared > 0 ? `${held.shared} min shared` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" + ")}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      {booked > 0 && (
+        <p className="tabular m-0 text-right text-[13px] text-ink-3">
+          {booked} min booked{shared > 0 ? `, ${shared} of them shared by several tracks` : ""}
+        </p>
+      )}
+    </div>
   );
 }
 
