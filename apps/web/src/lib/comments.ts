@@ -161,10 +161,14 @@ const steps: [Intl.RelativeTimeFormatUnit, number][] = [
   ["year", Number.POSITIVE_INFINITY],
 ];
 
-/** "just now", "5 minutes ago", "yesterday". */
+/**
+ * "just now", "5 minutes ago", "yesterday": how long ago something happened. It only ever
+ * happened, so an instant ahead of the reader's clock (a clock running slow, or the server's
+ * running fast) is "just now", never "in 3 weeks".
+ */
 export function ago(iso: string, now = Date.now()): string {
   let value = (new Date(iso).getTime() - now) / 1000;
-  if (Math.abs(value) < 45) return "just now";
+  if (value > -45) return "just now";
   for (const [unit, size] of steps) {
     if (Math.abs(value) < size) return relative.format(Math.round(value), unit);
     value /= size;
