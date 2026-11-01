@@ -6,7 +6,7 @@
 
 Hekate is an open-source, self-hosted media review and approval system: a sovereign alternative to Dropbox Replay and Frame.io. Upload a cut, a mix or a score, invite reviewers, and collect feedback where every comment is anchored to an exact place in the media. Approve a version when it is right.
 
-Classical music is a first-class citizen (tracks with versions and variations, bar numbers, score pages, session takes, a recording synced to its score), and Hekate works just as well for video and for general documents. It should never feel like a classical-music-only tool.
+Classical music is a first-class citizen (tracks with versions and variants, bar numbers, score pages, session takes, a recording synced to its score), and Hekate works just as well for video and for general documents. It should never feel like a classical-music-only tool.
 
 > **Status:** pre-release. The foundations are being built; nothing here is production-ready yet.
 
