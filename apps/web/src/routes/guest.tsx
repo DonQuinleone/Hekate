@@ -1,8 +1,9 @@
-import { reviewKindNames } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, type ReactNode, useState } from "react";
 import { Avatar } from "~/components/avatar";
+import { Empty } from "~/components/empty";
+import { PageHeader } from "~/components/page-header";
 import { reviewState } from "~/components/reviews";
 import { GuestFrame } from "~/components/shell";
 import { Button } from "~/components/ui/button";
@@ -13,7 +14,7 @@ import { Failed, failureText, Loading } from "~/components/ui/states";
 import { StatusPill } from "~/components/ui/status";
 import { useBrandAccent } from "~/lib/branding";
 import { formatDates, localeKey } from "~/lib/locale";
-import { accessNote } from "~/lib/permissions";
+import { guestRow } from "~/lib/permissions";
 import {
   ApiError,
   type GuestArrival,
@@ -310,57 +311,91 @@ export function GuestShell({ children }: { children: ReactNode }) {
   );
 }
 
-/** `/g`: the reviews a guest has been asked to take part in. */
+/**
+ * `/g`: what a guest has been asked to look at (#667), as the prototype's guest home: a signal
+ * dot on what waits on them, what each asks and when it is due, and an empty state.
+ */
 export function GuestHomePage() {
   const { data: me, error, refetch } = useQuery(guestMeQuery);
+  const header = <PageHeader title="Your reviews" />;
   // Never a blank page (#545): the list's shape while it comes, and a way on if it cannot.
-  if (error) return <Failed what="Your reviews" error={error} retry={refetch} />;
-  if (!me) return <Loading className="mx-auto max-w-3xl px-4 py-8 sm:px-8" />;
+  if (error)
+    return (
+      <>
+        {header}
+        <Failed what="Your reviews" error={error} retry={refetch} />
+      </>
+    );
+  if (!me)
+    return (
+      <>
+        {header}
+        <Loading className="mx-auto max-w-3xl px-4 py-8 sm:px-8" />
+      </>
+    );
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8 sm:px-8">
-      <div className="flex flex-col gap-1">
-        <h1 className="m-0 text-[24px] font-medium tracking-[-0.02em]">Your reviews</h1>
-        <p className="m-0 text-[13px] text-ink-3">
-          {me.organisation ? `${me.organisation} asked you to review these.` : ""}
-        </p>
-      </div>
-      <ul className="m-0 flex list-none flex-col border-t border-hairline p-0">
-        {me.reviews.map((review) => (
-          <li
-            key={review.id}
-            className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline py-2.5"
-          >
-            <span className="flex min-w-0 flex-col">
-              {review.accessOpen ? (
-                <Link
-                  to="/g/reviews/$reviewId"
-                  params={{ reviewId: review.id }}
-                  className="truncate text-sm font-medium text-ink no-underline hover:text-signal"
-                >
-                  {review.title}
-                </Link>
-              ) : (
-                // Outside their access window it cannot be opened, so it is not a link.
-                <span className="truncate text-sm font-medium text-ink-3">{review.title}</span>
-              )}
-              <span className="text-xs text-ink-3">
-                {review.kind === "share" ? "Shared with you" : reviewKindNames[review.kind]}
-                {review.dueAt ? ` · due ${day.format(new Date(review.dueAt))}` : ""}
-                {review.submittedAt ? " · you have responded" : ""}
-                {accessNote(review) ? ` · ${accessNote(review)}` : ""}
-              </span>
-            </span>
-            {/* A share asks nothing, so it has no review status to show (#138). */}
-            {review.kind === "share" ? (
-              <span className="text-xs text-ink-3">
-                {review.status === "open" ? "Shared" : "No longer shared"}
-              </span>
-            ) : (
-              <StatusPill state={reviewState(review)} />
+    <>
+      {header}
+      <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8 sm:px-8">
+        {me.reviews.length === 0 ? (
+          <Empty title="Nothing to review right now" text="New invitations arrive by email." />
+        ) : (
+          <>
+            {me.organisation && (
+              <p className="m-0 text-[14px] text-ink-2">
+                {me.organisation} asked you to look at these.
+              </p>
             )}
-          </li>
-        ))}
-      </ul>
-    </div>
+            <ul className="m-0 flex list-none flex-col border-t border-hairline p-0">
+              {me.reviews.map((review) => {
+                const row = guestRow(review);
+                return (
+                  <li
+                    key={review.id}
+                    className="grid min-h-12 grid-cols-[7px_minmax(0,1fr)_auto] items-center gap-3 border-b border-hairline py-2.5"
+                  >
+                    {row.waits ? (
+                      <span
+                        role="img"
+                        aria-label="Waits on you"
+                        className="size-[7px] rounded-full bg-signal"
+                      />
+                    ) : (
+                      <span aria-hidden="true" />
+                    )}
+                    <span className="flex min-w-0 flex-col">
+                      {review.accessOpen ? (
+                        <Link
+                          to="/g/reviews/$reviewId"
+                          params={{ reviewId: review.id }}
+                          className="truncate text-sm font-medium text-ink no-underline hover:text-signal"
+                        >
+                          {review.title}
+                        </Link>
+                      ) : (
+                        // Outside their access window it cannot be opened, so it is not a link.
+                        <span className="truncate text-sm font-medium text-ink-2">
+                          {review.title}
+                        </span>
+                      )}
+                      <span className="text-xs text-ink-3">{row.line}</span>
+                    </span>
+                    {/* A share asks nothing, so its pill says whether it is still shared (#138). */}
+                    {row.shareBadge ? (
+                      <StatusPill
+                        state={row.shareBadge === "Shared" ? "in_review" : "cancelled"}
+                        label={row.shareBadge}
+                      />
+                    ) : (
+                      <StatusPill state={reviewState(review)} />
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+      </div>
+    </>
   );
 }

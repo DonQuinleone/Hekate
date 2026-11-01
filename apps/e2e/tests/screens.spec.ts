@@ -726,6 +726,20 @@ test.describe("guest", () => {
     await checkScreen(page);
   });
 
+  // A guest with nothing open (#667): the home says so, and what will come.
+  test("guest-reviews-empty", async ({ page }) => {
+    await page.route("**/api/guest/me", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { reviews: unknown[] };
+      await route.fulfill({ response, json: { ...body, reviews: [] } });
+    });
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto("/g");
+    await settle(page, "text=Nothing to review right now");
+    await saveScreen(page, "guest-reviews-empty");
+    await checkScreen(page);
+  });
+
   // A guest their review lets invite others (#55): the Reviewers section's Invite, open. The
   // review's answer is amended in this page alone, so no other capture sees the grant.
   test("guest-review-invite", async ({ page }) => {

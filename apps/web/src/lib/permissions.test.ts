@@ -4,6 +4,7 @@ import { setLocale } from "./locale";
 import {
   accessNote,
   fromLocalInput,
+  guestRow,
   permissionSummary,
   standingChange,
   toLocalInput,
@@ -45,7 +46,7 @@ describe("reviewer permissions in words", () => {
     ).toMatch(/^opens 2026-10-21/);
     expect(
       accessNote({ opensAt: null, closesAt: "2026-10-19T09:00:00Z", accessOpen: false }, now),
-    ).toMatch(/^closed 2026-10-19/);
+    ).toMatch(/^closed on 2026-10-19$/);
   });
 
   it("round-trips a moment through a local date and time field", () => {
@@ -77,5 +78,41 @@ describe("what a project keeps for one person (#55)", () => {
 
   it("keeps nothing where nothing departs", () => {
     expect(standingChange(defaults, { comment: true, decide: true, history: false })).toBeNull();
+  });
+});
+
+describe("a guest's home", () => {
+  it("says what each row asks of the guest (#667)", () => {
+    const now = new Date("2026-10-14T12:00:00Z");
+    const base = {
+      status: "open" as const,
+      dueAt: "2026-10-31T09:00:00Z",
+      submittedAt: null,
+      opensAt: null,
+      closesAt: null,
+      accessOpen: true,
+    };
+    const asked = guestRow({ ...base, kind: "approval" }, now);
+    expect(asked.waits).toBe(true);
+    expect(asked.line).toBe("Approval · due in 17 days");
+    expect(asked.shareBadge).toBeNull();
+    const answered = guestRow(
+      { ...base, kind: "feedback", submittedAt: "2026-10-13T09:00:00Z" },
+      now,
+    );
+    expect(answered.waits).toBe(false);
+    expect(answered.line).toBe("Feedback · you have responded");
+    // A share asks nothing, so nothing waits; closed to them, its badge says when.
+    const shared = guestRow({ ...base, kind: "share", dueAt: null }, now);
+    expect(shared).toEqual({ waits: false, line: "Shared with you", shareBadge: "Shared" });
+    const lapsed = guestRow(
+      { ...base, kind: "share", dueAt: null, closesAt: "2026-10-12T21:59:00Z", accessOpen: false },
+      now,
+    );
+    expect(lapsed.line).toBe("Shared with you");
+    expect(lapsed.shareBadge).toMatch(/^Closed on 2026-10-12$/);
+    expect(guestRow({ ...base, kind: "share", status: "cancelled" }, now).shareBadge).toBe(
+      "No longer shared",
+    );
   });
 });

@@ -17,10 +17,7 @@ export function GuestHomePage() {
       <p className="text-ink-2">{organisation.name} asked you to look at these.</p>
       <StateGate
         empty={
-          <Empty
-            title="Nothing to review"
-            text="When someone asks you to review something, it appears here and you get an email."
-          />
+          <Empty title="Nothing to review right now" text="New invitations arrive by email." />
         }
       >
         <ul className="flex list-none flex-col rounded-panel-lg border border-line bg-raised/40 p-0 shadow-1">
