@@ -104,7 +104,7 @@ import { CaptionLine, CaptionsMenu } from "./transcript";
 import { Button } from "./ui/button";
 import { Floating } from "./ui/floating";
 import { Input, Select } from "./ui/input";
-import { Dropdown, usePopover } from "./ui/menu";
+import { ActionMenu, Dropdown, type MenuItem, usePopover } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
 import { Slider } from "./ui/slider";
 import { Toggle } from "./ui/toggle";
@@ -201,6 +201,22 @@ export function renditionLabel(rendition: Rendition, info: MediaInfo | null): st
       if (!rendition.height) return rendition.name;
       return free ? `${rendition.height}p · ${free.toUpperCase()}` : `${rendition.height}p`;
     }
+  }
+}
+
+/** A rendition in a word, for the Quality menu's face (#637): "Lossless", "AAC", "720p". */
+export function renditionShort(rendition: Rendition): string {
+  switch (rendition.name) {
+    case "aac-256":
+      return "AAC";
+    case "flac":
+      return "Lossless";
+    case "eac3":
+      return "Dolby Digital Plus";
+    case "ac3":
+      return "Dolby Digital";
+    default:
+      return rendition.height ? `${rendition.height}p` : rendition.name;
   }
 }
 
@@ -513,6 +529,8 @@ export function Player({
     setPresetError(null);
   };
   const [settingsOpen, setSettingsOpen, settingsBox] = usePopover();
+  /** The transport's menu: playback's own settings (#636). */
+  const [playbackOpen, setPlaybackOpen, playbackBox] = usePopover();
   /** The spectrogram's own settings, a level below the view menu. */
   const [tuning, setTuning] = useState(false);
   /** A loop can be kept but switched off, to hear on past it. */
@@ -1090,7 +1108,8 @@ export function Player({
 
   const share = (value: number) => (duration > 0 ? Math.min(100, (value / duration) * 100) : 0);
 
-  // The View menu: how the recording is drawn, and normalised playback (#240).
+  // The View menu: how the recording is drawn, and nothing else (#636): playback's settings
+  // are the transport's.
   const viewPanel = settingsOpen && (
     <StripPanel anchor={settingsBox} onClose={() => setSettingsOpen(false)}>
       <section id="player-view" aria-label="View" className="flex flex-col gap-3">
@@ -1149,7 +1168,8 @@ export function Player({
               }}
             />
           )}
-          {kind === "audio" && canSpectrogram && (
+          {/* The toolbar turns the spectrogram on and off; here, only where it sits (#636). */}
+          {kind === "audio" && canSpectrogram && playerView.spectrogram !== "off" && (
             <div className="flex items-center justify-between gap-4">
               <span aria-hidden="true" className="text-[14px] text-ink">
                 Spectrogram
@@ -1157,7 +1177,9 @@ export function Player({
               <Segmented
                 label="Spectrogram"
                 value={playerView.spectrogram}
-                options={spectrogramPlaces.map((p) => ({ value: p, label: placeNames[p] }))}
+                options={spectrogramPlaces
+                  .filter((p) => p !== "off")
+                  .map((p) => ({ value: p, label: placeNames[p] }))}
                 onChange={(spectrogram) => setPlayerView({ ...playerView, spectrogram })}
               />
             </div>
@@ -1166,36 +1188,44 @@ export function Player({
             <SpectrogramLook view={spectrum} onView={setSpectrum} />
           )}
           {kind === "audio" && canSpectrogram && playerView.spectrogram !== "off" && (
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-expanded={tuning}
-              onClick={() => setTuning((t) => !t)}
-              className="self-start px-0 text-ink-3 hover:text-ink"
-            >
-              {tuning ? "Hide spectrogram settings" : "Channel, levels, range and analysis…"}
-            </Button>
+            <>
+              {/* Its label stays, and what it opens comes directly under it (#636). */}
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-expanded={tuning}
+                onClick={() => setTuning((t) => !t)}
+                className="self-start px-0 text-ink-3 hover:text-ink"
+              >
+                <Icon name={tuning ? "chevronDown" : "chevronRight"} size={14} />
+                Spectrogram settings
+              </Button>
+              {tuning && (
+                <SpectrogramSettings
+                  view={spectrum}
+                  onView={setSpectrum}
+                  channel={spectrumChannel}
+                  onChannel={setSpectrumChannel}
+                  channels={channels}
+                  layout={info?.audio?.channelLayout}
+                  sampleRate={info?.audio?.sampleRate ?? 48_000}
+                />
+              )}
+            </>
           )}
           {kind === "audio" && !canSpectrogram && tools && !tools.includes("spectrogram") && (
             <span className="text-[12px] text-ink-3">
               The spectrogram is not among your tools here.
             </span>
           )}
-          {offersNormalise && (
-            <Toggle
-              label="Normalised playback"
-              checked={normalised}
-              onChange={(on) => onNormalised?.(on)}
-            />
-          )}
-          {follow}
-          {/* Presets go with an account; a guest has none to keep them in. */}
+          {/* Presets go with an account; a guest has none to keep them in. Keeping one is a
+              field and one Save, in place (#636). */}
           {kind === "audio" && !guest && (
-            <div className="flex items-center justify-between gap-4 border-t border-hairline pt-2.5">
-              <span aria-hidden="true" className="text-[14px] text-ink">
-                Presets
-              </span>
-              <span className="flex items-center gap-1.5">
+            <div className="flex flex-col gap-2 border-t border-hairline pt-2.5">
+              <div className="flex items-center justify-between gap-4">
+                <span aria-hidden="true" className="text-[14px] text-ink">
+                  Presets
+                </span>
                 {presets.length > 0 && (
                   <Select
                     size="sm"
@@ -1217,64 +1247,75 @@ export function Player({
                     ))}
                   </Select>
                 )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  aria-expanded={naming !== null}
-                  onClick={() => {
-                    setNaming(naming === null ? "" : null);
-                    setPresetError(null);
-                  }}
-                >
-                  Save as…
-                </Button>
-              </span>
+              </div>
+              <form
+                className="flex flex-col gap-1.5"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  keepPreset();
+                }}
+              >
+                <span className="flex items-center gap-1.5">
+                  <Input
+                    size="sm"
+                    aria-label="Preset name"
+                    placeholder="Save this view as…"
+                    maxLength={40}
+                    value={naming ?? ""}
+                    onChange={(e) => {
+                      setNaming(e.target.value);
+                      setPresetError(null);
+                    }}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    className="min-w-0 flex-1"
+                  />
+                  <Button size="sm" type="submit" disabled={!(naming ?? "").trim()}>
+                    Save
+                  </Button>
+                </span>
+                {presetError && <span className="text-[12px] text-signal">{presetError}</span>}
+              </form>
             </div>
           )}
-          {kind === "audio" && !guest && naming !== null && (
-            <form
-              className="flex flex-col gap-1.5"
-              onSubmit={(e) => {
-                e.preventDefault();
-                keepPreset();
-              }}
-            >
-              <span className="flex items-center gap-1.5">
-                <Input
-                  size="sm"
-                  aria-label="Preset name"
-                  placeholder="Name this view"
-                  maxLength={40}
-                  value={naming}
-                  autoFocus
-                  onChange={(e) => setNaming(e.target.value)}
-                  className="min-w-0 flex-1"
-                />
-                <Button size="sm" type="submit">
-                  Save
-                </Button>
-              </span>
-              {presetError && <span className="text-[12px] text-signal">{presetError}</span>}
-            </form>
-          )}
         </div>
-        {kind === "audio" && display !== "waveform" && tuning && (
-          <SpectrogramSettings
-            view={spectrum}
-            onView={setSpectrum}
-            channel={spectrumChannel}
-            onChannel={setSpectrumChannel}
-            channels={channels}
-            layout={info?.audio?.channelLayout}
-            sampleRate={info?.audio?.sampleRate ?? 48_000}
-          />
-        )}
       </section>
     </StripPanel>
   );
 
-  // The player's own menus, at the strip's end after the page's (#15): drawing, the frame's
-  // guides and comparing cuts, captions, a timecode to go to, the channels and the view.
+  /** The frame's guides and comparing cuts (#146, #147), as a menu or in the overflow. */
+  const frameValue = (
+    <>
+      <Icon name="grid" size={14} />
+      Frame
+    </>
+  );
+  const frameActions: MenuItem[] = [
+    { label: "Safe areas", checked: safe, onSelect: () => setSafe((on) => !on) },
+    ...(Object.keys(mattes) as Matte[]).map((m) => ({
+      label: `Matte ${mattes[m].label}`,
+      checked: matte === m,
+      onSelect: () => setMatte((on) => (on === m ? null : m)),
+    })),
+    ...(canCompareCuts && cuts
+      ? [
+          "divider" as const,
+          {
+            label: "Compare cuts: wipe",
+            hint: `With ${cuts.previous.label}`,
+            checked: comparing === "wipe",
+            onSelect: () => setCutView((on) => (on === "wipe" ? null : "wipe")),
+          },
+          {
+            label: "Compare cuts: side by side",
+            checked: comparing === "side",
+            onSelect: () => setCutView((on) => (on === "side" ? null : "side")),
+          },
+        ]
+      : []),
+  ];
+
+  // The player's own menus, in the one view row after the page's (#637): drawing, the frame's
+  // guides and comparing cuts, captions, the channels and the view.
   const menus = !failure && (
     <>
       {kind === "video" && onDraft && (
@@ -1294,39 +1335,10 @@ export function Player({
         </Button>
       )}
       {kind === "video" && info?.video && (
-        <Dropdown
-          align="right"
-          value={
-            <>
-              <Icon name="grid" size={14} />
-              Frame
-            </>
-          }
-          actions={[
-            { label: "Safe areas", checked: safe, onSelect: () => setSafe((on) => !on) },
-            ...(Object.keys(mattes) as Matte[]).map((m) => ({
-              label: `Matte ${mattes[m].label}`,
-              checked: matte === m,
-              onSelect: () => setMatte((on) => (on === m ? null : m)),
-            })),
-            ...(canCompareCuts && cuts
-              ? [
-                  "divider" as const,
-                  {
-                    label: "Compare cuts: wipe",
-                    hint: `With ${cuts.previous.label}`,
-                    checked: comparing === "wipe",
-                    onSelect: () => setCutView((on) => (on === "wipe" ? null : "wipe")),
-                  },
-                  {
-                    label: "Compare cuts: side by side",
-                    checked: comparing === "side",
-                    onSelect: () => setCutView((on) => (on === "side" ? null : "side")),
-                  },
-                ]
-              : []),
-          ]}
-        />
+        // On a phone the frame's guides go into the overflow (#637).
+        <span className="hidden sm:flex">
+          <Dropdown align="right" value={frameValue} actions={frameActions} />
+        </span>
       )}
       {captions.length > 0 && (
         <CaptionsMenu tracks={captions} current={captionId} onChange={setCaptionId} />
@@ -1356,7 +1368,7 @@ export function Player({
           )}
         </div>
       )}
-      {(kind === "audio" || offersNormalise || follow) && (
+      {kind === "audio" && (
         <div ref={settingsBox} className="relative">
           <Button
             variant="ghost"
@@ -1770,17 +1782,21 @@ export function Player({
                   fill
                 />
               </div>
-              <Waveform
-                fileId={fileId}
-                media={element}
-                duration={duration}
-                layout={info?.audio?.channelLayout}
-                view={view}
-                look={look}
-                overlay
-                cursor={false}
-                fill
-              />
+              {/* See-through by default (#636), so the spectrogram reads behind it; the
+                  brightness slider still sets how much. */}
+              <div className="flex min-h-0 flex-1 flex-col opacity-55">
+                <Waveform
+                  fileId={fileId}
+                  media={element}
+                  duration={duration}
+                  layout={info?.audio?.channelLayout}
+                  view={view}
+                  look={look}
+                  overlay
+                  cursor={false}
+                  fill
+                />
+              </div>
             </div>
           )}
         </LoopSurface>
@@ -1817,62 +1833,39 @@ export function Player({
   const iconButton =
     "flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-ink-2 transition-colors hover:bg-raised hover:text-ink disabled:cursor-default disabled:opacity-40";
 
-  // What is heard, as a quiet line in the strip (#493): the rendition, or where there are
-  // several a quiet menu to choose one, and normalised playback; never a button.
+  // What is heard (#493, #637): where there are several renditions, a quiet menu to choose one,
+  // named "Quality" and its choice in a word; the rendition's full name is in the menu.
   const heardChoice = choices.find((c) => c.level === level)?.rendition;
-  const formatLine = !failure && (choices.length > 0 || (normalised && normalisation)) && (
-    // On a wide screen it gives way (truncates) before the strip's menus wrap under the version
-    // and variant: a box of no width of its own that grows into what the lead leaves, so it asks
-    // the strip for nothing. On a phone the rendition's name is hidden, as the details sheet
-    // says the same, but the Quality menu stays (it is the only way to choose what is heard) and
-    // so does the normalisation note (it says the level heard is not the file's).
-    <span
-      className={cn(
-        // Under lg the lead and the menus wrap, so the line takes a row of its own rather than
-        // the nothing a full lead leaves beside it.
-        "min-w-0 basis-full items-center gap-1 overflow-hidden text-[12px] text-ink-3 sm:flex lg:w-0 lg:flex-1 lg:basis-0",
-        choices.length > 1 || (normalised && normalisation) ? "flex" : "hidden",
-      )}
-      title={[
-        heardChoice ? renditionLabel(heardChoice, info) : null,
-        normalised && normalisation ? normalisationLabel(normalisation) : null,
-      ]
-        .filter(Boolean)
-        .join(" · ")}
-    >
-      {choices.length > 1 ? (
-        <Dropdown
-          label="Quality"
-          size="sm"
-          value={
-            <span className="tabular truncate">
-              {heardChoice ? renditionLabel(heardChoice, info) : "Auto"}
-            </span>
-          }
-          actions={[
-            ...(kind === "video"
-              ? [{ label: "Auto", checked: level === -1, onSelect: () => choose(-1) }]
-              : []),
-            ...choices.map((c) => ({
-              label: renditionLabel(c.rendition, info),
-              checked: level === c.level,
-              onSelect: () => choose(c.level),
-            })),
-          ]}
-          className="h-7 min-w-0 px-1.5 text-[12px] text-ink-3"
-        />
-      ) : null}
-      {normalised && normalisation && (
-        <span className="tabular min-w-0 truncate">
-          {choices.length > 0 && <span className="hidden sm:inline">· </span>}
-          {normalisationLabel(normalisation)}
+  const quality = !failure && choices.length > 1 && (
+    <Dropdown
+      label="Quality"
+      size="sm"
+      align="right"
+      value={
+        <span className="flex items-center gap-1">
+          <span className="text-ink-3">Quality</span>
+          <span className="tabular text-ink-2">
+            {heardChoice ? renditionShort(heardChoice) : "Auto"}
+          </span>
         </span>
-      )}
-    </span>
+      }
+      actions={[
+        ...(kind === "video"
+          ? [{ label: "Auto", checked: level === -1, onSelect: () => choose(-1) }]
+          : []),
+        ...choices.map((c) => ({
+          label: renditionLabel(c.rendition, info),
+          checked: level === c.level,
+          onSelect: () => choose(c.level),
+        })),
+      ]}
+      className="h-8 px-2 text-[13px]"
+    />
   );
 
-  // The view toolbar at the waveform's edge (#493): how the recording is looked at (the loop,
-  // the spectrogram, the meters, the zoom). Playback stays in the transport beneath.
+  // The view's controls at the media's edge (#493, #637): the loop, the spectrogram, the
+  // meters and the zoom, in the one row with the player's menus. Playback stays in the
+  // transport beneath.
   const spectrogramOn = kind === "audio" && canSpectrogram && playerView.spectrogram !== "off";
   const showsMeters = kind === "audio" && (!tools || tools.includes("meters"));
   const toggleSpectrogram = () => {
@@ -1881,100 +1874,135 @@ export function Player({
       setPlayerView({ ...playerView, spectrogram: "off" });
     } else setPlayerView({ ...playerView, spectrogram: lastPlace.current });
   };
-  // The compact QA player (#42) keeps the loop toggle, the one view control a video has, so a
-  // looped finding can be heard straight through without clearing the passage.
-  const viewBar = !failure &&
-    (canLoop ||
-      (!compact && kind === "audio" && (canSpectrogram || showsMeters || mostZoom > 1))) && (
-      <div
-        role="toolbar"
-        aria-label="View"
-        className="flex h-8 shrink-0 items-center justify-end gap-0.5 px-2 lg:px-3"
+  const toggleMeters = () => setPlayerView({ ...playerView, loudness: !playerView.loudness });
+  /** Loop's settings, from its button (#638): never a row that moves the page. */
+  const [loopOpen, setLoopOpen, loopBox] = usePopover();
+  const loopButton = canLoop && (
+    <div ref={loopBox} className="relative flex items-center">
+      <button
+        type="button"
+        aria-pressed={active}
+        title={
+          loop ? "Loop on or off (Shift+L)" : "Drag on the waveform, or press I and O, to loop"
+        }
+        // Always to be pressed (#638): with no passage it says, in place, how to make one.
+        onClick={() => (loop ? setLooping(!looping) : setLoopOpen(!loopOpen))}
+        className={cn(viewButton, "rounded-r-none", active && "bg-raised text-ink")}
       >
-        {canLoop && (
-          <button
-            type="button"
-            aria-pressed={active}
-            disabled={!loop}
-            title={
-              loop
-                ? "Loop on or off (Shift+L)"
-                : "Drag on the waveform, or press I and O, to loop a passage"
+        <Icon name="loop" size={14} />
+        Loop
+      </button>
+      <button
+        type="button"
+        aria-label="Loop settings"
+        title="Loop settings"
+        aria-expanded={loopOpen}
+        onClick={() => setLoopOpen(!loopOpen)}
+        className={cn(
+          viewButton,
+          "w-6 justify-center rounded-l-none px-0",
+          (active || loopOpen) && "bg-raised text-ink",
+        )}
+      >
+        <Icon name="chevronDown" size={12} />
+      </button>
+      {loopOpen && (
+        <StripPanel anchor={loopBox} onClose={() => setLoopOpen(false)}>
+          <LoopControls
+            loop={loop}
+            duration={duration}
+            fps={info?.video?.fps}
+            rolls={rolls}
+            onLoop={(next) => onLoop(next)}
+            onRolls={setRolls}
+            hint={
+              kind === "video" ? "Drag on the filmstrip to loop" : "Drag on the waveform to loop"
             }
-            onClick={() => setLooping(!looping)}
-            className={cn(
-              viewButton,
-              active && "bg-signal/15 text-signal hover:bg-signal/20 hover:text-signal",
-            )}
-          >
-            <Icon name="loop" size={14} />
-            Loop
-            {loop && active && (
-              <span className="tabular hidden sm:inline">
-                {formatDuration(loop.start)}–{formatDuration(loop.end)}
-              </span>
-            )}
-          </button>
-        )}
-        {kind === "audio" && canSpectrogram && (
+          />
+        </StripPanel>
+      )}
+    </div>
+  );
+  /** On a phone the less used view controls go into one overflow (#637). */
+  const overflow: MenuItem[] = [
+    ...(kind === "audio" && canSpectrogram
+      ? [{ label: "Spectrogram", checked: spectrogramOn, onSelect: toggleSpectrogram }]
+      : []),
+    ...(showsMeters
+      ? [{ label: "Meters", checked: playerView.loudness, onSelect: toggleMeters }]
+      : []),
+    ...(kind === "video" && info?.video ? [{ heading: "Frame" }, ...frameActions] : []),
+  ];
+  const viewControls = !failure && (
+    <>
+      {kind === "audio" && canSpectrogram && (
+        <button
+          type="button"
+          aria-pressed={spectrogramOn}
+          title="Spectrogram; where it sits is in View"
+          onClick={toggleSpectrogram}
+          className={cn(viewButton, "hidden sm:flex", spectrogramOn && "bg-raised text-ink")}
+        >
+          <Icon name="chart" size={14} />
+          Spectrogram
+        </button>
+      )}
+      {showsMeters && (
+        <button
+          type="button"
+          aria-pressed={playerView.loudness}
+          title="Levels beside the waveform"
+          onClick={toggleMeters}
+          className={cn(viewButton, "hidden sm:flex", playerView.loudness && "bg-raised text-ink")}
+        >
+          <Icon name="pulse" size={14} />
+          Meters
+        </button>
+      )}
+    </>
+  );
+  /** At the row's end: the zoom, and on a phone the overflow. */
+  const viewTail = !failure && (
+    <>
+      {kind === "audio" && mostZoom > 1 && (
+        <span className="ml-1 hidden items-center border-l border-line pl-1 sm:flex">
           <button
             type="button"
-            aria-pressed={spectrogramOn}
-            title="Spectrogram; its place and colours are in View"
-            onClick={toggleSpectrogram}
-            className={cn(viewButton, spectrogramOn && "bg-raised text-ink")}
+            aria-label="Zoom out of the waveform"
+            title="Zoom out (−)"
+            disabled={zoom <= 1}
+            onClick={() => zoomTo(zoomStep(zoom, -1, mostZoom))}
+            className={cn(viewButton, "w-7 justify-center px-0")}
           >
-            <Icon name="chart" size={14} />
-            Spectrogram
+            <Icon name="zoomOut" size={14} />
           </button>
-        )}
-        {showsMeters && (
           <button
             type="button"
-            aria-pressed={playerView.loudness}
-            title="Levels beside the waveform"
-            onClick={() => setPlayerView({ ...playerView, loudness: !playerView.loudness })}
-            className={cn(viewButton, playerView.loudness && "bg-raised text-ink")}
+            onClick={() => zoomTo(1)}
+            title="Fit the whole file (0)"
+            className={cn(viewButton, "tabular min-w-9 justify-center")}
           >
-            <Icon name="pulse" size={14} />
-            Meters
+            {zoomLabel(zoom)}
           </button>
-        )}
-        {kind === "audio" && mostZoom > 1 && (
-          <span className="ml-1.5 flex items-center border-l border-line pl-1.5">
-            <button
-              type="button"
-              aria-label="Zoom out of the waveform"
-              title="Zoom out (−)"
-              disabled={zoom <= 1}
-              onClick={() => zoomTo(zoomStep(zoom, -1, mostZoom))}
-              className={cn(viewButton, "w-7 justify-center px-0")}
-            >
-              <Icon name="zoomOut" size={14} />
-            </button>
-            <button
-              type="button"
-              onClick={() => zoomTo(1)}
-              title="Fit the whole file (0)"
-              className={cn(viewButton, "tabular min-w-9 justify-center")}
-            >
-              {zoomLabel(zoom)}
-            </button>
-            <button
-              type="button"
-              aria-label="Zoom into the waveform"
-              title="Zoom in (=)"
-              disabled={zoom >= mostZoom}
-              onClick={() => zoomTo(zoomStep(zoom, 1, mostZoom))}
-              className={cn(viewButton, "w-7 justify-center px-0")}
-            >
-              <Icon name="zoomIn" size={14} />
-            </button>
-          </span>
-        )}
-      </div>
-    );
-
+          <button
+            type="button"
+            aria-label="Zoom into the waveform"
+            title="Zoom in (=)"
+            disabled={zoom >= mostZoom}
+            onClick={() => zoomTo(zoomStep(zoom, 1, mostZoom))}
+            className={cn(viewButton, "w-7 justify-center px-0")}
+          >
+            <Icon name="zoomIn" size={14} />
+          </button>
+        </span>
+      )}
+      {overflow.length > 0 && (
+        <span className="sm:hidden">
+          <ActionMenu always label="the view" actions={overflow} />
+        </span>
+      )}
+    </>
+  );
   // The levels at the playhead beside the waveform, where Meters is on (#493).
   const meters = showsMeters && playerView.loudness && element && (
     <PlayheadMeters fileId={fileId} media={element} layout={info?.audio?.channelLayout} />
@@ -2068,6 +2096,19 @@ export function Player({
             Compare
           </Button>
         )}
+        {/* Normalised playback beside the volume it sets (#636). */}
+        {offersNormalise && (
+          <button
+            type="button"
+            aria-pressed={normalised}
+            title={normalisation ? normalisationLabel(normalisation) : undefined}
+            onClick={() => onNormalised?.(!normalised)}
+            className={cn(viewButton, "h-8 text-[13px]", normalised && "bg-raised text-ink")}
+          >
+            <span className="sr-only">Normalised playback</span>
+            <span aria-hidden="true">Normalised</span>
+          </button>
+        )}
         <VolumeControl
           volume={volume}
           muted={muted}
@@ -2075,15 +2116,43 @@ export function Player({
           onMute={toggleMute}
           className={iconButton}
         />
+        {/* Playback's own settings, such as following the DAW (#636), in the transport's menu. */}
+        {follow && (
+          <div ref={playbackBox} className="relative">
+            <button
+              type="button"
+              aria-label="Playback settings"
+              title="Playback settings"
+              aria-expanded={playbackOpen}
+              aria-controls="player-playback"
+              onClick={() => setPlaybackOpen(!playbackOpen)}
+              className={cn(iconButton, playbackOpen && "bg-raised text-ink")}
+            >
+              <Icon name="more" size={16} />
+            </button>
+            {playbackOpen && (
+              <StripPanel anchor={playbackBox} onClose={() => setPlaybackOpen(false)}>
+                <section id="player-playback" aria-label="Playback" className="flex flex-col gap-3">
+                  {follow}
+                </section>
+              </StripPanel>
+            )}
+          </div>
+        )}
       </span>
     </div>
   );
 
   return (
     <section aria-label="Player" className="flex min-h-0 flex-1 flex-col outline-none">
-      <PlayerStrip lead={strip?.lead} after={formatLine}>
+      {/* One row of view controls at the media's edge (#637), after what leads it. */}
+      <PlayerStrip lead={strip?.lead} label="View">
         {strip?.end}
+        {quality}
+        {loopButton}
+        {viewControls}
         {menus}
+        {viewTail}
       </PlayerStrip>
       {kind === "audio" && (
         <>
@@ -2107,7 +2176,6 @@ export function Player({
             ))}
         </>
       )}
-      {viewBar}
       {/* The media fills the height the frame gives it (#493); the transport sits directly beneath. */}
       <div className="flex min-h-0 flex-1 flex-col px-3 pb-3 lg:px-4">
         {kind === "audio" ? (
@@ -2161,21 +2229,7 @@ export function Player({
           </div>
         )}
       </div>
-      {!failure && (
-        <div className="shrink-0 border-t border-line">
-          {transport}
-          {loop && (
-            <LoopControls
-              loop={loop}
-              duration={duration}
-              fps={info?.video?.fps}
-              rolls={rolls}
-              onLoop={(next) => onLoop(next)}
-              onRolls={setRolls}
-            />
-          )}
-        </div>
-      )}
+      {!failure && <div className="shrink-0 border-t border-line">{transport}</div>}
     </section>
   );
 }
@@ -2396,28 +2450,29 @@ function VolumeControl({
 }
 
 /**
- * The strip above the player (#15), as the prototype draws it: what leads (the version and
- * variant) at the left, then a quiet line that gives way before the menus do (the format,
- * #493), the menus at the right, wrapping under them on a phone.
+ * The strip above the player (#15, #637): what leads (the version and variant) at the left,
+ * and every view control in one row at the right, wrapping under the lead on a phone.
  */
 export function PlayerStrip({
   lead,
-  after,
+  label = "View",
   children,
 }: {
   lead?: ReactNode;
-  /** A quiet line after the lead, truncated on a wide screen rather than wrapping the menus. */
-  after?: ReactNode;
+  /** What the row of controls is, for assistive technology. */
+  label?: string;
   children?: ReactNode;
 }) {
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2 lg:px-4">
-      {/* On a phone the lead keeps its width and the menus wrap under it; on a wide screen it grows and the line after it gives way; when the lead alone is too wide the menus wrap under it rather than being run into, as this box is never narrower than the lead. */}
-      <div className="flex flex-wrap items-center gap-2 lg:flex-1 lg:flex-nowrap">
-        <div className="flex shrink-0 flex-wrap items-center gap-2">{lead}</div>
-        {after}
+    <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 px-3 py-2 lg:px-4">
+      {lead && <div className="flex min-w-0 flex-wrap items-center gap-2">{lead}</div>}
+      <div
+        role="toolbar"
+        aria-label={label}
+        className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-0.5 empty:hidden"
+      >
+        {children}
       </div>
-      <div className="ml-auto flex flex-wrap items-center justify-end gap-1">{children}</div>
     </div>
   );
 }

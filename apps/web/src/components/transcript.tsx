@@ -69,23 +69,25 @@ export function CaptionsMenu({
 }) {
   const on = tracks.find((t) => t.id === current);
   return (
+    // "Captions" keeps its name (#637): on, it is pressed, the track a quiet word after it; in
+    // the menu each track says what it is once, its kind only where its name does not.
     <Dropdown
       align="right"
       label="Captions"
       value={
         <>
           <Icon name="captions" size={14} className={on ? "text-ink" : undefined} />
-          <span className={cn("max-w-[140px] truncate", on && "text-ink")}>
-            {on ? on.label : "Captions"}
-          </span>
+          <span className={cn(on && "text-ink")}>Captions</span>
+          {on && <span className="max-w-[96px] truncate text-ink-3">{on.label}</span>}
         </>
       }
+      className={cn(on && "bg-raised")}
       actions={[
         { label: "Off", checked: !on, onSelect: () => onChange(null) },
         "divider",
         ...tracks.map((t) => ({
           label: t.label,
-          hint: captionKindNames[t.kind],
+          hint: t.label.includes("SDH") ? undefined : captionKindNames[t.kind],
           checked: t.id === current,
           onSelect: () => onChange(t.id),
         })),

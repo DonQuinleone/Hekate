@@ -3304,7 +3304,7 @@ test("file-qa-video", async ({ page }) => {
   await checkScreen(page);
 });
 
-// Normalised playback as each person's choice (#240): the View menu's switch, and the level heard.
+// Normalised playback as each person's choice (#240): beside the volume (#636), and the level heard.
 // The file's answer is amended in this page alone, so no other capture sees the project change.
 test("file-normalised", async ({ page }) => {
   await page.route(`**/api/files/${seeded().dryFileId}`, async (route) => {
@@ -3315,29 +3315,28 @@ test("file-normalised", async ({ page }) => {
   });
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "button:has-text('View')");
-  await page.getByRole("button", { name: "View", exact: true }).click();
-  await page.getByRole("switch", { name: "Normalised playback" }).click();
+  await page.getByRole("button", { name: "Normalised playback" }).click();
   await settle(page, "text=Normalised to −14 LUFS");
   await saveScreen(page, "file-normalised");
   await checkScreen(page);
 });
 
-// Following the DAW (#450, decision 240): in the player's View menu, its MIDI input and where the
+// Following the DAW (#450, decision 240): in the transport's menu (#636), its MIDI input and where the
 // file starts on the DAW's timeline. MIDI is allowed, and no port exists here, so it says so.
 test("player-follow-daw", async ({ page, context }, info) => {
   await context.grantPermissions(["midi"]);
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "button:has-text('View')");
-  await page.getByRole("button", { name: "View", exact: true }).click();
+  await page.getByRole("button", { name: "Playback settings" }).click();
   await page.getByRole("switch", { name: "Follow the DAW" }).click();
-  await settle(page, "section#player-view >> text=File starts at");
+  await settle(page, "section#player-playback >> text=File starts at");
   // A browser with no MIDI device says so; one that refuses MIDI (headless Chromium) says that.
-  await expect(page.locator("section#player-view")).toContainText(
+  await expect(page.locator("section#player-playback")).toContainText(
     /No MIDI input|MIDI was not allowed/,
   );
   if (info.project.name === "phone")
     await page
-      .locator("section#player-view")
+      .locator("section#player-playback")
       .evaluate((el) => el.scrollIntoView({ block: "center" }));
   await saveScreen(page, "player-follow-daw");
   await checkScreen(page);
@@ -3368,8 +3367,7 @@ for (const [place, wave] of [
     await saveScreen(page, `player-view-${place}`);
     await checkScreen(page);
     if (place !== "below") return;
-    // Naming the view to keep it as a preset; not saved, so no other capture sees it.
-    await page.getByRole("button", { name: "Save as…" }).click();
+    // Naming the view to keep it as a preset, in place (#636); not saved, so no other capture sees it.
     await page.getByRole("textbox", { name: "Preset name" }).fill("Noise hunt");
     await saveScreen(page, "player-view-preset");
     await checkScreen(page);
@@ -3419,7 +3417,7 @@ test("player-spectrogram-analysis", async ({ page }, info) => {
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "[role=img][aria-label^=Spectrogram]:not(.animate-pulse) canvas");
   await page.getByRole("button", { name: "View", exact: true }).click();
-  await page.getByRole("button", { name: "Channel, levels, range and analysis…" }).click();
+  await page.getByRole("button", { name: "Spectrogram settings" }).click();
   // Each choice asks for its spectrograms once it has taken; the next follows it.
   const asked = page.waitForRequest(/spectrograms\?.*window=kaiser/);
   await page.getByLabel("Window").selectOption("kaiser");
@@ -3734,7 +3732,7 @@ test("shortcuts", async ({ page }, info) => {
   // i and o set the loop at the playhead.
   await page.keyboard.press("l");
   await page.keyboard.press("i");
-  await expect(page.getByRole("region", { name: "Loop" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Loop", pressed: true })).toBeVisible();
 
   // c starts a comment at the playhead; in the field, the keys are just letters.
   await page.keyboard.press("c");
@@ -5207,5 +5205,41 @@ test("loading", async ({ page }) => {
   await page.goto(`/projects/${projectId}/board`);
   await expect(page.locator("main output[aria-label='Loading']").first()).toBeVisible();
   await saveScreen(page, "loading");
+  await checkScreen(page);
+});
+
+// Loop is always to be pressed, and its settings open from it (#638): with no passage it says
+// how to make one; with one, its edges and rolls, in a panel that moves nothing on the page.
+test("file-loop-settings", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  const loop = page.getByRole("button", { name: "Loop", exact: true });
+  await expect(loop).toBeEnabled();
+  const transport = page.getByRole("button", { name: "Play", exact: true });
+  const before = await transport.boundingBox();
+  await loop.click();
+  await settle(page, "section[aria-label=Loop] >> text=Drag on the waveform to loop");
+  await saveScreen(page, "file-loop-empty");
+  await checkScreen(page);
+  await page.keyboard.press("Escape");
+  await page.goto(`/files/${seeded().dryFileId}?loop=14.2-15.4`);
+  await settle(page, "section[aria-label=Comments] li");
+  await expect(page.getByRole("button", { name: "Loop", pressed: true })).toBeVisible();
+  // Setting a loop moves nothing: the transport stays where it was.
+  expect((await transport.boundingBox())?.y).toBe(before?.y);
+  await page.getByRole("button", { name: "Loop settings" }).click();
+  await settle(page, "section[aria-label=Loop] >> text=Clear loop");
+  await saveScreen(page, "file-loop-settings");
+  await checkScreen(page);
+});
+
+// On a phone the less used view controls go into one overflow (#637).
+test("file-view-overflow", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "A wide screen shows them in the row");
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Actions for the view" }).click();
+  await expect(page.getByRole("menuitemradio", { name: "Meters" })).toBeVisible();
+  await saveScreen(page, "file-view-overflow");
   await checkScreen(page);
 });

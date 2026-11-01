@@ -1,4 +1,4 @@
-import { formatClock } from "@hekate/shared";
+import { formatClock, formatSpan } from "@hekate/shared";
 import { type ReactNode, useRef, useState } from "react";
 import { cn } from "~/lib/cn";
 import { type Loop, loopFrom, MAX_ROLL, nudge, type Rolls, roll } from "~/lib/loop";
@@ -171,8 +171,9 @@ function Edge({
 }
 
 /**
- * The loop's edges, nudged by a chosen step; pre-roll and post-roll; and clear. On and off is
- * the view toolbar's Loop, at the waveform's edge (#493).
+ * The loop's settings (#638), in a panel from the view row's Loop: its edges, nudged by a
+ * chosen step; pre-roll and post-roll; and clear. With no passage yet it says how to make
+ * one; the rolls are kept for the next. Never a row of its own, so nothing moves.
  */
 export function LoopControls({
   loop,
@@ -181,78 +182,90 @@ export function LoopControls({
   rolls,
   onLoop,
   onRolls,
+  hint = "Drag on the waveform to loop",
 }: {
-  loop: Loop;
+  loop: Loop | null;
   duration: number;
   fps?: number;
   rolls: Rolls;
   onLoop: (loop: Loop | null) => void;
   onRolls: (rolls: Rolls) => void;
+  /** How to make a loop, said where there is none. */
+  hint?: string;
 }) {
   const steps = stepsFor(fps);
   const [step, setStep] = useState(steps[1]?.seconds ?? 0.01);
   return (
-    <section
-      aria-label="Loop"
-      className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line px-3 py-2.5 lg:px-4"
-    >
-      <span className="text-xs font-medium text-ink-2">Loop</span>
-      <Edge
-        name="In"
-        at={loop.start}
-        onNudge={(d) => onLoop(nudge(loop, "start", d * step, duration))}
-      />
-      <Edge
-        name="Out"
-        at={loop.end}
-        onNudge={(d) => onLoop(nudge(loop, "end", d * step, duration))}
-      />
-      <label className="flex items-center gap-2 text-xs text-ink-3">
-        Step
-        <Select
-          size="sm"
-          className="w-auto"
-          value={step}
-          onChange={(e) => setStep(Number(e.target.value))}
-        >
-          {steps.map((s) => (
-            <option key={s.label} value={s.seconds}>
-              {s.label}
-            </option>
-          ))}
-        </Select>
-      </label>
-      <label className="flex items-center gap-2 text-xs text-ink-3">
-        Pre-roll
-        <Input
-          size="sm"
-          type="number"
-          min={0}
-          max={MAX_ROLL}
-          step={0.5}
-          className="w-14"
-          value={rolls.pre}
-          onChange={(e) => onRolls({ ...rolls, pre: roll(Number(e.target.value)) })}
-        />
-        s
-      </label>
-      <label className="flex items-center gap-2 text-xs text-ink-3">
-        Post-roll
-        <Input
-          size="sm"
-          type="number"
-          min={0}
-          max={MAX_ROLL}
-          step={0.5}
-          className="w-14"
-          value={rolls.post}
-          onChange={(e) => onRolls({ ...rolls, post: roll(Number(e.target.value)) })}
-        />
-        s
-      </label>
-      <Button variant="ghost" size="sm" className="ml-auto" onClick={() => onLoop(null)}>
-        Clear loop
-      </Button>
+    <section aria-label="Loop" className="flex flex-col gap-3">
+      {loop ? (
+        <>
+          <span className="tabular text-[13px] text-ink">{formatSpan(loop.start, loop.end)}</span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <Edge
+              name="In"
+              at={loop.start}
+              onNudge={(d) => onLoop(nudge(loop, "start", d * step, duration))}
+            />
+            <Edge
+              name="Out"
+              at={loop.end}
+              onNudge={(d) => onLoop(nudge(loop, "end", d * step, duration))}
+            />
+          </div>
+          <label className="flex items-center gap-2 text-xs text-ink-3">
+            Step
+            <Select
+              size="sm"
+              className="w-auto"
+              value={step}
+              onChange={(e) => setStep(Number(e.target.value))}
+            >
+              {steps.map((s) => (
+                <option key={s.label} value={s.seconds}>
+                  {s.label}
+                </option>
+              ))}
+            </Select>
+          </label>
+        </>
+      ) : (
+        <p className="m-0 text-[13px] text-ink-2">{hint}, or press I and O at the playhead.</p>
+      )}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <label className="flex items-center gap-2 text-xs text-ink-3">
+          Pre-roll
+          <Input
+            size="sm"
+            type="number"
+            min={0}
+            max={MAX_ROLL}
+            step={0.5}
+            className="w-14"
+            value={rolls.pre}
+            onChange={(e) => onRolls({ ...rolls, pre: roll(Number(e.target.value)) })}
+          />
+          s
+        </label>
+        <label className="flex items-center gap-2 text-xs text-ink-3">
+          Post-roll
+          <Input
+            size="sm"
+            type="number"
+            min={0}
+            max={MAX_ROLL}
+            step={0.5}
+            className="w-14"
+            value={rolls.post}
+            onChange={(e) => onRolls({ ...rolls, post: roll(Number(e.target.value)) })}
+          />
+          s
+        </label>
+      </div>
+      {loop && (
+        <Button variant="ghost" size="sm" className="self-start" onClick={() => onLoop(null)}>
+          Clear loop
+        </Button>
+      )}
     </section>
   );
 }
