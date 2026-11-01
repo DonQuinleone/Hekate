@@ -20,7 +20,7 @@ const row = (over: Partial<NotificationRow>): NotificationRow => ({
   fileId: null,
   trackId: null,
   commentId: null,
-  text: 'approved "Album masters"',
+  text: "approved “Album masters”",
   detail: null,
   link: "/reviews/r",
   mail: null,
@@ -35,7 +35,7 @@ const row = (over: Partial<NotificationRow>): NotificationRow => ({
 
 describe("notification mail", () => {
   it("reads as one line, with or without someone to name", () => {
-    expect(lineOf(row({}))).toBe('Mira Solberg approved "Album masters"');
+    expect(lineOf(row({}))).toBe("Mira Solberg approved “Album masters”");
     expect(lineOf(row({ actorName: null, text: "mix.wav could not be processed" }))).toBe(
       "Mix.wav could not be processed",
     );
@@ -44,7 +44,7 @@ describe("notification mail", () => {
   it("links into the app and to the settings", () => {
     const workspace = { name: "Endless Hall Records", subjects: {} };
     const mail = instantMail(row({ detail: "Lovely." }), "https://hekate.example/", workspace);
-    expect(mail.subject).toBe('Mira Solberg approved "Album masters"');
+    expect(mail.subject).toBe("Mira Solberg approved “Album masters”");
     expect(mail.text).toContain("Lovely.");
     expect(mail.text).toContain("See the review:\nhttps://hekate.example/reviews/r");
     expect(mail.text).toContain("https://hekate.example/account/notifications");
@@ -101,7 +101,7 @@ describe("notification mail", () => {
       row({
         kind: "review_requested",
         actorName: "Alex Rivera",
-        text: 'shared "Rehearsal takes" with you',
+        text: "shared “Rehearsal takes” with you",
         mail: {
           template: "shared",
           values: { review: "Rehearsal takes", requester: "Alex Rivera" },

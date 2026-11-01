@@ -13365,7 +13365,7 @@ describe.runIf(url)("api", () => {
           expect(asked.notifications[0]).toMatchObject({
             kind: "review_requested",
             actorName: "Producer",
-            text: 'asks you to approve "Master sign-off"',
+            text: 'asks you to approve “Master sign-off”',
           });
           expect(mailer.sent.map((m) => m.to)).toEqual(["composer@example.test"]);
           // Whoever asked is not told of their own request.
@@ -13378,7 +13378,7 @@ describe.runIf(url)("api", () => {
           expect((await inbox(s.owner)).notifications[0]).toMatchObject({
             kind: "decision",
             actorName: "composer",
-            text: 'approved "Master sign-off"',
+            text: 'approved “Master sign-off”',
           });
           // Nobody else heard anything.
           expect((await inbox(s.accompanist)).notifications).toEqual([]);
@@ -18378,7 +18378,7 @@ describe.runIf(url)("api", () => {
             subject: "2 updates in Studio",
           });
           expect(mailer.sent[0]?.text).toContain(
-            'Producer asks you to give feedback on "Digest two"',
+            'Producer asks you to give feedback on “Digest two”',
           );
           expect(
             await deliverDigests(db, mailer, { publicUrl: "http://localhost:3000" }, later),
@@ -18449,7 +18449,7 @@ describe.runIf(url)("api", () => {
         ]);
         // The workspace's subject line for a decision, and who decided at the top.
         expect(mailer.sent[1]?.subject).toBe("Album master: approved");
-        expect(mailer.sent[1]?.text).toContain('composer approved "Album master"');
+        expect(mailer.sent[1]?.text).toContain('composer approved “Album master”');
         expect(mailer.sent[1]?.html).toContain("See the review");
         const done = await reviewOf(
           await app.request(
@@ -19948,7 +19948,7 @@ describe.runIf(url)("api", () => {
                 eq(schema.notifications.reviewId, share.id),
               ),
             );
-          expect(told.map((n) => n.text)).toEqual(['shared "Rehearsal takes" with you']);
+          expect(told.map((n) => n.text)).toEqual(['shared “Rehearsal takes” with you']);
           // In the share's own words, as the guest's mail: how often, and what to keep.
           expect(told[0]?.detail).toContain("up to 1 play of each file");
           expect(told[0]?.detail).toContain("You may download the proxy");
@@ -20074,7 +20074,7 @@ describe.runIf(url)("api", () => {
           expect(mail?.text).not.toContain("Approved or Changes requested");
           expect((await signIn(linkFor("conductor@example.test"))).status).toBe(201);
           // The accompanist decides, so waits their turn untold.
-          expect(await told(s.ids.composer)).toEqual(['asks you to approve "Album master"']);
+          expect(await told(s.ids.composer)).toEqual(['asks you to approve “Album master”']);
           expect(await told(s.ids.accompanist)).toEqual([]);
 
           // Added later, a producer decides too, and waits untold at the end of the sequence;
@@ -20882,8 +20882,8 @@ describe.runIf(url)("api", () => {
             .from(schema.notifications)
             .where(eq(schema.notifications.kind, "due_soon"));
           expect(told.map((t) => t.text).sort()).toEqual([
-            'your feedback on "Album master" is due tomorrow',
-            'your feedback on "Sleeve notes" is due tomorrow',
+            'your feedback on “Album master” is due tomorrow',
+            'your feedback on “Sleeve notes” is due tomorrow',
           ]);
           expect(told.every((t) => t.userId === s.ids.composer)).toBe(true);
           // The guest gets one mail, with one link that opens both.

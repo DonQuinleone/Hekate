@@ -40,8 +40,8 @@ export function NotificationsPage() {
       empty={
         <div className="p-8">
           <Empty
-            title="Nothing new"
-            text="Decisions, replies, new versions, stage changes and assignments arrive here, and by mail as you choose."
+            title="No notifications"
+            text="You are told here when someone asks for your review, decides, replies, mentions you or adds a version, and by mail as you choose in your account."
           />
         </div>
       }

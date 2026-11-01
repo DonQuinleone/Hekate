@@ -784,7 +784,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 <Icon name="instance" size={18} />
               </Link>
             )}
-            <NotificationsMenu waiting={waiting} />
+            <NotificationsMenu />
           </TopBar>
           {current && (
             <SubNav

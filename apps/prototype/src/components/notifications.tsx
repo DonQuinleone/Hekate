@@ -1,8 +1,7 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Icon, type IconName } from "~/components/icons";
-import { Button } from "~/components/ui/button";
 import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
 import { type NotificationKind, notifications, personById } from "~/data";
@@ -19,9 +18,14 @@ export const notificationIcon: Record<NotificationKind, IconName> = {
   processing: "warning",
 };
 
-/** The bell: the latest events in a panel, and the way into the inbox. */
-export function NotificationsMenu({ waiting }: { waiting: number }) {
+/**
+ * The bell: the latest events in a panel, ending in a quiet way to all of them, as Linear's
+ * and GitHub's do (#614); the inbox is a click away in the sidebar. On the notifications page
+ * it leaves marking them all read to the page.
+ */
+export function NotificationsMenu() {
   const navigate = useNavigate();
+  const onPage = useLocation().pathname === "/notifications";
   const [open, setOpen, box] = usePopover();
   const [read, setRead] = useState<Set<string>>(
     new Set(notifications.filter((n) => n.read).map((n) => n.id)),
@@ -64,13 +68,15 @@ export function NotificationsMenu({ waiting }: { waiting: number }) {
           <div className="flex h-11 items-center gap-2 border-b border-line px-4">
             <span className="text-[14px] font-medium text-ink">Notifications</span>
             {unread > 0 && <span className="tabular text-[12px] text-ink-3">{unread} unread</span>}
-            <button
-              type="button"
-              onClick={() => setRead(new Set(notifications.map((n) => n.id)))}
-              className="ml-auto text-[12px] text-ink-3 hover:text-ink"
-            >
-              Mark all read
-            </button>
+            {!onPage && (
+              <button
+                type="button"
+                onClick={() => setRead(new Set(notifications.map((n) => n.id)))}
+                className="ml-auto text-[12px] text-ink-3 hover:text-ink"
+              >
+                Mark all read
+              </button>
+            )}
           </div>
           <ul className="scroll-quiet max-h-[380px] overflow-auto py-1">
             {notifications.slice(0, 6).map((n) => (
@@ -82,8 +88,9 @@ export function NotificationsMenu({ waiting }: { waiting: number }) {
                 >
                   <span className="relative mt-0.5 shrink-0">
                     <Avatar personId={n.personId} size={26} />
-                    <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full bg-overlay text-ink-2 shadow-2">
-                      <Icon name={notificationIcon[n.kind]} size={9} />
+                    {/* Off the avatar's circle, so it never covers the initials. */}
+                    <span className="absolute -right-1.5 -bottom-1.5 flex size-3.5 items-center justify-center rounded-full bg-overlay text-ink-2 shadow-2 ring-2 ring-overlay">
+                      <Icon name={notificationIcon[n.kind]} size={8} />
                     </span>
                   </span>
                   <span className="min-w-0 flex-1">
@@ -105,16 +112,15 @@ export function NotificationsMenu({ waiting }: { waiting: number }) {
               </li>
             ))}
           </ul>
-          <div className="flex items-center gap-2 border-t border-line px-3 py-2.5">
-            <Button variant="primary" size="md" onClick={() => go("/inbox")}>
-              <Icon name="inbox" size={14} />
-              View inbox
-              {waiting > 0 && <span className="tabular text-ground/70">{waiting}</span>}
-            </Button>
-            <Button variant="ghost" size="md" onClick={() => go("/notifications")}>
-              All notifications
-            </Button>
-          </div>
+          {!onPage && (
+            <Link
+              to="/notifications"
+              onClick={() => setOpen(false)}
+              className="flex h-10 items-center justify-center border-t border-line text-[13px] text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink"
+            >
+              View all notifications
+            </Link>
+          )}
         </Floating>
       )}
     </div>
