@@ -175,7 +175,7 @@ export function NewProject({
       {create.error && <p className="m-0 text-[13px] text-signal">{create.error.message}</p>}
       <div className="flex items-center justify-end gap-2">
         {bare && (
-          <span className="mr-auto text-[13px] text-ink-3">You become its first Producer.</span>
+          <span className="mr-auto text-[13px] text-ink-3">You become its first owner.</span>
         )}
         <Button type="button" variant="ghost" onClick={onDone}>
           Cancel

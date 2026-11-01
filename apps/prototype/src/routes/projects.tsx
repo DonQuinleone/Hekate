@@ -54,7 +54,7 @@ export function NewProject({ onClose, bare = false }: { onClose: () => void; bar
       {!bare && (
         <div className="flex items-baseline justify-between">
           <h2 className="text-[16px] font-medium">New project</h2>
-          <span className="text-[13px] text-ink-3">You become its first Producer.</span>
+          <span className="text-[13px] text-ink-3">You become its first owner.</span>
         </div>
       )}
       <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
@@ -116,7 +116,7 @@ export function NewProject({ onClose, bare = false }: { onClose: () => void; bar
       </label>
       <div className="flex items-center justify-end gap-2">
         {bare && (
-          <span className="mr-auto text-[13px] text-ink-3">You become its first Producer.</span>
+          <span className="mr-auto text-[13px] text-ink-3">You become its first owner.</span>
         )}
         <Button variant="ghost" onClick={onClose}>
           Cancel
