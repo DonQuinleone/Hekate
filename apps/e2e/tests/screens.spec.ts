@@ -4753,16 +4753,15 @@ test("request-review-filled", async ({ page }) => {
   // In steps: Alex first, the soloists and the guest after, each step named.
   await form.getByRole("button", { name: "In steps" }).click();
   await form.getByRole("button", { name: "Add a step" }).click();
-  await form.getByRole("button", { name: "Step for Soloists" }).click();
-  await page.getByRole("menuitemradio", { name: "Step 2" }).click();
-  await form.getByRole("button", { name: "Step for Conductor" }).click();
-  await page.getByRole("menuitemradio", { name: "Step 2" }).click();
+  // Moved from each row's one menu (#663).
+  await form.getByRole("button", { name: "Actions for Soloists" }).click();
+  await page.getByRole("menuitem", { name: "Move to Step 2" }).click();
+  await form.getByRole("button", { name: "Actions for Conductor" }).click();
+  await page.getByRole("menuitem", { name: "Move to Step 2" }).click();
   await form.getByLabel("Name of step 1").fill("Producer");
   await form.getByLabel("Name of step 2").fill("Stakeholders");
-  await expect(form.getByRole("button", { name: "Step for Alex Rivera" })).toContainText(
-    "Producer",
-  );
-  await form.getByRole("button", { name: "a share" }).click();
+  await expect(form.getByRole("region", { name: "Producer" })).toContainText("Alex Rivera");
+  await form.getByRole("button", { name: "At least" }).click();
   await form.getByRole("button", { name: "A week" }).click();
   await expect(form.getByRole("button", { name: "Send the review" })).toBeEnabled();
   await form

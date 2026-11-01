@@ -33,7 +33,7 @@ import { ChoiceCard } from "~/components/ui/choice";
 import { DateField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { InlineInput, Input, Textarea } from "~/components/ui/input";
-import { Dropdown } from "~/components/ui/menu";
+import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { Loading } from "~/components/ui/states";
 import { Switch } from "~/components/ui/toggle";
@@ -559,10 +559,11 @@ function ReviewForm({
     else if (stepIndexOf(steps, key) !== to) setSteps(moveToStep(steps, key, to));
   };
 
-  const personRow = (key: Key, stepIndex: number) => {
+  const personRow = (key: Key) => {
     const { name, hint, avatar } = labelOf(key);
     const refusal = refusalOf(key);
     const group = key.startsWith("group:");
+    const stepIndex = stepIndexOf(steps, key);
     return (
       <li
         key={key}
@@ -574,7 +575,7 @@ function ReviewForm({
         }}
         onDragEnd={() => setDragging(null)}
         className={cn(
-          "flex min-h-12 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-1.5 last:border-b-0",
+          "group flex min-h-12 items-center gap-3 border-b border-line px-3 py-1.5 last:border-b-0",
           dragging === key && "opacity-40",
         )}
       >
@@ -588,7 +589,7 @@ function ReviewForm({
         ) : (
           <Avatar person={avatar} name={name} size={24} />
         )}
-        <span className="min-w-36 flex-1 basis-40">
+        <span className="min-w-0 flex-1">
           <span className={cn("block truncate text-[14px]", refusal ? "text-ink-3" : "text-ink")}>
             {name}
           </span>
@@ -597,38 +598,41 @@ function ReviewForm({
             {refusal ? ` · ${refusal.toLowerCase()}, not asked` : ""}
           </span>
         </span>
-        <span className="ml-auto flex items-center gap-1">
-          {movable && (
-            <Dropdown
-              size="sm"
-              label={`Step for ${name}`}
-              value={<span className="max-w-32 truncate text-[12px]">{stepLabel(stepIndex)}</span>}
-              actions={steps.map((_, i) => ({
-                label: stepLabel(i),
-                checked: i === stepIndex,
-                onSelect: () => setSteps(moveToStep(steps, key, i)),
-              }))}
-            />
-          )}
-          {!group && !refusal && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setOverriding(key)}
-              aria-label={`Override what ${name} may do`}
-            >
-              {overrides[key] ? "Overridden" : "Override"}
-            </Button>
-          )}
-          <button
-            type="button"
-            aria-label={`Remove ${name}`}
-            onClick={() => remove(key)}
-            className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
-          >
-            <Icon name="close" size={12} />
-          </button>
-        </span>
+        {overrides[key] && (
+          <span className="shrink-0 rounded-chip border border-line px-1.5 text-[11px] leading-[18px] text-ink-3">
+            Overridden
+          </span>
+        )}
+        {/* One menu for the row (#663), on hover and focus: moving, overriding, removing. */}
+        <ActionMenu
+          label={name}
+          actions={[
+            ...(movable
+              ? steps.flatMap((_, i) =>
+                  i === stepIndex
+                    ? []
+                    : [
+                        {
+                          label: `Move to ${stepLabel(i)}`,
+                          onSelect: () => setSteps(moveToStep(steps, key, i)),
+                        },
+                      ],
+                )
+              : []),
+            ...(refusal
+              ? []
+              : [
+                  {
+                    label: overrides[key]
+                      ? "Change what they may do…"
+                      : "Override what they may do…",
+                    onSelect: () => setOverriding(key),
+                  },
+                ]),
+            ...(movable || !refusal ? ["divider" as const] : []),
+            { label: "Remove", onSelect: () => remove(key) },
+          ]}
+        />
       </li>
     );
   };
@@ -637,12 +641,7 @@ function ReviewForm({
     // Added to the step that is open; all at once, to the last step, as the server reads it.
     const target = inTurn ? i : steps.length - 1;
     return (
-      <li key={String(i)} className="flex items-start gap-3">
-        {inTurn && (
-          <span className="tabular mt-2.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-raised text-[12px] font-medium text-ink">
-            {i + 1}
-          </span>
-        )}
+      <li key={String(i)} className="flex">
         <Card
           className={cn(
             "min-w-0 flex-1 transition-colors",
@@ -657,11 +656,18 @@ function ReviewForm({
             onDrop={(event) => dropOn(event, i)}
           >
             {inTurn && (
-              <div className="flex h-11 items-center gap-2 border-b border-line px-2">
+              <div className="flex h-11 items-center gap-1 border-b border-line px-2">
+                {/* Named in words, not a second numbered circle beside the section's (#663). */}
+                <span className="tabular shrink-0 pl-1 text-[13px] font-medium text-ink">
+                  Step {i + 1}
+                </span>
+                <span aria-hidden="true" className="text-ink-3">
+                  ·
+                </span>
                 <InlineInput
                   value={step.name}
                   onChange={(e) => setSteps(renameStep(steps, i, e.target.value))}
-                  placeholder={`Name this step, such as ${stepNameExamples[i % stepNameExamples.length]} (optional)`}
+                  placeholder={`Name it, such as ${stepNameExamples[i % stepNameExamples.length]} (optional)`}
                   aria-label={`Name of step ${i + 1}`}
                   maxLength={80}
                   autoComplete="off"
@@ -678,7 +684,7 @@ function ReviewForm({
               </div>
             )}
             {step.people.length > 0 && (
-              <ul className="m-0 list-none p-0">{step.people.map((key) => personRow(key, i))}</ul>
+              <ul className="m-0 list-none p-0">{step.people.map((key) => personRow(key))}</ul>
             )}
             <div className={cn("p-1.5", step.people.length > 0 && "border-t border-line")}>
               <PeoplePicker
@@ -750,12 +756,6 @@ function ReviewForm({
                   />
                 ))}
               </div>
-            </Section>
-
-            <Section
-              n={2}
-              title="What"
-              hint={`${capital(words.tracks)} at their latest ${words.version} or a chosen one, files, or whole folders.`}
               {/* As the prototype points it out (#664): a share asks nothing. */}
               <p className="m-0 text-[12px] text-ink-3">
                 Only want someone to listen? That is a{" "}
@@ -768,6 +768,12 @@ function ReviewForm({
                 </Link>
                 , made from the file or track itself, not a review.
               </p>
+            </Section>
+
+            <Section
+              n={2}
+              title="What"
+              hint={`${capital(words.tracks)} at their latest ${words.version} or a chosen one, files, or whole folders.`}
             >
               <ItemPicker
                 projectId={projectId}
@@ -899,14 +905,14 @@ function ReviewForm({
                 </div>
                 <p className="m-0 text-[13px] text-ink-3">
                   {inTurn
-                    ? "Each step starts when the one before finishes; everyone in a step is asked together. Drag someone to another step, or choose it from their row."
+                    ? "Each step starts when the one before finishes; everyone in a step is asked together. Drag someone to another step, or move them from their row's menu."
                     : "Everyone is asked now."}
                 </p>
               </div>
               <ol aria-label="Steps" className="m-0 flex list-none flex-col gap-2 p-0">
                 {shown.map((step, i) => stepCard(step, i))}
                 {inTurn && (
-                  <li className="pl-10">
+                  <li>
                     {dragging ? (
                       <section
                         aria-label="New step"

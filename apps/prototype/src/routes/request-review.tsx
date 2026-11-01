@@ -10,7 +10,7 @@ import { PeopleField, type Person } from "~/components/share";
 import { Button } from "~/components/ui/button";
 import { DateField } from "~/components/ui/date-field";
 import { Input, Textarea } from "~/components/ui/input";
-import { Dropdown } from "~/components/ui/menu";
+import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import {
   type Folder,
@@ -436,7 +436,7 @@ export function RequestReviewPage({
         }}
         onDragEnd={() => setDragging(null)}
         className={cn(
-          "flex min-h-11 items-center gap-3 border-b border-line px-3 py-1.5 last:border-b-0",
+          "group flex min-h-11 items-center gap-3 border-b border-line px-3 py-1.5 last:border-b-0",
           dragging === id && "opacity-40",
         )}
       >
@@ -458,49 +458,33 @@ export function RequestReviewPage({
           <span className="block truncate text-[14px] text-ink">{name}</span>
           <span className="block truncate text-[12px] text-ink-3">{hint}</span>
         </span>
-        {inTurn && steps.length > 1 && (
-          <Dropdown
-            size="sm"
-            value={
-              <span className="text-[12px]">
-                {stepTitle(steps[stepIndex]?.name, stepIndex + 1)}
-              </span>
-            }
-            actions={steps.map((s, i) => ({
-              label: stepTitle(s.name, i + 1),
-              checked: i === stepIndex,
-              onSelect: () => moveTo(id, i),
-            }))}
-          />
-        )}
-        {!isGroup(id) && (
-          <button
-            type="button"
-            onClick={() => setOverride(id)}
-            className="text-[12px] text-ink-3 hover:text-ink"
-          >
-            Override
-          </button>
-        )}
-        <button
-          type="button"
-          aria-label={`Remove ${name}`}
-          onClick={() => remove(id)}
-          className="flex size-7 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
-        >
-          <Icon name="close" size={12} />
-        </button>
+        {/* One menu for the row (#663): moving, overriding (groups too), removing. */}
+        <ActionMenu
+          label={name}
+          actions={[
+            ...(inTurn && steps.length > 1
+              ? steps.flatMap((st, i) =>
+                  i === stepIndex
+                    ? []
+                    : [
+                        {
+                          label: `Move to ${stepTitle(st.name, i + 1)}`,
+                          onSelect: () => moveTo(id, i),
+                        },
+                      ],
+                )
+              : []),
+            { label: "Override what they may do…", onSelect: () => setOverride(id) },
+            "divider" as const,
+            { label: "Remove", onSelect: () => remove(id) },
+          ]}
+        />
       </li>
     );
   };
 
   const stepCard = (step: Step, i: number) => (
-    <li key={String(i)} className="flex items-start gap-3">
-      {inTurn && (
-        <span className="tabular mt-2 flex size-7 shrink-0 items-center justify-center rounded-full bg-raised text-[12px] font-medium text-ink">
-          {i + 1}
-        </span>
-      )}
+    <li key={String(i)} className="flex">
       <Card
         className={cn(
           "min-w-0 flex-1 transition-colors",
@@ -519,11 +503,15 @@ export function RequestReviewPage({
           }}
         >
           {inTurn && (
-            <div className="flex h-11 items-center gap-2 border-b border-line px-3">
+            <div className="flex h-11 items-center gap-1 border-b border-line px-3">
+              <span className="shrink-0 text-[13px] font-medium text-ink">Step {i + 1}</span>
+              <span aria-hidden="true" className="text-ink-3">
+                ·
+              </span>
               <Input
                 value={step.name}
                 onChange={(e) => rename(i, e.target.value)}
-                placeholder={`Name this step (optional), such as ${["Producer", "Stakeholders", "Label"][i % 3]}`}
+                placeholder={`Name it, such as ${["Producer", "Stakeholders", "Label"][i % 3]} (optional)`}
                 aria-label={`Name of step ${i + 1}`}
                 className="h-7 flex-1 border-transparent bg-transparent px-1 shadow-none hover:border-edge"
               />
@@ -760,14 +748,14 @@ export function RequestReviewPage({
               </div>
               <p className="text-[13px] text-ink-3">
                 {inTurn
-                  ? "Each step starts when the one before finishes; everyone in a step is asked together. Drag someone to another step, or choose it from theirs."
+                  ? "Each step starts when the one before finishes; everyone in a step is asked together. Drag someone to another step, or move them from their row's menu."
                   : "Everyone is asked now."}
               </p>
             </div>
             <ol className="flex flex-col gap-2">
               {(inTurn ? steps : [{ name: "", people }]).map((step, i) => stepCard(step, i))}
               {inTurn && (
-                <li className="pl-10">
+                <li>
                   <Button
                     variant="ghost"
                     size="sm"
