@@ -84,7 +84,8 @@ function reviewerDot(r: Reviewer): ReviewerDotState {
   return "in_review";
 }
 
-const plural = (n: number, word: string) => `${n === 1 ? "One" : n} ${word}${n === 1 ? "" : "s"}`;
+/** "1 item", "5 open comments": numerals throughout (#705), as "0 of 2 responded" beside it. */
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /** "one file now", "4 files now": what a folder or the workspace covers at this moment. */
 const filesNow = (n: number) => `${n === 1 ? "one file" : `${n} files`} now`;
 
@@ -608,16 +609,14 @@ function YourTurn({ review }: { review: ReviewDetail }) {
   );
   const unopenedCopy =
     unopened > 0 ? (
-      <span className="text-[13px] text-ink-3">
-        {unopened === 1 ? "One item not opened yet" : `${unopened} items not opened yet`}
-      </span>
+      <span className="text-[13px] text-ink-3">{plural(unopened, "item")} not opened yet</span>
     ) : null;
   if (me.state === "waiting") {
     const before = review.reviewers.filter((r) => r.step < me.step && r.state !== "submitted");
     return quiet(
       <>
         Your turn comes after {before.map((r) => r.name).join(" and ")}{" "}
-        {before.length === 1 ? "has" : "have"} responded. You will get an email.
+        {before.length === 1 ? "has" : "have"} responded. You will be told when it is your turn.
       </>,
     );
   }
@@ -963,9 +962,7 @@ export function ReviewBody({
                                 remind.mutate(undefined, {
                                   onSuccess: (n) =>
                                     setNotice(
-                                      n === 1
-                                        ? "One reviewer is reminded."
-                                        : `${n} reviewers are reminded.`,
+                                      `${plural(n, "reviewer")} ${n === 1 ? "is" : "are"} reminded.`,
                                     ),
                                 }),
                             },
@@ -1105,7 +1102,8 @@ export function ReviewBody({
           </section>
           {guest && mine && (
             <p className="m-0 text-[12px] leading-[18px] text-ink-3">
-              Your link is yours alone. What you open here is logged for whoever asked you.
+              Your link is yours alone. What you open here is logged for{" "}
+              {review.createdByName ?? "whoever asked you"}.
             </p>
           )}
         </aside>
