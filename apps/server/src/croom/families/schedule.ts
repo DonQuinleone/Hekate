@@ -1,3 +1,4 @@
+import { croomChangeWords } from "@hekate/shared";
 import { absent, type Family, type ReplayContext } from "../family.ts";
 import { idOf, wholeOf } from "../fields.ts";
 import { type CrScheduleItem, type CrScheduleKind, scheduleKinds } from "../model.ts";
@@ -23,7 +24,10 @@ function pieceOf(value: unknown, ctx: ReplayContext): string | "all" | null {
   if (isAll(value)) return "all";
   const id = idOf(value);
   if (id === undefined) {
-    ctx.report.problem(`${ctx.type}: a slot names a work that is not an id, so it was left off`);
+    ctx.report.problem(
+      `${croomChangeWords(ctx.type)} names a work Hekate cannot find, so the slot was left without one.`,
+      `${ctx.type}: a slot names a work that is not an id`,
+    );
     return null;
   }
   return id;

@@ -1366,7 +1366,9 @@ test("croom-import", async ({ page }) => {
     buffer: croomFixtureBytes(),
   });
   await settle(page, "main >> text=Already in this project");
-  await page.getByText(/^Not brought over/).click();
+  await page.getByRole("button", { name: "Show not brought over" }).click();
+  await page.getByRole("button", { name: "Details for support" }).click();
+  // The file's own ids only here, for whoever helps (#551).
   await expect(page.getByText("Unknown event frobnicate_widget")).toBeVisible();
   await saveScreen(page, "croom-import-preview");
   await checkScreen(page);

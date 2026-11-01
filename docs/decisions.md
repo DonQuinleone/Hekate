@@ -2452,3 +2452,12 @@ Some organisations must keep their material in storage they own, and a workspace
 - **One row.** *Search and commands* answers Ctrl K (⌘ K) or "/". A shortcut that works while typing (`anywhere`) does so only for its bindings with a modifier, so "/" still types a slash in a field.
 - **One way of writing keys,** `KeyStrokes` in `apps/web/src/components/shortcut-map.tsx`: the strokes of a sequence joined by *then*, a shortcut's bindings by *or*, in the palette and the map alike. The palette's shortcuts are bindings as `lib/keys` writes them ("g h").
 - **Names.** *Advanced search* for the search page, *All notifications* under *Jump to*, and the footer *Results include only what you can open*. The prototype's palette follows.
+
+## 315. The ControlRoom import's report is written for people, its ids kept for support
+
+#551. The import preview (decision 242) showed what the reader found in its own terms: "upsert_stage_element: names a stage plan…", "Unknown event frobnicate_widget", "Unread field update_venue.postcode", "so the file's was left out", "A movement of …", and every line in the signal colour.
+
+- **Sentences about the thing.** Each problem is a sentence about what it concerns, in Hekate's words: "Take 1 of “Maple Leaf Rag” is already in this project, so the file's own take 1 was not imported." An event is named by what it changes (`croomChangeWords` and `croomSubject` in `packages/shared`, tested): "A change to a take's rating holds a detail that is not a number". A work's parts are tracks, never movements. Something already in the project reads "the work “Rags”" or "Mira Solberg on the personnel" (`croomConflictWords`). Titles are quoted with curly quotes.
+- **Ids only for support.** The report carries, beside each problem written for people, the line in the file's own ids (`support`, additive), and the preview keeps those, with the unknown events, the unread fields and what was set aside by their types, under *Details for support*. Everywhere else the preview says what they are (`reportLines` in `apps/web/src/lib/croom.ts`, tested).
+- **One quiet colour, the signal once.** The lines to look over are in ink with a warning mark; the signal is only the count beside *To look over*. *Not brought over* is the shared folding section, not the browser's disclosure triangle.
+- The prototype's import preview, in `apps/prototype/src/routes/production.tsx`, belongs to the production batch and follows there.
