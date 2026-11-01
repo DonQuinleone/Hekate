@@ -17,6 +17,7 @@ import { Chip, Count, ToggleChip } from "~/components/ui/chip";
 import { Checkbox, Choice, ChoiceCard, Radio } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
+import { FilterTabs } from "~/components/ui/filter-tabs";
 import { ColourInput, InlineInput, Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown, MenuList } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
@@ -334,6 +335,7 @@ function Components() {
   const [on, setOn] = useState(true);
   const [folded, setFolded] = useState(true);
   const [colour, setColour] = useState("#4fb3a9");
+  const [filter, setFilter] = useState<"all" | "mine" | "archived">("all");
   const [view, setView] = useState<"list" | "grid">("list");
   const [mode, setMode] = useState<"light" | "dark" | "text">("light");
   const [level, setLevel] = useState(60);
@@ -581,7 +583,7 @@ function Components() {
         </Spec>
         <Spec
           name="Segmented"
-          rule="Two to four views of the same thing. Tabs are for a third level of navigation only."
+          rule="How a list is shown: two to four views of the same thing, with icons where they read. Never a filter; tabs are for a third level of navigation only."
         >
           <Segmented
             label="View"
@@ -601,6 +603,21 @@ function Components() {
               { value: "text", label: "Plain text" },
             ]}
             onChange={setMode}
+          />
+        </Spec>
+        <Spec
+          name="Filter tabs"
+          rule="What a list holds: a row of pill tabs, one chosen, its count after its name. A filter never looks like a view switch."
+        >
+          <FilterTabs
+            label="Show"
+            value={filter}
+            options={[
+              { value: "all", label: "All", count: 12 },
+              { value: "mine", label: "Yours" },
+              { value: "archived", label: "Archived" },
+            ]}
+            onChange={setFilter}
           />
         </Spec>
         <Spec name="Slider" rule="A value along a range; the number beside it when it matters.">

@@ -9,11 +9,12 @@ import { PageHeader } from "~/components/page-header";
 import { NewProjectTile, ProjectCard } from "~/components/project-card";
 import { ProjectCover, profileIcon } from "~/components/project-cover";
 import { Button } from "~/components/ui/button";
-import { Count } from "~/components/ui/chip";
 import { ChoiceCard } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
+import { FilterTabs } from "~/components/ui/filter-tabs";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
+import { Segmented } from "~/components/ui/segmented";
 import { Failed, Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
@@ -258,21 +259,16 @@ export function ProjectsPage({
         {error && <Failed what="Your projects" error={error} retry={refetch} />}
 
         <div className="flex flex-wrap items-center gap-1">
-          {(Object.keys(showLabels) as ProjectShow[]).map((id) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={show === id}
-              onClick={() => onChange({ show: id })}
-              className={cn(
-                "h-8 rounded-control px-3 text-[13px] transition-colors",
-                show === id ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
-              )}
-            >
-              {showLabels[id]}
-              {show === id && data && <Count>{list.length}</Count>}
-            </button>
-          ))}
+          <FilterTabs
+            label="Show"
+            value={show}
+            options={(Object.keys(showLabels) as ProjectShow[]).map((id) => ({
+              value: id,
+              label: showLabels[id],
+              count: show === id && data ? list.length : undefined,
+            }))}
+            onChange={(id) => onChange({ show: id })}
+          />
           <span className="ml-auto">
             <Dropdown
               align="right"
@@ -284,27 +280,16 @@ export function ProjectsPage({
               }))}
             />
           </span>
-          <fieldset className="m-0 hidden items-center border-0 p-0 @3xl/app:flex">
-            <legend className="sr-only">View</legend>
-            {(
-              [
-                ["cards", "grid", "Cards"],
-                ["list", "list", "List"],
-              ] as const
-            ).map(([id, icon, label]) => (
-              <Button
-                key={id}
-                variant="ghost"
-                size="icon"
-                aria-label={label}
-                aria-pressed={view === id}
-                onClick={() => onChange({ view: id })}
-                className={cn(view === id && "bg-raised text-ink")}
-              >
-                <Icon name={icon} size={16} />
-              </Button>
-            ))}
-          </fieldset>
+          <Segmented
+            label="View"
+            className="hidden @3xl/app:flex"
+            value={view}
+            options={[
+              { value: "cards", label: "Cards", icon: <Icon name="grid" size={15} /> },
+              { value: "list", label: "List", icon: <Icon name="list" size={15} /> },
+            ]}
+            onChange={(next) => onChange({ view: next })}
+          />
         </div>
         {isPending ? (
           <Loading />

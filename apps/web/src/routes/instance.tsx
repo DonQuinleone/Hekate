@@ -91,9 +91,9 @@ import { Button } from "~/components/ui/button";
 import { Count } from "~/components/ui/chip";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
+import { FilterTabs } from "~/components/ui/filter-tabs";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
-import { Segmented } from "~/components/ui/segmented";
 import { Failed, failureText, Loading } from "~/components/ui/states";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
@@ -2325,7 +2325,7 @@ function Workspaces({
               aria-label="Find a workspace by name or subdomain"
             />
             {operator && (
-              <Segmented
+              <FilterTabs
                 label="Show"
                 value={filter}
                 options={filters}

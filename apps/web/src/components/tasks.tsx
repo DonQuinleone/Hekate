@@ -21,6 +21,7 @@ import { Card } from "~/components/page";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
+import { FilterTabs } from "~/components/ui/filter-tabs";
 import { InlineInput, Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Failed, Loading } from "~/components/ui/states";
@@ -617,23 +618,12 @@ export function ProjectTasks({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-1">
-        <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-1 border-0 p-0">
-          <legend className="sr-only">Show</legend>
-          {filters.map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={filter === id}
-              onClick={() => setFilter(id)}
-              className={cn(
-                "h-8 rounded-control px-3 text-[13px] transition-colors",
-                filter === id ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </fieldset>
+        <FilterTabs
+          label="Show"
+          value={filter}
+          options={filters.map(([id, label]) => ({ value: id, label }))}
+          onChange={setFilter}
+        />
         <span className="ml-auto flex gap-1">
           {data.tasks.length > 0 && (
             <a
