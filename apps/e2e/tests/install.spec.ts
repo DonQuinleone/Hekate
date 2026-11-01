@@ -4,7 +4,7 @@ import { expect, type Page, test } from "@playwright/test";
 import postgres from "postgres";
 import { SETUP_CODE } from "../constants.ts";
 import { checkScreen } from "./checks.ts";
-import { saveScreen, state } from "./fixtures.ts";
+import { FIXED_TIME, saveScreen, state } from "./fixtures.ts";
 
 /**
  * A clean server, from its setup code to its first workspace, through the installer alone
@@ -49,6 +49,8 @@ test("a clean server installs through the browser alone", async ({ page }) => {
   const storagePath = join(state, "install", "storage");
   mkdirSync(storagePath, { recursive: true });
 
+  // At the fixed time every other capture is taken at (#543).
+  await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
   await heading(page, "Requirements");
