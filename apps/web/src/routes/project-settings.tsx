@@ -59,7 +59,7 @@ import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { VideoMark } from "~/components/player";
 import { ProjectRoles } from "~/components/project-access";
-import { TransferProject } from "~/components/project-transfer";
+import { ConfirmStep, TransferProject } from "~/components/project-transfer";
 import { QaRules } from "~/components/qa-rules";
 import {
   Danger,
@@ -508,11 +508,7 @@ function DeleteProject({ project }: { project: Project }) {
   const deletion = project.deletion ?? null;
   const { request, cancel, confirm } = useProjectDeletion(project.id);
   const [dialog, setDialog] = useState<"ask" | "confirm" | null>(null);
-  const [typed, setTyped] = useState("");
-  const close = () => {
-    setDialog(null);
-    setTyped("");
-  };
+  const close = () => setDialog(null);
   const error = request.error ?? cancel.error;
   let row: ReactNode;
   if (deletion?.deleteAfter) {
@@ -547,7 +543,7 @@ function DeleteProject({ project }: { project: Project }) {
         <span className="flex gap-2">
           {deletion.mayCancel && (
             <Button
-              variant="ghost"
+              variant="secondary"
               size="md"
               disabled={cancel.isPending}
               onClick={() => cancel.mutate()}
@@ -557,7 +553,7 @@ function DeleteProject({ project }: { project: Project }) {
           )}
           {deletion.mayConfirm && (
             <Button variant="danger" size="md" onClick={() => setDialog("confirm")}>
-              Delete…
+              Confirm deletion…
             </Button>
           )}
         </span>
@@ -582,7 +578,7 @@ function DeleteProject({ project }: { project: Project }) {
       {dialog === "ask" && (
         <Dialog
           title={`Delete ${project.name}?`}
-          description="A workspace owner other than you confirms before anything happens; a workspace with one owner confirms a day later. It is then archived, and everything in it is removed after seven days."
+          description="Nothing happens yet: a workspace owner other than you confirms first, or you a day later where the workspace has one owner. Once confirmed, it is archived, and everything in it is removed seven days later."
           onClose={close}
           width="sm"
           footer={
@@ -596,7 +592,7 @@ function DeleteProject({ project }: { project: Project }) {
                 disabled={request.isPending}
                 onClick={() => request.mutate(undefined, { onSuccess: close })}
               >
-                Ask to delete
+                Ask to delete project
               </Button>
             </>
           }
@@ -605,36 +601,16 @@ function DeleteProject({ project }: { project: Project }) {
         </Dialog>
       )}
       {dialog === "confirm" && (
-        <Dialog
-          title="Delete this project?"
-          description="It is archived now, and everything in it is removed after seven days; until then it can be kept. Type the project's name to confirm."
+        <ConfirmStep
+          title={`Delete ${project.name}?`}
+          description="Once you confirm, it is archived, and everything in it is removed seven days later; until then it can be kept."
+          projectName={project.name}
+          action="Delete project"
+          pending={confirm.isPending}
+          error={confirm.error}
           onClose={close}
-          width="sm"
-          footer={
-            <>
-              <Button variant="secondary" size="md" onClick={close}>
-                Cancel
-              </Button>
-              <Button
-                variant="danger"
-                size="md"
-                disabled={confirm.isPending || typed.trim() !== project.name}
-                onClick={() => confirm.mutate(undefined, { onSuccess: close })}
-              >
-                Delete
-              </Button>
-            </>
-          }
-        >
-          <Field label="Project name" error={confirm.error?.message}>
-            <Input
-              value={typed}
-              placeholder={project.name}
-              autoComplete="off"
-              onChange={(e) => setTyped(e.target.value)}
-            />
-          </Field>
-        </Dialog>
+          onConfirm={(proof) => confirm.mutate(proof, { onSuccess: close })}
+        />
       )}
     </>
   );

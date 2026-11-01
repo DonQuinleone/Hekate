@@ -1045,7 +1045,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
                 variant={confirm === "archive" ? "primary" : "danger"}
                 onClick={() => setConfirm(null)}
               >
-                {confirm === "archive" ? "Archive" : "Delete"}
+                {confirm === "archive" ? "Archive" : "Delete project"}
               </Button>
             </>
           }
@@ -1053,9 +1053,15 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
           <p className="text-[14px] text-ink-2">
             {confirm === "archive"
               ? "The project becomes read-only, its open reviews close, and it leaves everyone's lists. It can be unarchived."
-              : "Everything in it is removed after seven days. Type the project's name to confirm."}
+              : "Once you confirm, it is archived, and everything in it is removed seven days later; until then it can be kept."}
           </p>
-          {confirm === "delete" && <Input placeholder={project.name} className={cn("mt-3")} />}
+          {/* The same proof as moving it (#676): its name and the password. */}
+          {confirm === "delete" && (
+            <div className="mt-3 flex flex-col gap-3">
+              <Input placeholder={`Type ${project.name} to confirm`} />
+              <Input type="password" placeholder="Password" />
+            </div>
+          )}
         </Dialog>
       )}
     </SettingsLayout>

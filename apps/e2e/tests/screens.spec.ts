@@ -2623,9 +2623,10 @@ test("project-settings-deletion", async ({ page }) => {
   await settle(page, "main >> text=Deletion asked for");
   await saveScreen(page, "project-settings-deletion");
   await checkScreen(page);
-  await page.getByRole("button", { name: "Delete…" }).click();
-  await page.getByRole("textbox", { name: "Project name" }).fill("Joplin Rags");
-  await settle(page, "[role=dialog] button:has-text('Delete'):not([disabled])");
+  // The same proof as moving it (#676): its name and the password.
+  await page.getByRole("button", { name: "Confirm deletion…" }).click();
+  await page.getByRole("textbox", { name: "Type Joplin Rags to confirm" }).fill("Joplin Rags");
+  await settle(page, "[role=dialog] >> text=Once you confirm, it is archived");
   await saveScreen(page, "project-settings-deletion-confirm");
   await checkScreen(page);
 });

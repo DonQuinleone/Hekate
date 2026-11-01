@@ -12577,8 +12577,15 @@ describe.runIf(url)("api", () => {
 
         it("deletes a project only when a second owner confirms, with everything in it (#240)", async () => {
           const s = await studio();
-          const deletion = (cookie: string, rest = "", method = "POST", id = s.projectId) =>
-            app.request(`/api/projects/${id}/deletion${rest}`, { ...json({}, cookie), method });
+          // Confirming takes the project's name and the owner's password, as moving it does (#676).
+          const proof = { name: "Rags", password: "correct horse battery" };
+          const deletion = (
+            cookie: string,
+            rest = "",
+            method = "POST",
+            id = s.projectId,
+            body: object = rest === "/confirm" ? proof : {},
+          ) => app.request(`/api/projects/${id}/deletion${rest}`, { ...json(body, cookie), method });
           const viewOf = async (cookie: string) =>
             (
               (await (await getAs(`/api/projects/${s.projectId}`, cookie)).json()) as {
@@ -12660,6 +12667,17 @@ describe.runIf(url)("api", () => {
             .returning();
           expect((await deletion(s.engineer, "/confirm", "POST", foreign?.id)).status).toBe(404);
 
+          // Without the project's name, or with a wrong password, nothing happens.
+          expect(
+            (await deletion(s.engineer, "/confirm", "POST", s.projectId, { ...proof, name: "Rag" }))
+              .status,
+          ).toBe(422);
+          const wrong = await deletion(s.engineer, "/confirm", "POST", s.projectId, {
+            ...proof,
+            password: "not it",
+          });
+          expect(wrong.status).toBe(403);
+          expect(await wrong.text()).toMatch(/password is not right/);
           // Confirmed: archived at once, its open review closed, and gone in seven days.
           const confirmed = await deletion(s.engineer, "/confirm");
           expect(confirmed.status).toBe(200);

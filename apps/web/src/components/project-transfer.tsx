@@ -230,7 +230,7 @@ function TransferActions({ transfer }: { transfer: ProjectTransfer }) {
     <span className="flex flex-wrap justify-end gap-2">
       {you.mayCancel && (
         <Button
-          variant="ghost"
+          variant="secondary"
           size="md"
           disabled={withdraw.isPending}
           onClick={() => withdraw.mutate(transfer.id)}
@@ -240,7 +240,7 @@ function TransferActions({ transfer }: { transfer: ProjectTransfer }) {
       )}
       {you.mayRefuse && (
         <Button
-          variant="ghost"
+          variant="secondary"
           size="md"
           disabled={refuse.isPending}
           onClick={() => refuse.mutate(transfer.id)}

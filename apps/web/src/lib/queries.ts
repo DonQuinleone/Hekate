@@ -847,9 +847,15 @@ export function useProjectDeletion(projectId: string) {
         ok(await api.projects[":id"].deletion.$delete({ param: { id: projectId } })),
       onSuccess: refresh,
     }),
+    // The project's name and the person's password, as moving it asks (#676).
     confirm: useMutation({
-      mutationFn: async () =>
-        ok(await api.projects[":id"].deletion.confirm.$post({ param: { id: projectId } })),
+      mutationFn: async (proof: { name: string; password?: string }) =>
+        ok(
+          await api.projects[":id"].deletion.confirm.$post({
+            param: { id: projectId },
+            json: proof,
+          }),
+        ),
       // Archived now: lists, the sidebar, the home page and every review list change.
       onSuccess: () => void client.invalidateQueries(),
     }),
