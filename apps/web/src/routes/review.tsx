@@ -274,23 +274,34 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                       key={r.id}
                       className="group flex flex-col gap-2 border-b border-line px-4 py-row last:border-b-0"
                     >
-                      <div className="flex items-center gap-3">
-                        <Avatar person={personKey(r)} name={r.name} size={30} />
+                      {/* The name wins on a phone (#579): the guest's label goes under it, and
+                          the status wraps rather than being cut. */}
+                      <div className="flex items-start gap-3">
+                        <Avatar person={personKey(r)} name={r.name} size={30} className="mt-0.5" />
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 text-[14px]">
-                            <span className="truncate font-medium text-ink">{r.name}</span>
-                            {you && <span className="text-ink-3">you</span>}
+                          <div className="flex flex-col text-[14px] @3xl/app:flex-row @3xl/app:items-baseline @3xl/app:gap-1.5">
+                            <span className="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">
+                              {r.name}
+                              {you && <span className="ml-1.5 font-normal text-ink-3">you</span>}
+                            </span>
                             {r.guest && !you && (
-                              <span className="shrink-0 text-ink-3">
-                                · {r.label ? `${r.label}, guest` : "guest"}
+                              <span className="text-[13px] text-ink-3 @3xl/app:text-[14px]">
+                                <span aria-hidden="true" className="hidden @3xl/app:inline">
+                                  ·{" "}
+                                </span>
+                                {r.label ? `${r.label}, guest` : "Guest"}
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-1.5 text-[13px] text-ink-3">
-                            <ReviewerDot
-                              state={sharing ? (r.viewedAt ? "passed" : "invited") : reviewerDot(r)}
-                            />
-                            <span className="truncate">
+                          <div className="flex items-start gap-1.5 text-[13px] text-ink-3">
+                            <span className="mt-[6px] flex shrink-0">
+                              <ReviewerDot
+                                state={
+                                  sharing ? (r.viewedAt ? "passed" : "invited") : reviewerDot(r)
+                                }
+                              />
+                            </span>
+                            <span className="min-w-0">
                               {sharing
                                 ? shareLine(r, ago)
                                 : r.decision === "approved"
@@ -311,10 +322,15 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                           <Link
                             to={fileBase}
                             params={{ fileId: r.comments.fileId }}
+                            aria-label={`${r.comments.count} ${r.comments.count === 1 ? "comment" : "comments"} by ${r.name}`}
                             className="flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2 text-[13px] text-ink-2 no-underline hover:bg-raised hover:text-ink"
                           >
                             <Icon name="comment" size={13} />
-                            {r.comments.count} {r.comments.count === 1 ? "comment" : "comments"}
+                            {r.comments.count}
+                            {/* The count alone on a phone, where the name needs the room. */}
+                            <span className="hidden @3xl/app:inline">
+                              {r.comments.count === 1 ? "comment" : "comments"}
+                            </span>
                           </Link>
                         )}
                         {manage && (

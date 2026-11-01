@@ -333,19 +333,22 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
                         <div className="flex items-center gap-3">
                           <Avatar personId={r.personId} size={30} />
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5 text-[14px]">
-                              <span className="truncate font-medium text-ink">
+                            {/* The name wins on a phone (#579): what they are goes under it. */}
+                            <div className="flex flex-col text-[14px] @3xl/app:flex-row @3xl/app:items-baseline @3xl/app:gap-1.5">
+                              <span className="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">
                                 {viewer.isGuest && !you ? p.name.split(" ")[0] : p.name}
+                                {you && <span className="ml-1.5 font-normal text-ink-3">you</span>}
                               </span>
-                              {you && <span className="text-ink-3">you</span>}
-                              {isGuest && !you && <span className="text-ink-3">· guest</span>}
+                              {isGuest && !you && (
+                                <span className="text-[13px] text-ink-3">Guest</span>
+                              )}
                               {r.permissions.expiresAt && !viewer.isGuest && (
                                 <span className="text-ink-3">
                                   · until {formatDate(r.permissions.expiresAt)}
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-1.5 text-[13px] text-ink-3">
+                            <div className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink-3">
                               <Dot state={reviewerDot(r.state, decision)} className="size-[7px]" />
                               {decision === "approved"
                                 ? "Approved"
