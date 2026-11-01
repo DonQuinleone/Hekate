@@ -1306,7 +1306,6 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
   const [choosing, setChoosing] = useState(false);
   // Where an upload request's files go: a folder, or a track's next version (#425).
   const [requestInto, setRequestInto] = useState("f-day2");
-  const requestTrack = allTracks.find((t) => t.id === requestInto);
   // The columns start at the top of the project, so an empty open folder still shows them.
   const empty =
     state === "empty" ||
@@ -1442,7 +1441,7 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
           <div className="flex flex-col gap-4">
             <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
               Name
-              <Input defaultValue="String stems" />
+              <Input placeholder="For example, mixes from the orchestra" />
             </label>
             <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
               What you want
@@ -1487,12 +1486,6 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
                 <DateField defaultValue="2026-10-20" />
               </label>
             </div>
-            {requestTrack && (
-              <p className="text-[12px] text-ink-3">
-                Each file sent becomes the next version of {requestTrack.name} once it has been
-                processed, and arrives beside the track.
-              </p>
-            )}
             <div className="grid gap-4 @md/app:grid-cols-2">
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Password (optional)
@@ -1510,6 +1503,33 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
               </Link>
               . What arrives is listed here with who sent it.
             </p>
+            {/* What has been asked for already, each saying where it stands in words. */}
+            <section className="flex flex-col gap-1">
+              <h3 className="eyebrow">Requests in this project</h3>
+              <ul className="list-none p-0">
+                {(
+                  [
+                    ["String stems", "in_review", "Open until 28 October", "2 of 5 files"],
+                    ["Session photos", "cancelled", "Closed", "4 of 10 files"],
+                  ] as const
+                ).map(([name, dot, state, arrived]) => (
+                  <li
+                    key={name}
+                    className="flex items-center gap-3 border-t border-line py-2.5 text-[13px] first:border-t-0"
+                  >
+                    <Icon name="chevronRight" size={12} className="shrink-0 text-ink-3" />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-ink">{name}</span>
+                      <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
+                        <Dot state={dot} />
+                        {state}
+                      </span>
+                    </span>
+                    <span className="tabular shrink-0 text-ink-3">{arrived}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           </div>
         </Dialog>
       )}
