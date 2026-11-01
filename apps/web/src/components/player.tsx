@@ -6,6 +6,7 @@ import {
   formatChannels,
   formatClock,
   formatDuration,
+  formatSpan,
   frameShowing,
   frameTime,
   isFollowingPart,
@@ -94,6 +95,7 @@ import {
 import { EditLane } from "./edit-lane";
 import { Filmstrip } from "./filmstrip";
 import { Icon } from "./icons";
+import { Kbd } from "./kbd";
 import { LoopControls, LoopSurface } from "./loop";
 import { PlayheadMeters } from "./loudness";
 import { usePlayheadFrames } from "./playhead";
@@ -371,6 +373,7 @@ export function Player({
   caption: captionChosen,
   onCaption,
   compact = false,
+  passage = false,
   strip,
   compare = null,
   follow = null,
@@ -413,6 +416,12 @@ export function Player({
    * measured (QA, #42). The same element plays on, so switching views never stops it.
    */
   compact?: boolean;
+  /**
+   * Only the passage being looped, as triage shows it (#632): the media small with its loop,
+   * play, and the passage's times; no view row, meters, transport or loop settings. The same
+   * element plays on as the queue moves.
+   */
+  passage?: boolean;
   /** A video's or a recording's caption tracks (#146, #201), offered in the Captions menu. */
   captions?: readonly CaptionTrack[];
   /**
@@ -2230,6 +2239,49 @@ export function Player({
     </div>
   );
 
+  /** Triage's passage (#632), as the prototype's: the media small, play, and where it loops. */
+  const passageRow = (
+    <div className="flex items-center gap-2 px-1 text-[12px] text-ink-3">
+      <button
+        type="button"
+        aria-label={playing ? "Pause" : "Play"}
+        title="Play or pause (Space)"
+        disabled={!ready}
+        onClick={toggle}
+        className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-ink p-0 text-ground disabled:cursor-default disabled:opacity-40"
+      >
+        <Icon name={playing ? "pause" : "play"} size={12} />
+      </button>
+      {loop ? (
+        <span className="tabular min-w-0 truncate">
+          Looping {formatSpan(loop.start, loop.end)}, the passage with a second either side
+        </span>
+      ) : (
+        <span className="min-w-0 truncate">About the whole file</span>
+      )}
+      <span className="ml-auto hidden shrink-0 sm:inline-flex">
+        <Kbd>Space</Kbd>
+      </span>
+    </div>
+  );
+  if (passage)
+    return (
+      <section aria-label="Player" className="flex flex-col gap-1 rounded-panel bg-sunken/60 p-2">
+        {kind === "audio" ? (
+          <>
+            <audio ref={media} {...events} />
+            {failure ? (
+              failed
+            ) : (
+              <div className="flex h-[120px] min-h-0 flex-col">{audioSurface}</div>
+            )}
+          </>
+        ) : (
+          <div className="mx-auto w-full max-w-[420px]">{picture}</div>
+        )}
+        {!failure && passageRow}
+      </section>
+    );
   return (
     <section aria-label="Player" className="flex min-h-0 flex-1 flex-col outline-none">
       {/* One row of view controls at the media's edge (#637), after what leads it. */}

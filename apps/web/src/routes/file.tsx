@@ -153,6 +153,7 @@ function Playback({
   draft,
   onDraft,
   compact = false,
+  passage = false,
   captions,
   caption,
   onCaption,
@@ -175,6 +176,8 @@ function Playback({
   compare?: { open: boolean; onToggle: () => void } | null;
   /** A video's picture small, beside its lanes, for QA (#42). */
   compact?: boolean;
+  /** Only the passage, small, as triage shows it (#632). */
+  passage?: boolean;
   /** The file's caption tracks (#201), and the one the player shows. */
   captions: readonly CaptionTrack[] | undefined;
   caption: string | null;
@@ -312,6 +315,7 @@ function Playback({
       onDraft={file.kind === "video" && canComment ? onDraft : undefined}
       cuts={cuts}
       compact={compact}
+      passage={passage}
       follow={follow}
       gain={gain}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
@@ -731,6 +735,7 @@ export function FilePage({
       draft={frameDraft}
       onDraft={setFrameDraft}
       compact={picture && shown === "qa"}
+      passage={shown === "triage"}
       captions={captions}
       caption={captionId}
       onCaption={setCaptionId}
@@ -772,14 +777,8 @@ export function FilePage({
         <TriageView
           file={file}
           media={media}
-          player={
-            // Framed in the queue, as a card beside the thread in hand.
-            file.kind === "audio" || file.kind === "video" ? (
-              <div className="rounded-panel border border-hairline bg-surface">{playback}</div>
-            ) : (
-              playback
-            )
-          }
+          // The passage alone (#632), as the prototype's triage has it; pages stay pages.
+          player={playback}
           onLoop={onLoop}
           onDone={() => onView("review")}
         />
