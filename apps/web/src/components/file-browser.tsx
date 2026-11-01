@@ -1320,7 +1320,8 @@ export function FileBrowser({
           >
             {itemName(item, versionLabel)}
           </span>
-          {marks.favourite.has(key) && (
+          {/* On a card the mark sits over the picture's corner, leaving the name its width. */}
+          {marks.favourite.has(key) && !compact && (
             <span title="A favourite" className="flex shrink-0 text-ink-3">
               <Icon name="star" size={12} fill="currentColor" aria-hidden="true" />
               <span className="sr-only">, a favourite</span>
@@ -1747,13 +1748,14 @@ export function FileBrowser({
           <span
             className={cn(
               "shrink-0 text-[13px] text-ink-2",
-              path.length > 0 || filtered ? "ml-2" : "",
+              path.length > 0 && !filtered ? "ml-2" : "",
             )}
           >
             Items<Count>{items.length}</Count>
           </span>
         </nav>
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        {/* Wrapped under the trail on a phone, it starts at the left rather than leaving a gap. */}
+        <div className="flex flex-wrap items-center gap-1.5 @3xl/app:ml-auto">
           <FilterMenu filters={filters} tags={tags} onChange={onFilter} />
           <Segmented
             label="View"
@@ -2044,15 +2046,22 @@ export function FileBrowser({
                           : "opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 @3xl/app:group-hover:opacity-100",
                       )}
                     />
-                  </span>
-                  <span className="flex min-w-0 items-start gap-1">
-                    <span className="min-w-0 flex-1">
-                      {open && editing?.mode === "rename"
-                        ? editor(item)
-                        : nameOf(item, undefined, true)}
-                      <span className="block truncate text-[12px] text-ink-3">{sub}</span>
+                    {/* The mark and the menu over the picture's corner, so the name has the card's width. */}
+                    <span className="absolute top-1 right-1 flex items-center gap-0.5">
+                      {marks.favourite.has(markKey(item)) && (
+                        <span title="A favourite" className="flex px-1 text-ink-3">
+                          <Icon name="star" size={12} fill="currentColor" aria-hidden="true" />
+                          <span className="sr-only">A favourite</span>
+                        </span>
+                      )}
+                      {!open && menu(item)}
                     </span>
-                    {!open && menu(item)}
+                  </span>
+                  <span className="min-w-0">
+                    {open && editing?.mode === "rename"
+                      ? editor(item)
+                      : nameOf(item, undefined, true)}
+                    <span className="block truncate text-[12px] text-ink-3">{sub}</span>
                   </span>
                   {open && editing?.mode !== "rename" && editor(item)}
                 </li>
@@ -2163,6 +2172,10 @@ function SelectionBar({
   tags: ReactNode;
   remove: () => void;
 }) {
+  const offered = actions.filter((a): a is MenuAction => a !== "divider" && !a.disabled);
+  const moves = offered.filter((a) => a.label === "Move to…" || a.danger);
+  const main = moves.length > 0 ? moves : offered.slice(0, 1);
+  const rest = offered.filter((a) => !main.includes(a));
   return (
     <div
       role="toolbar"
@@ -2187,19 +2200,27 @@ function SelectionBar({
       {error && <p className="m-0 px-1.5 text-[12px] text-signal">{error}</p>}
       <div className="flex flex-wrap items-center gap-1">
         <span className="tabular px-2 text-[13px] text-ink">{count} selected</span>
-        {actions.map((a) =>
-          a === "divider" ? null : (
-            <Button
-              key={a.label}
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={a.onSelect}
-              className={cn(a.danger && "text-signal hover:text-signal")}
-            >
-              {a.label}
-            </Button>
-          ),
+        {/* What can be done now; Paste joins once something is cut. */}
+        {offered.map((a) => (
+          <Button
+            key={a.label}
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={a.onSelect}
+            className={cn(
+              a.danger && "text-signal hover:text-signal",
+              !main.includes(a) && "hidden @3xl/app:inline-flex",
+            )}
+          >
+            {a.label}
+          </Button>
+        ))}
+        {/* On a phone the bar keeps to one line: its main actions, and the rest under "…". */}
+        {rest.length > 0 && (
+          <span className="@3xl/app:hidden">
+            <ActionMenu label="the selection" actions={rest} always />
+          </span>
         )}
         <button
           type="button"

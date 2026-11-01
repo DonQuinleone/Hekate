@@ -150,7 +150,12 @@ export function MenuList({
           <span className="flex min-w-4 shrink-0 justify-center text-ink-2">{a.icon}</span>
         )}
         <span className="flex-1">{a.label}</span>
-        {a.hint && <span className="text-ink-3">{a.hint}</span>}
+        {/* A shortcut means nothing on a touch screen; a switched-off item's reason still shows. */}
+        {a.hint && (
+          <span className={cn("text-ink-3", !a.disabled && "[@media(pointer:coarse)]:hidden")}>
+            {a.hint}
+          </span>
+        )}
         {a.checked && <Icon name="check" size={14} className="text-ink-2" />}
       </button>
     ),
