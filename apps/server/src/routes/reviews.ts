@@ -79,7 +79,6 @@ import {
   workspaceItemName,
 } from "../review-scope.ts";
 import type { TenantVariables } from "../tenancy.ts";
-import { bothNames } from "../variants.ts";
 
 const {
   reviews,
@@ -542,7 +541,7 @@ async function itemsOf(db: Database, organisationId: string, reviewId: string) {
         trackId: item.trackId,
         name: item.trackName,
         follows: item.versionId ? ("version" as const) : ("latest" as const),
-        version: version ? { ...version, ...bothNames(treatments.map((t) => t.name)) } : null,
+        version: version ? { ...version, variants: treatments.map((t) => t.name) } : null,
         fileId: primary?.fileId ?? null,
         fileIds: treatments.map((t) => t.fileId),
       };
