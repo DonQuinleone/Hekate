@@ -765,7 +765,6 @@ export function ProjectPage({
   month?: string;
 }) {
   const viewer = useViewer();
-  const navigate = useNavigate();
   const project = projectById(projectId);
   const visible = project && viewer.canSee(projectId);
   const ownHeader = view === "settings" || view === "workflow";
@@ -784,25 +783,8 @@ export function ProjectPage({
                 ? project.name
                 : viewLabel(project, viewer, view)
               : "Not found",
-          actions: visible ? (
-            <>
-              {viewer.can(projectId, "request_reviews") && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => navigate({ to: "/reviews/new", search: { project: projectId } })}
-                >
-                  Request a review
-                </Button>
-              )}
-              {viewer.can(projectId, "upload") && (
-                <Button variant="primary" size="sm">
-                  <Icon name="upload" size={14} />
-                  Upload
-                </Button>
-              )}
-            </>
-          ) : undefined,
+          // Each view carries its own actions where its content is (Upload in the files
+          // toolbar, Request a review on Reviews), as apps/web does: none in the header too.
         },
   );
   if (!project || !visible) return <Refused />;
