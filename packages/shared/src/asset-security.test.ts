@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assetSecurityLayout, watermarkHome, watermarkSummary } from "./asset-security.ts";
+import { assetSecurityLayout, protectionLayout, watermarkSummary } from "./asset-security.ts";
 
 const order = (layout: ReturnType<typeof assetSecurityLayout>) => layout.map((s) => s.section);
 const opened = (layout: ReturnType<typeof assetSecurityLayout>) =>
@@ -57,24 +57,36 @@ describe("assetSecurityLayout", () => {
   });
 });
 
-describe("watermarkHome", () => {
-  it("is the first open section that shows pictures", () => {
-    expect(watermarkHome(assetSecurityLayout("music", ["document"]))).toBe("documents");
-    expect(watermarkHome(assetSecurityLayout("video", ["document"]))).toBe("video");
-    expect(
-      watermarkHome([
-        { section: "audio", open: true },
-        { section: "documents", open: false },
-        { section: "video", open: true },
-      ]),
-    ).toBe("video");
+describe("protectionLayout", () => {
+  const sections = (layout: ReturnType<typeof protectionLayout>) =>
+    layout.map((s) => `${s.section}${s.open ? "" : " (folded)"}`);
+
+  it("draws the one visible watermark once, where video or documents first stands", () => {
+    expect(sections(protectionLayout(assetSecurityLayout("music", ["document"])))).toEqual([
+      "audio",
+      "watermark",
+    ]);
+    expect(sections(protectionLayout(assetSecurityLayout("video", [])))).toEqual([
+      "watermark",
+      "audio",
+    ]);
+    expect(sections(protectionLayout(assetSecurityLayout("general", null)))).toEqual([
+      "watermark",
+      "audio",
+    ]);
   });
 
-  it("is nowhere while both are folded", () => {
-    expect(watermarkHome(assetSecurityLayout("music", ["audio"]))).toBeNull();
+  it("folds the watermark only where neither video nor documents matter", () => {
+    expect(sections(protectionLayout(assetSecurityLayout("music", ["audio"])))).toEqual([
+      "audio",
+      "watermark (folded)",
+    ]);
+    expect(sections(protectionLayout(assetSecurityLayout("music", ["video"])))).toEqual([
+      "audio",
+      "watermark",
+    ]);
   });
 });
-
 describe("watermarkSummary", () => {
   it("says whom, where and how strongly, or that there is none", () => {
     expect(watermarkSummary({ scope: "guests", position: "tiled", opacity: 30 })).toBe(

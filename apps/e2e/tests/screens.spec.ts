@@ -275,8 +275,8 @@ const screens: Screen[] = [
     path: (s) => `/projects/${s.musicProjectId}/settings?section=storage`,
     ready: "main >> text=Used by this project",
   },
-  // Asset security (decision 287): a music project leads with audio, its documents open and its
-  // video folded; a video project leads with video.
+  // Watermarks and downloads (decision 287, #580): a music project leads with audio; a video
+  // project with its visible watermark.
   {
     name: "project-settings-security",
     path: (s) => `/projects/${s.musicProjectId}/settings?section=security`,
@@ -2662,14 +2662,14 @@ const exportsShown = {
   ],
 };
 
-// A music project's Asset security fits one screen at desktop height, audio first (decision
-// 287); its folded Video opens on Show, with the preview, and says where the mark is set.
+// A music project's Watermarks and downloads fits one screen at desktop height, audio first
+// (decision 287), and the visible watermark is one section, with its fields and preview (#674).
 test("project-settings-security-video-opened", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().musicProjectId}/settings?section=security`);
+  await page.goto(`/projects/${seeded().musicProjectId}/settings?section=watermarks`);
   await settle(page, "main >> text=Files in a review cannot be deleted");
   const headings = await page.locator("main h2").allTextContents();
-  expect(headings.slice(0, 3)).toEqual(["Audio", "Pictures and documents", "Video"]);
+  expect(headings.slice(0, 3)).toEqual(["Audio", "Visible watermark", "Downloads and deletion"]);
   if (test.info().project.name === "desktop") {
     // Its last row ends inside the window: only the page's own margin is below the fold.
     const overflow = await page.evaluate(() => {
@@ -2681,8 +2681,7 @@ test("project-settings-security-video-opened", async ({ page }) => {
     });
     expect(overflow, "the page fits one screen").toBeLessThanOrEqual(0);
   }
-  await page.getByRole("button", { name: "Show video" }).click();
-  await settle(page, "main >> text=The same mark, set under Pictures and documents above.");
+  await expect(page.getByRole("combobox", { name: "Who it marks" })).toBeVisible();
   await showWhole(page);
   await saveScreen(page, "project-settings-security-video-opened");
   await checkScreen(page);

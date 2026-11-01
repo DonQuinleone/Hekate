@@ -46,7 +46,7 @@ const sections = [
   { id: "comments", label: "Comments", group: "Project" },
   { id: "roles", label: "Roles and access", group: "Project" },
   { id: "workflow", label: "Workflow", group: "Project" },
-  { id: "security", label: "Asset security", group: "Protection" },
+  { id: "watermarks", label: "Watermarks and downloads", group: "Protection" },
   { id: "storage", label: "Storage", group: "Protection" },
   { id: "delivery", label: "Delivery profile", group: "Quality assurance" },
   { id: "qa", label: "QA rules", group: "Quality assurance" },
@@ -58,7 +58,7 @@ const intros: Record<string, string> = {
   roles:
     "Who may do what, one role at a time: a level in each area, each including the ones before it, and the tools it is given.",
   workflow: "The stages a track goes through, the statuses they set, and who is told.",
-  security:
+  watermarks:
     "How each kind of file names whoever has it, and who may take files away or delete them.",
   storage: "Where this project's files live and how much they take.",
   delivery: "The numbers the checks measure against: loudness, peaks, formats and lengths.",
@@ -248,56 +248,27 @@ function AssigneeSelect({ project, inherits }: { project: Project; inherits?: st
   );
 }
 
-type AssetSection = "audio" | "video" | "documents";
+type ProtectionSection = "audio" | "watermark";
 
 /**
- * Asset security (#509): a section for each kind of file, in the order the profile puts first
- * (music: audio, documents, video; video: video, audio, documents; general: documents first),
- * each open where the project has that kind of file and folded to its summary where it has
- * none. The visible watermark covers video, pictures and documents alike, so it is set in the
- * first of them that is open, and the other says so. The product orders them with
- * `assetSecurityLayout` in packages/shared.
+ * Watermarks and downloads (#509, #580): the inaudible mark on recordings' downloads, and the
+ * visible watermark, one setting for video, pictures and documents, so one section with its
+ * fields labelled and its preview beside them (#674). The profile decides which comes first
+ * (music: audio; video and general: the watermark), and the watermark folds to its summary in a
+ * project with no video, pictures or documents. The product orders them with
+ * `protectionLayout` in packages/shared.
  */
-function AssetSecurity({ project }: { project: Project }) {
-  const order: AssetSection[] =
-    project.profile === "music"
-      ? ["audio", "documents", "video"]
-      : project.profile === "video"
-        ? ["video", "audio", "documents"]
-        : ["documents", "audio", "video"];
+function Watermarks({ project }: { project: Project }) {
+  const order: ProtectionSection[] =
+    project.profile === "music" ? ["audio", "watermark"] : ["watermark", "audio"];
   const holds = new Set(files.filter((f) => f.projectId === project.id).map((f) => f.kind));
-  const [open, setOpen] = useState<Record<AssetSection, boolean>>({
-    audio: true,
-    video: project.profile === "video" || holds.has("video"),
-    documents: project.profile === "general" || holds.has("document") || holds.has("image"),
-  });
-  const home = order.find((s) => s !== "audio" && open[s]);
-  const flip = (s: AssetSection) => setOpen((o) => ({ ...o, [s]: !o[s] }));
-  const summary = "Visible watermark · Guests only · Bottom right · 35%";
-  const watermark = (
-    <Row
-      name="Visible watermark"
-      hint="Whom it marks, where, and how strongly (10 to 80 per cent)."
-    >
-      <Select defaultValue="guests" className="w-36">
-        <option value="off">Off</option>
-        <option value="guests">Guests only</option>
-        <option value="everyone">Everyone</option>
-      </Select>
-      <Select defaultValue="br" className="w-36">
-        <option value="br">Bottom right</option>
-        <option value="c">Centre</option>
-        <option value="tile">Tiled</option>
-      </Select>
-      <Input defaultValue="35%" className="w-20" />
-    </Row>
+  const [open, setOpen] = useState(
+    project.profile !== "music" ||
+      holds.has("video") ||
+      holds.has("document") ||
+      holds.has("image"),
   );
-  const setAbove = (where: string) => (
-    <Row name="Visible watermark" hint={`The same mark, set under ${where} above.`}>
-      <span className="text-[13px] text-ink-2">Guests only · Bottom right · 35%</span>
-    </Row>
-  );
-  const sections: Record<AssetSection, ReactNode> = {
+  const sections: Record<ProtectionSection, ReactNode> = {
     audio: (
       <Section
         key="audio"
@@ -311,38 +282,52 @@ function AssetSecurity({ project }: { project: Project }) {
         />
       </Section>
     ),
-    video: (
+    watermark: (
       <FoldingSection
-        key="video"
-        id="asset-security-video"
-        title="Video"
-        intro="The visible watermark, laid over the player and burned into each download."
-        summary={summary}
-        open={open.video}
-        onToggle={() => flip("video")}
+        key="watermark"
+        id="visible-watermark"
+        title="Visible watermark"
+        intro="Laid over video in the player, and burned into each page, picture and download, in the viewer's own name."
+        summary="Guests only · Bottom right · 35%"
+        open={open}
+        onToggle={() => setOpen(!open)}
       >
-        {home === "video" ? watermark : setAbove("Pictures and documents")}
-        <Row name="Preview" stacked>
-          <div className="relative aspect-video w-full max-w-[420px] overflow-hidden rounded-panel bg-sunken">
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_40%_30%,#3a2a24,#0b0b0d_70%)]" />
-            <span className="absolute right-3 bottom-2 text-[11px] tracking-[0.1em] text-paper/40">
-              Mira Solberg · Endless Hall Records · 14 Oct 2026
-            </span>
+        <div className="grid gap-5 px-4 py-4 @3xl/app:grid-cols-[minmax(0,1fr)_minmax(0,300px)] @3xl/app:gap-8">
+          <div className="flex min-w-0 flex-col gap-4">
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              Who it marks
+              <Select defaultValue="guests">
+                <option value="off">Off</option>
+                <option value="guests">Guests only</option>
+                <option value="everyone">Everyone</option>
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              Position
+              <Select defaultValue="br">
+                <option value="br">Bottom right</option>
+                <option value="c">Centre</option>
+                <option value="tile">Tiled</option>
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              Strength
+              <Input defaultValue="35%" className="w-24" />
+              <span className="text-[12px] text-ink-3">
+                10 to 80 per cent: faint enough to watch through.
+              </span>
+            </label>
           </div>
-        </Row>
-      </FoldingSection>
-    ),
-    documents: (
-      <FoldingSection
-        key="documents"
-        id="asset-security-documents"
-        title="Pictures and documents"
-        intro="The visible watermark, burned into each page and picture as it is shown and downloaded."
-        summary={summary}
-        open={open.documents}
-        onToggle={() => flip("documents")}
-      >
-        {home === "documents" ? watermark : setAbove("Video")}
+          <figure className="m-0 flex min-w-0 flex-col gap-1.5">
+            <div className="relative aspect-video w-full overflow-hidden rounded-panel bg-sunken">
+              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_40%_30%,#3a2a24,#0b0b0d_70%)]" />
+              <span className="absolute right-3 bottom-2 text-[11px] tracking-[0.1em] text-paper/40">
+                Mira Solberg · Endless Hall Records · 14 Oct 2026
+              </span>
+            </div>
+            <figcaption className="text-[12px] text-ink-3">Preview, in your own name.</figcaption>
+          </figure>
+        </div>
       </FoldingSection>
     ),
   };
@@ -400,7 +385,14 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
     title: "Settings",
   });
   const sec =
-    section === "tools" ? "roles" : sections.some((s) => s.id === section) ? section : "general";
+    section === "tools"
+      ? "roles"
+      : // Its old name (#580) still opens it.
+        section === "security"
+        ? "watermarks"
+        : sections.some((s) => s.id === section)
+          ? section
+          : "general";
   return (
     <SettingsLayout
       title={sections.find((x) => x.id === sec)?.label ?? "Settings"}
@@ -927,7 +919,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
           )}
         </>
       )}
-      {sec === "security" && <AssetSecurity project={project} />}
+      {sec === "watermarks" && <Watermarks project={project} />}
       {sec === "storage" && (
         <Section
           title="Storage"

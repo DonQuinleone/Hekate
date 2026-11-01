@@ -1,6 +1,5 @@
 import {
   type AssetPolicy,
-  type AssetSection,
   assetSecurityLayout,
   capital,
   customRef,
@@ -26,8 +25,10 @@ import {
   type ProfileRef,
   type ProjectPermission,
   type ProjectProfile,
+  type ProtectionSection,
   profileFor,
   profiles,
+  protectionLayout,
   referenceSetOf,
   referenceSets,
   type WatermarkPosition,
@@ -35,7 +36,6 @@ import {
   type WatermarkSettings,
   type WorkflowNotices,
   type WorkflowSummary,
-  watermarkHome,
   watermarkPositions,
   watermarkPositionWords,
   watermarkScopes,
@@ -131,8 +131,8 @@ const sections = [
     intro: "Its workflows, who they tell, and what a new version must pass before it lands.",
   },
   {
-    id: "security",
-    label: "Asset security",
+    id: "watermarks",
+    label: "Watermarks and downloads",
     group: "Protection",
     intro:
       "How each kind of file names whoever has it, and who may take files away or delete them.",
@@ -161,6 +161,10 @@ const sections = [
 ] as const;
 export type ProjectSettingsSection = (typeof sections)[number]["id"];
 export const projectSettingsSections = sections.map((s) => s.id);
+/** Sections' old names in links people kept, and where each now is (#580). */
+export const projectSettingsMoved: Record<string, ProjectSettingsSection> = {
+  security: "watermarks",
+};
 
 /** Whoever edits the project, manages its people or edits its workflow has its settings. */
 export const mayOpenSettings = (can: (permission: ProjectPermission) => boolean) =>
@@ -202,7 +206,7 @@ export function ProjectSettingsPage({
             {current.id === "comments" && <Comments project={project} />}
             {current.id === "roles" && <ProjectRoles projectId={project.id} />}
             {current.id === "workflow" && <Workflow project={project} />}
-            {current.id === "security" && <AssetSecurity project={project} />}
+            {current.id === "watermarks" && <Watermarks project={project} />}
             {current.id === "storage" && <ProjectStorageSection project={project} />}
             {current.id === "delivery" && <Delivery project={project} />}
             {current.id === "qa" && <QaRules project={project} />}
@@ -663,18 +667,58 @@ function ProjectStorageSection({ project }: { project: Project }) {
 }
 
 /**
- * Asset security (decision 287): a section for each kind of file, in the order the profile puts
- * first, each open where the project has that kind of file and folded to its summary where it
- * has none. Audio carries the inaudible mark in downloads (decision 239); video, pictures and
- * documents the visible watermark (#31), one setting for both, edited where it shows first.
- * Then who may download and delete (decision 257), whatever the kind.
+ * Watermarks and downloads (decision 287, #580): the inaudible mark on recordings' downloads
+ * (decision 239), and the visible watermark (#31), one setting for video, pictures and documents,
+ * so one section with its three fields labelled and its preview beside them (#674). Each comes
+ * where the profile puts its kind of file, open where the project has that kind and folded to its
+ * summary where it has none. Then who may download and delete (decision 257), whatever the kind.
  */
-function AssetSecurity({ project }: { project: Project }) {
+function Watermarks({ project }: { project: Project }) {
+  const update = useUpdateProject(project.id);
+  // The sections opened or folded by hand, against how the page first lays them out.
+  const [flipped, setFlipped] = useState<ReadonlySet<ProtectionSection>>(new Set());
+  const layout = protectionLayout(assetSecurityLayout(project.profile, project.fileKinds)).map(
+    (s) => ({ ...s, open: flipped.has(s.section) ? !s.open : s.open }),
+  );
+  const flip = (section: ProtectionSection) =>
+    setFlipped((was) => {
+      const next = new Set(was);
+      if (!next.delete(section)) next.add(section);
+      return next;
+    });
+  return (
+    <>
+      {layout.map((s) =>
+        s.section === "audio" ? (
+          <AudioMarking key="audio" project={project} />
+        ) : (
+          <VisibleWatermark
+            key="watermark"
+            project={project}
+            open={s.open}
+            onToggle={() => flip("watermark")}
+          />
+        ),
+      )}
+      {update.error && <p className="-mt-6 text-[13px] text-signal">{update.error.message}</p>}
+      <Downloads project={project} />
+    </>
+  );
+}
+
+/** The visible watermark (#31, #674): whom it marks, where and how strongly, and how it looks. */
+function VisibleWatermark({
+  project,
+  open,
+  onToggle,
+}: {
+  project: Project;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
   const { data: me } = useQuery(meQuery);
-  // The sections opened or folded by hand, against how the page first lays them out.
-  const [flipped, setFlipped] = useState<ReadonlySet<AssetSection>>(new Set());
   const settings = project.watermark ?? defaultWatermark;
   // One change at a time: each sends the whole setting, so a second waits for the first.
   const edit = can("edit_project") && !update.isPending;
@@ -686,125 +730,80 @@ function AssetSecurity({ project }: { project: Project }) {
     workspace,
     new Date(),
   );
-  const layout = assetSecurityLayout(project.profile, project.fileKinds).map((s) => ({
-    ...s,
-    open: flipped.has(s.section) ? !s.open : s.open,
-  }));
-  const home = watermarkHome(layout);
-  const flip = (section: AssetSection) =>
-    setFlipped((was) => {
-      const next = new Set(was);
-      if (!next.delete(section)) next.add(section);
-      return next;
-    });
-  const summary =
-    settings.scope === "off"
-      ? watermarkSummary(settings)
-      : `Visible watermark · ${watermarkSummary(settings)}`;
-  // Whom, where and how strongly, on one row: the page leads with audio and fits one screen.
-  const watermarkRows = (
-    <Row
-      name="Visible watermark"
-      hint="Whom it marks, where, and how strongly (10 to 80 per cent)."
+  const off = settings.scope === "off";
+  return (
+    <FoldingSection
+      id="visible-watermark"
+      title="Visible watermark"
+      intro="Laid over video in the player, and burned into each page, picture and download, in the viewer's own name."
+      summary={watermarkSummary(settings)}
+      open={open}
+      onToggle={onToggle}
     >
-      <span className="flex w-full flex-wrap gap-2 @3xl/app:w-auto @3xl/app:flex-nowrap">
-        <Select
-          value={settings.scope}
-          aria-label="Visible watermark"
-          disabled={!edit}
-          onChange={(e) => change({ scope: e.target.value as WatermarkScope })}
-          className="w-full @3xl/app:w-36"
-        >
-          {watermarkScopes.map((scope) => (
-            <option key={scope} value={scope}>
-              {watermarkScopeWords[scope]}
-            </option>
-          ))}
-        </Select>
-        <Select
-          value={settings.position}
-          aria-label="Position"
-          disabled={!edit || settings.scope === "off"}
-          onChange={(e) => change({ position: e.target.value as WatermarkPosition })}
-          className="min-w-0 flex-1 @3xl/app:w-36 @3xl/app:flex-none"
-        >
-          {watermarkPositions.map((position) => (
-            <option key={position} value={position}>
-              {watermarkPositionWords[position]}
-            </option>
-          ))}
-        </Select>
-        <SavedInput
-          key={settings.opacity}
-          value={`${settings.opacity}%`}
-          label="Opacity"
-          disabled={!edit || settings.scope === "off"}
-          onSave={(typed) => {
-            const opacity = Number.parseInt(typed, 10);
-            if (Number.isInteger(opacity)) change({ opacity: Math.min(80, Math.max(10, opacity)) });
-          }}
-          className="tabular w-20 shrink-0"
-        />
-      </span>
-    </Row>
-  );
-  // The other open section says how the one mark is set, where it is set.
-  const setAbove = (where: string) => (
-    <Row name="Visible watermark" hint={`The same mark, set under ${where} above.`} inline>
-      <span className="text-[13px] text-ink-2">{watermarkSummary(settings)}</span>
-    </Row>
-  );
-  const sections: Record<AssetSection, ReactNode> = {
-    audio: <AudioMarking key="audio" project={project} />,
-    video: (
-      <FoldingSection
-        key="video"
-        id="asset-security-video"
-        title="Video"
-        intro="The visible watermark, laid over the player and burned into each download."
-        summary={summary}
-        open={layout.some((s) => s.section === "video" && s.open)}
-        onToggle={() => flip("video")}
-      >
-        {home === "video" ? watermarkRows : setAbove("Pictures and documents")}
-        {settings.scope !== "off" && (
-          <Row name="Preview" stacked>
-            {/* A frame stands in for the picture: dark in either theme, as a video is. */}
-            <div
-              className="relative aspect-video w-full max-w-[420px] overflow-hidden rounded-panel"
-              style={{
-                background:
-                  "radial-gradient(120% 90% at 30% 20%, var(--hk-cover-video-lit), var(--hk-cover-video-deep) 70%)",
-              }}
+      <div className="grid gap-5 px-4 py-4 @3xl/app:grid-cols-[minmax(0,1fr)_minmax(0,300px)] @3xl/app:gap-8">
+        <div className="flex min-w-0 flex-col gap-4">
+          <Field label="Who it marks">
+            <Select
+              value={settings.scope}
+              disabled={!edit}
+              onChange={(e) => change({ scope: e.target.value as WatermarkScope })}
             >
+              {watermarkScopes.map((scope) => (
+                <option key={scope} value={scope}>
+                  {watermarkScopeWords[scope]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Position">
+            <Select
+              value={settings.position}
+              disabled={!edit || off}
+              onChange={(e) => change({ position: e.target.value as WatermarkPosition })}
+            >
+              {watermarkPositions.map((position) => (
+                <option key={position} value={position}>
+                  {watermarkPositionWords[position]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Strength" hint="10 to 80 per cent: faint enough to watch through.">
+            <SavedInput
+              key={settings.opacity}
+              value={`${settings.opacity}%`}
+              label="Strength"
+              disabled={!edit || off}
+              onSave={(typed) => {
+                const opacity = Number.parseInt(typed, 10);
+                if (Number.isInteger(opacity))
+                  change({ opacity: Math.min(80, Math.max(10, opacity)) });
+              }}
+              className="tabular w-24"
+            />
+          </Field>
+        </div>
+        <figure className="m-0 flex min-w-0 flex-col gap-1.5">
+          {/* A frame stands in for the picture: dark in either theme, as a video is. */}
+          <div
+            className="relative aspect-video w-full overflow-hidden rounded-panel"
+            style={{
+              background:
+                "radial-gradient(120% 90% at 30% 20%, var(--hk-cover-video-lit), var(--hk-cover-video-deep) 70%)",
+            }}
+          >
+            {!off && (
               <VideoMark
                 mark={{ text: sample, position: settings.position, opacity: settings.opacity }}
               />
-            </div>
-          </Row>
-        )}
-      </FoldingSection>
-    ),
-    documents: (
-      <FoldingSection
-        key="documents"
-        id="asset-security-documents"
-        title="Pictures and documents"
-        intro="The visible watermark, burned into each page and picture as it is shown and downloaded."
-        summary={summary}
-        open={layout.some((s) => s.section === "documents" && s.open)}
-        onToggle={() => flip("documents")}
-      >
-        {home === "documents" ? watermarkRows : setAbove("Video")}
-      </FoldingSection>
-    ),
-  };
-  return (
-    <>
-      {layout.map((s) => sections[s.section])}
-      {update.error && <p className="-mt-6 text-[13px] text-signal">{update.error.message}</p>}
-      <Downloads project={project} />
-    </>
+            )}
+          </div>
+          <figcaption className="text-[12px] text-ink-3">
+            {off ? "Preview: nothing is marked." : "Preview, in your own name."}
+          </figcaption>
+        </figure>
+      </div>
+    </FoldingSection>
   );
 }
 
