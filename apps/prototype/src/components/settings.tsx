@@ -21,6 +21,7 @@ export function SideNav({
   link,
   label = "Sections",
   phoneLabel = "Section",
+  fit = false,
 }: {
   /** What the phone's control says before the current section: "Section", or "Production". */
   phoneLabel?: string;
@@ -33,6 +34,8 @@ export function SideNav({
     search?: Record<string, string>;
   };
   label?: string;
+  /** As wide as its longest label rather than settings' column: for a few short sections. */
+  fit?: boolean;
 }) {
   const groups = [...new Set(sections.map((s) => s.group ?? ""))];
   const navigate = useNavigate();
@@ -67,7 +70,10 @@ export function SideNav({
       </div>
       <nav
         aria-label={label}
-        className="hidden shrink-0 gap-1 @3xl/app:sticky @3xl/app:top-8 @3xl/app:flex @3xl/app:w-[200px] @3xl/app:flex-col @3xl/app:self-start"
+        className={cn(
+          "hidden shrink-0 gap-1 @3xl/app:sticky @3xl/app:top-8 @3xl/app:flex @3xl/app:flex-col @3xl/app:self-start",
+          fit ? "@3xl/app:w-max @3xl/app:min-w-32" : "@3xl/app:w-[200px]",
+        )}
       >
         {groups.map((g) => (
           <div key={g} className="flex shrink-0 gap-1 @3xl/app:mb-4 @3xl/app:flex-col">

@@ -78,8 +78,9 @@ export function ComparePage({
     <Page className="gap-6">
       <div className="flex flex-wrap items-center gap-3">
         {(["a", "b"] as const).map((which) => (
+          // The keys are shown once, on the lanes (#569).
           <label key={which} className="flex items-center gap-2 text-[13px] text-ink-2">
-            <Kbd>{which === "a" ? "1" : "2"}</Kbd>
+            <span className="sr-only">{which === "a" ? "First version" : "Second version"}</span>
             <Select
               value={which === "a" ? aNum : bNum}
               onChange={(e) =>
@@ -133,18 +134,15 @@ export function ComparePage({
                 <div className="flex items-center gap-2 px-1 pb-1 text-[13px]">
                   <button
                     type="button"
+                    aria-pressed={on}
+                    aria-label={`Hear ${label(v, which)}, key ${which === "a" ? "1" : "2"}`}
                     onClick={() => setSide(which)}
                     className={cn(
                       "flex size-7 items-center justify-center rounded-full",
                       on ? "bg-signal text-ground" : "bg-raised text-ink",
                     )}
                   >
-                    <Icon
-                      name={on && playback.playing ? "pause" : "play"}
-                      size={10}
-                      fill="currentColor"
-                      strokeWidth={0}
-                    />
+                    <Kbd>{which === "a" ? "1" : "2"}</Kbd>
                   </button>
                   <span className="font-medium text-ink">{label(v, which)}</span>
                   {!blind && (
@@ -152,9 +150,10 @@ export function ComparePage({
                       {v.variants.find((x) => x.primary)?.name} · {v.note}
                     </span>
                   )}
-                  <span className="tabular ml-auto text-ink-3">
-                    level-matched {which === "a" ? "−0.6 dB" : "0.0 dB"}
-                  </span>
+                  {/* Only the one turned down says so (#569). */}
+                  {which === "a" && (
+                    <span className="tabular ml-auto text-ink-3">Level-matched −0.6 dB</span>
+                  )}
                 </div>
                 <Waveform
                   seed={f.seed}
@@ -228,30 +227,41 @@ export function ComparePage({
               bend is the new edit at bar 17.
             </span>
           </section>
-          <section className="flex flex-col gap-1.5">
-            <Label>
-              Fixed in {label(b, "b")} · {fixed.length}
-            </Label>
-            {fixed.map((f) => (
-              <span key={f.id} className="flex items-center gap-2 text-[13px] text-ink-2">
-                <SeverityDot severity="pass" />
-                {f.check}: {f.summary}
+          {/* Each fact once (#569): a section only where it holds something. */}
+          {fixed.length === 0 && fresh.length === 0 && (
+            <section className="flex flex-col gap-1.5">
+              <Label>Findings</Label>
+              <span className="text-[12px] text-ink-3">
+                The checks found nothing fixed or new in {label(b, "b")}.
               </span>
-            ))}
-            {fixed.length === 0 && <span className="text-[12px] text-ink-3">Nothing changed.</span>}
-          </section>
-          <section className="flex flex-col gap-1.5">
-            <Label>
-              New in {label(b, "b")} · {fresh.length}
-            </Label>
-            {fresh.map((f) => (
-              <span key={f.id} className="flex items-center gap-2 text-[13px] text-ink-2">
-                <SeverityDot severity={f.severity} />
-                {f.check}: {f.summary}
-              </span>
-            ))}
-            {fresh.length === 0 && <span className="text-[12px] text-ink-3">Nothing new.</span>}
-          </section>
+            </section>
+          )}
+          {fixed.length > 0 && (
+            <section className="flex flex-col gap-1.5">
+              <Label>
+                Fixed in {label(b, "b")} · {fixed.length}
+              </Label>
+              {fixed.map((f) => (
+                <span key={f.id} className="flex items-center gap-2 text-[13px] text-ink-2">
+                  <SeverityDot severity="pass" />
+                  {f.check}: {f.summary}
+                </span>
+              ))}
+            </section>
+          )}
+          {fresh.length > 0 && (
+            <section className="flex flex-col gap-1.5">
+              <Label>
+                New in {label(b, "b")} · {fresh.length}
+              </Label>
+              {fresh.map((f) => (
+                <span key={f.id} className="flex items-center gap-2 text-[13px] text-ink-2">
+                  <SeverityDot severity={f.severity} />
+                  {f.check}: {f.summary}
+                </span>
+              ))}
+            </section>
+          )}
           <section className="flex flex-col gap-1.5">
             <Label>Comments mapped · {quality >= 60 ? mapped.length : 0}</Label>
             <span className="text-[12px] text-ink-3">
@@ -259,13 +269,11 @@ export function ComparePage({
                 ? `Each anchor on ${label(a, "a")} follows the audio to its place on ${label(b, "b")}; move any by hand from the thread.`
                 : "Comments stay on their own versions until the alignment is good enough."}
             </span>
-            <Link
-              to="/files/$fileId"
-              params={{ fileId: fb.id }}
-              className="text-[13px] text-ink-2 hover:text-ink"
-            >
-              Open {label(b, "b")} with the mapped comments
-            </Link>
+            <Button variant="secondary" size="sm" asChild className="mt-1 self-start">
+              <Link to="/files/$fileId" params={{ fileId: fb.id }}>
+                Open {label(b, "b")}
+              </Link>
+            </Button>
           </section>
         </aside>
       </div>

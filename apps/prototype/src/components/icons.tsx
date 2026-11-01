@@ -62,6 +62,7 @@ import {
   LogOut,
   type LucideIcon,
   Mail,
+  MapPin,
   Merge,
   MessageSquare,
   Mic,
@@ -228,6 +229,8 @@ const icons = {
   moon: Moon,
   settings: Settings,
   webhook: Webhook,
+  // A place a project records in (#648); `pin` is for pinning.
+  venue: MapPin,
 } as const satisfies Record<string, LucideIcon>;
 
 /**

@@ -110,7 +110,8 @@ function Repertoire() {
                     {score.name}
                   </Link>
                 )}
-                <span>page offset {w.pageOffset}</span>
+                {/* A default offset says nothing (#703). */}
+                {w.pageOffset !== 0 && <span>page offset {w.pageOffset}</span>}
                 <ActionMenu
                   always
                   label={w.title}
@@ -188,7 +189,7 @@ function Venues() {
             className="group flex items-start gap-3 rounded-panel px-2 py-2.5 transition-colors hover:bg-raised/60"
           >
             <span className="flex size-9 shrink-0 items-center justify-center rounded-panel bg-raised text-ink-2">
-              <Icon name="pin" size={16} />
+              <Icon name="venue" size={16} />
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-[14px] font-medium text-ink">{v.name}</span>
@@ -230,6 +231,12 @@ function PersonnelView() {
   ];
   return (
     <div className="flex flex-col gap-6">
+      <div className="-mb-3 flex justify-end">
+        <Button variant="secondary" size="md">
+          <Icon name="plus" size={14} />
+          Add person
+        </Button>
+      </div>
       {kinds.map(([kind, title]) => {
         const rows = list.filter((p) => p.kind === kind);
         if (rows.length === 0) return null;
@@ -239,12 +246,14 @@ function PersonnelView() {
               <Label>
                 {title} · {rows.length}
               </Label>
-              {kind === "artist" && (
-                <Button variant="secondary" size="md" className="ml-auto">
-                  <Icon name="plus" size={14} />
-                  Add person
-                </Button>
-              )}
+              {/* The flags' columns, headed once here rather than on every row (#660). */}
+              <span
+                aria-hidden="true"
+                className="ml-auto hidden items-center gap-3 pr-[80px] text-[12px] text-ink-3 @xl/app:flex"
+              >
+                <span className="w-24">Agreement</span>
+                <span className="w-24">Headphones</span>
+              </span>
             </div>
             <ul className="-mx-2 flex flex-col">
               {rows.map((p) => (
@@ -274,33 +283,43 @@ function PersonnelView() {
                     </span>
                     <span
                       className={cn(
-                        "flex items-center gap-1.5 text-[12px]",
+                        "flex items-center gap-1.5 text-[12px] @xl/app:w-24",
                         p.agreement ? "text-ink-2" : "text-ink-3",
                       )}
                       title="Session agreement"
                     >
                       <Dot state={p.agreement ? "approved" : "invited"} />
-                      agreement
+                      <span className="@xl/app:sr-only">agreement</span>
                     </span>
                     <span
                       className={cn(
-                        "flex items-center gap-1.5 text-[12px]",
+                        "flex items-center gap-1.5 text-[12px] @xl/app:w-24",
                         p.headphones ? "text-ink-2" : "text-ink-3",
                       )}
                       title="Headphones"
                     >
                       <Dot state={p.headphones ? "approved" : "invited"} />
-                      headphones
+                      <span className="@xl/app:sr-only">headphones</span>
                     </span>
-                    {p.sections && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setOpen(open === p.id ? null : p.id)}
-                      >
-                        {open === p.id ? "Hide" : "Breakdown"}
-                      </Button>
-                    )}
+                    {/* An ensemble's sections open from a chevron (#660), its place kept on
+                        every row so each lines up. */}
+                    <span className="flex size-7 shrink-0 items-center justify-center">
+                      {p.sections && (
+                        <Button
+                          variant="ghost"
+                          size="iconSm"
+                          aria-expanded={open === p.id}
+                          aria-label={`Sections of ${p.name}`}
+                          onClick={() => setOpen(open === p.id ? null : p.id)}
+                        >
+                          <Icon
+                            name="chevronDown"
+                            size={14}
+                            className={cn("transition-transform", open === p.id && "rotate-180")}
+                          />
+                        </Button>
+                      )}
+                    </span>
                     <ActionMenu
                       label={p.name}
                       actions={[
@@ -317,7 +336,7 @@ function PersonnelView() {
                     />
                   </div>
                   {p.sections && open === p.id && (
-                    <div className="rise-in mx-2 mb-2 rounded-panel border border-line bg-raised/30 p-3">
+                    <div className="rise-in mr-[76px] mb-2 ml-12 border-line border-l pl-3">
                       <table className="w-full text-[13px]">
                         <tbody>
                           {p.sections.map((s) => (
@@ -435,8 +454,17 @@ function Schedule() {
               return (
                 <li key={t.id} className="flex items-center gap-3 px-4 py-2.5 text-[14px]">
                   <span className="min-w-0 flex-1 truncate text-ink">{t.name}</span>
-                  <span className="text-[13px] text-ink-3">
-                    {slots.map((s) => `${s.day} ${s.start}`).join(", ") || "no slot"}
+                  {/* Slots grouped by day, each day named once (#651). */}
+                  <span className="tabular text-[13px] text-ink-3">
+                    {[...new Set(slots.map((s) => s.day))]
+                      .map(
+                        (d) =>
+                          `${d}: ${slots
+                            .filter((s) => s.day === d)
+                            .map((s) => s.start)
+                            .join(", ")}`,
+                      )
+                      .join(" · ") || "No slot"}
                   </span>
                   <span
                     className={cn(
@@ -747,7 +775,7 @@ function TakeLog() {
                       "Notes",
                       "Score",
                     ].map((h) => (
-                      <th key={h} className="px-3 py-2 font-normal">
+                      <th key={h} className="whitespace-nowrap px-3 py-2 font-normal">
                         <Label>{h}</Label>
                       </th>
                     ))}
@@ -764,7 +792,8 @@ function TakeLog() {
                       )}
                     >
                       <td className="tabular px-3 py-1.5 text-ink">T{t.number}</td>
-                      <td className="px-3 py-1.5 text-ink-2">
+                      {/* One line a row (#653): the notes take what the rest leave. */}
+                      <td className="whitespace-nowrap px-3 py-1.5 text-ink-2">
                         {t.trackId ? trackById(t.trackId)?.name : ""}
                       </td>
                       <td className="tabular px-3 py-1.5 text-ink-3">{t.timecodeIn}</td>
@@ -956,13 +985,16 @@ function TakeLog() {
               <span className="text-[32px] leading-[1.25] text-ink">Maple Leaf Rag</span>
               <span className="text-[20px] leading-[1.4] text-ink-3">Day 2</span>
             </div>
-            <span className="tabular text-[32px] leading-[1.25] text-ink-2">15:12</span>
             <button
               type="button"
               onClick={() => setLarge(false)}
               className="flex h-7 items-center gap-2 rounded-control px-2 text-[13px] text-ink-2 hover:bg-raised"
             >
-              Close <Kbd>L</Kbd>
+              Close
+              {/* A key's hint only where there is a keyboard. */}
+              <span className="[@media(hover:none)]:hidden">
+                <Kbd>L</Kbd>
+              </span>
             </button>
           </header>
           <div className="flex flex-1 flex-col items-center justify-center gap-2">
@@ -979,10 +1011,19 @@ function TakeLog() {
               {recording ? "Recording" : armed ? "Armed" : "Next take"}
               {recording && <span className="tabular text-ink">{fmt(clock)}</span>}
             </span>
+            {/* The session clock, the second large thing, in the slot's colour (#704). */}
+            <span
+              className={cn(
+                "tabular mt-[2vmin] text-[clamp(56px,13vmin,180px)] font-medium leading-[1.1] tracking-tight",
+                left < 10 ? "text-signal" : "text-ok",
+              )}
+            >
+              15:12
+            </span>
           </div>
           <footer className="flex items-end gap-8">
             <span className="flex-1 text-[24px] leading-[1.4] text-ink-2">
-              Last, T{(recording ? list.at(-2) : current)?.number}
+              Last take: T{(recording ? list.at(-2) : current)?.number}
             </span>
             <span
               className={cn(
@@ -1368,6 +1409,23 @@ function StagePlan() {
           <span className="tabular text-[12px] text-ink-3">
             {stagePlan.width} × {stagePlan.height} m
           </span>
+          {/* The zoom, as Figma's (#570): the plan opens fitted, Shift+1 fits it again. */}
+          <span className="flex items-center">
+            <Button variant="ghost" size="iconSm" aria-label="Zoom out" title="Zoom out (-)">
+              <Icon name="zoomOut" size={14} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              title="Zoom to fit (Shift+1)"
+              className="tabular min-w-[64px] px-1.5 text-ink-3"
+            >
+              Fit
+            </Button>
+            <Button variant="ghost" size="iconSm" aria-label="Zoom in" title="Zoom in (+)">
+              <Icon name="zoomIn" size={14} />
+            </Button>
+          </span>
           <span className="ml-auto flex items-center gap-2 text-[12px] text-ink-3">
             <span className="flex items-center gap-1.5">
               snap
@@ -1380,8 +1438,10 @@ function StagePlan() {
             <Dropdown
               value="Export PDF"
               align="right"
+              // The papers as equals, what both carry said once over them (#570).
               actions={[
-                { label: "A3, with rulers and scale bar", onSelect: () => {} },
+                { heading: "Both with rulers and a scale bar" },
+                { label: "A3", onSelect: () => {} },
                 { label: "A4", onSelect: () => {} },
               ]}
             />
@@ -1677,15 +1737,22 @@ function Patch() {
               <table className="w-full text-[13px]">
                 <thead>
                   <tr className="text-left">
+                    {/* Headed as the row dialog names its fields (#659). */}
                     {[
-                      dir === "inputs" ? "In" : "Out",
+                      dir === "inputs" ? "Input" : "Output",
                       "Source",
                       "Device",
                       "Cable",
                       "Notes",
                       "",
                     ].map((h) => (
-                      <th key={h} className="px-3 py-2 font-normal">
+                      <th
+                        key={h}
+                        className={cn(
+                          "px-3 py-2 font-normal",
+                          h === "Notes" && "hidden @xl/app:table-cell",
+                        )}
+                      >
                         <Label>{h}</Label>
                       </th>
                     ))}
@@ -1700,10 +1767,18 @@ function Patch() {
                         {r.micId && (
                           <Icon name="mic" size={11} className="ml-1.5 inline text-ink-3" />
                         )}
+                        {/* On a phone the notes go under the source, never dropped. */}
+                        {r.notes && (
+                          <span className="block text-[12px] text-ink-3 @xl/app:hidden">
+                            {r.notes}
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-1.5 text-ink-2">{r.device}</td>
                       <td className="tabular px-3 py-1.5 text-ink-2">{r.cable}</td>
-                      <td className="px-3 py-1.5 text-ink-3">{r.notes}</td>
+                      <td className="hidden px-3 py-1.5 text-ink-3 @xl/app:table-cell">
+                        {r.notes}
+                      </td>
                       <td className="px-1 py-1 text-right">
                         <ActionMenu
                           label={r.source}
@@ -1847,6 +1922,7 @@ export function ProductionView({ project, section }: { project: Project; section
         <SideNav
           label="Production"
           phoneLabel="Production"
+          fit
           sections={productionSections}
           current={sec}
           link={(id) => ({
