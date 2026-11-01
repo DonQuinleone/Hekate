@@ -628,13 +628,9 @@ export function SessionsSection() {
   );
 }
 
-/**
- * What appears on the recording page and how the player behaves, for you alone. The project
- * decides which tools you may have; this is which of them you want to see.
- */
+/** How Hekate looks to you: the theme and the density of every list (#680). */
 export function AppearanceSection() {
   const preferences = usePreferences();
-  const [confirm, confirmation] = useConfirm();
   const save = useSavePreferences();
   const choose = (theme: Theme) => {
     applyTheme(theme);
@@ -682,7 +678,27 @@ export function AppearanceSection() {
             <option value="compact">Compact</option>
           </Select>
         </Row>
+        {save.error && (
+          <div className="px-4 py-2">
+            <Note error>{save.error.message}</Note>
+          </div>
+        )}
       </Section>
+    </>
+  );
+}
+
+/**
+ * How the player opens and behaves, for you alone (#680): which of the tools your roles give you
+ * it shows, and how it moves. The project decides which tools you may have; this is which of
+ * them you want to see.
+ */
+export function PlayerSection() {
+  const preferences = usePreferences();
+  const [confirm, confirmation] = useConfirm();
+  const save = useSavePreferences();
+  return (
+    <>
       <Section title="Tools shown">
         <SwitchRow
           name="Spectrogram in the View menu"
@@ -714,7 +730,7 @@ export function AppearanceSection() {
           onChange={(keyboardMapOnQuestion) => save.mutate({ keyboardMapOnQuestion })}
         />
       </Section>
-      <Section title="Player">
+      <Section title="Playing">
         <Row
           name="View presets"
           hint="Views kept from the player's View menu, with Save as…, to come back to."

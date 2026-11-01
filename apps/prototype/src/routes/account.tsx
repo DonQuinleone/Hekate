@@ -40,9 +40,9 @@ const sections = [
   {
     id: "appearance",
     label: "Appearance",
-    intro:
-      "How Hekate looks, what the recording page shows you, and how the player behaves. Yours alone.",
+    intro: "How Hekate looks to you: its theme, and how much room each list takes. Yours alone.",
   },
+  { id: "player", label: "Player", intro: "How the player opens and behaves for you." },
 ];
 
 const tokens = [
@@ -704,9 +704,14 @@ export function AccountPage({ section }: { section: string }) {
               </Select>
             </Row>
           </Section>
+        </>
+      )}
+      {/* #680: what the player shows and how it moves, apart from how Hekate looks. */}
+      {sec === "player" && (
+        <>
           <Section
             title="Tools shown"
-            intro="Of the tools your roles give you, which appear on the recording page. The project decides what you may have; this is what you want to see."
+            intro="Of the tools your roles give you, which the player shows. The project decides what you may have; this is what you want to see."
           >
             <SwitchRow name="Spectrogram view" checked />
             <SwitchRow name="Split channels by default" checked={false} />
@@ -714,7 +719,7 @@ export function AccountPage({ section }: { section: string }) {
             <SwitchRow name="Metadata editor in QA" checked={false} />
             <SwitchRow name="Keyboard map on ?" checked />
           </Section>
-          <Section title="Player">
+          <Section title="Playing">
             <Row name="Skip by">
               <Select defaultValue="5" className="w-32">
                 <option value="1">1 s</option>

@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   AppearanceSection,
   PasswordSection,
+  PlayerSection,
   ProfileSection,
   SecondFactorSection,
   SessionsSection,
@@ -55,8 +56,12 @@ const sections: (NavSection & { intro: string })[] = [
   {
     id: "appearance",
     label: "Appearance",
-    intro:
-      "How Hekate looks, what the recording page shows you, and how the player behaves. Yours alone.",
+    intro: "How Hekate looks to you: its theme, and how much room each list takes. Yours alone.",
+  },
+  {
+    id: "player",
+    label: "Player",
+    intro: "How the player opens and behaves for you.",
   },
 ];
 
@@ -174,6 +179,7 @@ export function AccountPage({ section }: { section: string }) {
         {current.id === "apps" && <ConnectedAppsSection />}
         {current.id === "notifications" && <Notifications />}
         {current.id === "appearance" && <AppearanceSection />}
+        {current.id === "player" && <PlayerSection />}
       </SettingsLayout>
     </>
   );

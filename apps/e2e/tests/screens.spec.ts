@@ -193,7 +193,7 @@ const screens: Screen[] = [
   {
     name: "account-appearance",
     path: () => "/account/appearance",
-    ready: "main >> text=Skip by",
+    ready: "main >> text=Density",
   },
   // The suite's instance writes mail to its log, so the page says so (#503), to its operator.
   {
@@ -602,6 +602,8 @@ const screens: Screen[] = [
     path: () => "/instance/support",
     ready: "main >> text=Raise our quota before Friday",
   },
+  // The player's own page in the account (#680): the tools it shows, and how it moves.
+  { name: "account-player", path: () => "/account/player", ready: "main >> text=Skip by" },
 ];
 
 /** Fonts in, pictures drawn, nothing still on its way. */
