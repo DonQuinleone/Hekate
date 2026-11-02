@@ -9,7 +9,7 @@ import { ListeningPill } from "~/components/listen-together";
 import { NotificationsMenu } from "~/components/notifications";
 import { Trail, useCurrentHeader } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-card";
-import { Dot, reviewDot } from "~/components/status";
+import { Dot } from "~/components/status";
 import { ConfirmDialog, DialogLayer } from "~/components/ui/dialog";
 import { Floating } from "~/components/ui/floating";
 import { MenuList, usePopover } from "~/components/ui/menu";
