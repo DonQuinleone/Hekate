@@ -3464,6 +3464,10 @@ describe.runIf(url)("api", () => {
         await db.delete(schema.mailEvents);
         const delivered = loggedMailer(db, memoryMailer(), true);
         await delivered.send({ to: "mira@endlesshall.example", subject: "Sent 157", text: "" });
+        // Each row is written beside its message, so the first is waited for before the second.
+        await vi.waitFor(async () =>
+          expect((await read<MailLogRow>("mail")).rows).toHaveLength(1),
+        );
         const refusing = loggedMailer(
           db,
           {
