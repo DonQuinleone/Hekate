@@ -110,7 +110,7 @@ test("a clean server installs through the browser alone", async ({ page }) => {
   await page.getByRole("button", { name: "Check the address" }).click();
   await expect(page.getByText("it is this server", { exact: true })).toBeVisible();
   await capture(page, "install-address");
-  await proceed(page, "Save and start Hekate");
+  await proceed(page, "Save and continue");
 
   // The first workspace and its owner; the code is not asked for twice.
   await heading(page, "First workspace");
