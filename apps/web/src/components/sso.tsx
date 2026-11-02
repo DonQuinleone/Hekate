@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { ssoQuery, useSaveSso } from "~/lib/queries";
 import { CopyButton } from "./copy-button";
+import { FormFooter } from "./form-footer";
 import { Row, Section, SwitchRow } from "./settings";
 import { Button } from "./ui/button";
 import { Input, Select, Textarea } from "./ui/input";
@@ -104,121 +105,134 @@ function SsoForm({
           disabled={!entitled && !form.enabled}
           onChange={(enabled) => set("enabled", enabled)}
         />
-        <Row name="Provider">
-          <Select
-            aria-label="Provider"
-            className="w-40"
-            value={form.protocol}
-            onChange={(e) => set("protocol", e.target.value as SsoProtocol)}
-          >
-            <option value="oidc">OIDC</option>
-            <option value="saml">SAML</option>
-          </Select>
-        </Row>
-        {oidc ? (
+        {/* A provider's fields only while it is on (#682), as Vercel's and Linear's are. */}
+        {form.enabled && (
           <>
-            <Row name="Issuer" hint="Its discovery document is read when you save.">
+            <Row name="Provider">
+              <Select
+                aria-label="Provider"
+                className="w-40"
+                value={form.protocol}
+                onChange={(e) => set("protocol", e.target.value as SsoProtocol)}
+              >
+                <option value="oidc">OIDC</option>
+                <option value="saml">SAML</option>
+              </Select>
+            </Row>
+            {oidc ? (
+              <>
+                <Row name="Issuer" hint="Its discovery document is read when you save.">
+                  <Input
+                    aria-label="Issuer"
+                    placeholder="https://login.example/realms/studio"
+                    className="w-full @3xl/app:w-96"
+                    value={form.issuer}
+                    onChange={(e) => set("issuer", e.target.value)}
+                  />
+                </Row>
+                <Row name="Client" hint="The client secret is never shown again.">
+                  <span className="flex flex-wrap gap-2">
+                    <Input
+                      aria-label="Client ID"
+                      placeholder="hekate"
+                      className="w-48"
+                      value={form.clientId}
+                      onChange={(e) => set("clientId", e.target.value)}
+                    />
+                    <Input
+                      type="password"
+                      aria-label="Client secret"
+                      autoComplete="new-password"
+                      placeholder={hasClientSecret ? "Kept" : "Secret"}
+                      className="w-40"
+                      value={clientSecret ?? ""}
+                      onChange={(e) => setClientSecret(e.target.value)}
+                    />
+                  </span>
+                </Row>
+                <Given name="Redirect URI" value={serviceProvider.redirectUri} />
+              </>
+            ) : (
+              <>
+                <Row name="Sign-in address" hint="Where the identity provider takes requests.">
+                  <Input
+                    aria-label="Sign-in address"
+                    placeholder="https://login.example/saml"
+                    className="w-full @3xl/app:w-96"
+                    value={form.entryPoint}
+                    onChange={(e) => set("entryPoint", e.target.value)}
+                  />
+                </Row>
+                <Row name="Entity ID" hint="As the identity provider's metadata states it.">
+                  <Input
+                    aria-label="Entity ID"
+                    className="w-full @3xl/app:w-96"
+                    value={form.idpEntityId}
+                    onChange={(e) => set("idpEntityId", e.target.value)}
+                  />
+                </Row>
+                <Row name="Certificate" hint="The one it signs with, in PEM." stacked>
+                  <Textarea
+                    aria-label="Certificate"
+                    rows={4}
+                    placeholder="-----BEGIN CERTIFICATE-----"
+                    className="w-full font-mono text-[12px]"
+                    value={form.certificate}
+                    onChange={(e) => set("certificate", e.target.value)}
+                  />
+                </Row>
+                <Given name="Hekate's entity ID" value={serviceProvider.entityId} />
+                <Given name="Reply address (ACS)" value={serviceProvider.acsUrl} />
+              </>
+            )}
+            <Row
+              name="Groups"
+              hint={`The ${oidc ? "claim" : "attribute"} that lists a person's groups.`}
+            >
               <Input
-                aria-label="Issuer"
-                placeholder="https://login.example/realms/studio"
-                className="w-full @3xl/app:w-96"
-                value={form.issuer}
-                onChange={(e) => set("issuer", e.target.value)}
+                aria-label="Groups claim"
+                className="w-40"
+                value={form.groupsClaim}
+                onChange={(e) => set("groupsClaim", e.target.value)}
               />
             </Row>
-            <Row name="Client" hint="The client secret is never shown again.">
-              <span className="flex flex-wrap gap-2">
-                <Input
-                  aria-label="Client ID"
-                  placeholder="hekate"
-                  className="w-48"
-                  value={form.clientId}
-                  onChange={(e) => set("clientId", e.target.value)}
-                />
-                <Input
-                  type="password"
-                  aria-label="Client secret"
-                  autoComplete="new-password"
-                  placeholder={hasClientSecret ? "Kept" : "Secret"}
-                  className="w-40"
-                  value={clientSecret ?? ""}
-                  onChange={(e) => setClientSecret(e.target.value)}
-                />
-              </span>
-            </Row>
-            <Given name="Redirect URI" value={serviceProvider.redirectUri} />
-          </>
-        ) : (
-          <>
-            <Row name="Sign-in address" hint="Where the identity provider takes requests.">
+            <Row
+              name="Admins"
+              hint="Groups whose people are admins here, separated by commas. Everyone else is a member; owners stay owners."
+            >
               <Input
-                aria-label="Sign-in address"
-                placeholder="https://login.example/saml"
+                aria-label="Admin groups"
+                placeholder="producers"
                 className="w-full @3xl/app:w-96"
-                value={form.entryPoint}
-                onChange={(e) => set("entryPoint", e.target.value)}
+                value={admins}
+                onChange={(e) => setAdmins(e.target.value)}
               />
             </Row>
-            <Row name="Entity ID" hint="As the identity provider's metadata states it.">
-              <Input
-                aria-label="Entity ID"
-                className="w-full @3xl/app:w-96"
-                value={form.idpEntityId}
-                onChange={(e) => set("idpEntityId", e.target.value)}
-              />
-            </Row>
-            <Row name="Certificate" hint="The one it signs with, in PEM." stacked>
-              <Textarea
-                aria-label="Certificate"
-                rows={4}
-                placeholder="-----BEGIN CERTIFICATE-----"
-                className="w-full font-mono text-[12px]"
-                value={form.certificate}
-                onChange={(e) => set("certificate", e.target.value)}
-              />
-            </Row>
-            <Given name="Hekate's entity ID" value={serviceProvider.entityId} />
-            <Given name="Reply address (ACS)" value={serviceProvider.acsUrl} />
+            <SwitchRow
+              name="Enforce single sign-on"
+              hint="Members sign in only through it. Owners keep their password, so a broken provider never locks the workspace out."
+              checked={form.enforce}
+              onChange={(enforce) => set("enforce", enforce)}
+            />
           </>
         )}
-        <Row
-          name="Groups"
-          hint={`The ${oidc ? "claim" : "attribute"} that lists a person's groups.`}
-        >
-          <Input
-            aria-label="Groups claim"
-            className="w-40"
-            value={form.groupsClaim}
-            onChange={(e) => set("groupsClaim", e.target.value)}
-          />
-        </Row>
-        <Row
-          name="Admins"
-          hint="Groups whose people are admins here, separated by commas. Everyone else is a member; owners stay owners."
-        >
-          <Input
-            aria-label="Admin groups"
-            placeholder="producers"
-            className="w-full @3xl/app:w-96"
-            value={admins}
-            onChange={(e) => setAdmins(e.target.value)}
-          />
-        </Row>
-        <SwitchRow
-          name="Enforce single sign-on"
-          hint="Members sign in only through it. Owners keep their password, so a broken provider never locks the workspace out."
-          checked={form.enforce}
-          onChange={(enforce) => set("enforce", enforce)}
-        />
-        <Row name="Save" hint="Saving an OIDC issuer checks that it answers.">
-          <Button variant="primary" type="submit" disabled={save.isPending}>
-            {save.isPending ? "Saving" : "Save"}
-          </Button>
-        </Row>
-        {save.error && (
-          <p role="alert" className="px-4 py-2 text-[13px] text-signal">
-            {save.error.message}
-          </p>
+        {/* One footer for the form (#682); while it is off and saved so, nothing to save. */}
+        {(form.enabled || saved.enabled) && (
+          <FormFooter
+            note={
+              save.error ? (
+                <span role="alert" className="text-signal">
+                  {save.error.message}
+                </span>
+              ) : oidc && form.enabled ? (
+                "Saving an OIDC issuer checks that it answers."
+              ) : undefined
+            }
+          >
+            <Button variant="secondary" type="submit" disabled={save.isPending}>
+              {save.isPending ? "Saving" : "Save"}
+            </Button>
+          </FormFooter>
         )}
       </Section>
     </form>

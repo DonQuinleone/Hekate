@@ -46,7 +46,8 @@ import { toolCopy } from "./project-settings.tsx";
 
 const intros: Record<string, string> = {
   transfers: "Projects moving in from, or out to, another workspace, and what each waits for.",
-  general: "The workspace's name, how guests sign in, and what every project starts from.",
+  general:
+    "The workspace's name and address, how new projects start, guest links and its language; for owners, exporting or deleting it.",
   defaults:
     "What a review grants its reviewers, and what a new project starts with, unless the request or the project says otherwise.",
   categories:
@@ -56,51 +57,54 @@ const intros: Record<string, string> = {
     "The workspace's logo and accent, on its sign-in page, guest pages and email. Hekate's own mark stays in the app.",
   brand:
     "The mark, the colours, the type, and every reusable component with the rule for using it.",
-  email: "What every message from Hekate looks like, and the words the workspace sends.",
+  email:
+    "Where the workspace's mail is sent from, what every message from Hekate looks like, and the words the workspace sends.",
   members: "Who has an account here, who is invited, and which guests hold a link.",
   security:
     "How members sign in: the ways allowed, the second factor, single sign-on or a directory, and how long a session lasts.",
-  notifications: "Where events go: mail, Slack, Discord, webhooks.",
-  api: "Applications that connect on people's behalf, and tokens that act for the workspace itself.",
+  channels: "Where the workspace's events go: Slack, Discord, Microsoft Teams and webhooks.",
+  api: "Applications that connect on people's behalf, tokens that act for the workspace itself, the MCP endpoint, and every call one made.",
   billing: "The plan, what it includes, what it costs, and every invoice.",
   support: "Ask the people who run this instance, with the error reference if there is one.",
-  storage: "Where files live and how much they take.",
+  storage: "Where new files are kept. Everything is encrypted before any backend sees it.",
   leaks: "Find which recipient a leaked file was watermarked for.",
   log: "Every key issue, page render and download.",
-  operations:
-    "How the workspace's files are kept, what they take against the plan, and taking everything away or deleting it. The instance itself is its operators'.",
 };
 
+/**
+ * The settings' groups say what they hold, and none shares a name with a page (#589). Support
+ * is reached from the help menu, so it has no place here; the design system is the switcher's.
+ */
 const sections = [
   { id: "general", label: "General", group: "Workspace" },
-  { id: "defaults", label: "Defaults", group: "Workspace" },
-  { id: "categories", label: "Comment categories", group: "Workspace" },
-  { id: "delivery", label: "Delivery profiles", group: "Workspace" },
+  { id: "members", label: "Members", group: "Workspace" },
   { id: "branding", label: "Branding", group: "Workspace" },
-  { id: "brand", label: "Brand and design system", group: "Workspace" },
-  { id: "email", label: "Email templates", group: "Workspace" },
-  { id: "members", label: "Members", group: "Access" },
-  { id: "security", label: "Security", group: "Access" },
-  { id: "notifications", label: "Notifications and integrations", group: "Access" },
-  { id: "api", label: "API and OAuth clients", group: "Access" },
-  { id: "billing", label: "Billing", group: "Plan and help" },
-  // Shown only with the support module on (#181).
-  ...(env.support === "off" ? [] : [{ id: "support", label: "Support", group: "Plan and help" }]),
-  { id: "transfers", label: "Transfers", group: "Operations" },
-  { id: "storage", label: "Storage", group: "Operations" },
-  { id: "leaks", label: "Leak tracing", group: "Operations" },
-  { id: "log", label: "Access log", group: "Operations" },
-  { id: "operations", label: "Operations", group: "Operations" },
+  { id: "email", label: "Email", group: "Workspace" },
+  { id: "defaults", label: "Defaults", group: "Projects and reviews" },
+  { id: "categories", label: "Comment categories", group: "Projects and reviews" },
+  { id: "delivery", label: "Delivery profiles", group: "Projects and reviews" },
+  { id: "transfers", label: "Transfers", group: "Projects and reviews" },
+  { id: "security", label: "Security", group: "Protection" },
+  { id: "leaks", label: "Leak tracing", group: "Protection" },
+  { id: "log", label: "Access log", group: "Protection" },
+  { id: "channels", label: "Channels", group: "Integrations" },
+  { id: "api", label: "API", group: "Integrations" },
+  { id: "billing", label: "Billing", group: "Plan" },
+  { id: "storage", label: "Storage", group: "Plan" },
 ];
 
+/** Pages reached from elsewhere: Support from the help menu, the design system from the switcher. */
+const unlisted = [
+  // Shown only with the support module on (#181).
+  ...(env.support === "off" ? [] : [{ id: "support", label: "Support" }]),
+  { id: "brand", label: "Brand and design system" },
+];
+
+/** Earlier names of pages, which links still use. */
+const formerly: Record<string, string> = { notifications: "channels", operations: "general" };
+
+/** The workspace's channels: chat and webhooks. Its mail is set up on the Email page (#591). */
 const channels = [
-  {
-    id: "smtp",
-    name: "SMTP",
-    state: "on",
-    hint: "mail.endlesshall.example:587, STARTTLS",
-    events: "Everything by mail",
-  },
   {
     id: "slack",
     name: "Slack",
@@ -117,20 +121,7 @@ const channels = [
   },
   { id: "discord", name: "Discord", state: "off", hint: "Not connected", events: "" },
 ];
-const providers = [
-  "SMTP",
-  "SparkPost",
-  "Resend",
-  "Mailgun",
-  "SendGrid",
-  "Postal",
-  "Google Workspace",
-  "Microsoft 365",
-  "Slack",
-  "Discord",
-  "Microsoft Teams",
-  "Webhook",
-];
+const providers = ["Slack", "Discord", "Microsoft Teams", "Webhook"];
 /** Where each chat or webhook kind's address comes from, as the product's dialog asks for it. */
 const channelAddress: Record<string, string> = {
   Slack: "https://hooks.slack.com/services/…",
@@ -138,6 +129,27 @@ const channelAddress: Record<string, string> = {
   "Microsoft Teams": "https://…logic.azure.com/workflows/…",
   Webhook: "https://hooks.example/hekate",
 };
+
+/** A value people copy, such as the workspace's address: a quiet button that says it worked. */
+function CopyValue({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <Button
+      size="iconSm"
+      variant="quiet"
+      aria-label={copied ? "Copied" : label}
+      title={copied ? "Copied" : label}
+      className="shrink-0"
+      onClick={() => {
+        void navigator.clipboard?.writeText(value).catch(() => {});
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      }}
+    >
+      <Icon name={copied ? "check" : "copy"} size={13} />
+    </Button>
+  );
+}
 
 function Test({ state }: { state: "idle" | "ok" | "failed" }) {
   const [s, setS] = useState(state);
@@ -323,7 +335,12 @@ export function SettingsPage({
   const elevated =
     viewer.persona.organisationRole === "owner" || viewer.persona.organisationRole === "admin";
   const [adding, setAdding] = useState(false);
-  const [channelKind, setChannelKind] = useState("Resend");
+  const [channelKind, setChannelKind] = useState("Slack");
+  // Single sign-on and the directory, on or off (#682): their fields show only while on.
+  const [ssoOn, setSsoOn] = useState(true);
+  const [directoryOn, setDirectoryOn] = useState(false);
+  // The Events matrix's one channel on a phone (#681).
+  const [eventsChannel, setEventsChannel] = useState("slack");
   const [leak, setLeak] = useState<"idle" | "scanning" | "match" | "none">("idle");
   // An OAuth client's menu (#447): who has connected it, or its secret rotated (shown once).
   const [clientDialog, setClientDialog] = useState<{
@@ -336,10 +353,11 @@ export function SettingsPage({
     return (
       <Refused title="Not for your role" text="Workspace settings are for owners and admins." />
     );
-  const sec = sections.some((s) => s.id === section) ? section : "general";
+  const asked = formerly[section] ?? section;
+  const sec = [...sections, ...unlisted].some((s) => s.id === asked) ? asked : "general";
   return (
     <SettingsLayout
-      title={sections.find((x) => x.id === sec)?.label ?? organisation.name}
+      title={[...sections, ...unlisted].find((x) => x.id === sec)?.label ?? organisation.name}
       intro={intros[sec]}
       docs={docPages[sec]}
       sections={sections}
@@ -366,9 +384,10 @@ export function SettingsPage({
               </div>
             ))}
           </div>
+          {/* #592: the plan's name and the usage are the tiles'; the section says what it includes. */}
           <Section
             title="Plan"
-            intro="Studio: 1 TB, 25 members, forensic marking, priority support. Change it any time; the difference is pro-rated. Billing is on because the instance runs with HEKATE_BILLING=stripe."
+            intro="1 TB, 25 members, forensic marking, priority support. Change it any time; the difference is pro-rated."
             action={
               <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
                 Change plan
@@ -388,35 +407,64 @@ export function SettingsPage({
                 Edit
               </Button>
             </Row>
-            <Row
-              name="Usage this month"
-              hint="Storage counts at the month's peak; members at the month's end."
-            >
-              <span className="text-[13px] text-ink-2">Within the plan</span>
-            </Row>
           </Section>
+          {/* #592: a table, as Stripe's customer portal lists them; five, then Show older. */}
           <Section title="Invoices">
-            {[
-              ["1 Oct 2026", "INV-0412", "£49.00", "Paid"],
-              ["1 Sep 2026", "INV-0388", "£49.00", "Paid"],
-              ["1 Aug 2026", "INV-0361", "£0.00", "Trial"],
-            ].map(([when, no, amt, st]) => (
-              <Row
-                key={no}
-                name={
-                  <span className="flex items-center gap-2">
-                    <span className="tabular">{no}</span>
-                    <span className="text-[12px] text-ink-3">{when}</span>
-                  </span>
-                }
-                hint={st}
-              >
-                <span className="tabular text-[13px] text-ink-2">{amt}</span>
-                <Button variant="ghost" size="md">
-                  PDF
-                </Button>
-              </Row>
-            ))}
+            <table className="w-full table-fixed border-collapse text-[13px]">
+              <thead>
+                <tr className="text-left">
+                  <th className="label px-4 py-2 font-normal">Invoice</th>
+                  <th className="label hidden w-32 px-2 py-2 font-normal @3xl/app:table-cell">
+                    Date
+                  </th>
+                  <th className="label hidden w-24 px-2 py-2 text-right font-normal @3xl/app:table-cell">
+                    Amount
+                  </th>
+                  <th className="label w-28 px-2 py-2 font-normal @3xl/app:w-44">Status</th>
+                  <th className="w-20 py-2 pr-2.5 pl-2">
+                    <span className="sr-only">Open</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  ["1 Oct 2026", "INV-0412", "£49.00", "Paid"],
+                  ["1 Sep 2026", "INV-0388", "£49.00", "Paid"],
+                  ["1 Aug 2026", "INV-0361", "£49.00", "Paid"],
+                  ["1 Jul 2026", "INV-0337", "£49.00", "Paid"],
+                  ["1 Jun 2026", "INV-0310", "£0.00", "Trial"],
+                ].map(([when, no, amt, st]) => (
+                  <tr key={no} className="border-t border-line">
+                    <td className="px-4 py-row">
+                      <span className="tabular block text-ink">{no}</span>
+                      <span className="block text-[12px] text-ink-3 @3xl/app:hidden">
+                        {when} · {amt}
+                      </span>
+                    </td>
+                    <td className="hidden px-2 py-row text-ink-2 @3xl/app:table-cell">{when}</td>
+                    <td className="tabular hidden px-2 py-row text-right text-ink @3xl/app:table-cell">
+                      {amt}
+                    </td>
+                    <td className="px-2 py-row">
+                      <span className="inline-flex items-center gap-[7px] rounded-full border border-hairline px-2.5 py-0.5 text-[12px] text-ink-2">
+                        <Dot state={st === "Paid" ? "approved" : "invited"} />
+                        {st}
+                      </span>
+                    </td>
+                    <td className="py-row pr-2.5 pl-2 text-right">
+                      <Button variant="ghost" size="sm">
+                        PDF
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="px-4 py-2">
+              <Button variant="ghost" size="sm">
+                Show older
+              </Button>
+            </div>
           </Section>
           <Danger>
             <Row
@@ -679,7 +727,7 @@ export function SettingsPage({
                 id: "hk_cli_7f3a…",
                 kind: "Confidential",
                 redirect: "https://slack.endlesshall.example/oauth/callback",
-                scopes: "reviews:read, comments",
+                scopes: "Reviews: read, Comments",
                 users: 4,
                 live: true,
               },
@@ -688,7 +736,7 @@ export function SettingsPage({
                 id: "hk_cli_2c91…",
                 kind: "Public (PKCE)",
                 redirect: "hekate-logic://callback",
-                scopes: "files:write, comments",
+                scopes: "Files: write, Comments",
                 users: 2,
                 live: true,
               },
@@ -697,7 +745,7 @@ export function SettingsPage({
                 id: "hk_cli_a0d4…",
                 kind: "Confidential",
                 redirect: "http://localhost:3000/callback",
-                scopes: "files:read",
+                scopes: "Files: read",
                 users: 0,
                 live: false,
               },
@@ -809,15 +857,21 @@ export function SettingsPage({
           <Section
             title="Service tokens"
             intro="Tokens that act as the workspace rather than a person, for the release pipeline and the like. Scoped and logged like any other."
+            action={
+              <Button variant="secondary" size="md">
+                <Icon name="plus" size={14} />
+                New token
+              </Button>
+            }
           >
             {[
               {
                 name: "Release pipeline",
-                scopes: "files:read, reviews:read",
+                scopes: "Files: read, Reviews: read",
                 used: "2 h ago",
                 expires: "2 Jan 2027",
               },
-              { name: "Archive sync", scopes: "downloads", used: "last night", expires: "Never" },
+              { name: "Archive sync", scopes: "Downloads", used: "last night", expires: "Never" },
             ].map((t) => (
               <Row
                 key={t.name}
@@ -836,28 +890,23 @@ export function SettingsPage({
                 />
               </Row>
             ))}
-            <Row name="New service token" hint="Shown once; owners and admins only.">
-              <Button variant="secondary" size="md">
-                Create
+            {/* #590: each dialog says what a scope allows; the whole list is the documentation's. */}
+            <Row name="Scopes" hint="Choose the least a token needs when you make it.">
+              <Button variant="ghost" size="md">
+                What each scope allows
               </Button>
             </Row>
           </Section>
-          <Section
-            title="Scopes"
-            intro="What a client or token may ask for. People grant them one by one; a token holds the ones it was made with."
-          >
-            {[
-              ["files:read", "List and read files, versions and variants"],
-              ["files:write", "Upload versions and variants, make folders"],
-              ["reviews:read", "Read reviews, reviewers and decisions"],
-              ["reviews:write", "Request reviews and record decisions as the person"],
-              ["comments", "Read and write comments and their anchors"],
-              ["downloads", "Download originals, watermarked and logged"],
-              ["workflows", "Read and change workflows"],
-              ["org:read", "Members, roles and settings, read-only"],
-            ].map(([k, v]) => (
-              <Row key={k} name={<span className="tabular">{k}</span>} hint={v} />
-            ))}
+          {/* #590: the MCP endpoint beside the tokens it takes; tokens are made here alone. */}
+          <Section title="MCP">
+            <Row
+              name="MCP endpoint"
+              hint="https://review.endlesshall.example/api/mcp · tools for what waits on you, reviews, comments, decisions and QA reports, with a token"
+            >
+              <Button variant="secondary" size="md">
+                Copy
+              </Button>
+            </Row>
           </Section>
           {/* The workspace's own API log (#198): what the instance's Logs show operators, for
               this workspace alone. */}
@@ -879,9 +928,10 @@ export function SettingsPage({
                 "POST /api/projects/…/folders",
                 "403",
                 "4 ms",
+                "Joplin Rags",
               ],
               ["14 Oct, 08:41:02", "Logic Pro export", "POST /api/uploads", "201", "112 ms"],
-            ].map(([when, token, call, status, time]) => (
+            ].map(([when, token, call, status, time, project]) => (
               <div
                 key={when}
                 className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_minmax(0,1.4fr)_60px_70px]"
@@ -898,8 +948,9 @@ export function SettingsPage({
                 <span className="col-span-2 truncate text-ink-2 @3xl/app:order-2 @3xl/app:col-span-1">
                   {token}
                 </span>
-                <span className="tabular col-span-2 truncate text-ink @3xl/app:order-3 @3xl/app:col-span-1">
-                  {call}
+                <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-3 @3xl/app:col-span-1">
+                  <span className="tabular truncate text-ink">{call}</span>
+                  {project && <span className="truncate text-[12px] text-ink-3">{project}</span>}
                 </span>
                 <span className="tabular hidden text-right text-ink-3 @3xl/app:order-5 @3xl/app:block">
                   {time}
@@ -922,6 +973,16 @@ export function SettingsPage({
           <Section title="Workspace">
             <Row name="Name">
               <Input defaultValue={organisation.name} className="w-64" />
+            </Row>
+            {/* #589: the address in General, where people look for it, in the interface's face. */}
+            <Row
+              name="Address"
+              hint="Someone moving a project here from a workspace you are not in gives it, and members signing in with the directory enter it."
+            >
+              <span className="flex min-w-0 items-center gap-1">
+                <span className="truncate text-[14px] text-ink">endless-hall</span>
+                <CopyValue value="endless-hall" label="Copy the address" />
+              </span>
             </Row>
             <Row name="New projects start as" hint="The profile only decides which tools appear.">
               <Select defaultValue="music" className="w-40">
@@ -970,15 +1031,42 @@ export function SettingsPage({
               </Select>
             </Row>
           </Section>
-          <Section
-            title="Workspaces you are in"
-            intro="Switch from the menu at the top of the sidebar."
-          >
-            <Row name={organisation.name} hint="Owner">
-              <Dot state="approved" />
-            </Row>
-            <Row name="North Choir Collective" hint="Member" />
-          </Section>
+          {/* #186: an owner's export, encrypted with age to a key shown once, kept a week. */}
+          {viewer.persona.organisationRole === "owner" && (
+            <>
+              <Section
+                title="Export"
+                intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
+              >
+                <Row
+                  name="Export everything"
+                  hint="Every record as JSON and every file as it was uploaded, in one archive encrypted with age. Kept 7 days for its download."
+                >
+                  <Button variant="secondary" size="md">
+                    Start an export…
+                  </Button>
+                </Row>
+                <Row name="20 October, 18:04" hint="38.2 GB · 1,204 files · until 27 October">
+                  <Button variant="ghost" size="md">
+                    <Icon name="download" size={13} />
+                    Download
+                  </Button>
+                </Row>
+                {/* Past its week, an export is gone: it says so, and offers nothing. */}
+                <Row name="2 October, 09:12" hint="Expired: removed after its week" />
+              </Section>
+              <Danger>
+                <Row
+                  name="Delete this workspace"
+                  hint="Every project, file and review. Only an owner, with a second owner confirming."
+                >
+                  <Button variant="danger" size="md">
+                    Delete…
+                  </Button>
+                </Row>
+              </Danger>
+            </>
+          )}
         </>
       )}
       {sec === "defaults" && (
@@ -1047,6 +1135,22 @@ export function SettingsPage({
               }
               onToggle={() => {}}
             />
+          </Section>
+          {/* #679: the workspace's templates, here rather than in one project's General. */}
+          <Section
+            title="Project templates"
+            intro="What a new project can start from. Save one from a project's settings, under General."
+          >
+            <Row
+              name="Solo recital"
+              hint="From Joplin Rags · 6 roles · 5 categories · saved by Alex Rivera"
+            >
+              <ActionMenu
+                always
+                label="Solo recital"
+                actions={[{ label: "Remove template…", danger: true, onSelect: () => {} }]}
+              />
+            </Row>
           </Section>
         </>
       )}
@@ -1184,6 +1288,23 @@ export function SettingsPage({
               </Select>
             </Row>
           </Section>
+          {/* #682: the marking is set with the rest of the workspace's security, by its owners. */}
+          {viewer.persona.organisationRole === "owner" && (
+            <Section
+              title="Watermarking"
+              intro="Every recording someone downloads carries an inaudible mark that names the person who received it."
+            >
+              <SwitchRow
+                name="Audio"
+                hint="Off until you turn it on. Listen to a marked download of quiet material first."
+                checked={false}
+              />
+              <Row
+                name="Pages, pictures and video"
+                hint="They carry a visible mark, set in each project's settings under Asset security."
+              />
+            </Section>
+          )}
           <Section
             title="Single sign-on"
             intro="One identity provider, by OIDC or SAML. Members sign in through it, and their first sign-in makes their account."
@@ -1191,60 +1312,75 @@ export function SettingsPage({
             <SwitchRow
               name="Sign in with single sign-on"
               hint="Turned off, nobody new can join through it, and its members sign in with a password or passkey."
-              checked
+              checked={ssoOn}
+              onChange={setSsoOn}
             />
-            <Row name="Provider">
-              <Select defaultValue="oidc" className="w-40">
-                <option value="oidc">OIDC</option>
-                <option value="saml">SAML</option>
-              </Select>
-            </Row>
-            <Row name="Issuer" hint="Its discovery document is read when you save.">
-              <Input
-                defaultValue="https://login.endlesshall.example/realms/hekate"
-                className="w-full @3xl/app:w-96"
-              />
-            </Row>
-            <Row name="Client" hint="The client secret is never shown again.">
-              <span className="flex flex-wrap gap-2">
-                <Input defaultValue="hekate" className="w-48" aria-label="Client ID" />
-                <Input
-                  type="password"
-                  placeholder="Kept"
-                  className="w-40"
-                  aria-label="Client secret"
+            {/* #682: a provider's fields only while it is on, and one footer per form. */}
+            {ssoOn && (
+              <>
+                <Row name="Provider">
+                  <Select defaultValue="oidc" className="w-40">
+                    <option value="oidc">OIDC</option>
+                    <option value="saml">SAML</option>
+                  </Select>
+                </Row>
+                <Row name="Issuer" hint="Its discovery document is read when you save.">
+                  <Input
+                    defaultValue="https://login.endlesshall.example/realms/hekate"
+                    className="w-full @3xl/app:w-96"
+                  />
+                </Row>
+                <Row name="Client" hint="The client secret is never shown again.">
+                  <span className="flex flex-wrap gap-2">
+                    <Input defaultValue="hekate" className="w-48" aria-label="Client ID" />
+                    <Input
+                      type="password"
+                      placeholder="Kept"
+                      className="w-40"
+                      aria-label="Client secret"
+                    />
+                  </span>
+                </Row>
+                <Row name="Redirect URI">
+                  <span className="flex w-full items-center gap-1 @3xl/app:w-96">
+                    <Input
+                      readOnly
+                      defaultValue="https://review.endlesshall.example/api/auth/sso/callback/workspace-endless-hall"
+                      className="tabular min-w-0 flex-1 text-[13px]"
+                    />
+                    <CopyValue
+                      value="https://review.endlesshall.example/api/auth/sso/callback/workspace-endless-hall"
+                      label="Copy the redirect URI"
+                    />
+                  </span>
+                </Row>
+                <Row name="Groups" hint="The claim that lists a person's groups.">
+                  <Input defaultValue="groups" className="w-40" />
+                </Row>
+                <Row
+                  name="Admins"
+                  hint="Groups whose people are admins here, separated by commas. Everyone else is a member; owners stay owners."
+                >
+                  <Input defaultValue="hekate-admins" className="w-full @3xl/app:w-96" />
+                </Row>
+                <SwitchRow
+                  name="Enforce single sign-on"
+                  hint="Members sign in only through it. Owners keep their password, so a broken provider never locks the workspace out."
+                  checked={false}
                 />
+              </>
+            )}
+            <div className="flex flex-col gap-3 px-4 py-row @3xl/app:flex-row @3xl/app:items-center">
+              <span className="min-w-0 flex-1 text-[13px] text-ink-3">
+                {ssoOn ? "Saving an OIDC issuer checks that it answers." : ""}
               </span>
-            </Row>
-            <Row name="Redirect URI">
-              <Input
-                readOnly
-                defaultValue="https://review.endlesshall.example/api/auth/sso/callback/workspace-endless-hall"
-                className="tabular w-full text-[13px] @3xl/app:w-96"
-              />
-            </Row>
-            <Row name="Groups" hint="The claim that lists a person's groups.">
-              <Input defaultValue="groups" className="w-40" />
-            </Row>
-            <Row
-              name="Admins"
-              hint="Groups whose people are admins here, separated by commas. Everyone else is a member; owners stay owners."
-            >
-              <Input defaultValue="hekate-admins" className="w-full @3xl/app:w-96" />
-            </Row>
-            <SwitchRow
-              name="Enforce single sign-on"
-              hint="Members sign in only through it. Owners keep their password, so a broken provider never locks the workspace out."
-              checked={false}
-            />
-            <Row name="Save" hint="Saving an OIDC issuer checks that it answers.">
-              <span className="flex gap-2">
-                <Test state={state === "failed" ? "failed" : "idle"} />
-                <Button variant="primary" size="md">
+              <span className="flex justify-end gap-2">
+                {ssoOn && <Test state={state === "failed" ? "failed" : "idle"} />}
+                <Button variant="secondary" size="md">
                   Save
                 </Button>
               </span>
-            </Row>
+            </div>
           </Section>
           <Section
             title="Directory (LDAP)"
@@ -1253,90 +1389,85 @@ export function SettingsPage({
             <SwitchRow
               name="Sign in with the directory"
               hint="Turned off, nobody new can join through it, and its members sign in with a password or passkey."
-              checked
+              checked={directoryOn}
+              onChange={setDirectoryOn}
             />
-            <Row name="Server" hint="ldaps:// with its port; ldap:// only on a network you trust.">
-              <Input
-                defaultValue="ldaps://directory.endlesshall.example:636"
-                className="w-full @3xl/app:w-96"
-              />
-            </Row>
-            <SwitchRow name="Verify the certificate" checked />
-            <Row
-              name="Service account"
-              hint="Searches for people. Left empty, the search is anonymous. The password is never shown again."
-            >
-              <span className="flex flex-wrap gap-2">
-                <Input defaultValue="cn=hekate,ou=services,dc=endlesshall" className="w-64" />
-                <Input
-                  type="password"
-                  placeholder="Kept"
-                  className="w-32"
-                  aria-label="Service account password"
-                />
+            {directoryOn && (
+              <>
+                <Row
+                  name="Server"
+                  hint="ldaps:// with its port; ldap:// only on a network you trust."
+                >
+                  <Input
+                    defaultValue="ldaps://directory.endlesshall.example:636"
+                    className="w-full @3xl/app:w-96"
+                  />
+                </Row>
+                <SwitchRow name="Verify the certificate" checked />
+                <Row
+                  name="Service account"
+                  hint="Searches for people. Left empty, the search is anonymous. The password is never shown again."
+                >
+                  <span className="flex flex-wrap gap-2">
+                    <Input defaultValue="cn=hekate,ou=services,dc=endlesshall" className="w-64" />
+                    <Input
+                      type="password"
+                      placeholder="Kept"
+                      className="w-32"
+                      aria-label="Service account password"
+                    />
+                  </span>
+                </Row>
+                <Row
+                  name="People"
+                  hint="Where they are, and the filter that finds one by username."
+                >
+                  <span className="flex flex-wrap gap-2">
+                    <Input defaultValue="ou=people,dc=endlesshall" className="w-64" />
+                    <Input defaultValue="(uid={username})" className="w-40" />
+                  </span>
+                </Row>
+                <Row name="Attributes" hint="Which hold the email address and the name.">
+                  <span className="flex flex-wrap gap-2">
+                    <Input defaultValue="mail" className="w-32" aria-label="Email attribute" />
+                    <Input defaultValue="cn" className="w-32" aria-label="Name attribute" />
+                  </span>
+                </Row>
+                <Row
+                  name="Groups"
+                  hint="Where groups are, and the filter that finds a person's groups."
+                >
+                  <span className="flex flex-wrap gap-2">
+                    <Input defaultValue="ou=groups,dc=endlesshall" className="w-64" />
+                    <Input defaultValue="(member={dn})" className="w-40" />
+                  </span>
+                </Row>
+                <Row
+                  name="Admins"
+                  hint="Groups whose people are admins here, by name or DN, separated by commas. Everyone else is a member; owners stay owners."
+                >
+                  <Input defaultValue="producers" className="w-full @3xl/app:w-96" />
+                </Row>
+              </>
+            )}
+            <div className="flex flex-col gap-3 px-4 py-row @3xl/app:flex-row @3xl/app:items-center">
+              <span className="min-w-0 flex-1 text-[13px] text-ink-3">
+                {directoryOn ? "Test connects with the saved settings." : ""}
               </span>
-            </Row>
-            <Row name="People" hint="Where they are, and the filter that finds one by username.">
-              <span className="flex flex-wrap gap-2">
-                <Input defaultValue="ou=people,dc=endlesshall" className="w-64" />
-                <Input defaultValue="(uid={username})" className="w-40" />
-              </span>
-            </Row>
-            <Row name="Attributes" hint="Which hold the email address and the name.">
-              <span className="flex flex-wrap gap-2">
-                <Input defaultValue="mail" className="w-32" aria-label="Email attribute" />
-                <Input defaultValue="cn" className="w-32" aria-label="Name attribute" />
-              </span>
-            </Row>
-            <Row
-              name="Groups"
-              hint="Where groups are, and the filter that finds a person's groups."
-            >
-              <span className="flex flex-wrap gap-2">
-                <Input defaultValue="ou=groups,dc=endlesshall" className="w-64" />
-                <Input defaultValue="(member={dn})" className="w-40" />
-              </span>
-            </Row>
-            <Row
-              name="Admins"
-              hint="Groups whose people are admins here, by name or DN, separated by commas. Everyone else is a member; owners stay owners."
-            >
-              <Input defaultValue="producers" className="w-full @3xl/app:w-96" />
-            </Row>
-            <Row name="Test" hint="Connects with the saved settings.">
-              <span className="flex gap-2">
-                <Test state={state === "refused" ? "failed" : "idle"} />
-                <Button variant="primary" size="md">
+              <span className="flex justify-end gap-2">
+                {directoryOn && <Test state={state === "refused" ? "failed" : "idle"} />}
+                <Button variant="secondary" size="md">
                   Save
                 </Button>
               </span>
-            </Row>
+            </div>
           </Section>
         </>
       )}
-      {sec === "notifications" && (
+      {sec === "channels" && (
         <>
-          {state === "processing" && (
-            <div
-              role="status"
-              className="flex items-start gap-2.5 rounded-panel border border-signal/30 bg-signal/[0.06] px-3.5 py-2.5 text-[13px] text-ink"
-            >
-              <Icon name="warning" size={14} className="mt-0.5 shrink-0 text-signal" />
-              <span>
-                This instance writes email to its log; nothing is sent. Set up mail under{" "}
-                <a
-                  href="/instance/settings"
-                  className="text-ink underline decoration-edge underline-offset-2 hover:decoration-ink-3"
-                >
-                  Instance, Settings
-                </a>
-                .
-              </span>
-            </div>
-          )}
           <Section
-            title="Channels"
-            intro="Where events go. Each channel has its own fields and a test; a channel that keeps failing pauses itself."
+            intro="Each channel has its own fields and a test; a channel that keeps failing pauses itself."
             action={
               <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
                 <Icon name="plus" size={14} />
@@ -1397,101 +1528,95 @@ export function SettingsPage({
               </Row>
             ))}
           </Section>
-          <Section title="Events" intro="Which events each channel carries.">
-            <Matrix
-              heading="Event"
-              columns={channels
-                .filter((c) => c.state !== "off")
-                .map((c) => ({ id: c.id, label: c.name }))}
-              rows={[
-                "A review is requested",
-                "A decision is recorded",
-                "Feedback is submitted",
-                "A new version arrives",
-                "A stage starts",
-                "A comment mentions someone",
-                "A guest signs in",
-                "A download happens",
-                "Processing fails",
-              ].map((e) => ({ id: e, label: e }))}
-              value={(row, col) =>
-                col === "webhook"
-                  ? true
-                  : col === "slack"
-                    ? ["A decision is recorded", "A new version arrives"].includes(row)
-                    : true
-              }
-              onToggle={() => {}}
-            />
-          </Section>
-          <Section title="API and MCP">
-            <Row name="API keys" hint="Scoped to the workspace; shown once.">
-              <Button variant="secondary" size="md">
-                New key
-              </Button>
-            </Row>
-            {/* The keys themselves are listed once, under API and OAuth clients, Service tokens. */}
-            <Row
-              name="MCP endpoint"
-              hint="https://review.endlesshall.example/api/mcp · tools for what waits on you, reviews, comments, decisions and QA reports"
-            >
-              <Button variant="secondary" size="md">
-                Copy
-              </Button>
-            </Row>
+          {/* #681: on a phone one channel's column at a time, chosen as Tool access chooses a role. */}
+          <Section
+            title="Events"
+            intro="Which events each channel carries."
+            action={
+              <label className="flex items-center gap-2 text-[13px] text-ink-3 @3xl/app:hidden">
+                Channel
+                <Select
+                  value={eventsChannel}
+                  onChange={(e) => setEventsChannel(e.target.value)}
+                  className="w-auto"
+                >
+                  {channels
+                    .filter((c) => c.state !== "off")
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                </Select>
+              </label>
+            }
+          >
+            {(["all", "one"] as const).map((view) => (
+              <div
+                key={view}
+                className={view === "all" ? "hidden @3xl/app:block" : "@3xl/app:hidden"}
+              >
+                <Matrix
+                  heading="Event"
+                  columns={channels
+                    .filter((c) => c.state !== "off" && (view === "all" || c.id === eventsChannel))
+                    .map((c) => ({ id: c.id, label: c.name }))}
+                  rows={[
+                    "Review requested",
+                    "Decision recorded",
+                    "Feedback submitted",
+                    "New version",
+                    "Stage started",
+                    "Mention",
+                    "Guest signed in",
+                    "Download",
+                    "Processing failed",
+                  ].map((e) => ({ id: e, label: e }))}
+                  value={(row, col) =>
+                    col === "webhook"
+                      ? true
+                      : col === "slack"
+                        ? ["Decision recorded", "New version"].includes(row)
+                        : true
+                  }
+                  onToggle={() => {}}
+                />
+              </div>
+            ))}
           </Section>
         </>
       )}
       {sec === "storage" && (
         <>
-          <Section
-            title="Usage"
-            intro="Uploads are refused at the storage quota and invitations at the member limit, which the instance’s operators set; this page warns from 90%."
-          >
-            <Row name="Storage" hint="245 GB of 1.0 TB">
-              <span className="block h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
-                <span className="block h-full w-[24.5%] rounded-full bg-ink-2" />
-              </span>
-            </Row>
-            <Row name="Members" hint="12 of 25 · 2 invited, each taking a place">
-              <span className="block h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
-                <span className="block h-full w-[56%] rounded-full bg-ink-2" />
-              </span>
-            </Row>
-            <Row name="Guests and projects" hint="31 guests · 2 projects" />
-            <Row name="This month" hint="184 plays · 12 downloads · storage at its peak 251 GB" />
-          </Section>
+          {/* #592: usage is said once, on Billing; here only where billing is off. */}
+          {env.billing === "off" && (
+            <Section
+              title="Usage"
+              intro="Uploads are refused at the storage quota, which the instance’s operators set; this page warns from 90%."
+            >
+              <Row name="Storage" hint="245 GB of 1.0 TB">
+                <span className="block h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
+                  <span className="block h-full w-[24.5%] rounded-full bg-ink-2" />
+                </span>
+              </Row>
+            </Section>
+          )}
           <StorageChoice notOnPlan={state === "refused"} failed={state === "failed"} />
           <Section title="Backends" intro="What this workspace keeps in each.">
+            {/* #589: with the Operations page gone, how the files are encrypted is said here. */}
             <Row
-              name={
-                <span className="flex items-center gap-2">
-                  <Dot state="approved" />
-                  Local disk
-                </span>
-              }
-              hint="/var/lib/hekate/objects · 1.9 TB free of 4 TB"
+              name="Encryption"
+              hint="Every file has its own key, wrapped by the workspace's key; storage only ever holds ciphertext."
             >
-              <span className="text-[12px] text-ink-3">31 GB used</span>
+              <span className="text-[13px] text-ink-2">
+                {state === "processing"
+                  ? "Encrypted, moving to a new key: 41 to go"
+                  : "Encrypted, on a key from 2 Oct 2026"}
+              </span>
             </Row>
-            <Row
-              name={
-                <span className="flex items-center gap-2">
-                  <Dot state="approved" />
-                  Hetzner Object Storage (S3)
-                </span>
-              }
-              hint="hekate-endless-hall, eu-central · the instance default"
-            >
-              <span className="text-[12px] text-ink-3">214 GB used</span>
-              <ActionMenu
-                always
-                label="backend"
-                actions={[
-                  { label: "Edit", onSelect: () => {} },
-                  { label: "Make default", onSelect: () => {} },
-                ]}
-              />
+            {/* #592: the instance's storage by the name people here know; its paths are the operators'. */}
+            <Row name="Instance storage" hint="12,840 objects">
+              <span className="text-[12px] text-ink-3">227 GB used</span>
             </Row>
             {state !== "refused" && (
               <Row
@@ -1511,61 +1636,10 @@ export function SettingsPage({
               </Row>
             ))}
           </Section>
-          <Section
-            title="Reconciliation"
-            intro="Every night the storage is compared with the database. Bytes nothing uses are removed once a second run, a day later, still finds them; missing files wait for a person."
-          >
-            <Row name="Last run">
-              <span className="text-[13px] text-ink-2">Today 03:00</span>
-            </Row>
-            <Row name="Unused bytes" hint="In storage, but no file uses them">
-              <span className="tabular text-[13px] text-ink-2">3</span>
-            </Row>
-            <Row
-              name="Missing files"
-              hint={
-                state === "failed"
-                  ? "Files the database expects that their backend no longer holds. Restore them from a backup."
-                  : "Every file is where the database expects it."
-              }
-            >
-              {state === "failed" ? (
-                <span className="flex items-center gap-1.5 text-[13px] text-signal">
-                  <Icon name="warning" size={13} />2
-                </span>
-              ) : (
-                <span className="text-[13px] text-ink-2">None</span>
-              )}
-            </Row>
-            <Row name="Removed in the last 30 days">
-              <span className="tabular text-[13px] text-ink-2">12</span>
-            </Row>
-            <Row name="Run now" hint="Checks this workspace only.">
-              <Button variant="secondary" size="md">
-                Reconcile
-              </Button>
-            </Row>
-          </Section>
         </>
       )}
       {sec === "leaks" && (
         <>
-          <Section
-            title="Forensic marking"
-            intro="Every stream and permitted download carries an inaudible, invisible mark that names the person who received it."
-          >
-            <SwitchRow
-              name="Audio"
-              hint="Off until you turn it on. Listen to a marked download of quiet material first."
-              checked={false}
-            />
-            <SwitchRow name="Video" checked />
-            <SwitchRow
-              name="Pages"
-              hint="The visible watermark is set per project; this is the hidden one."
-              checked
-            />
-          </Section>
           <Section
             title="Trace a leak"
             intro="Upload the file that got out. It is matched against every mark issued, and kept only while it is."
@@ -1634,15 +1708,10 @@ export function SettingsPage({
       )}
       {sec === "transfers" && (
         <>
-          <Section title="This workspace">
-            <Row
-              name="Its address"
-              hint="Someone moving a project here from a workspace you are not in gives it."
-            >
-              <span className="tabular text-[14px] tracking-wide text-ink">endless-hall</span>
-            </Row>
-          </Section>
-          <Section title="Waiting">
+          <Section
+            title="Waiting"
+            intro="Someone moving a project here gives the workspace's address, shown in General."
+          >
             <Row
               name="Opening titles"
               hint="To Endless Hall Records East. Tomas Varga asked on 14 October. Waiting for approval by a second member of Endless Hall Records and acceptance by Endless Hall Records East."
@@ -1665,82 +1734,6 @@ export function SettingsPage({
         </>
       )}
       {sec === "log" && <AccessLogSection empty={state === "empty"} />}
-      {sec === "operations" && (
-        <>
-          {/* #510: only what an owner acts on; the queues, metrics and release are the operators'. */}
-          <Section title="This workspace">
-            <Row
-              name="Encryption"
-              hint="Every file has its own key, wrapped by the workspace's key; storage only ever holds ciphertext."
-            >
-              <span className="text-[13px] text-ink-2">
-                {state === "processing"
-                  ? "Encrypted, moving to a new key: 41 to go"
-                  : "Encrypted, on a key from 2 Oct 2026"}
-              </span>
-            </Row>
-            <Row name="Storage" hint="245 GB of the plan's 1.0 TB">
-              <span className="block h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
-                <span className="block h-full w-[24.5%] rounded-full bg-ink-2" />
-              </span>
-            </Row>
-            <Row
-              name="Run by this instance's operators"
-              hint={
-                env.support === "off"
-                  ? "They keep its backups, upgrades and workers. Support is not turned on here: ask whoever runs it."
-                  : env.support === "mail"
-                    ? "They keep its backups, upgrades and workers. Ask them by email."
-                    : "They keep its backups, upgrades and workers. Ask them through Support."
-              }
-            >
-              {env.support !== "off" && (
-                <Button
-                  variant="secondary"
-                  size="md"
-                  onClick={() =>
-                    env.support === "app"
-                      ? navigate({ to: "/settings/$section", params: { section: "support" } })
-                      : undefined
-                  }
-                >
-                  {env.support === "app" ? "Support" : "Ask them"}
-                </Button>
-              )}
-            </Row>
-          </Section>
-          {/* #186: an owner's export, encrypted with age to a key shown once, kept a week. */}
-          <Section
-            title="Export"
-            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
-          >
-            <Row
-              name="Export everything"
-              hint="Every record as JSON and every file as it was uploaded, in one archive encrypted with age. Kept 7 days for its download."
-            >
-              <Button variant="secondary" size="md">
-                Start an export…
-              </Button>
-            </Row>
-            <Row name="20 October, 18:04" hint="38.2 GB · 1,204 files · until 27 October">
-              <Button variant="ghost" size="md">
-                <Icon name="download" size={13} />
-                Download
-              </Button>
-            </Row>
-          </Section>
-          <Danger>
-            <Row
-              name="Delete this workspace"
-              hint="Every project, file and review. Only an owner, with a second owner confirming."
-            >
-              <Button variant="secondary" size="md" className="text-signal">
-                Delete…
-              </Button>
-            </Row>
-          </Danger>
-        </>
-      )}
       {adding && (
         <Dialog
           title={
@@ -1748,7 +1741,7 @@ export function SettingsPage({
               ? "New delivery profile"
               : sec === "storage"
                 ? "New storage backend"
-                : sec === "notifications"
+                : sec === "channels"
                   ? "New channel"
                   : sec === "api"
                     ? "New OAuth client"
@@ -1833,16 +1826,16 @@ export function SettingsPage({
               <fieldset className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 <legend className="mb-1.5">Scopes it may ask for</legend>
                 {[
-                  ["files:read", "List and read files and versions"],
-                  ["files:write", "Upload versions and variants"],
-                  ["reviews:read", "Read reviews and their decisions"],
-                  ["reviews:write", "Request reviews and record decisions"],
-                  ["comments", "Read and write comments"],
-                  ["downloads", "Download originals (watermarked, logged)"],
-                  ["workflows", "Read and change workflows"],
-                  ["org:read", "Members, roles and settings, read-only"],
-                ].map(([k, v]) => (
-                  <label key={k} className="flex items-center gap-2">
+                  ["files:read", "Files: read", "List and read files and versions"],
+                  ["files:write", "Files: write", "Upload versions and variants"],
+                  ["reviews:read", "Reviews: read", "Read reviews and their decisions"],
+                  ["reviews:write", "Reviews: write", "Request reviews and record decisions"],
+                  ["comments", "Comments", "Read and write comments"],
+                  ["downloads", "Downloads", "Download originals (watermarked, logged)"],
+                  ["workflows", "Workflows", "Read and change workflows"],
+                  ["org:read", "Workspace: read", "Members, roles and settings, read-only"],
+                ].map(([k, words, v]) => (
+                  <label key={k} className="flex items-start gap-2">
                     <input
                       type="checkbox"
                       checked={clientScopes.includes(k ?? "")}
@@ -1854,13 +1847,18 @@ export function SettingsPage({
                         )
                       }
                     />
-                    <span className="tabular w-28 text-ink">{k}</span>
-                    <span className="text-ink-3">{v}</span>
+                    <span className="flex min-w-0 flex-col">
+                      <span className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-ink">{words}</span>
+                        <span className="tabular text-[12px] text-ink-3">{k}</span>
+                      </span>
+                      <span className="text-ink-3">{v}</span>
+                    </span>
                   </label>
                 ))}
               </fieldset>
             </div>
-          ) : sec === "notifications" ? (
+          ) : sec === "channels" ? (
             <div className="flex flex-col gap-4">
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Kind
@@ -1870,38 +1868,20 @@ export function SettingsPage({
                   ))}
                 </Select>
               </label>
-              {channelAddress[channelKind] ? (
-                <>
-                  {/* A chat channel or a webhook: a name, its address, and the events it hears of. */}
-                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                    Name
-                    <Input placeholder={channelKind === "Webhook" ? "Release desk" : "#masters"} />
-                  </label>
-                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                    Address
-                    <Input type="url" placeholder={channelAddress[channelKind]} />
-                    <span className="text-[12px] text-ink-3">
-                      {channelKind === "Webhook"
-                        ? "Each event arrives as JSON, signed; the signing secret is shown once, when the webhook is made."
-                        : "Kept sealed: settings show only its host."}
-                    </span>
-                  </label>
-                </>
-              ) : (
-                <>
-                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                    API key
-                    <Input type="password" placeholder="re_…" />
-                  </label>
-                  <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-                    From
-                    <Input defaultValue="Hekate <hekate@endlesshall.example>" />
-                  </label>
-                  <Button variant="secondary" size="md" className="self-start">
-                    Send a test
-                  </Button>
-                </>
-              )}
+              {/* A chat channel or a webhook: a name, its address, and the events it hears of. */}
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Name
+                <Input placeholder={channelKind === "Webhook" ? "Release desk" : "#masters"} />
+              </label>
+              <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+                Address
+                <Input type="url" placeholder={channelAddress[channelKind]} />
+                <span className="text-[12px] text-ink-3">
+                  {channelKind === "Webhook"
+                    ? "Each event arrives as JSON, signed; the signing secret is shown once, when the webhook is made."
+                    : "Kept sealed: settings show only its host."}
+                </span>
+              </label>
             </div>
           ) : sec === "storage" ? (
             <div className="flex flex-col gap-4">
@@ -1963,7 +1943,7 @@ export function SettingsPage({
               </label>
               <fieldset className="grid gap-4 @md/app:col-span-2 @md/app:grid-cols-3">
                 <legend className="mb-3 text-[13px] text-ink">
-                  Picture <span className="text-ink-3">for videos; any is not checked</span>
+                  Picture, for videos. <span className="text-ink-3">Any is not checked.</span>
                 </legend>
                 {[
                   ["Codec", ["Any codec", "ProRes", "DNxHD or DNxHR", "H.264", "HEVC (H.265)"]],
@@ -2045,6 +2025,7 @@ const projectOf = (e: AccessEvent) =>
  */
 function AccessLogSection({ empty }: { empty: boolean }) {
   const [filters, setFilters] = useState<LogFilters>({});
+  const [everySegment, setEverySegment] = useState(false);
   const [open, setOpen, box] = usePopover();
   const without = (key: LogKey) => {
     const { [key]: _gone, ...rest } = filters;
@@ -2149,6 +2130,15 @@ function AccessLogSection({ empty }: { empty: boolean }) {
                     </Select>
                   </label>
                 ))}
+                {/* #684: a playback's segments wait behind it; this lists each as a row. */}
+                <label className="flex items-center gap-2 text-[13px] text-ink-2">
+                  <input
+                    type="checkbox"
+                    checked={everySegment}
+                    onChange={(e) => setEverySegment(e.target.checked)}
+                  />
+                  Show every segment
+                </label>
                 <p className="m-0 text-[12px] text-ink-3">
                   For one file or review, choose it from an entry's menu.
                 </p>
@@ -2223,11 +2213,20 @@ function AccessLogSection({ empty }: { empty: boolean }) {
                 {e.action}
               </span>
             </span>
-            <span className="hidden truncate text-ink-2 @3xl/app:block">
-              {e.personId ? personById(e.personId).name : "Someone"}
-              {e.guest ? " (guest)" : ""}
-              {e.fileId ? ` · ${fileById(e.fileId)?.name}` : ""}
-              {e.reviewId ? ` · ${reviewById(e.reviewId)?.title}` : ""}
+            <span className="hidden min-w-0 flex-col text-ink-2 @3xl/app:flex">
+              <span className="truncate">
+                {e.personId ? personById(e.personId).name : "Someone"}
+                {e.guest ? " (guest)" : ""}
+                {e.fileId ? ` · ${fileById(e.fileId)?.name}` : ""}
+                {e.reviewId ? ` · ${reviewById(e.reviewId)?.title}` : ""}
+              </span>
+              {/* #684: one playback is one row, its segments counted and behind it. */}
+              {e.action === "stream.session" && !everySegment && (
+                <Button variant="ghost" size="sm" className="-ml-2 self-start text-ink-3">
+                  38 segments
+                  <Icon name="chevronDown" size={12} />
+                </Button>
+              )}
             </span>
             <span className="tabular hidden truncate text-ink-3 @3xl/app:block">{e.address}</span>
             <span className="hidden truncate text-ink-3 @3xl/app:block">{e.agent}</span>

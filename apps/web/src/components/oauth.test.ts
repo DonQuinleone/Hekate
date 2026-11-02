@@ -19,7 +19,7 @@ const client: OAuthClientRow = {
 describe("an OAuth client's row (#447)", () => {
   it("says its kind, where it goes back to, what it may ask and who has it", () => {
     expect(clientHint(client)).toBe(
-      "Confidential · https://slack.endlesshall.example/oauth/callback · reviews:read, comments · 1 person connected",
+      "Confidential · https://slack.endlesshall.example/oauth/callback · Reviews: read, Comments · 1 person connected",
     );
     expect(
       clientHint({
@@ -29,7 +29,7 @@ describe("an OAuth client's row (#447)", () => {
         connected: 0,
       }),
     ).toBe(
-      "Public (PKCE) · hekate-logic://callback and 1 more · reviews:read, comments · 0 people connected",
+      "Public (PKCE) · hekate-logic://callback and 1 more · Reviews: read, Comments · 0 people connected",
     );
   });
 });

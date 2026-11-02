@@ -41,6 +41,8 @@ export function TicketDialog({
   const [reply, setReply] = useState("");
   const [state, setState] = useState(ticket.state);
   const sev = severities.find((s) => s.id === ticket.severity);
+  // Who is reading: their own messages sit at the right (#683).
+  const mine = operator ? "operator" : "requester";
   return (
     <Dialog
       title={`${ticket.reference} · ${ticket.subject}`}
@@ -69,12 +71,7 @@ export function TicketDialog({
             )
           )}
           <span className="flex-1" />
-          {/* On the desk the ✕ closes it: a Close beside Send reads as closing the ticket. */}
-          {!operator && (
-            <Button variant="ghost" onClick={onClose}>
-              Close
-            </Button>
-          )}
+          {/* The dialog's own ✕ closes it, on the desk and for a member (#683): a Close beside Send reads as closing the ticket. */}
           <Button variant="primary" disabled={!reply.trim()} onClick={() => setReply("")}>
             Send
           </Button>
@@ -87,7 +84,8 @@ export function TicketDialog({
             {ticket.messages.map((m) => (
               <li
                 key={m.id}
-                className={cn("flex gap-3", m.from === "operator" && "flex-row-reverse text-right")}
+                // #683: each message on the side of whoever wrote it, the reader's own at the right.
+                className={cn("flex gap-3", m.from === mine && "flex-row-reverse text-right")}
               >
                 {m.from === "system" ? (
                   <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-raised text-ink-3">
@@ -107,7 +105,7 @@ export function TicketDialog({
                 <div
                   className={cn(
                     "flex min-w-0 max-w-[85%] flex-col gap-1",
-                    m.from === "operator" && "items-end",
+                    m.from === mine && "items-end",
                   )}
                 >
                   <span className="text-[12px] text-ink-3">
@@ -286,7 +284,9 @@ export function TicketRow({
           {kindCopy[ticket.kind]} · {ticketStateCopy[ticket.state]} · {ticket.updated}
         </span>
       </span>
-      <span className="tabular text-[12px] text-ink-3">{ticket.messages.length}</span>
+      <span className="tabular shrink-0 text-[12px] text-ink-3">
+        {ticket.messages.length} {ticket.messages.length === 1 ? "message" : "messages"}
+      </span>
       <Icon name="chevronRight" size={14} className="text-ink-3" />
     </button>
   );

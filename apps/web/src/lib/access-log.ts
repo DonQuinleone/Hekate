@@ -183,3 +183,21 @@ export function exportUrl(filters: LogFilters, now = Date.now()): string {
   const query = new URLSearchParams(logQuery(filters, now)).toString();
   return `/api/organisation/audit.csv${query ? `?${query}` : ""}`;
 }
+
+/**
+ * Who an entry names, split as the page shows it (#596): the name alone, the address kept for
+ * hovering, and whether they were a guest. The log stores one label ("Name <address>", with
+ * " (guest)" for a guest), written as it was then, so a later rename does not change it.
+ */
+export function actorParts(label: string): {
+  name: string;
+  address: string | null;
+  guest: boolean;
+} {
+  const guest = label.endsWith(" (guest)");
+  const rest = guest ? label.slice(0, -" (guest)".length) : label;
+  const match = /^(.*?)\s*<([^<>]+)>$/.exec(rest);
+  return match?.[1]
+    ? { name: match[1], address: match[2] ?? null, guest }
+    : { name: rest, address: null, guest };
+}

@@ -21,7 +21,7 @@ describe("a token's row (#198)", () => {
     const hint = tokenHint(token, now);
     // Dates in ISO 8601 (#481) unless the workspace chose otherwise.
     expect(hint).toMatch(
-      /^files:read, reviews:read · made 2026-10-0\d.* · never used · expires 2027-01-0\d.*$/,
+      /^Files: read, Reviews: read · created 2026-10-0\d.* · never used · expires 2027-01-0\d.*$/,
     );
     // A member's own does not name its maker; a service token does.
     expect(hint).not.toContain("Mira Solberg");

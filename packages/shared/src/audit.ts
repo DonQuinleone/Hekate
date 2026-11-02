@@ -235,5 +235,18 @@ export const auditQuery = z.object({
   to: z.iso.datetime({ offset: true }).optional(),
   before: z.uuid().optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
+  /**
+   * How a playback's segments are read (#684): `grouped`, the page's own reading, behind the
+   * "Playback started" entry they belong to, counted on it; `every`, each as a row of its own.
+   * Unset, every row (the export, and Hekate's own reads); the page asks for `grouped`. Every
+   * row stays in the log either way.
+   */
+  segments: z.enum(["grouped", "every"]).optional(),
 });
 export type AuditQuery = z.infer<typeof auditQuery>;
+
+/** A playback's entry, whose segments are read behind it (#684). */
+export const auditSessionParam = z.object({ id: z.uuid() });
+
+/** How many of a playback's segments its expanded entry lists at most. */
+export const AUDIT_SEGMENTS_SHOWN = 200;

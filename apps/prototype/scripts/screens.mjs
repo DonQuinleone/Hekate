@@ -248,7 +248,7 @@ const screens = [
 
   // 3.11 Workspace, settings and operations
   { name: "org-general", route: "/settings/general" },
-  { name: "org-export", route: "/settings/operations", steps: [{ scroll: "Export" }] },
+  { name: "org-export", route: "/settings/general", steps: [{ scroll: "Export" }] },
   { name: "org-branding", route: "/settings/branding" },
   { name: "design-system", route: "/settings/brand" },
   {
@@ -259,11 +259,11 @@ const screens = [
   { name: "email-template", route: "/settings/email" },
   { name: "org-members", route: "/settings/members" },
   { name: "org-security", route: "/settings/security" },
-  { name: "org-notifications", route: "/settings/notifications" },
+  { name: "org-notifications", route: "/settings/channels" },
   {
     name: "org-mcp",
-    route: "/settings/notifications",
-    steps: [{ scroll: "API and MCP" }],
+    route: "/settings/api",
+    steps: [{ scroll: "MCP endpoint" }],
   },
   { name: "org-api", route: "/settings/api" },
   { name: "org-billing", route: "/settings/billing" },
@@ -284,7 +284,6 @@ const screens = [
       },
     ],
   },
-  { name: "org-operations", route: "/settings/operations" },
   { name: "account-tokens", route: "/account/tokens" },
   { name: "account-apps", route: "/account/apps" },
   { name: "account-notifications", route: "/account/notifications" },

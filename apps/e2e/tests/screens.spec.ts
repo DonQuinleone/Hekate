@@ -199,7 +199,7 @@ const screens: Screen[] = [
   {
     name: "account-appearance",
     path: () => "/account/appearance",
-    ready: "main >> text=Skip by",
+    ready: "main >> text=Density",
   },
   // The suite's instance writes mail to its log, so the page says so (#503), to its operator.
   {
@@ -591,7 +591,7 @@ const screens: Screen[] = [
     path: () => "/settings/api",
     ready: "main [data-log-entry] >> nth=0",
   },
-  // Leak tracing (#32): forensic marking's switches, and a suspected leak to drop.
+  // Leak tracing (#32): a suspected leak to drop; the marking's switch is on Security (#682).
   {
     name: "settings-leaks",
     path: () => "/settings/leaks",
@@ -622,11 +622,8 @@ const screens: Screen[] = [
     path: () => "/instance/support",
     ready: "main >> text=Raise our quota before Friday",
   },
-  {
-    name: "settings-operations",
-    path: () => "/settings/operations",
-    ready: "main >> text=Run by this instance's operators",
-  },
+  // The player's own page in the account (#680): the tools it shows, and how it moves.
+  { name: "account-player", path: () => "/account/player", ready: "main >> text=Skip by" },
 ];
 
 /** Fonts in, pictures drawn, nothing still on its way. */
@@ -2327,21 +2324,22 @@ test("instance-debug-replay", async ({ page }) => {
   await checkScreen(page);
 });
 
-// The workspace's own mail (#161): a provider's fields, as the installer asks for them.
-test("settings-notifications-mail", async ({ page }) => {
+// The workspace's own mail (#161), on the Email page (#591): a provider's fields, as the
+// installer asks for them.
+test("settings-email-mail", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto("/settings/notifications");
-  await settle(page, "main >> text=Release desk >> nth=0");
+  await page.goto("/settings/email");
+  await settle(page, "main >> text=Give the workspace its own mail below");
   await page.getByRole("button", { name: "Use the workspace's own" }).click();
   await page.getByRole("dialog").locator("select").first().selectOption("ses");
   await settle(page, "[role=dialog] >> text=Host");
-  await saveScreen(page, "settings-notifications-mail");
+  await saveScreen(page, "settings-email-mail");
   await checkScreen(page);
 });
 
 // A workspace's own mail with bounce reports (#161), answered here rather than set: real
 // details would have the suite's mail try a provider. Its edit dialog, then what bounced.
-test("settings-notifications-bounces", async ({ page }) => {
+test("settings-email-bounces", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   const mail = {
     provider: "resend",
@@ -2392,18 +2390,18 @@ test("settings-notifications-bounces", async ({ page }) => {
       },
     }),
   );
-  await page.goto("/settings/notifications");
+  await page.goto("/settings/email");
   await settle(page, "main >> text=2 not sent to after a bounce");
   await page.getByRole("button", { name: "Actions for Mail" }).click();
   await page.getByRole("menuitem", { name: "Edit…" }).click();
   await settle(page, "[role=dialog] >> text=Bounce reports go to");
-  await saveScreen(page, "settings-notifications-mail-edit");
+  await saveScreen(page, "settings-email-mail-edit");
   await checkScreen(page);
   await page.getByRole("button", { name: "Cancel" }).click();
   await page.getByRole("button", { name: "Actions for Mail" }).click();
   await page.getByRole("menuitem", { name: "Bounced addresses…" }).click();
   await settle(page, "[role=dialog] >> text=press@endlesshall.example");
-  await saveScreen(page, "settings-notifications-bounces");
+  await saveScreen(page, "settings-email-bounces");
   await checkScreen(page);
 });
 
@@ -2825,6 +2823,8 @@ test("project-settings-security-video-opened", async ({ page }) => {
 // answer is amended in the page alone, so nothing is exported. The key is put together here so
 // that no secret scanner mistakes the file for one holding a real key.
 test("settings-export", async ({ page }) => {
+  // Before the ready export's week is up, so it still offers its download.
+  await page.clock.setFixedTime(FIXED_TIME);
   await page.route("**/api/organisation/exports", async (route) => {
     if (route.request().method() === "GET") return route.fulfill({ json: exportsShown });
     await route.fulfill({
@@ -2835,7 +2835,7 @@ test("settings-export", async ({ page }) => {
       },
     });
   });
-  await page.goto("/settings/operations");
+  await page.goto("/settings/general");
   await settle(page, "main >> text=until 2026-10-19");
   await saveScreen(page, "settings-export");
   await checkScreen(page);
@@ -2868,7 +2868,7 @@ test("settings-workspace-deletion", async ({ page }) => {
       },
     });
   });
-  await page.goto("/settings/operations");
+  await page.goto("/settings/general");
   await settle(page, "main >> text=Deletion asked for");
   await saveScreen(page, "settings-workspace-deletion");
   await checkScreen(page);
@@ -3040,7 +3040,7 @@ test("settings-transfers", async ({ page }) => {
     }),
   );
   await page.goto("/settings/transfers");
-  await settle(page, "main >> text=Its address");
+  await settle(page, "main >> text=Opening titles");
   await saveScreen(page, "settings-transfers");
   await checkScreen(page);
 });
@@ -5169,6 +5169,7 @@ test("account-passkeys", async ({ browser }, info) => {
       const before = await actions.count();
       await actions.first().click();
       await page.getByRole("menuitem", { name: "Revoke…" }).click();
+      // Revoking asks first (#544).
       await page.getByRole("dialog").getByRole("button", { name: "Revoke key" }).click();
       await expect(actions).toHaveCount(before - 1);
     }

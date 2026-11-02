@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
+import { Kbd } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
 import { Danger, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { Dot } from "~/components/status";
@@ -15,12 +16,34 @@ import { useViewer } from "~/viewer/context";
 import { useScreenState } from "~/viewer/state-gate";
 
 const sections = [
-  { id: "account", label: "Account" },
-  { id: "security", label: "Passkeys and sessions" },
-  { id: "tokens", label: "API tokens" },
-  { id: "apps", label: "Connected apps" },
-  { id: "notifications", label: "Notifications" },
-  { id: "appearance", label: "Appearance" },
+  { id: "account", label: "Account", intro: "Who you are to Hekate." },
+  {
+    id: "security",
+    label: "Security",
+    intro:
+      "How you sign in and how it is guarded, and every browser and device signed in as you. Sign out any you do not recognise, then change your password.",
+  },
+  {
+    id: "tokens",
+    label: "API tokens",
+    intro: "For scripts and tools of your own, against Hekate's API.",
+  },
+  {
+    id: "apps",
+    label: "Connected apps",
+    intro: "Applications that act for you here, with what each may do.",
+  },
+  {
+    id: "notifications",
+    label: "Notifications",
+    intro: "What reaches you, and how. These choices are yours, in this workspace.",
+  },
+  {
+    id: "appearance",
+    label: "Appearance",
+    intro: "How Hekate looks to you: its theme, and how much room each list takes. Yours alone.",
+  },
+  { id: "player", label: "Player", intro: "How the player opens and behaves for you." },
 ];
 
 const tokens = [
@@ -98,9 +121,9 @@ export const themes = [
 
 /** Every kind of notification (#504): the event, its line, and whether it is on in the app and by mail. */
 const notificationEvents: [string, string, boolean, boolean][] = [
-  ["Review asked of me", "A review asks for your decision or feedback.", true, true],
+  ["Review requested", "A review asks for your decision or feedback.", true, true],
   [
-    "Decision on a review I asked for",
+    "Decision recorded",
     "A reviewer decided, or gave feedback, on a review you asked for.",
     true,
     true,
@@ -160,8 +183,9 @@ export function AccountPage({ section }: { section: string }) {
   const [adding, setAdding] = useState(false);
   const [theme, setTheme] = useState("signal-dark");
   const [digest, setDigest] = useState<"instant" | "digest">("instant");
-  usePageHeader({ title: "Account", heading: "page" });
+  usePageHeader({ title: "Your account", heading: "page" });
   const sec = sections.some((s) => s.id === section) ? section : "account";
+  const current = sections.find((s) => s.id === sec);
   const keys = [
     { name: "MacBook Touch ID", kind: "Passkey", used: "today" },
     { name: "YubiKey 5C", kind: "Hardware security key", used: "3 Oct" },
@@ -169,8 +193,8 @@ export function AccountPage({ section }: { section: string }) {
   ];
   return (
     <SettingsLayout
-      title={person.name}
-      intro="Who you are to Hekate, how you sign in, what reaches you, and how it looks."
+      title={current?.label ?? "Account"}
+      intro={current?.intro}
       sections={sections}
       current={sec}
       base="/account/$section"
@@ -193,15 +217,8 @@ export function AccountPage({ section }: { section: string }) {
             </Row>
             <Row
               name="Workspaces"
-              hint="Endless Hall Records (owner), North Choir Collective (member)"
+              hint="Endless Hall Records (owner), North Choir Collective (member). Switch from the menu at the foot of the sidebar."
             />
-          </Section>
-          <Section title="Password">
-            <Row name="Change password" hint="12 characters or more. Passkeys keep working.">
-              <Button variant="secondary" size="md">
-                Change…
-              </Button>
-            </Row>
           </Section>
           <Danger>
             <Row
@@ -217,6 +234,14 @@ export function AccountPage({ section }: { section: string }) {
       )}
       {sec === "security" && (
         <>
+          {/* #594: the password with the other sign-in settings, as GitHub and Linear have it. */}
+          <Section title="Password">
+            <Row name="Change password" hint="12 characters or more. Passkeys keep working.">
+              <Button variant="secondary" size="md">
+                Change…
+              </Button>
+            </Row>
+          </Section>
           <Section
             title="Second factor"
             intro="A code from an app on your phone, asked for after your password."
@@ -232,7 +257,7 @@ export function AccountPage({ section }: { section: string }) {
           </Section>
           <Section
             title="Passkeys and hardware security keys"
-            intro="Up to five. A passkey signs you in without a password; a hardware security key, such as a YubiKey, can be required by the workspace."
+            intro="A passkey signs you in without a password; a hardware security key, such as a YubiKey, can be required by the workspace. You can keep up to five."
             action={
               <Button
                 variant="secondary"
@@ -302,9 +327,8 @@ export function AccountPage({ section }: { section: string }) {
               ["Studio machine", "Firefox 146, Linux · 10.0.0.31 · 3 Oct", false],
             ].map(([name, hint, current]) => (
               <Row key={String(name)} name={String(name)} hint={String(hint)}>
-                {current ? (
-                  <Dot state="approved" />
-                ) : (
+                {/* #707: "This browser" says it; no dot repeats it. */}
+                {!current && (
                   <Button variant="ghost" size="md">
                     Sign out
                   </Button>
@@ -363,7 +387,7 @@ export function AccountPage({ section }: { section: string }) {
                     {t.name}
                   </span>
                 }
-                hint={`${t.scopes} · made ${t.made} · last used ${t.used} · ${t.expires.startsWith("Expired") ? t.expires.toLowerCase() : `expires ${t.expires.toLowerCase()}`}`}
+                hint={`${t.scopes} · created ${t.made} · last used ${t.used} · ${t.expires.startsWith("Expired") ? t.expires.toLowerCase() : `expires ${t.expires.toLowerCase()}`}`}
               >
                 <ActionMenu
                   always
@@ -500,19 +524,17 @@ export function AccountPage({ section }: { section: string }) {
               </ul>
             </Dialog>
           )}
-          <Section
-            title="For developers"
-            intro="An application that connects to Hekate on people's behalf is registered by a workspace, under its settings."
-          >
-            <Row
-              name="Register an application"
-              hint="Client id and secret, redirect addresses, scopes; in Workspace settings under API and OAuth clients."
+          {/* #707: for developers, one line under the list. */}
+          <p className="-mt-6 text-[13px] text-ink-3">
+            Building an application that connects for people? A workspace registers it under its
+            settings, API.{" "}
+            <a
+              href="https://docs.hekate.studio/use/oauth/"
+              className="text-ink-2 underline decoration-edge underline-offset-2 hover:text-ink"
             >
-              <Button variant="ghost" size="md">
-                Open the guide
-              </Button>
-            </Row>
-          </Section>
+              Read the guide
+            </a>
+          </p>
         </>
       )}
       {sec === "notifications" && (
@@ -573,7 +595,7 @@ export function AccountPage({ section }: { section: string }) {
               <Row key={title} name={title} hint={description}>
                 {(
                   [
-                    ["App", app, title === "Review asked of me" || title === "Mention"],
+                    ["App", app, title === "Review requested" || title === "Mention"],
                     ["Mail", mail, false],
                   ] as const
                 ).map(([channel, on, locked]) => (
@@ -680,17 +702,31 @@ export function AccountPage({ section }: { section: string }) {
               </Select>
             </Row>
           </Section>
+        </>
+      )}
+      {/* #680: what the player shows and how it moves, apart from how Hekate looks. */}
+      {sec === "player" && (
+        <>
           <Section
             title="Tools shown"
-            intro="Of the tools your roles give you, which appear on the recording page. The project decides what you may have; this is what you want to see."
+            intro="Of the tools your roles give you, which the player shows. The project decides what you may have; this is what you want to see."
           >
             <SwitchRow name="Spectrogram view" checked />
             <SwitchRow name="Split channels by default" checked={false} />
             <SwitchRow name="Loudness monitoring under the transport" checked />
             <SwitchRow name="Metadata editor in QA" checked={false} />
-            <SwitchRow name="Keyboard map on ?" checked />
+            <Row
+              name={
+                <>
+                  Open the keyboard map with <Kbd>?</Kbd>
+                </>
+              }
+              hint="When off, it opens from the Help menu."
+            >
+              <Switch label="Open the keyboard map with ?" checked onChange={() => {}} />
+            </Row>
           </Section>
-          <Section title="Player">
+          <Section title="Playing">
             <Row name="Skip by">
               <Select defaultValue="5" className="w-32">
                 <option value="1">1 s</option>

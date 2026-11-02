@@ -2584,6 +2584,74 @@ The Import section of Production imports a ControlRoom project, not takes, so it
 
 #659. The patch list is linked to the microphones on the stage plan (docs/domain.md), but a row's source was free text. Its dialog names its fields as the table heads them (Input or Output, Source, Device, Cable, Notes); Source still takes any words, and offers the stage plans' microphones beside it: choosing one fills the source and, once the row is saved, links the microphone to it, so its label on the plan follows the list. A row a microphone is linked to is marked in the list. On a phone the notes go under the source rather than off the edge.
 
+## 370. Workspace settings are grouped by subject, and General holds the address, the export and the danger zone
+
+#589. The settings sidebar's groups did not say what they held: *Operations* held a page also called Operations (encryption, the storage bar a third time, a row about the instance's operators, the export and deleting the workspace), *Access* held the channels and the API, *Plan and help* mixed billing with the instance's help desk, and Transfers, Leak tracing and the Access log sat under Operations. General's intro promised exporting and deleting, which were not there; the workspace's address sat under Transfers as "Its address", in the code face.
+
+- **Five groups, none named like a page.** *Workspace* (General, Members, Branding, Email), *Projects and reviews* (Defaults, Comment categories, Delivery profiles, Transfers), *Protection* (Security, Leak tracing, Access log), *Integrations* (the channels, the API) and *Plan* (Billing, Storage). The issue asked for a *Security* group holding a *Security* page; the group is *Protection* so that no group shares a page's name, which the issue's own test asks. The order is what a workspace sets up first, then what it runs on, as Vercel's and Linear's settings are.
+- **Support is the help menu's.** The "?" menu already opens the workspace's tickets and a new one; the sidebar no longer lists Support, and the page shows itself in the sidebar (under *Help*) only while it is open, so a phone's section control still names where you are.
+- **The Operations page is gone.** The export and the danger zone are at the foot of General, for owners, as Vercel, Linear and GitHub put them; the encryption, in words, is the first row of Storage's backends (still for owners, whose route it is); the storage bar was said on Billing and Storage already, and who runs the instance is the help menu's. An old link to `/settings/operations` opens General, and `/settings/notifications` opens the channels (`formerSections`), as mail from a paused channel and a deletion's notice still point there.
+- **The address is in General.** "Address", in the interface face, with Copy, beside the name; Transfers' Waiting and the directory's intro say where it is instead of repeating it.
+- **An expired export offers nothing.** A ready export past its week read "until 2026-10-27" and still offered Download, which the server refuses. `exportExpired` in `packages/shared` (tested) reads it as expired until the job that removes it runs, and the row says "Expired: removed after its week".
+- The prototype's settings went first, with the inventory's rows.
+
+## 371. Tokens are made on the API page alone, scopes read in words, and the API log names projects
+
+#590. Notifications and integrations had an "API and MCP" panel whose "API keys" row only navigated to the API page, where the same tokens were "Service tokens"; the API page listed eight read-only scope rows that every token and client dialog explained already; the API log cut paths mid-identifier; and `org:read` put the code's word in front of people.
+
+- **One place, one name.** The "API keys" row is gone. The page is *API*, under *Integrations*, and holds the OAuth clients, the service tokens (made there alone), the MCP endpoint in a section of its own beside the tokens it takes, and the API log.
+- **Scopes in words.** `apiScopeNames` in `packages/shared` names each scope as people read it ("Files: read", "Workspace: read"), with `scopeWords` for a token's or a client's list (tested). Every dialog that offers scopes, the consent page and what a connected app may do show the words, the identifier beside them in the code face (a script needs it), and what the scope allows beneath. A token's and a client's rows say their scopes in words.
+- **What each scope allows is the documentation's.** The read-only list became one row, *Scopes*, under the tokens, linking to the table in *Use, API tokens*.
+- **The log reads.** `readableCall` (shared, tested) folds every identifier in a path to "…", so nothing is cut mid-identifier, and the workspace's own log names the project a call reached beneath it, from the projects the reader can see. The instance's log, which spans workspaces, folds the identifiers alone.
+- The prototype went first.
+
+## 372. The workspace's mail is set up and explained on one Email page
+
+#591. The workspace's mail was a row among the chat channels on Notifications and integrations, under a banner telling everyone to set mail up under Instance, Settings while the row below offered "Use the workspace's own"; it never appeared in the events matrix; and Email templates said the sender was "set in Notifications and integrations", stating the log-only fact as a hint, above four "Rules" rows of design principles styled exactly like settings that do nothing.
+
+- **One page.** *Email* (it was Email templates) opens with *Sending*: the instance's mail or the workspace's own provider, its test, its bounced addresses and the way back to the instance's (`WorkspaceMailSection`, moved whole from the channels). The templates, their subjects and the test send follow. The "Sent from" row went: the sending row says it.
+- **The banner once, with the fix that is the workspace's.** Where the instance writes mail to its log and the workspace has none of its own, the Email page says so once and offers the workspace's own mail, set up just below; the operator's way (Instance, Settings) stays on the pages where nothing else can fix it, such as the account's Notifications. A workspace sending through its own provider is not told the instance's mail goes nowhere.
+- **The channels are chat and webhooks.** Mail is not a channel: members choose what reaches them by mail. The channels page lost the row and the banner; the prototype's channel dialog no longer offers mail providers as kinds of channel.
+- **No inert rows.** The Rules were how every template is made (one action, plain text, why you got it, both clients), not settings anyone can change; the templates keep them, and the page no longer lists them.
+- The prototype went first; the suite's mail screens moved to the Email page.
+
+## 373. Billing says the plan and usage once, lists invoices as a table, and Storage keeps the workspace's own choices
+
+#592. Billing showed the plan, the storage and the members in its tiles, named the plan again in the Plan section and restated the figures as "Usage this month: Within the plan". Storage repeated storage and members (a member count has nothing to do with storage), added guests and projects, and a "This month" row with no value. Invoices could not be opened and were all listed at once. Storage also showed the nightly reconciliation (unused bytes, missing files, Run now) and the raw backend name `local`, which are the operators' (decision 288, #510).
+
+- **Each figure once.** Billing's tiles are the one usage block: the plan, storage and members against the plan (storage counted at the month's peak, members with those invited), each tile in signal from 90% with "nearly at the limit" or "at the limit". The Plan section says what the plan includes and how it changes, not its name again, and holds the card and the billing details. Where billing is off, Storage shows the storage against the quota, and nothing else of usage.
+- **Invoices as a table,** as Stripe's customer portal lists them: number, date (beneath the number on a phone), amount, a status pill (the review dots' shapes: paid filled, due hollow, overdue in signal, void dashed) and Open. A gateway's invoice opens as its PDF or its page; one made by hand, which has neither, opens in a dialog with what it says. The latest five, then *Show older*. The two numbering series stay what they are: a gateway numbers its own invoices (`INV-`) and the instance numbers those made by hand (`HK-`), so the number is the one on the paper; a workspace that has both was on a plan by agreement before it paid by card.
+- **Storage keeps the workspace's own choices.** Where new files go, what each backend holds and each project's share. The instance's storage is "Instance storage" (`backendName`), with the operators' name for a backend only where there is more than one to choose. The reconciliation is the instance's pages' (Health, and each workspace's page there).
+- The prototype went first.
+
+## 374. The workspace's events page is Channels, names events as Notifications does, and shows one channel at a time on a phone
+
+#681. The workspace's "Notifications and integrations" (its channels and webhooks) and the account's "Notifications" (what reaches you) shared a word and did different jobs; the same events were named differently on the two ("A review is requested" there, "Review asked of me" here); and on a phone the Events matrix showed only its first channel's column, the others scrolled away with no sign of them.
+
+- **Channels, under Integrations.** Linear calls the place Integrations; here Integrations is the group (decision 370), so the page is *Channels*, which no group and no other page is called. Its first section takes no heading of its own, since the page's heading says it.
+- **One name per event.** `eventNames` in `packages/shared` names the events both pages hear of: *Review requested*, *Decision recorded*, *New version*, *Mention*, *Processing failed*. The matrix's rows (`eventLabels`) and the account's rows (`notificationCatalogue`) take them, and the others are names in the same form (*Feedback submitted*, *Stage started*, *Guest signed in*, *Download*); a test on each side holds the pairs to one name. The account's line under each name still says what it means for you.
+- **One column at a time on a phone,** chosen above the table ("Channel: #masters"), as Defaults' Tool access chooses a role; the desktop keeps every column.
+- The prototype went first.
+
+## 375. Workspace Security is a short page with one save per form, and watermarking is set there
+
+#682. The Security page showed two filled Save buttons, rows named "Save" and "Test", and the whole single sign-on and directory forms while both were off. The forensic marking's switches sat on Leak tracing, where Video and Pages were disabled "Not yet" switches, and Pages was a setting that lives in each project.
+
+- **Fields while on.** Single sign-on and the directory show their switch alone while off, as Vercel's and Linear's SAML settings do; turned on, their fields follow. A form saved on keeps its footer when switched off, so turning it off can be saved.
+- **One footer per form.** `FormFooter` (`apps/web/src/components/form-footer.tsx`, on the reference page) ends each form: what saving does, a test's outcome or what went wrong at the left, *Test connection* (the directory's) and *Save* at the right. Save is secondary, so the page has no filled button competing with another; the sign-in policy above saves as it changes.
+- **The Redirect URI** is a read-only value with Copy, as Hekate's entity ID and reply address are.
+- **Watermarking is on Security, for owners.** The audio mark's switch moved there under *Watermarking*, with a line saying the visible mark on pages, pictures and video is set in each project's Asset security; the "Not yet" switches are gone until they ship. Leak tracing is the trace alone.
+- The prototype went first.
+
+## 376. The access log reads at the level people act on: a playback is one row, its segments behind it
+
+#684. One playback writes a "Playback started" entry and then one "Segment served" for every few seconds it plays, so a single listen buried the key issues and downloads an owner looks for under dozens of rows.
+
+- **Only the view groups.** Every segment is still written, before it is sent, and stays in the log and in its export (`docs/security.md`). The page asks the log for `segments=grouped`: segment entries are left out of its pages, and each "Playback started" entry carries how many segments that playback served. Unset (the export, a file's own activity, Hekate's reads) or `every`, each segment is a row as before; filtering on *Segment served* lists them whatever the grouping.
+- **Which segments are a playback's.** A segment carries no playback of its own, so it belongs to the latest start before it of the same file by the same person: after the start, and before that person's next start of that file (`segmentCounts`, `sessionSegments` in `apps/server/src/audit.ts`). Ids are UUIDv7 and sort by time, so the bounds are ids. Always within the workspace (`inOrg`).
+- **Behind the row.** A playback's row says "38 segments" and opens them beneath it, in the order served, with the rendition (`GET /api/organisation/audit/sessions/:id/segments`, admins, the first 200); another workspace's playback, or an entry that is not one, is not found, and a member is refused. *Show every segment*, in the Filter control, lists each as its own row.
+- The prototype went first.
+
 ## 380. The logs list and narrow by when things happened, counted from the viewer's clock
 
 #598. The instance's logs ordered and filtered by row id, on the ground that a UUIDv7 follows the time of the write. So it does, but a row is not always written when its event happened: an event recorded after the fact, a gateway's late delivery or an import lands where it was written, and a range by id lets it in or keeps it out by the wrong time.

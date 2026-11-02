@@ -440,15 +440,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
                 Save template…
               </Button>
             </Row>
-            <Row
-              name="Solo recital"
-              hint="From Joplin Rags · 6 roles · 5 categories · saved by Alex Rivera"
-            >
-              <ActionMenu
-                label="Solo recital"
-                actions={[{ label: "Remove template", danger: true, onSelect: () => {} }]}
-              />
-            </Row>
+            {/* #679: the workspace's templates are listed in its settings, under Defaults. */}
           </Section>
           <Danger>
             <Row

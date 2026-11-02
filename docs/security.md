@@ -190,7 +190,7 @@ Operators act on the job queue from Queues (decision 250): running failures agai
 
 ## Channels and webhooks
 
-A workspace's events can go to Slack, Discord, Microsoft Teams or a webhook of its own (#161, Settings, Notifications and integrations; admins only).
+A workspace's events can go to Slack, Discord, Microsoft Teams or a webhook of its own (#161, Settings, Channels; admins only).
 
 - **What leaves.** An event names things (the workspace, project, review, track or file, and who acted) and links to them in the app. It never carries media, a link to media, a comment's words, a decision's note, or who was mentioned; the schemas are in `packages/shared/src/events.ts`.
 - **Addresses sealed.** A channel's address, which for Slack, Discord and Teams is itself the credential, and a webhook's signing secret are sealed with the workspace key (AES-256-GCM, bound to the channel) and rewrapped when the key rotates. Settings show only the host, or a webhook's address without its query. The signing secret is shown once, when it is made.

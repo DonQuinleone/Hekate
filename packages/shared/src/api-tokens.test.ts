@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
   API_TOKEN_PATTERN,
+  apiScopeNames,
   apiScopes,
   apiTokenExpired,
   apiTokenHint,
   createApiTokenInput,
   isServiceAccount,
+  readableCall,
   scopeAllows,
   scopeFor,
+  scopeWords,
   updateApiTokenInput,
 } from "./api-tokens.ts";
 
@@ -146,5 +149,32 @@ describe("API token scopes (#198)", () => {
     expect(apiTokenExpired({ expiresAt: null }, now)).toBe(false);
     expect(apiTokenExpired({ expiresAt: "2026-10-23T09:59:59Z" }, now)).toBe(true);
     expect(apiTokenExpired({ expiresAt: "2026-10-24T10:00:00Z" }, now)).toBe(false);
+  });
+});
+
+describe("scopes and calls in words (#590)", () => {
+  it("names every scope in words, and the workspace's as the workspace", () => {
+    for (const s of apiScopes) expect(apiScopeNames[s]).toMatch(/^[A-Z]/);
+    expect(apiScopeNames["org:read"]).toBe("Workspace: read");
+    expect(Object.values(apiScopeNames).join(" ")).not.toMatch(/org|organisation/i);
+    expect(scopeWords(["reviews:read", "files:read"])).toBe("Files: read, Reviews: read");
+  });
+
+  it("folds identifiers in a path and names the project it reached", () => {
+    const names = new Map([[id, "Joplin Rags"]]);
+    expect(readableCall(`/api/projects/${id}/folders`, (p) => names.get(p))).toEqual({
+      path: "/api/projects/…/folders",
+      project: "Joplin Rags",
+    });
+    expect(readableCall(`/api/projects/${id.toUpperCase()}`, (p) => names.get(p))).toEqual({
+      path: "/api/projects/…",
+      project: "Joplin Rags",
+    });
+    const other = "0190a6f0-0000-7000-8000-0000000000ff";
+    expect(readableCall(`/api/files/${other}/comments`, (p) => names.get(p))).toEqual({
+      path: "/api/files/…/comments",
+      project: null,
+    });
+    expect(readableCall(`/api/projects/${other}`, (p) => names.get(p)).project).toBeNull();
   });
 });

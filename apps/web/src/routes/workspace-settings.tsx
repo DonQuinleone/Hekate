@@ -35,25 +35,20 @@ import {
   type WorkspaceSettingsInput,
 } from "@hekate/shared";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { type FormEvent, useState } from "react";
-import {
-  ApiAndMcpSection,
-  ScopesSection,
-  TokensSection,
-  WorkspaceApiLogSection,
-} from "~/components/api-tokens";
+import { type FormEvent, Fragment, useState } from "react";
+import { McpSection, TokensSection, WorkspaceApiLogSection } from "~/components/api-tokens";
 import { Avatar } from "~/components/avatar";
 import { BillingSection } from "~/components/billing";
 import { BrandingSection } from "~/components/branding";
 import { CategoryDialog } from "~/components/category-dialog";
+import { CopyButton } from "~/components/copy-button";
 import { deliveryHint, ProfileEditor, ProfileOptions } from "~/components/delivery-profiles";
 import { DirectorySection } from "~/components/directory";
 import { EmailTemplatesSection } from "~/components/email-templates";
 import { Empty } from "~/components/empty";
 import { ChannelsSection } from "~/components/event-channels";
 import { Icon, type IconName } from "~/components/icons";
-import { LeakTracingSection } from "~/components/leak-tracing";
+import { LeakTracingSection, WatermarkingSection } from "~/components/leak-tracing";
 import { OAuthClientsSection } from "~/components/oauth";
 import { PageHeader } from "~/components/page-header";
 import { PlayerToolsTable } from "~/components/player-tools";
@@ -71,18 +66,20 @@ import { SsoSection } from "~/components/sso";
 import { type AskedFrom, SupportSection } from "~/components/support";
 import { Button } from "~/components/ui/button";
 import { ToggleChip } from "~/components/ui/chip";
+import { Choice } from "~/components/ui/choice";
 import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
-import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
+import { ActionMenu, type MenuItem, usePopover } from "~/components/ui/menu";
 import { Failed, Loading } from "~/components/ui/states";
-import { StorageUsageRow, UsageRows } from "~/components/usage";
+import { StorageUsageRow } from "~/components/usage";
 import { DeleteWorkspace, WorkspaceExports } from "~/components/workspace-lifecycle";
 import { WhereFilesGo } from "~/components/workspace-storage";
 import {
   actionChoices,
   actionCopy,
+  actorParts,
   exportUrl,
   filtered,
   type LogFilterKey,
@@ -103,20 +100,21 @@ import {
   customProfilesQuery,
   directoryQuery,
   invitationsQuery,
-  type Me,
   type Member,
   membersQuery,
   meQuery,
+  playbackSegmentsQuery,
   projectsQuery,
   type StorageUsage,
   ssoQuery,
   storageUsageQuery,
+  templatesQuery,
   useCustomProfileMutations,
   useOrganisationMutations,
-  useReconcile,
   useRenameWorkspace,
   useRevokeGuest,
   useSaveWorkspaceSettings,
+  useTemplateMutations,
   useWorkspaceCategoryMutations,
   workspaceCategoriesQuery,
   workspaceGuestsQuery,
@@ -137,6 +135,16 @@ const timeFormat = formatDates({
   hour: "2-digit",
   minute: "2-digit",
 });
+const secondFormat = formatDates({ hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+/** A segment's row behind its playback: which part, and of which rendition (#684). */
+const segmentWords = (e: AccessEvent) => {
+  const segment = typeof e.details?.segment === "number" ? e.details.segment + 1 : null;
+  const rendition = typeof e.details?.rendition === "string" ? e.details.rendition : null;
+  return [segment === null ? "A segment" : `Segment ${segment}`, rendition]
+    .filter(Boolean)
+    .join(" · ");
+};
 
 interface SectionSpec {
   id: string;
@@ -147,9 +155,14 @@ interface SectionSpec {
   intro: string;
   /** Its page on the documentation site. */
   docs?: string;
+  /** Reached from elsewhere, so the sidebar lists it only while it is open: Support (#589). */
+  unlisted?: boolean;
 }
 
-/** The workspace's settings, grouped as in the prototype; more sections arrive with their issues. */
+/**
+ * The workspace's settings, grouped by subject (decision 370): no group shares a name with a
+ * page, and Support, which the help menu opens, has no place among them.
+ */
 const allSections: SectionSpec[] = [
   {
     id: "general",
@@ -157,30 +170,16 @@ const allSections: SectionSpec[] = [
     group: "Workspace",
     from: "admin",
     intro:
-      "The workspace's name, how new projects start, guest links and its language; for owners, exporting or deleting it.",
+      "The workspace's name and address, how new projects start, guest links and its language; for owners, exporting or deleting it.",
+    docs: "/use/export-and-delete/",
   },
   {
-    id: "defaults",
-    label: "Defaults",
+    id: "members",
+    label: "Members",
     group: "Workspace",
-    from: "admin",
-    intro:
-      "What a review grants its reviewers, and what a new project starts with, unless the request or the project says otherwise.",
-  },
-  {
-    id: "categories",
-    label: "Comment categories",
-    group: "Workspace",
-    from: "admin",
-    intro:
-      "The labels a comment can carry, such as Noise or Balance, and where triage sends each kind. Every new project starts with these, and may add its own.",
-  },
-  {
-    id: "delivery",
-    label: "Delivery profiles",
-    group: "Workspace",
-    from: "admin",
-    intro: "What QA measures recordings against: the built-in profiles, and the workspace's own.",
+    from: "member",
+    intro: "Who has an account here, who is invited, and which guests hold a link.",
+    docs: "/use/guests/",
   },
   {
     id: "branding",
@@ -193,80 +192,55 @@ const allSections: SectionSpec[] = [
   },
   {
     id: "email",
-    label: "Email templates",
+    label: "Email",
     group: "Workspace",
     from: "admin",
-    intro: "The messages Hekate sends for the workspace, as each kind of mail client shows them.",
+    intro:
+      "Where the workspace's mail is sent from, and the messages Hekate sends for it, as each kind of mail client shows them.",
   },
   {
-    id: "members",
-    label: "Members",
-    group: "Access",
-    from: "member",
-    intro: "Who has an account here, who is invited, and which guests hold a link.",
-    docs: "/use/guests/",
-  },
-  {
-    id: "security",
-    label: "Security",
-    group: "Access",
+    id: "defaults",
+    label: "Defaults",
+    group: "Projects and reviews",
     from: "admin",
     intro:
-      "How members sign in: the ways allowed, the second factor, single sign-on or a directory, and how long a session lasts.",
-    docs: "/security/model/",
+      "What a review grants its reviewers, and what a new project starts with, unless the request or the project says otherwise.",
   },
   {
-    id: "notifications",
-    label: "Notifications and integrations",
-    group: "Access",
-    from: "admin",
-    intro: "Where the workspace's events go: Slack, Discord, Microsoft Teams and webhooks.",
-    docs: "/use/integrations/",
-  },
-  {
-    id: "api",
-    label: "API and OAuth clients",
-    group: "Access",
+    id: "categories",
+    label: "Comment categories",
+    group: "Projects and reviews",
     from: "admin",
     intro:
-      "Applications that ask people for access, tokens that act for the workspace, what either may be given, and every call one made.",
-    docs: "/use/oauth/",
+      "The labels a comment can carry, such as Noise or Balance, and where triage sends each kind. Every new project starts with these, and may add its own.",
   },
   {
-    id: "billing",
-    label: "Billing",
-    group: "Plan and help",
+    id: "delivery",
+    label: "Delivery profiles",
+    group: "Projects and reviews",
     from: "admin",
-    intro: "The plan, what it includes, what it costs, and every invoice.",
-    docs: "/operate/billing/",
-  },
-  {
-    id: "support",
-    label: "Support",
-    group: "Plan and help",
-    from: "member",
-    intro: "Ask the people who run this instance, with the error reference if there is one.",
-    docs: "/use/support/",
+    intro: "What QA measures recordings against: the built-in profiles, and the workspace's own.",
   },
   {
     id: "transfers",
     label: "Transfers",
-    group: "Operations",
+    group: "Projects and reviews",
     from: "member",
     intro: "Projects moving in from, or out to, another workspace, and what each waits for.",
   },
   {
-    id: "storage",
-    label: "Storage",
-    group: "Operations",
+    id: "security",
+    label: "Security",
+    group: "Protection",
     from: "admin",
-    intro: "Where new files are kept. Everything is encrypted before any backend sees it.",
-    docs: "/install/storage/",
+    intro:
+      "How members sign in: the ways allowed, the second factor, single sign-on or a directory, and how long a session lasts; for owners, how downloads are marked.",
+    docs: "/security/model/",
   },
   {
     id: "leaks",
     label: "Leak tracing",
-    group: "Operations",
+    group: "Protection",
     from: "owner",
     intro: "Find which recipient a leaked file was watermarked for.",
     docs: "/use/leak-tracing/",
@@ -274,21 +248,60 @@ const allSections: SectionSpec[] = [
   {
     id: "log",
     label: "Access log",
-    group: "Operations",
+    group: "Protection",
     from: "admin",
     intro: "Every key issue, page render and download, and the changes that matter.",
     docs: "/security/model/#audit",
   },
   {
-    id: "operations",
-    label: "Operations",
-    group: "Operations",
-    from: "owner",
+    id: "channels",
+    label: "Channels",
+    group: "Integrations",
+    from: "admin",
+    intro: "Where the workspace's events go: Slack, Discord, Microsoft Teams and webhooks.",
+    docs: "/use/integrations/",
+  },
+  {
+    id: "api",
+    label: "API",
+    group: "Integrations",
+    from: "admin",
     intro:
-      "How the workspace's files are kept, what they take against the plan, and taking everything away or deleting it. The instance itself is its operators'.",
-    docs: "/use/export-and-delete/",
+      "Applications that ask people for access, tokens that act for the workspace, the MCP endpoint, and every call one made.",
+    docs: "/use/oauth/",
+  },
+  {
+    id: "billing",
+    label: "Billing",
+    group: "Plan",
+    from: "admin",
+    intro: "The plan, what it includes, what it costs, and every invoice.",
+    docs: "/operate/billing/",
+  },
+  {
+    id: "storage",
+    label: "Storage",
+    group: "Plan",
+    from: "admin",
+    intro: "Where new files are kept. Everything is encrypted before any backend sees it.",
+    docs: "/install/storage/",
+  },
+  {
+    id: "support",
+    label: "Support",
+    group: "Help",
+    from: "member",
+    intro: "Ask the people who run this instance, with the error reference if there is one.",
+    docs: "/use/support/",
+    unlisted: true,
   },
 ];
+
+/** Pages under their earlier names, which links in mail and elsewhere still use. */
+export const formerSections: Record<string, string> = {
+  notifications: "channels",
+  operations: "general",
+};
 
 const rank: Record<Role, number> = { owner: 3, admin: 2, member: 1 };
 
@@ -357,20 +370,32 @@ function General({ role }: { role: Role }) {
         {rename.error && (
           <p className="px-4 py-2 text-[13px] text-signal">{rename.error.message}</p>
         )}
+        {/* Where people look for it (#589): someone moving a project here, or signing in with
+            the directory, is asked for it. */}
+        <Row
+          name="Address"
+          hint="Someone moving a project here from a workspace you are not in gives it, and members signing in with the directory enter it."
+        >
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="truncate text-[14px] text-ink">{workspace.address}</span>
+            <CopyButton value={workspace.address} label="Copy the address" />
+          </span>
+        </Row>
         <WorkspaceRows />
       </Section>
-      <Section
-        title="Workspaces you are in"
-        intro="Switch from the menu at the foot of the sidebar."
-      >
-        {me.organisations.map((o) => (
-          <Row
-            key={o.id}
-            name={o.name}
-            hint={`${roleLabel[o.role]}${o.id === me.activeOrganisationId ? " · open now" : ""}`}
-          />
-        ))}
-      </Section>
+      {mayExportWorkspace(role) && (
+        <>
+          <Section
+            title="Export"
+            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
+          >
+            <WorkspaceExports scope={{ kind: "workspace" }} name={workspace.name} />
+          </Section>
+          <Danger>
+            <DeleteWorkspace name={workspace.name} />
+          </Danger>
+        </>
+      )}
     </>
   );
 }
@@ -923,7 +948,72 @@ function Defaults() {
         />
       </Section>
       <ToolAccess />
+      <ProjectTemplates />
     </>
+  );
+}
+
+/**
+ * The workspace's project templates (#240), listed and removed here (#679): they belong to the
+ * workspace, and a project's General only saves one. Each is a copy of the project it came from.
+ */
+function ProjectTemplates() {
+  const { data: templates } = useQuery(templatesQuery);
+  const [confirm, confirmation] = useConfirm();
+  const { remove } = useTemplateMutations();
+  return (
+    <Section
+      title="Project templates"
+      count={templates?.length || undefined}
+      intro="What a new project can start from. Save one from a project's settings, under General."
+    >
+      {!templates ? (
+        <Loading size="panel" />
+      ) : templates.length === 0 ? (
+        <Row
+          name="None yet"
+          hint="A template keeps a project's roles, categories, delivery profile, QA rules and version checks, without its files."
+        />
+      ) : (
+        templates.map((t) => (
+          <Row
+            key={t.id}
+            inline
+            name={t.name}
+            hint={[
+              t.fromProject ? `From ${t.fromProject}` : null,
+              `${t.roles.length} ${t.roles.length === 1 ? "role" : "roles"}`,
+              `${t.categories} ${t.categories === 1 ? "category" : "categories"}`,
+              t.createdByName ? `saved by ${t.createdByName}` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          >
+            {t.removable && (
+              <ActionMenu
+                label={t.name}
+                always
+                actions={[
+                  {
+                    label: "Remove template…",
+                    danger: true,
+                    onSelect: () =>
+                      confirm({
+                        title: `Remove the template ${t.name}?`,
+                        description:
+                          "New projects can no longer start from it. Projects made from it keep what they took.",
+                        action: "Remove template",
+                        onConfirm: () => remove.mutateAsync(t.id),
+                      }),
+                  },
+                ]}
+              />
+            )}
+          </Row>
+        ))
+      )}
+      {confirmation}
+    </Section>
   );
 }
 
@@ -1109,76 +1199,81 @@ function Members({ role: myRole }: { role: Role }) {
               (myRole === "owner" || m.role !== "owner") &&
               !(m.role === "owner" && owners === 1);
             return (
+              // On a phone the role goes under the name, so the name and address keep the width (#596).
               <div
                 key={m.id}
-                className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-raised/30"
+                className="group grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 px-4 py-row-tight transition-colors hover:bg-raised/30 @3xl/app:grid-cols-[28px_minmax(0,1fr)_8rem_auto]"
               >
                 <Avatar person={m.userId} name={m.name} size={28} />
-                <span className="min-w-0 flex-1">
+                <span className="min-w-0">
                   <span className="block truncate text-[14px] text-ink">
                     {m.name}
                     {isSelf && <span className="text-ink-3"> · you</span>}
                   </span>
                   <span className="block truncate text-[13px] text-ink-3">{m.email}</span>
                 </span>
-                {canEdit ? (
-                  <Select
-                    aria-label={`Role of ${m.name}`}
-                    value={m.role}
-                    onChange={(e) => setRole.mutate({ id: m.id, role: e.target.value as Role })}
-                    className="h-8 w-32 text-[13px]"
-                  >
-                    {roles
-                      .filter((r) => r !== "owner" || myRole === "owner")
-                      .map((r) => (
-                        <option key={r} value={r}>
-                          {roleLabel[r]}
-                        </option>
-                      ))}
-                  </Select>
-                ) : (
-                  <span
-                    className="w-32 text-right text-[13px] text-ink-2"
-                    title={
-                      m.role === "owner" && owners === 1
-                        ? "The last owner cannot change role"
-                        : undefined
-                    }
-                  >
-                    {roleLabel[m.role]}
-                  </span>
-                )}
-                {canEdit || isSelf ? (
-                  <ActionMenu
-                    label={m.name}
-                    actions={[
-                      {
-                        label: isSelf ? "Leave the workspace…" : "Remove from the workspace…",
-                        danger: true,
-                        onSelect: () =>
-                          confirm(
-                            isSelf
-                              ? {
-                                  title: "Leave the workspace?",
-                                  description:
-                                    "You lose access to its projects. Someone in it has to invite you to come back.",
-                                  action: "Leave",
-                                  onConfirm: () => remove.mutateAsync(m.id),
-                                }
-                              : {
-                                  title: `Remove ${m.name} from the workspace?`,
-                                  description:
-                                    "They lose access to its projects. What they wrote and decided stays.",
-                                  action: "Remove",
-                                  onConfirm: () => remove.mutateAsync(m.id),
-                                },
-                          ),
-                      },
-                    ]}
-                  />
-                ) : (
-                  <span className="size-7 shrink-0" />
-                )}
+                <span className="col-start-2 row-start-2 flex min-w-0 @3xl/app:col-start-3 @3xl/app:row-start-1 @3xl/app:justify-end">
+                  {canEdit ? (
+                    <Select
+                      aria-label={`Role of ${m.name}`}
+                      value={m.role}
+                      onChange={(e) => setRole.mutate({ id: m.id, role: e.target.value as Role })}
+                      className="h-8 w-32 text-[13px]"
+                    >
+                      {roles
+                        .filter((r) => r !== "owner" || myRole === "owner")
+                        .map((r) => (
+                          <option key={r} value={r}>
+                            {roleLabel[r]}
+                          </option>
+                        ))}
+                    </Select>
+                  ) : (
+                    <span
+                      className="text-[13px] text-ink-2 @3xl/app:w-32 @3xl/app:text-right"
+                      title={
+                        m.role === "owner" && owners === 1
+                          ? "The last owner cannot change role"
+                          : undefined
+                      }
+                    >
+                      {roleLabel[m.role]}
+                    </span>
+                  )}
+                </span>
+                <span className="col-start-3 row-span-2 row-start-1 flex @3xl/app:col-start-4 @3xl/app:row-span-1">
+                  {canEdit || isSelf ? (
+                    <ActionMenu
+                      label={m.name}
+                      actions={[
+                        {
+                          label: isSelf ? "Leave the workspace…" : "Remove from the workspace…",
+                          danger: true,
+                          onSelect: () =>
+                            confirm(
+                              isSelf
+                                ? {
+                                    title: "Leave the workspace?",
+                                    description:
+                                      "You lose access to its projects. Someone in it has to invite you to come back.",
+                                    action: "Leave",
+                                    onConfirm: () => remove.mutateAsync(m.id),
+                                  }
+                                : {
+                                    title: `Remove ${m.name} from the workspace?`,
+                                    description:
+                                      "They lose access to its projects. What they wrote and decided stays.",
+                                    action: "Remove",
+                                    onConfirm: () => remove.mutateAsync(m.id),
+                                  },
+                            ),
+                        },
+                      ]}
+                    />
+                  ) : (
+                    <span className="size-7 shrink-0" />
+                  )}
+                </span>
               </div>
             );
           })}
@@ -1187,11 +1282,16 @@ function Members({ role: myRole }: { role: Role }) {
       {elevated && invitations && invitations.length > 0 && (
         <Section title="Invited" count={invitations.length}>
           {invitations.map((i) => (
-            <div key={i.id} className="group flex items-center gap-3 px-4 py-2.5">
-              <Icon name="mail" className="text-ink-3" />
-              <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{i.email}</span>
-              <span className="text-[13px] text-ink-3">
-                {roleLabel[i.role]} · until {dateFormat.format(new Date(i.expiresAt))}
+            <div key={i.id} className="group flex items-center gap-3 px-4 py-row-tight">
+              <span className="flex size-7 shrink-0 items-center justify-center text-ink-3">
+                <Icon name="mail" />
+              </span>
+              {/* The address takes the width; what the invitation is, beneath it (#596). */}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[14px] text-ink">{i.email}</span>
+                <span className="block truncate text-[13px] text-ink-3">
+                  {roleLabel[i.role]} · invitation ends {dateFormat.format(new Date(i.expiresAt))}
+                </span>
               </span>
               <ActionMenu
                 label={i.email}
@@ -1229,11 +1329,11 @@ function Guests() {
     <Section
       title="Guests"
       count={guests.length}
-      intro="Guests are asked from a review and sign in with a link sent to them."
+      intro="Guests are invited from a review, and sign in with a link sent to them."
     >
       {revoke.error && <p className="px-4 py-2 text-[13px] text-signal">{revoke.error.message}</p>}
       {guests.map((g) => (
-        <div key={g.id} className="group flex items-center gap-3 px-4 py-2.5">
+        <div key={g.id} className="group flex items-center gap-3 px-4 py-row-tight">
           <Avatar person={g.id} name={g.name} size={28} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[14px] text-ink">
@@ -1245,9 +1345,9 @@ function Guests() {
           <span className="hidden text-[13px] text-ink-3 @3xl/app:inline">
             {g.live
               ? g.lastLinkAt
-                ? `link sent ${dateFormat.format(new Date(g.lastLinkAt))}`
-                : "signed in"
-              : "no working link"}
+                ? `Link sent ${dateFormat.format(new Date(g.lastLinkAt))}`
+                : "Signed in"
+              : "No working link"}
           </span>
           {g.live ? (
             <ActionMenu
@@ -1277,91 +1377,14 @@ function Guests() {
   );
 }
 
-/**
- * Operations (#165), for the owners: only what they act on (decision 288). How the files are
- * encrypted, the storage against the plan, the export and deletion, and who runs the instance
- * with where to ask them. The release, the worker, the queues and the metrics are the
- * operators', under Instance, Operations.
- */
-function Operations({ role }: { role: Role }) {
-  const { data, error, refetch } = useQuery(workspaceOperationsQuery);
-  const { data: usage } = useQuery(storageUsageQuery);
-  const { data: me } = useQuery(meQuery);
-  const workspace = me?.organisations.find((o) => o.id === me.activeOrganisationId);
-  if (error) return <Failed what="This page" error={error} retry={refetch} />;
-  if (!data || !me || !workspace) return <Loading />;
-  return (
-    <>
-      <Section title="This workspace">
-        <Row
-          name="Encryption"
-          hint="Every file has its own key, wrapped by the workspace's key; storage only ever holds ciphertext."
-        >
-          <span className="text-[13px] text-ink-2">
-            {encryptionWords(data.encryption, (iso) => dateFormat.format(new Date(iso)))}
-          </span>
-        </Row>
-        {usage && <StorageUsageRow usage={usage.usage} />}
-        <OperatorsRow support={me.support} />
-      </Section>
-      {mayExportWorkspace(role) && (
-        <>
-          <Section
-            title="Export"
-            intro="Everything the workspace holds, to keep, to move elsewhere, or for an audit. Owners only, and logged."
-          >
-            <WorkspaceExports scope={{ kind: "workspace" }} name={workspace.name} />
-          </Section>
-          <Danger>
-            <DeleteWorkspace name={workspace.name} />
-          </Danger>
-        </>
-      )}
-    </>
-  );
-}
-
-/** Who runs the instance, and where to ask them, as the instance answers support (#181). */
-function OperatorsRow({ support }: { support: Me["support"] }) {
-  const mode = support?.mode ?? "off";
-  const keep = "They keep its backups, upgrades and workers.";
-  return (
-    <Row
-      name="Run by this instance's operators"
-      hint={
-        mode === "app"
-          ? `${keep} Ask them through Support.`
-          : mode === "link"
-            ? `${keep} Ask them at their own help desk.`
-            : mode === "mail" && support?.address
-              ? `${keep} Ask them by email, at ${support.address}.`
-              : `${keep} Support is not turned on here: ask whoever runs it.`
-      }
-    >
-      {mode === "app" ? (
-        <Button variant="secondary" size="md" asChild>
-          <Link to="/settings/$section" params={{ section: "support" }}>
-            Support
-          </Link>
-        </Button>
-      ) : mode === "link" && support?.address ? (
-        <Button variant="secondary" size="md" asChild>
-          <a href={support.address} target="_blank" rel="noopener noreferrer">
-            Open their desk
-          </a>
-        </Button>
-      ) : mode === "mail" && support?.address ? (
-        <Button variant="secondary" size="md" asChild>
-          <a href={`mailto:${support.address}`}>Write to them</a>
-        </Button>
-      ) : null}
-    </Row>
-  );
-}
-
-function Storage({ role }: { role: Role }) {
+function Storage({ role, billing }: { role: Role; billing: boolean }) {
   const { data } = useQuery(workspaceStorageQuery);
   const { data: usage } = useQuery(storageUsageQuery);
+  // How the files are encrypted is the owners' to read (#165); with Operations gone it is here.
+  const { data: operations } = useQuery({
+    ...workspaceOperationsQuery,
+    enabled: role === "owner",
+  });
   if (!data) return null;
   const receiving = data.usesBucket ? null : (data.backend ?? data.defaultBackend);
   const usedIn = (name: string) => usage?.backends.find((b) => b.name === name);
@@ -1369,21 +1392,20 @@ function Storage({ role }: { role: Role }) {
   const inBuckets = (usage?.backends ?? []).filter((b) => bucketIdOf(b.name));
   const bucketBytes = inBuckets.reduce((sum, b) => sum + b.bytes, 0);
   const bucketObjects = inBuckets.reduce((sum, b) => sum + b.objects, 0);
-  const limited =
-    usage && (usage.usage.limits.storageQuota !== null || usage.usage.limits.memberLimit !== null);
   const objects = (n: number) => `${n} ${n === 1 ? "object" : "objects"}`;
   return (
     <>
-      {usage && (
+      {/* Usage is said once (#592): on Billing where billing is on, here where it is not. */}
+      {usage && !billing && (
         <Section
           title="Usage"
           intro={
-            limited
-              ? "Uploads are refused at the storage quota and invitations at the member limit, which the instance’s operators set; this page warns from 90%."
-              : "The instance sets no limits for this workspace. What it uses is counted each hour."
+            usage.usage.limits.storageQuota !== null
+              ? "Uploads are refused at the storage quota, which the instance’s operators set; this page warns from 90%."
+              : "The instance sets no storage quota for this workspace. What it uses is counted each hour."
           }
         >
-          <UsageRows usage={usage.usage} />
+          <StorageUsageRow usage={usage.usage} />
         </Section>
       )}
       <WhereFilesGo
@@ -1392,12 +1414,22 @@ function Storage({ role }: { role: Role }) {
         owner={role === "owner"}
       />
       <Section title="Backends" intro="What this workspace keeps in each.">
+        {operations && (
+          <Row
+            name="Encryption"
+            hint="Every file has its own key, wrapped by the workspace's key; storage only ever holds ciphertext."
+          >
+            <span className="text-[13px] text-ink-2">
+              {encryptionWords(operations.encryption, (iso) => dateFormat.format(new Date(iso)))}
+            </span>
+          </Row>
+        )}
         {data.available.map((b) => {
           const used = usedIn(b);
           return (
             <Row
               key={b}
-              name={b}
+              name={backendName(b, data.available.length)}
               hint={
                 [
                   b === receiving ? "Receives new files" : null,
@@ -1434,74 +1466,32 @@ function Storage({ role }: { role: Role }) {
   );
 }
 
-/** Each project's share of the storage, and what the reconciliation found in the workspace. */
+/**
+ * The instance's storage as people here know it (#592): "Instance storage", not the operators'
+ * name for a backend, which shows only when the instance has more than one to choose from.
+ */
+export const backendName = (name: string, available: number) =>
+  available > 1 ? `Instance storage (${name})` : "Instance storage";
+
+/**
+ * Each project's share of the storage. What the nightly reconciliation finds is the operators'
+ * (decision 288), on the instance's pages.
+ */
 function StorageUsageSections({ usage }: { usage: StorageUsage }) {
-  const reconcile = useReconcile();
-  const r = usage.reconciliation;
   return (
-    <>
-      <Section
-        title="Usage by project"
-        intro={`${formatBytes(usage.bytes)} in all: originals, and the renditions, pages and waveforms made from them.`}
-      >
-        {usage.projects.length === 0 && (
-          <Row name="No projects yet" hint="Files a project holds are counted here." />
-        )}
-        {usage.projects.map((p) => (
-          <Row key={p.id} name={p.name}>
-            <span className="tabular text-[14px] text-ink">{formatBytes(p.bytes)}</span>
-          </Row>
-        ))}
-      </Section>
-      <Section
-        title="Reconciliation"
-        intro={
-          r.removing
-            ? "Every night the storage is compared with the database. Bytes nothing uses are removed once a second run, a day later, still finds them; missing files wait for a person."
-            : "Every night the storage is compared with the database. This instance only reports: nothing is removed without a person."
-        }
-      >
-        <Row name="Last run">
-          <span className="text-[13px] text-ink-2">
-            {r.lastRun ? timeFormat.format(new Date(r.lastRun.startedAt)) : "Not yet"}
-          </span>
+    <Section
+      title="Usage by project"
+      intro={`${formatBytes(usage.bytes)} in all: originals, and the renditions, pages and waveforms made from them.`}
+    >
+      {usage.projects.length === 0 && (
+        <Row name="No projects yet" hint="Files a project holds are counted here." />
+      )}
+      {usage.projects.map((p) => (
+        <Row key={p.id} name={p.name}>
+          <span className="tabular text-[14px] text-ink">{formatBytes(p.bytes)}</span>
         </Row>
-        <Row name="Unused bytes" hint="In storage, but no file uses them">
-          <span className="tabular text-[13px] text-ink-2">
-            {r.orphans + r.unused === 0 ? "None" : r.orphans + r.unused}
-          </span>
-        </Row>
-        <Row
-          name="Missing files"
-          hint={
-            r.missing > 0
-              ? "Files the database expects that their backend no longer holds. Restore them from a backup."
-              : "Every file is where the database expects it."
-          }
-        >
-          {r.missing > 0 ? (
-            <span className="flex items-center gap-1.5 text-[13px] text-signal">
-              <Icon name="warning" size={13} />
-              {r.missing}
-            </span>
-          ) : (
-            <span className="text-[13px] text-ink-2">None</span>
-          )}
-        </Row>
-        <Row name="Removed in the last 30 days">
-          <span className="tabular text-[13px] text-ink-2">{r.removed}</span>
-        </Row>
-        <Row name="Run now" hint={reconcile.error?.message ?? "Checks this workspace only."}>
-          <Button
-            variant="secondary"
-            disabled={reconcile.isPending}
-            onClick={() => reconcile.mutate()}
-          >
-            {reconcile.isPending ? "Reconciling" : "Reconcile"}
-          </Button>
-        </Row>
-      </Section>
-    </>
+      ))}
+    </Section>
   );
 }
 
@@ -1528,9 +1518,14 @@ const personValue = (f: LogFilters) =>
 function AccessLogFilterMenu({
   filters,
   onChange,
+  every,
+  onEvery,
 }: {
   filters: LogFilters;
   onChange: (next: LogFilters) => void;
+  /** Each segment a row of its own, rather than behind its playback (#684). */
+  every: boolean;
+  onEvery: (every: boolean) => void;
 }) {
   const [open, setOpen, box] = usePopover();
   const { data: projects = [] } = useQuery(projectsQuery);
@@ -1634,6 +1629,13 @@ function AccessLogFilterMenu({
               ))}
             </Select>
           </Field>
+          <Choice
+            checked={every}
+            onChange={(e) => onEvery(e.target.checked)}
+            className="text-[13px] text-ink-2"
+          >
+            Show every segment
+          </Choice>
           <p className="m-0 text-[12px] text-ink-3">
             For one file or review, choose it from an entry's menu.
           </p>
@@ -1650,11 +1652,40 @@ function AccessLogFilterMenu({
   );
 }
 
+/**
+ * A playback's segments, opened from its entry (#684): each served part, in order, with the
+ * rendition it came from. Every one is in the log and its export; the page shows them on asking.
+ */
+function PlaybackSegments({ sessionId }: { sessionId: string }) {
+  const { data, error, refetch } = useQuery(playbackSegmentsQuery(sessionId));
+  if (error) return <Failed what="The segments" error={error} retry={refetch} size="panel" />;
+  if (!data) return <Loading size="panel" />;
+  return (
+    <ol
+      aria-label="Segments served"
+      className="m-0 flex list-none flex-col border-t border-hairline bg-ground/30 p-0 py-1"
+    >
+      {data.map((s) => (
+        <li
+          key={s.id}
+          className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 py-0.5 pr-4 pl-8 text-[12px] text-ink-3 @3xl/app:grid-cols-[130px_minmax(0,1fr)] @3xl/app:pl-4"
+        >
+          <span className="tabular">{secondFormat.format(new Date(s.occurredAt))}</span>
+          <span className="truncate">{segmentWords(s)}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 function AccessLog() {
   const [filters, setFilters] = useState<LogFilters>({});
+  // Grouped, a playback's segments wait behind it (#684); "Show every segment" lists each.
+  const [every, setEvery] = useState(false);
+  const [opened, setOpened] = useState<string[]>([]);
   // What a filter chosen from an entry is called, as that entry named it.
   const [named, setNamed] = useState<Partial<Record<LogFilterKey, string>>>({});
-  const log = useInfiniteQuery(accessLogQuery(filters));
+  const log = useInfiniteQuery(accessLogQuery(filters, every ? "every" : "grouped"));
   const { data: projects = [] } = useQuery(projectsQuery);
   const { data: members = [] } = useQuery(membersQuery);
   const { data: guests = [] } = useQuery(workspaceGuestsQuery);
@@ -1698,7 +1729,7 @@ function AccessLog() {
     guestId: "user",
     since: "clock",
   };
-  const entryActions = (e: AccessEvent): MenuAction[] => [
+  const entryActions = (e: AccessEvent): MenuItem[] => [
     ...(e.userId
       ? [
           {
@@ -1745,13 +1776,29 @@ function AccessLog() {
         only("action", action, actionCopy[action] ?? action);
       },
     },
+    // Where there is no hovering, the address the row leaves out is here (#596).
+    ...((address) =>
+      address
+        ? [
+            "divider" as const,
+            {
+              label: `Copy ${address}`,
+              onSelect: () => void navigator.clipboard?.writeText(address).catch(() => {}),
+            },
+          ]
+        : [])(actorParts(e.actorLabel).address),
   ];
   return (
     <Section
       title="Entries"
       action={
         <span className="flex items-center gap-1.5">
-          <AccessLogFilterMenu filters={filters} onChange={setFilters} />
+          <AccessLogFilterMenu
+            filters={filters}
+            onChange={setFilters}
+            every={every}
+            onEvery={setEvery}
+          />
           <Button variant="secondary" asChild>
             <a href={exportUrl(filters)} download>
               <Icon name="download" size={14} />
@@ -1818,41 +1865,74 @@ function AccessLog() {
       ) : (
         <>
           {events.map((e) => (
-            <div
-              key={e.id}
-              data-log-entry
-              className="group grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_auto] @6xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_140px_auto]"
-            >
-              <span className="tabular text-ink-3">
-                {timeFormat.format(new Date(e.occurredAt))}
-              </span>
-              <span className="justify-self-end @3xl/app:justify-self-start">
-                <span className="rounded-chip bg-raised px-1.5 py-0.5 text-[12px] text-ink-2">
-                  {actionCopy[e.action] ?? e.action}
-                </span>
-              </span>
-              <span className="row-span-2 self-center @3xl/app:order-last @3xl/app:row-span-1">
-                <ActionMenu
-                  label={`the entry at ${timeFormat.format(new Date(e.occurredAt))}`}
-                  actions={entryActions(e)}
-                />
-              </span>
-              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:col-span-1">
-                <span className="truncate text-ink-2">{e.actorLabel}</span>
-                {targetOf(e) && (
-                  <span className="truncate text-[12px] text-ink-3">{targetOf(e)}</span>
-                )}
-              </span>
-              <span className="tabular hidden truncate text-ink-3 @3xl/app:block">
-                {e.ipAddress ?? ""}
-              </span>
-              <span
-                className="hidden truncate text-ink-3 @6xl/app:block"
-                title={e.userAgent ?? undefined}
+            <Fragment key={e.id}>
+              <div
+                data-log-entry
+                className="group grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-0.5 px-4 py-row-snug text-[13px] @3xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_auto] @6xl/app:grid-cols-[130px_170px_minmax(0,1fr)_130px_140px_auto]"
               >
-                {shortAgent(e.userAgent) ?? ""}
-              </span>
-            </div>
+                <span className="tabular text-ink-3">
+                  {timeFormat.format(new Date(e.occurredAt))}
+                </span>
+                <span className="justify-self-end @3xl/app:justify-self-start">
+                  <span className="rounded-chip bg-raised px-1.5 py-0.5 text-[12px] text-ink-2">
+                    {actionCopy[e.action] ?? e.action}
+                  </span>
+                </span>
+                <span className="row-span-2 self-center @3xl/app:order-last @3xl/app:row-span-1">
+                  <ActionMenu
+                    label={`the entry at ${timeFormat.format(new Date(e.occurredAt))}`}
+                    actions={entryActions(e)}
+                  />
+                </span>
+                <span className="col-span-2 flex min-w-0 flex-col @3xl/app:col-span-1">
+                  {/* The name alone, the address on hover (#596): the log keeps the whole label. */}
+                  <span
+                    className="truncate text-ink-2"
+                    title={actorParts(e.actorLabel).address ?? undefined}
+                  >
+                    {actorParts(e.actorLabel).name}
+                    {actorParts(e.actorLabel).guest && <span className="text-ink-3"> (guest)</span>}
+                  </span>
+                  {targetOf(e) && (
+                    <span className="truncate text-[12px] text-ink-3">{targetOf(e)}</span>
+                  )}
+                  {/* One playback is one row; what it served waits behind it (#684). */}
+                  {(e.segments ?? 0) > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-expanded={opened.includes(e.id)}
+                      onClick={() =>
+                        setOpened((o) =>
+                          o.includes(e.id) ? o.filter((id) => id !== e.id) : [...o, e.id],
+                        )
+                      }
+                      className="-ml-2 self-start text-ink-3"
+                    >
+                      {e.segments} {e.segments === 1 ? "segment" : "segments"}
+                      <Icon
+                        name="chevronDown"
+                        size={12}
+                        className={cn(
+                          "transition-transform",
+                          opened.includes(e.id) && "rotate-180",
+                        )}
+                      />
+                    </Button>
+                  )}
+                </span>
+                <span className="tabular hidden truncate text-ink-3 @3xl/app:block">
+                  {e.ipAddress ?? ""}
+                </span>
+                <span
+                  className="hidden truncate text-ink-3 @6xl/app:block"
+                  title={e.userAgent ?? undefined}
+                >
+                  {shortAgent(e.userAgent) ?? ""}
+                </span>
+              </div>
+              {opened.includes(e.id) && <PlaybackSegments sessionId={e.id} />}
+            </Fragment>
           ))}
           {log.hasNextPage && (
             <div className="px-4 py-2">
@@ -1885,9 +1965,11 @@ export function WorkspaceSettingsPage({
   if (!me) return null;
   const role = me.organisations.find((o) => o.id === me.activeOrganisationId)?.role ?? "member";
   const sections = sectionsFor(role, me.billing, me.support?.mode);
-  const current =
-    sections.find((s) => s.id === section) ?? sections.find((s) => s.id === "members");
+  const asked = formerSections[section] ?? section;
+  const current = sections.find((s) => s.id === asked) ?? sections.find((s) => s.id === "members");
   if (!current) return null;
+  // An unlisted page appears in the sidebar only while it is open, so the phone's control names it.
+  const listed = sections.filter((s) => !s.unlisted || s.id === current.id);
   return (
     <>
       <PageHeader title="Workspace settings" />
@@ -1895,7 +1977,7 @@ export function WorkspaceSettingsPage({
         title={current.label}
         intro={current.intro}
         docs={current.docs}
-        sections={sections}
+        sections={listed}
         current={current.id}
         base="/settings/$section"
         param="section"
@@ -1910,25 +1992,22 @@ export function WorkspaceSettingsPage({
         {current.id === "security" && (
           <>
             <Security />
+            {/* The marks are the owners' to set (#682), beside the rest of the workspace's security. */}
+            {role === "owner" && <WatermarkingSection />}
             <SsoSection />
             <DirectorySection />
           </>
         )}
-        {current.id === "notifications" && (
-          <>
-            <ChannelsSection />
-            <ApiAndMcpSection />
-          </>
-        )}
+        {current.id === "channels" && <ChannelsSection />}
         {current.id === "api" && (
           <>
             <OAuthClientsSection />
             <TokensSection kind="service" />
-            <ScopesSection />
+            <McpSection />
             <WorkspaceApiLogSection />
           </>
         )}
-        {current.id === "storage" && <Storage role={role} />}
+        {current.id === "storage" && <Storage role={role} billing={Boolean(me.billing)} />}
         {current.id === "transfers" && <TransfersSection />}
         {current.id === "billing" && <BillingSection owner={role === "owner"} />}
         {current.id === "support" && (
@@ -1940,7 +2019,6 @@ export function WorkspaceSettingsPage({
         )}
         {current.id === "leaks" && <LeakTracingSection />}
         {current.id === "log" && <AccessLog />}
-        {current.id === "operations" && <Operations role={role} />}
       </SettingsLayout>
     </>
   );

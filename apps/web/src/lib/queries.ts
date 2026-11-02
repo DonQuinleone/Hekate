@@ -1575,21 +1575,42 @@ export interface AccessEvent {
   ipAddress: string | null;
   userAgent: string | null;
   details: Record<string, unknown> | null;
+  /** A playback's segments, read behind it, when the log was asked to group them (#684). */
+  segments?: number;
 }
 
-/** The access log, newest first, a page at a time, narrowed as the filters say (decision 263). */
-export const accessLogQuery = (filters: LogFilters) =>
+/**
+ * The access log, newest first, a page at a time, narrowed as the filters say (decision 263).
+ * `grouped`, a playback's segments are read behind its entry and counted on it (#684).
+ */
+export const accessLogQuery = (filters: LogFilters, segments?: "grouped" | "every") =>
   infiniteQueryOptions({
-    queryKey: ["organisation", "audit", filters],
+    queryKey: ["organisation", "audit", filters, segments ?? null],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
-      const query: Record<string, string> = { limit: "50", ...logQuery(filters) };
+      const query: Record<string, string> = {
+        limit: "50",
+        ...logQuery(filters),
+        ...(segments ? { segments } : {}),
+      };
       if (pageParam) query.before = pageParam;
       return json<{ events: AccessEvent[]; nextBefore: string | null }>(
         await api.organisation.audit.$get({ query }),
       );
     },
     getNextPageParam: (page) => page.nextBefore ?? undefined,
+  });
+
+/** A playback's segments, in the order they were served, for its expanded entry (#684). */
+export const playbackSegmentsQuery = (sessionId: string) =>
+  queryOptions({
+    queryKey: ["organisation", "audit", "segments", sessionId],
+    queryFn: async () =>
+      (
+        await json<{ events: AccessEvent[] }>(
+          await api.organisation.audit.sessions[":id"].segments.$get({ param: { id: sessionId } }),
+        )
+      ).events,
   });
 
 export function useSwitchOrganisation() {

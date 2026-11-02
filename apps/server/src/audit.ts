@@ -8,7 +8,21 @@ import {
   storedAuditActions,
 } from "@hekate/shared";
 import { getConnInfo } from "@hono/node-server/conninfo";
-import { and, desc, eq, gte, inArray, lt, lte, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  ne,
+  type SQL,
+} from "drizzle-orm";
 import type { Context } from "hono";
 import { countAccess } from "./metrics/index.ts";
 
@@ -160,6 +174,10 @@ export function createAudit(db: Database): Audit {
         f.to ? lte(accessEvents.occurredAt, new Date(f.to)) : undefined,
         // Ids are UUIDv7, so they sort by time: a cursor needs only the last id.
         f.before ? lt(accessEvents.id, f.before) : undefined,
+        // Grouped, a playback's segments are read behind its entry (#684), unless asked for.
+        f.segments === "grouped" && f.action !== "stream.segment"
+          ? ne(accessEvents.action, "stream.segment")
+          : undefined,
       ];
       const rows = await db
         .select()
@@ -172,6 +190,99 @@ export function createAudit(db: Database): Audit {
       return { events, nextBefore: more ? (events.at(-1)?.id ?? null) : null };
     },
   };
+}
+
+/**
+ * The segments a playback served (#684): the same file, to the same person, after its "Playback
+ * started" entry and before their next start of that file. Segments carry no playback of their
+ * own, so this is how one is told from the next; a start without a later one runs to now.
+ */
+async function segmentBounds(
+  db: Database,
+  organisationId: string,
+  session: Pick<AccessEvent, "id" | "fileId" | "userId" | "guestId">,
+): Promise<SQL[] | null> {
+  if (!session.fileId || (!session.userId && !session.guestId)) return null;
+  const who = [
+    session.userId ? eq(accessEvents.userId, session.userId) : isNull(accessEvents.userId),
+    session.guestId ? eq(accessEvents.guestId, session.guestId) : isNull(accessEvents.guestId),
+  ];
+  // Postgres has no min() of a uuid; ids are UUIDv7, so the first in order is the next start.
+  const [next] = await db
+    .select({ id: accessEvents.id })
+    .from(accessEvents)
+    .where(
+      inOrg(
+        accessEvents,
+        organisationId,
+        eq(accessEvents.action, "stream.session"),
+        eq(accessEvents.fileId, session.fileId),
+        gt(accessEvents.id, session.id),
+        ...who,
+      ),
+    )
+    .orderBy(asc(accessEvents.id))
+    .limit(1);
+  return [
+    eq(accessEvents.action, "stream.segment"),
+    eq(accessEvents.fileId, session.fileId),
+    gt(accessEvents.id, session.id),
+    ...(next?.id ? [lt(accessEvents.id, next.id)] : []),
+    ...who,
+  ];
+}
+
+/** How many segments each playback on a page served (#684), by the playback's id. */
+export async function segmentCounts(
+  db: Database,
+  organisationId: string,
+  events: readonly AccessEvent[],
+): Promise<Map<string, number>> {
+  const sessions = events.filter((e) => e.action === "stream.session");
+  const counted = await Promise.all(
+    sessions.map(async (s) => {
+      const bounds = await segmentBounds(db, organisationId, s);
+      if (!bounds) return [s.id, 0] as const;
+      const [row] = await db
+        .select({ n: count() })
+        .from(accessEvents)
+        .where(inOrg(accessEvents, organisationId, ...bounds));
+      return [s.id, row?.n ?? 0] as const;
+    }),
+  );
+  return new Map(counted);
+}
+
+/**
+ * A playback's segments, in the order they were served, for its expanded entry (#684); null
+ * when the id is not a playback of this workspace.
+ */
+export async function sessionSegments(
+  db: Database,
+  organisationId: string,
+  sessionId: string,
+  limit: number,
+): Promise<AccessEvent[] | null> {
+  const [session] = await db
+    .select()
+    .from(accessEvents)
+    .where(
+      inOrg(
+        accessEvents,
+        organisationId,
+        eq(accessEvents.id, sessionId),
+        eq(accessEvents.action, "stream.session"),
+      ),
+    );
+  if (!session) return null;
+  const bounds = await segmentBounds(db, organisationId, session);
+  if (!bounds) return [];
+  return db
+    .select()
+    .from(accessEvents)
+    .where(inOrg(accessEvents, organisationId, ...bounds))
+    .orderBy(asc(accessEvents.id))
+    .limit(limit);
 }
 
 const CSV_COLUMNS = [

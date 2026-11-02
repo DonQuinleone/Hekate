@@ -5,8 +5,8 @@ import { type FormEvent, useState } from "react";
 import { Loading } from "~/components/ui/states";
 import { shortAgent } from "~/lib/agent";
 import { authClient } from "~/lib/auth";
-import { ago } from "~/lib/comments";
 import { applyDensity } from "~/lib/density";
+import { lastUsed } from "~/lib/last-used";
 import { languageNames } from "~/lib/locale";
 import {
   meQuery,
@@ -20,13 +20,14 @@ import {
 import { applyTheme, themeChoices } from "~/lib/theme";
 import { Avatar } from "./avatar";
 import { useIdentityCheck } from "./identity-check";
+import { Kbd } from "./kbd";
 import { CodeAppSetup, RecoveryCodes } from "./second-factor";
 import { Danger, Row, Section, SwitchRow } from "./settings";
 import { Button } from "./ui/button";
 import { Choice } from "./ui/choice";
 import { Dialog, useConfirm } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
-import { StatusDot } from "./ui/status";
+import { Switch } from "./ui/toggle";
 
 const zones = (() => {
   try {
@@ -135,7 +136,8 @@ function EmailField({ email }: { email: string }) {
   );
 }
 
-/** Who you are to Hekate: picture, name, address, language, time zone, and workspaces. */
+/** Who you are to Hekate: picture, name, address, language, time zone, and workspaces. How you
+ * sign in is Security's (#594). */
 export function ProfileSection() {
   const { data: me } = useQuery(meQuery);
   const update = useUpdateProfile();
@@ -196,9 +198,10 @@ export function ProfileSection() {
             ))}
           </Select>
         </Row>
+        {/* Yours, across workspaces, so here rather than in one workspace's settings (#593). */}
         <Row
           name="Workspaces"
-          hint={me.organisations.map((o) => `${o.name} (${o.role})`).join(", ")}
+          hint={`${me.organisations.map((o) => `${o.name} (${o.role})`).join(", ")}. Switch from the menu at the foot of the sidebar.`}
         />
         {update.error && (
           <div className="px-4 py-2">
@@ -206,7 +209,6 @@ export function ProfileSection() {
           </div>
         )}
       </Section>
-      <PasswordSection />
       <DeleteAccount email={me.user.email} />
     </>
   );
@@ -294,8 +296,8 @@ function DeleteAccount({ email }: { email: string }) {
   );
 }
 
-/** A new password, with the current one to prove it is you. */
-function PasswordSection() {
+/** A new password, with the current one to prove it is you: first on Security (#594). */
+export function PasswordSection() {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
@@ -584,17 +586,13 @@ export function SessionsSection() {
           hint={[
             s.current ? shortAgent(s.userAgent) : null,
             s.ipAddress,
-            s.current ? "now" : `last used ${ago(s.lastUsedAt)}`,
+            s.current ? "now" : lastUsed(s.lastUsedAt),
           ]
             .filter(Boolean)
             .join(" · ")}
         >
-          {s.current ? (
-            <span className="flex items-center gap-2 text-[12px] text-ink-3">
-              <StatusDot state="approved" />
-              Here
-            </span>
-          ) : (
+          {/* "This browser" says it; no dot beside it repeats it (#707). */}
+          {!s.current && (
             <Button
               size="sm"
               variant="ghost"
@@ -627,13 +625,9 @@ export function SessionsSection() {
   );
 }
 
-/**
- * What appears on the recording page and how the player behaves, for you alone. The project
- * decides which tools you may have; this is which of them you want to see.
- */
+/** How Hekate looks to you: the theme and the density of every list (#680). */
 export function AppearanceSection() {
   const preferences = usePreferences();
-  const [confirm, confirmation] = useConfirm();
   const save = useSavePreferences();
   const choose = (theme: Theme) => {
     applyTheme(theme);
@@ -681,7 +675,27 @@ export function AppearanceSection() {
             <option value="compact">Compact</option>
           </Select>
         </Row>
+        {save.error && (
+          <div className="px-4 py-2">
+            <Note error>{save.error.message}</Note>
+          </div>
+        )}
       </Section>
+    </>
+  );
+}
+
+/**
+ * How the player opens and behaves, for you alone (#680): which of the tools your roles give you
+ * it shows, and how it moves. The project decides which tools you may have; this is which of
+ * them you want to see.
+ */
+export function PlayerSection() {
+  const preferences = usePreferences();
+  const [confirm, confirmation] = useConfirm();
+  const save = useSavePreferences();
+  return (
+    <>
       <Section title="Tools shown">
         <SwitchRow
           name="Spectrogram in the View menu"
@@ -706,14 +720,24 @@ export function AppearanceSection() {
           checked={preferences.showMetadataEditor}
           onChange={(showMetadataEditor) => save.mutate({ showMetadataEditor })}
         />
-        <SwitchRow
-          name="Keyboard map on ?"
-          hint="Off, open it from the Help menu instead."
-          checked={preferences.keyboardMapOnQuestion}
-          onChange={(keyboardMapOnQuestion) => save.mutate({ keyboardMapOnQuestion })}
-        />
+        {/* The key shown as a key (#595); the switch is named in words for a screen reader. */}
+        <Row
+          name={
+            <>
+              Open the keyboard map with <Kbd>?</Kbd>
+            </>
+          }
+          hint="When off, it opens from the Help menu."
+          inline
+        >
+          <Switch
+            label="Open the keyboard map with ?"
+            checked={preferences.keyboardMapOnQuestion}
+            onChange={(keyboardMapOnQuestion) => save.mutate({ keyboardMapOnQuestion })}
+          />
+        </Row>
       </Section>
-      <Section title="Player">
+      <Section title="Playing">
         <Row
           name="View presets"
           hint="Views kept from the player's View menu, with Save as…, to come back to."

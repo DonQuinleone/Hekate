@@ -9,7 +9,7 @@ A connected app reaches the workspace that registered it, and nothing else, exac
 
 ## Registering a client
 
-Owners and admins register clients in *Workspace settings*, *API and OAuth clients*. Choose **Client**, then give it:
+Owners and admins register clients in *Workspace settings*, *API*. Choose **Client**, then give it:
 
 - **A name.** People see it on the consent screen and in their connected apps.
 - **A kind.** *Confidential* for an application that runs on a server and can keep a secret; *Public (PKCE)* for one on someone's computer or phone, which cannot. A client's kind never changes; register another instead.

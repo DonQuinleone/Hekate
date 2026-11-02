@@ -5,6 +5,7 @@ import { Lockup, Mark, Wordmark } from "~/components/brand";
 import { DrawingMarks, DrawToolbar } from "~/components/drawings";
 import { Empty } from "~/components/empty";
 import { LinkedFiles } from "~/components/file-picker";
+import { FormFooter } from "~/components/form-footer";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { NeedsYou, NeedsYouDot } from "~/components/needs-you";
@@ -810,6 +811,24 @@ function Components() {
               hint="From a backup and the master key."
               href="https://example.com/"
             />
+          </Card>
+        </Spec>
+        <Spec
+          name="Form footer"
+          rule="Once at the foot of a settings form: what saving does at the left, Test and Save at the right."
+        >
+          <Card className="w-full max-w-[460px] divide-y divide-line">
+            <Row name="Server" hint="ldaps:// with its port.">
+              <Input
+                defaultValue="ldaps://directory.example:636"
+                className="w-48"
+                aria-label="Server"
+              />
+            </Row>
+            <FormFooter note="Test connects with the saved settings.">
+              <Button variant="ghost">Test connection</Button>
+              <Button variant="secondary">Save</Button>
+            </FormFooter>
           </Card>
         </Spec>
         <Spec

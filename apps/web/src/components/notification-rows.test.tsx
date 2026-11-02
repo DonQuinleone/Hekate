@@ -37,10 +37,7 @@ describe("the account's notification rows", () => {
         onChange={onChange}
       />,
     );
-    expect(getByRole("switch", { name: "Review asked of me, App" })).toHaveProperty(
-      "disabled",
-      true,
-    );
+    expect(getByRole("switch", { name: "Review requested, App" })).toHaveProperty("disabled", true);
     const mail = getByRole("switch", { name: "New version, Mail" });
     expect(mail.getAttribute("aria-checked")).toBe("false");
     mail.click();

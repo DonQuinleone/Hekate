@@ -36,6 +36,47 @@ export const apiScopeLabels: Record<ApiScope, string> = {
 };
 
 /**
+ * Each scope in words, as people read it (#590): what it is about, then whether it reads or
+ * changes. The identifier is shown beside it, since a token's maker types it into a script;
+ * `org:read` reads "Workspace: read", as copy says workspace (decision 037).
+ */
+export const apiScopeNames: Record<ApiScope, string> = {
+  "files:read": "Files: read",
+  "files:write": "Files: write",
+  "reviews:read": "Reviews: read",
+  "reviews:write": "Reviews: write",
+  comments: "Comments",
+  downloads: "Downloads",
+  workflows: "Workflows",
+  "org:read": "Workspace: read",
+};
+
+/** A token's or a client's scopes in words, in the order settings list them. */
+export const scopeWords = (scopes: readonly ApiScope[]): string =>
+  apiScopes
+    .filter((s) => scopes.includes(s))
+    .map((s) => apiScopeNames[s])
+    .join(", ");
+
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+/**
+ * A call in the API log as people read it (#590): its identifiers folded to "…", so the path is
+ * never cut mid-identifier, and the project it reached named, when a project's identifier is in
+ * it and the caller knows its name.
+ */
+export function readableCall(
+  path: string,
+  projectName: (id: string) => string | undefined,
+): { path: string; project: string | null } {
+  const project = /\/projects\/([0-9a-f-]{36})(?:\/|$)/i.exec(path)?.[1];
+  return {
+    path: path.replace(UUID, "…"),
+    project: (project && projectName(project.toLowerCase())) || null,
+  };
+}
+
+/**
  * Whose a token is: a member's own, the workspace's (a service token), or an application's that
  * the member connected through OAuth (#447), acting as them within what they granted.
  */

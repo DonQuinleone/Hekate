@@ -19,11 +19,13 @@ import { ChoiceCard } from "./ui/choice";
 import { Dialog } from "./ui/dialog";
 import { Field } from "./ui/field";
 import { Input } from "./ui/input";
+import { type ReviewState, StatusDot } from "./ui/status";
 
 /**
- * The workspace's Billing settings (#179), as the prototype has them: where it stands, its plan
- * and the card that pays for it, the month against its limits, its invoices, and cancelling.
- * Admins read it; its owners, who pay, change it.
+ * The workspace's Billing settings (#179), as the prototype has them: where it stands (its plan,
+ * storage and members against the plan, and what comes next, said once, #592), the plan's terms
+ * and the card that pays for it, its invoices as a table, and cancelling. Admins read it; its
+ * owners, who pay, change it.
  */
 
 const shortDate = formatDates({ day: "numeric", month: "short" });
@@ -37,12 +39,24 @@ const priceWords = (price: PlanChoice["price"]) =>
 const invoiceStatus = (i: Invoice) => {
   if (i.status === "open")
     return i.dueAt && new Date(i.dueAt) < new Date()
-      ? `Overdue since ${invoiceDate.format(new Date(i.dueAt))}`
+      ? `Overdue since ${shortDate.format(new Date(i.dueAt))}`
       : i.dueAt
-        ? `Due ${invoiceDate.format(new Date(i.dueAt))}`
+        ? `Due ${shortDate.format(new Date(i.dueAt))}`
         : "Due";
   return { draft: "Draft", paid: "Paid", void: "Void", uncollectible: "Not paid" }[i.status];
 };
+
+/** An invoice's status as a dot's shape: paid is done, overdue in signal, void struck off. */
+const invoiceDot = (i: Invoice): ReviewState => {
+  if (i.status === "paid") return "approved";
+  if (i.status === "open")
+    return i.dueAt && new Date(i.dueAt) < new Date() ? "changes_requested" : "in_review";
+  if (i.status === "draft") return "submitted";
+  return "cancelled";
+};
+
+/** How many invoices the table shows before "Show older". */
+const INVOICES_SHOWN = 5;
 
 export function BillingSection({ owner }: { owner: boolean }) {
   const { data, error, refetch } = useQuery(billingQuery);
@@ -85,21 +99,31 @@ function Tiles({ billing }: { billing: WorkspaceBilling }) {
             price ? formatMoney(price.amount, price.currency) : "",
           ]
         : ["Next invoice", "None", "nothing is due"];
-  const tiles: [string, string, string][] = [
-    [
-      "Plan",
-      plan.plan?.name ?? "Included",
-      price ? priceWords(price) : plan.plan ? "by agreement" : "everything included",
-    ],
-    [
-      "Storage",
-      formatBytes(usage.storageBytes),
-      quota === null ? "no quota" : `of ${formatBytes(quota)}`,
-    ],
-    ["Members", String(usage.members), people === null ? "no limit" : `of ${people}`],
-    [next[0] ?? "", next[1] ?? "", next[2] ?? ""],
+  // Storage as it is counted, at the month's peak; members with the invited, who take a place.
+  const stored = standing(Math.max(usage.storageBytes, usage.month?.storagePeak ?? 0), quota);
+  const placed = standing(usage.members + usage.invited, people);
+  const near = { under: "", near: " · nearly at the limit", reached: " · at the limit" } as const;
+  const tiles: { label: string; value: string; hint: string; flag?: boolean }[] = [
+    {
+      label: "Plan",
+      value: plan.plan?.name ?? "Included",
+      hint: price ? priceWords(price) : plan.plan ? "by agreement" : "everything included",
+    },
+    {
+      label: "Storage",
+      value: formatBytes(usage.storageBytes),
+      hint: quota === null ? "no quota" : `of ${formatBytes(quota)}${near[stored]}`,
+      flag: stored !== "under",
+    },
+    {
+      label: "Members",
+      value: String(usage.members),
+      hint: people === null ? "no limit" : `of ${people}${near[placed]}`,
+      flag: placed !== "under",
+    },
+    { label: next[0] ?? "", value: next[1] ?? "", hint: next[2] ?? "" },
   ];
-  return <TileGrid tiles={tiles.map(([label, value, hint]) => ({ label, value, hint }))} />;
+  return <TileGrid tiles={tiles} />;
 }
 
 /**
@@ -183,10 +207,11 @@ function PlanSection({
   onChange: () => void;
 }) {
   const portal = useBillingPortal();
-  const { plan, usage, customer, gateway } = billing;
-  const name = plan.plan?.name ?? "The included plan";
+  const { plan, customer, gateway } = billing;
+  // The plan's name is the tile's above; here, what it includes (#592).
+  const summary = planSummary(plan.entitlements, formatBytes);
   const intro = [
-    `${name}: ${planSummary(plan.entitlements, formatBytes)}.`,
+    `${summary.charAt(0).toUpperCase()}${summary.slice(1)}.`,
     gateway
       ? "Change it any time; the difference is pro-rated."
       : "Plans here are arranged with the instance's operators.",
@@ -202,20 +227,6 @@ function PlanSection({
         .filter(Boolean)
         .join(" · ")
     : null;
-  const limits = [
-    // Storage as it is counted: at the month's peak.
-    standing(
-      Math.max(usage.storageBytes, usage.month?.storagePeak ?? 0),
-      usage.limits.storageQuota,
-    ),
-    standing(usage.members + usage.invited, usage.limits.memberLimit),
-    standing(usage.projects, usage.limits.projectLimit ?? null),
-  ];
-  const where = limits.includes("reached")
-    ? "At a limit"
-    : limits.includes("near")
-      ? "Near a limit"
-      : "Within the plan";
   return (
     <Section
       title="Plan"
@@ -230,106 +241,191 @@ function PlanSection({
         )
       }
     >
-      {gateway && (
+      {/* A plan by agreement has no card or details here: the section is its words alone. */}
+      {gateway || portal.isError ? (
         <>
-          <Row
-            name="Payment"
-            hint={
-              card
-                ? `${card.brand[0]?.toUpperCase()}${card.brand.slice(1)} ending ${card.last4} · expires ${String(card.expMonth).padStart(2, "0")}/${String(card.expYear).slice(-2)}`
-                : "No card yet: one is asked for when a plan is chosen."
-            }
-          >
-            {owner && customer && (
-              <Button
-                variant="ghost"
-                size="md"
-                disabled={portal.isPending}
-                onClick={() => portal.mutate()}
+          {gateway && (
+            <>
+              <Row
+                name="Payment"
+                hint={
+                  card
+                    ? `${card.brand[0]?.toUpperCase()}${card.brand.slice(1)} ending ${card.last4} · expires ${String(card.expMonth).padStart(2, "0")}/${String(card.expYear).slice(-2)}`
+                    : "No card yet: one is asked for when a plan is chosen."
+                }
               >
-                Update card
-              </Button>
-            )}
-          </Row>
-          <Row
-            name="Billing details"
-            hint={details || "Given at checkout: the name, address and VAT number invoices carry."}
-          >
-            {owner && customer && (
-              <Button
-                variant="ghost"
-                size="md"
-                disabled={portal.isPending}
-                onClick={() => portal.mutate()}
+                {owner && customer && (
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    disabled={portal.isPending}
+                    onClick={() => portal.mutate()}
+                  >
+                    Update card
+                  </Button>
+                )}
+              </Row>
+              <Row
+                name="Billing details"
+                hint={
+                  details || "Given at checkout: the name, address and VAT number invoices carry."
+                }
               >
-                Edit
-              </Button>
-            )}
-          </Row>
+                {owner && customer && (
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    disabled={portal.isPending}
+                    onClick={() => portal.mutate()}
+                  >
+                    Edit
+                  </Button>
+                )}
+              </Row>
+            </>
+          )}
+          {portal.isError && (
+            <p role="alert" className="m-0 px-4 py-2 text-[13px] text-signal">
+              {portal.error.message}
+            </p>
+          )}
         </>
-      )}
-      <Row
-        name="Usage this month"
-        hint="Storage counts at the month's peak; members at the month's end."
-      >
-        <span
-          className={
-            where === "Within the plan" ? "text-[13px] text-ink-2" : "text-[13px] text-signal"
-          }
-        >
-          {where}
-        </span>
-      </Row>
-      {portal.isError && (
-        <p role="alert" className="m-0 px-4 py-2 text-[13px] text-signal">
-          {portal.error.message}
-        </p>
-      )}
+      ) : null}
     </Section>
   );
 }
 
+/**
+ * The invoices as a table (#592), as Stripe's customer portal lists them: number, date, amount,
+ * where it stands, and the way to open it. The latest five, then "Show older". The gateway's
+ * open as its PDF or its page; one made by hand opens here, with what it says.
+ */
 function Invoices({ invoices }: { invoices: Invoice[] }) {
+  const [all, setAll] = useState(false);
+  const [open, setOpen] = useState<Invoice | null>(null);
+  const shown = all ? invoices : invoices.slice(0, INVOICES_SHOWN);
   return (
-    <Section title="Invoices">
+    <Section title="Invoices" count={invoices.length || undefined}>
       {invoices.length === 0 ? (
         <Row name="No invoices yet" hint="Each one appears here once it is issued." />
       ) : (
-        invoices.map((i) => (
-          <Row
-            key={i.id}
-            inline
-            name={
-              <span className="flex items-center gap-2">
-                <span className="tabular">{i.number ?? "Draft"}</span>
-                <span className="text-[12px] text-ink-3">
-                  {invoiceDate.format(new Date(i.issuedAt))}
-                </span>
-              </span>
-            }
-            hint={[
-              invoiceStatus(i),
-              i.description,
-              // Credits it took off (#445), as a line of their own.
-              i.credit ? `${formatMoney(i.credit, i.currency)} credit taken off` : null,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          >
-            <span className="tabular text-[13px] text-ink-2">
-              {formatMoney(i.amountDue, i.currency)}
-            </span>
-            {(i.pdfUrl ?? i.url) && (
-              <Button variant="ghost" size="md" asChild>
-                <a href={i.pdfUrl ?? i.url ?? ""} target="_blank" rel="noopener noreferrer">
-                  {i.pdfUrl ? "PDF" : "Open"}
-                </a>
+        <div className="flex flex-col">
+          <table className="w-full table-fixed border-collapse text-[13px]">
+            <thead>
+              <tr className="text-left">
+                <th className="label px-4 py-2 font-normal">Invoice</th>
+                <th className="label hidden w-32 px-2 py-2 font-normal @3xl/app:table-cell">
+                  Date
+                </th>
+                <th className="label hidden w-24 px-2 py-2 text-right font-normal @3xl/app:table-cell">
+                  Amount
+                </th>
+                <th className="label w-28 px-2 py-2 font-normal @3xl/app:w-44">Status</th>
+                <th className="w-20 py-2 pr-2.5 pl-2">
+                  <span className="sr-only">Open</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((i) => {
+                const link = i.pdfUrl ?? i.url;
+                return (
+                  <tr key={i.id} data-invoice className="border-t border-line">
+                    <td className="min-w-0 px-4 py-row">
+                      <span className="tabular block truncate text-ink">{i.number ?? "Draft"}</span>
+                      {/* On a phone the date and the amount go under the number. */}
+                      <span className="tabular block truncate text-[12px] text-ink-3 @3xl/app:hidden">
+                        {invoiceDate.format(new Date(i.issuedAt))} ·{" "}
+                        {formatMoney(i.amountDue, i.currency)}
+                      </span>
+                    </td>
+                    <td className="hidden truncate px-2 py-row text-ink-2 @3xl/app:table-cell">
+                      {invoiceDate.format(new Date(i.issuedAt))}
+                    </td>
+                    <td className="tabular hidden px-2 py-row text-right text-ink @3xl/app:table-cell">
+                      {formatMoney(i.amountDue, i.currency)}
+                    </td>
+                    <td className="px-2 py-row">
+                      <span className="inline-flex max-w-full items-center gap-[7px] rounded-full border border-hairline px-2.5 py-0.5 text-[12px] text-ink-2">
+                        <StatusDot state={invoiceDot(i)} />
+                        <span className="truncate">{invoiceStatus(i)}</span>
+                      </span>
+                    </td>
+                    <td className="py-row pr-2.5 pl-2 text-right">
+                      {link ? (
+                        <Button variant="ghost" size="sm" asChild>
+                          <a
+                            href={link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            aria-label={`Open ${i.number ?? "the draft"}${i.pdfUrl ? " as a PDF" : ""}`}
+                          >
+                            {i.pdfUrl ? "PDF" : "Open"}
+                          </a>
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          aria-label={`Open ${i.number ?? "the draft"}`}
+                          onClick={() => setOpen(i)}
+                        >
+                          Open
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {invoices.length > INVOICES_SHOWN && !all && (
+            <div className="border-t border-line px-1.5 py-2">
+              <Button variant="ghost" size="sm" onClick={() => setAll(true)}>
+                Show older
               </Button>
-            )}
-          </Row>
-        ))
+            </div>
+          )}
+        </div>
       )}
+      {open && <InvoiceDialog invoice={open} onClose={() => setOpen(null)} />}
     </Section>
+  );
+}
+
+/** An invoice made by hand, opened: it has no page at a gateway, so what it says is here. */
+function InvoiceDialog({ invoice: i, onClose }: { invoice: Invoice; onClose: () => void }) {
+  const period =
+    i.periodStart && i.periodEnd
+      ? `${invoiceDate.format(new Date(i.periodStart))} to ${invoiceDate.format(new Date(i.periodEnd))}`
+      : null;
+  return (
+    <Dialog
+      title={`Invoice ${i.number ?? "draft"}`}
+      description={`Issued ${longDate.format(new Date(i.issuedAt))}. Sent by the instance's operators, outside Hekate.`}
+      onClose={onClose}
+      width="sm"
+    >
+      <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-[13px]">
+        {(
+          [
+            ["For", i.description],
+            ["Period", period],
+            ["Amount", formatMoney(i.amountDue, i.currency)],
+            ["Paid", i.amountPaid > 0 ? formatMoney(i.amountPaid, i.currency) : null],
+            ["Credit", i.credit ? `${formatMoney(i.credit, i.currency)} taken off` : null],
+            ["Status", invoiceStatus(i)],
+          ] as const
+        )
+          .filter(([, value]) => value)
+          .map(([name, value]) => (
+            <div key={name} className="contents">
+              <dt className="text-ink-3">{name}</dt>
+              <dd className="m-0 text-ink [overflow-wrap:anywhere]">{value}</dd>
+            </div>
+          ))}
+      </dl>
+    </Dialog>
   );
 }
 
