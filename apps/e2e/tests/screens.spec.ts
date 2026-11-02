@@ -3008,7 +3008,9 @@ test("file-status-menu", async ({ page }) => {
 });
 
 // Zoomed into a recording (#34): two steps in, the view scrolled with the playhead.
-test("file-zoom", async ({ page }) => {
+test("file-zoom", async ({ page }, info) => {
+  // A phone zooms with a pinch; the zoom buttons and the arrow keys are a wide screen's (#637).
+  test.skip(info.project.name === "phone", "A phone zooms with a pinch");
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
   await page.getByRole("button", { name: "Zoom into the waveform" }).click();
