@@ -1,6 +1,9 @@
 import { z } from "zod";
+import { eventNames } from "./event-names.ts";
 import { itemWords } from "./item-words.ts";
 import { projectProfile } from "./profile.ts";
+
+export { eventNames };
 
 /**
  * What happens in a workspace that its channels can carry (#161): Slack, Discord, Microsoft
@@ -21,19 +24,6 @@ export const eventKinds = [
 ] as const;
 export type EventKind = (typeof eventKinds)[number];
 export const eventKind = z.enum(eventKinds);
-
-/**
- * The names of the events a workspace's channels and a member's notifications both hear of
- * (#681): one name for each, so the workspace's Channels and the account's Notifications call
- * the same thing the same way.
- */
-export const eventNames = {
-  review: "Review requested",
-  decision: "Decision recorded",
-  version: "New version",
-  mention: "Mention",
-  processing: "Processing failed",
-} as const;
 
 /** How each kind reads in the events matrix: a name, as the account's Notifications has it. */
 export const eventLabels: Record<EventKind, string> = {

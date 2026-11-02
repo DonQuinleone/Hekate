@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { EmailTemplateId } from "./email.ts";
-import { eventNames } from "./events.ts";
+import { eventNames } from "./event-names.ts";
 
 /**
  * What tells a member something happened (docs/domain.md, Notifications). Each kind can reach
