@@ -52,6 +52,9 @@ describe("formatting for lists", () => {
     expect(formatChannels(12, "7.1.4")).toBe("7.1.4");
     expect(formatChannels(6, "6 channels")).toBe("6 ch");
     expect(formatChannels(4)).toBe("4 ch");
+    // A layout name is read by position, so a long run of brackets costs nothing.
+    expect(formatChannels(2, "(".repeat(100_000))).toBe("(".repeat(100_000));
+    expect(formatChannels(2, `${"(".repeat(100_000)})`)).toBe("");
   });
 
   it("labels each channel of a layout in stream order", () => {

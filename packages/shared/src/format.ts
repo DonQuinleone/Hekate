@@ -109,7 +109,11 @@ export function formatDuration(seconds: number): string {
  * layout name when it has one, without the variant (`5.1(side)` reads as `5.1`).
  */
 export function formatChannels(channels: number, layout?: string): string {
-  if (layout && !/channels?$/.test(layout)) return layout.replace(/\(.*\)$/, "");
+  if (layout && !/channels?$/.test(layout)) {
+    // Cut at the variant's bracket by position, not by a pattern that backtracks on long input.
+    const open = layout.indexOf("(");
+    return open >= 0 && layout.endsWith(")") ? layout.slice(0, open) : layout;
+  }
   if (channels === 1) return "mono";
   if (channels === 2) return "stereo";
   return `${channels} ch`;
