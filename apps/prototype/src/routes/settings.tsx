@@ -84,9 +84,9 @@ const sections = [
   { id: "categories", label: "Comment categories", group: "Projects and reviews" },
   { id: "delivery", label: "Delivery profiles", group: "Projects and reviews" },
   { id: "transfers", label: "Transfers", group: "Projects and reviews" },
-  { id: "security", label: "Security", group: "Security" },
-  { id: "leaks", label: "Leak tracing", group: "Security" },
-  { id: "log", label: "Access log", group: "Security" },
+  { id: "security", label: "Security", group: "Protection" },
+  { id: "leaks", label: "Leak tracing", group: "Protection" },
+  { id: "log", label: "Access log", group: "Protection" },
   { id: "channels", label: "Channels", group: "Integrations" },
   { id: "api", label: "API", group: "Integrations" },
   { id: "billing", label: "Billing", group: "Plan" },
@@ -417,8 +417,10 @@ export function SettingsPage({
                   <th className="label hidden w-32 px-2 py-2 font-normal @3xl/app:table-cell">
                     Date
                   </th>
-                  <th className="label w-24 px-2 py-2 text-right font-normal">Amount</th>
-                  <th className="label w-36 px-2 py-2 font-normal @3xl/app:w-44">Status</th>
+                  <th className="label hidden w-24 px-2 py-2 text-right font-normal @3xl/app:table-cell">
+                    Amount
+                  </th>
+                  <th className="label w-28 px-2 py-2 font-normal @3xl/app:w-44">Status</th>
                   <th className="w-16 px-4 py-2">
                     <span className="sr-only">Open</span>
                   </th>
@@ -435,10 +437,14 @@ export function SettingsPage({
                   <tr key={no} className="border-t border-line">
                     <td className="px-4 py-row">
                       <span className="tabular block text-ink">{no}</span>
-                      <span className="block text-[12px] text-ink-3 @3xl/app:hidden">{when}</span>
+                      <span className="block text-[12px] text-ink-3 @3xl/app:hidden">
+                        {when} · {amt}
+                      </span>
                     </td>
                     <td className="hidden px-2 py-row text-ink-2 @3xl/app:table-cell">{when}</td>
-                    <td className="tabular px-2 py-row text-right text-ink">{amt}</td>
+                    <td className="tabular hidden px-2 py-row text-right text-ink @3xl/app:table-cell">
+                      {amt}
+                    </td>
                     <td className="px-2 py-row">
                       <span className="inline-flex items-center gap-[7px] rounded-full border border-hairline px-2.5 py-0.5 text-[12px] text-ink-2">
                         <Dot state={st === "Paid" ? "approved" : "invited"} />

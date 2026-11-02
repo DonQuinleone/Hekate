@@ -231,7 +231,7 @@ const allSections: SectionSpec[] = [
   {
     id: "security",
     label: "Security",
-    group: "Security",
+    group: "Protection",
     from: "admin",
     intro:
       "How members sign in: the ways allowed, the second factor, single sign-on or a directory, and how long a session lasts; for owners, how downloads are marked.",
@@ -240,7 +240,7 @@ const allSections: SectionSpec[] = [
   {
     id: "leaks",
     label: "Leak tracing",
-    group: "Security",
+    group: "Protection",
     from: "owner",
     intro: "Find which recipient a leaked file was watermarked for.",
     docs: "/use/leak-tracing/",
@@ -248,7 +248,7 @@ const allSections: SectionSpec[] = [
   {
     id: "log",
     label: "Access log",
-    group: "Security",
+    group: "Protection",
     from: "admin",
     intro: "Every key issue, page render and download, and the changes that matter.",
     docs: "/security/model/#audit",

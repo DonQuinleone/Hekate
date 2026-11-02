@@ -10,7 +10,7 @@ import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
-import { useWorkspaceMail, workspaceMailQuery } from "~/lib/queries";
+import { meQuery, useWorkspaceMail, workspaceMailQuery } from "~/lib/queries";
 import { SuppressionsDialog } from "./event-channels";
 import { Icon } from "./icons";
 import { MailLogNotice } from "./mail-log-notice";
@@ -31,13 +31,16 @@ const timeFormat = formatDates({ hour: "2-digit", minute: "2-digit" });
  */
 export function WorkspaceMailSection() {
   const { data: mail, isPending } = useQuery(workspaceMailQuery);
+  const { data: me } = useQuery(meQuery);
+  // The banner says what the workspace's own mail would do; the row then need not say it again.
+  const told = Boolean(me?.mail?.logOnly) && !isPending && !mail;
   const [editing, setEditing] = useState(false);
   const [bounced, setBounced] = useState(false);
   return (
     <>
       {!isPending && !mail && <MailLogNotice fix="workspace" />}
       <Section title="Sending">
-        <MailRow onEdit={() => setEditing(true)} onBounced={() => setBounced(true)} />
+        <MailRow told={told} onEdit={() => setEditing(true)} onBounced={() => setBounced(true)} />
       </Section>
       {editing && <WorkspaceMailDialog saved={mail ?? null} onClose={() => setEditing(false)} />}
       {bounced && <SuppressionsDialog scope="workspace" onClose={() => setBounced(false)} />}
@@ -50,7 +53,16 @@ export function WorkspaceMailSection() {
  * then sends what members, guests and invitations are sent. It is not a channel: members choose
  * what reaches them by mail.
  */
-function MailRow({ onEdit, onBounced }: { onEdit: () => void; onBounced: () => void }) {
+function MailRow({
+  told,
+  onEdit,
+  onBounced,
+}: {
+  /** The page's banner already offers the workspace's own mail. */
+  told: boolean;
+  onEdit: () => void;
+  onBounced: () => void;
+}) {
   const { data: mail, isPending } = useQuery(workspaceMailQuery);
   const [confirm, confirmation] = useConfirm();
   const { remove, resume, test } = useWorkspaceMail();
@@ -61,7 +73,11 @@ function MailRow({ onEdit, onBounced }: { onEdit: () => void; onBounced: () => v
       {outcome.result}
     </span>
   ) : !mail ? (
-    "Through the instance's mail. Give the workspace its own, and members, guests and invitations are sent from it."
+    told ? (
+      "Through the instance's mail."
+    ) : (
+      "Through the instance's mail. Give the workspace its own, and members, guests and invitations are sent from it."
+    )
   ) : mail.pausedUntil ? (
     `${mail.target} · paused after ${mail.failures} failures, until ${timeFormat.format(new Date(mail.pausedUntil))}; the instance's mail sends meanwhile`
   ) : mail.failures > 0 ? (

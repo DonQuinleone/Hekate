@@ -4904,7 +4904,9 @@ test("account-passkeys", async ({ browser }, info) => {
     while ((await actions.count()) > 0) {
       const before = await actions.count();
       await actions.first().click();
-      await page.getByRole("menuitem", { name: "Revoke" }).click();
+      await page.getByRole("menuitem", { name: "Revoke…" }).click();
+      // Revoking asks first (#544).
+      await page.getByRole("dialog").getByRole("button", { name: "Revoke key" }).click();
       await expect(actions).toHaveCount(before - 1);
     }
     await context.close();

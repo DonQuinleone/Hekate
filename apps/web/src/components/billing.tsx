@@ -237,49 +237,56 @@ function PlanSection({
         )
       }
     >
-      {gateway && (
+      {/* A plan by agreement has no card or details here: the section is its words alone. */}
+      {gateway || portal.isError ? (
         <>
-          <Row
-            name="Payment"
-            hint={
-              card
-                ? `${card.brand[0]?.toUpperCase()}${card.brand.slice(1)} ending ${card.last4} · expires ${String(card.expMonth).padStart(2, "0")}/${String(card.expYear).slice(-2)}`
-                : "No card yet: one is asked for when a plan is chosen."
-            }
-          >
-            {owner && customer && (
-              <Button
-                variant="ghost"
-                size="md"
-                disabled={portal.isPending}
-                onClick={() => portal.mutate()}
+          {gateway && (
+            <>
+              <Row
+                name="Payment"
+                hint={
+                  card
+                    ? `${card.brand[0]?.toUpperCase()}${card.brand.slice(1)} ending ${card.last4} · expires ${String(card.expMonth).padStart(2, "0")}/${String(card.expYear).slice(-2)}`
+                    : "No card yet: one is asked for when a plan is chosen."
+                }
               >
-                Update card
-              </Button>
-            )}
-          </Row>
-          <Row
-            name="Billing details"
-            hint={details || "Given at checkout: the name, address and VAT number invoices carry."}
-          >
-            {owner && customer && (
-              <Button
-                variant="ghost"
-                size="md"
-                disabled={portal.isPending}
-                onClick={() => portal.mutate()}
+                {owner && customer && (
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    disabled={portal.isPending}
+                    onClick={() => portal.mutate()}
+                  >
+                    Update card
+                  </Button>
+                )}
+              </Row>
+              <Row
+                name="Billing details"
+                hint={
+                  details || "Given at checkout: the name, address and VAT number invoices carry."
+                }
               >
-                Edit
-              </Button>
-            )}
-          </Row>
+                {owner && customer && (
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    disabled={portal.isPending}
+                    onClick={() => portal.mutate()}
+                  >
+                    Edit
+                  </Button>
+                )}
+              </Row>
+            </>
+          )}
+          {portal.isError && (
+            <p role="alert" className="m-0 px-4 py-2 text-[13px] text-signal">
+              {portal.error.message}
+            </p>
+          )}
         </>
-      )}
-      {portal.isError && (
-        <p role="alert" className="m-0 px-4 py-2 text-[13px] text-signal">
-          {portal.error.message}
-        </p>
-      )}
+      ) : null}
     </Section>
   );
 }
@@ -306,8 +313,10 @@ function Invoices({ invoices }: { invoices: Invoice[] }) {
                 <th className="label hidden w-32 px-2 py-2 font-normal @3xl/app:table-cell">
                   Date
                 </th>
-                <th className="label w-24 px-2 py-2 text-right font-normal">Amount</th>
-                <th className="label w-36 px-2 py-2 font-normal @3xl/app:w-44">Status</th>
+                <th className="label hidden w-24 px-2 py-2 text-right font-normal @3xl/app:table-cell">
+                  Amount
+                </th>
+                <th className="label w-28 px-2 py-2 font-normal @3xl/app:w-44">Status</th>
                 <th className="w-16 px-4 py-2">
                   <span className="sr-only">Open</span>
                 </th>
@@ -320,14 +329,16 @@ function Invoices({ invoices }: { invoices: Invoice[] }) {
                   <tr key={i.id} data-invoice className="border-t border-line">
                     <td className="min-w-0 px-4 py-row">
                       <span className="tabular block truncate text-ink">{i.number ?? "Draft"}</span>
-                      <span className="block truncate text-[12px] text-ink-3 @3xl/app:hidden">
-                        {invoiceDate.format(new Date(i.issuedAt))}
+                      {/* On a phone the date and the amount go under the number. */}
+                      <span className="tabular block truncate text-[12px] text-ink-3 @3xl/app:hidden">
+                        {invoiceDate.format(new Date(i.issuedAt))} ·{" "}
+                        {formatMoney(i.amountDue, i.currency)}
                       </span>
                     </td>
                     <td className="hidden truncate px-2 py-row text-ink-2 @3xl/app:table-cell">
                       {invoiceDate.format(new Date(i.issuedAt))}
                     </td>
-                    <td className="tabular px-2 py-row text-right text-ink">
+                    <td className="tabular hidden px-2 py-row text-right text-ink @3xl/app:table-cell">
                       {formatMoney(i.amountDue, i.currency)}
                     </td>
                     <td className="px-2 py-row">
@@ -365,7 +376,7 @@ function Invoices({ invoices }: { invoices: Invoice[] }) {
             </tbody>
           </table>
           {invoices.length > INVOICES_SHOWN && !all && (
-            <div className="border-t border-line px-4 py-2">
+            <div className="border-t border-line px-1.5 py-2">
               <Button variant="ghost" size="sm" onClick={() => setAll(true)}>
                 Show older
               </Button>
