@@ -83,7 +83,8 @@ export function overviewAttention(
       };
     }),
     ...overview.overdue
-      .filter((r) => !yours.has(r.id))
+      // Late by the reader's own clock, so the count and the words beside it agree.
+      .filter((r) => !yours.has(r.id) && (!r.dueAt || dueIn(r.dueAt, now).days < 0))
       .map(
         (r): OverviewAttention => ({
           id: `overdue-${r.id}`,

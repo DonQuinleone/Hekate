@@ -303,7 +303,7 @@ export function ProjectOverview({ project }: { project: Project }) {
             label={`${noun} approved`}
             value={`${f.approvedTracks} of ${f.versionedTracks}`}
             // Only what has a version can be approved, and the tile says so.
-            hint={`counting the ${plural(f.versionedTracks, words.track)} with a ${words.version}`}
+            hint={`with a ${words.version} only`}
           />
         )}
         <Stat

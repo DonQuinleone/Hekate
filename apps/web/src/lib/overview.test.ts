@@ -73,6 +73,18 @@ describe("overviewAttention", () => {
     expect(items[1]?.why).toBe("Waiting on Mira");
   });
 
+  it("lists a review as overdue only once it is late by the reader's clock", () => {
+    const items = overviewAttention(
+      overview({
+        overdue: [{ id: "r3", title: "Edit points", dueAt: "2026-10-30T12:00:00Z", waitingOn: [] }],
+      }),
+      [],
+      "p1",
+      Date.parse("2026-10-16T09:00:00Z"),
+    );
+    expect(items).toEqual([]);
+  });
+
   it("does not list a review twice when it is both yours and overdue", () => {
     const items = overviewAttention(
       overview({ overdue: [{ id: "r1", title: "Album masters", dueAt: null, waitingOn: [] }] }),

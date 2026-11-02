@@ -403,7 +403,7 @@ function Overview({ project }: { project: Project }) {
         <Stat
           label={`${noun[0]?.toUpperCase()}${noun.slice(1)} approved`}
           value={`${approved} of ${withVersion}`}
-          hint={`counting the ${plural(withVersion, noun.slice(0, -1))} with a ${project.profile === "music" ? "version" : "cut"}`}
+          hint={`with a ${project.profile === "music" ? "version" : "cut"} only`}
         />
         <Stat
           label="In review"
