@@ -40,7 +40,7 @@ const toolLabels: Record<ReviewerTool, string> = {
  */
 const downloadChoices: { value: DownloadLevel; label: string }[] = [
   { value: "none", label: "No download" },
-  { value: "proxy", label: "Proxy" },
+  { value: "proxy", label: "Review copy" },
   { value: "original", label: "Original" },
 ];
 
