@@ -5,7 +5,7 @@
 
 # Every stage starts from the same image, pinned by digest, so all of them are one Alpine
 # release; Renovate moves the pin when the image is rebuilt.
-FROM node:26-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS base
+FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
 # Node 26 no longer ships Corepack; install the pnpm version package.json pins.
 RUN npm install -g pnpm@12.11.2 && npm cache clean --force
@@ -33,14 +33,14 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-l
 
 # The EBU ADM Renderer and its hash-pinned wheels (musllinux), installed with pip here so that
 # neither pip nor any build tool reaches the runtime. Alpine's own python3, as the runtime has.
-FROM node:26-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS ear
+FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS ear
 RUN apk add --no-cache python3 py3-pip
 COPY tools/ear /tools/ear
 RUN /tools/ear/install.sh /opt/ear
 
 # Runtime: Node, ffmpeg, Poppler's tools and Python; no package manager, no shell, no setuid
 # binaries, and no program Hekate does not run.
-FROM node:26-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS runtime
+FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS runtime
 # The fonts keep the faces Hekate and Poppler use: DejaVu's Sans, Sans Mono and Serif, upright
 # and bold, and Droid Sans Fallback alone from Droid's non-Latin fonts.
 RUN apk upgrade --no-cache \
