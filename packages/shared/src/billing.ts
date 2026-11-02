@@ -357,6 +357,8 @@ export interface BillingWorkspaceRow {
   dunningSuspended: boolean;
   /** Credits held for its next invoice by hand (#445), by currency; none for the gateway's. */
   credits: { amount: number; currency: string }[];
+  /** What its open invoices still ask, by currency (#694): what waiving lets off. */
+  owed?: { amount: number; currency: string }[];
   /** Its latest invoice from the gateway with a page, which can be sent again (#445). */
   latestInvoice: { number: string | null; issuedAt: string } | null;
 }

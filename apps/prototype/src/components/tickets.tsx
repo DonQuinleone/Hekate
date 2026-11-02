@@ -69,9 +69,12 @@ export function TicketDialog({
             )
           )}
           <span className="flex-1" />
-          <Button variant="ghost" onClick={onClose}>
-            Close
-          </Button>
+          {/* On the desk the ✕ closes it: a Close beside Send reads as closing the ticket. */}
+          {!operator && (
+            <Button variant="ghost" onClick={onClose}>
+              Close
+            </Button>
+          )}
           <Button variant="primary" disabled={!reply.trim()} onClick={() => setReply("")}>
             Send
           </Button>
@@ -188,7 +191,7 @@ export function TicketDialog({
                   navigate({ to: "/instance/$section", params: { section: "workspaces" } })
                 }
               >
-                Open the account
+                Show in Members
               </Button>
             </div>
             <div>
@@ -199,7 +202,7 @@ export function TicketDialog({
               </p>
               <p className="mt-1 text-[12px] text-ink-3">{ticket.plan} plan · 2 open reviews</p>
               <Button
-                variant="ghost"
+                variant="secondary"
                 size="sm"
                 className="mt-2 w-full"
                 onClick={() =>

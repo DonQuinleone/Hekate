@@ -2,13 +2,15 @@ import type { PublicBranding } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useState } from "react";
-import { Mark, Wordmark, WorkspaceLogo } from "~/components/brand";
+import { Lockup, WorkspaceLogo } from "~/components/brand";
 import { Icon } from "~/components/icons";
+import { NewPassword, PASSWORDS_DIFFER, passwordsAgree } from "~/components/new-password";
 import { AddPasskey, usePasskeySignIn } from "~/components/passkeys";
 import { CodeAppSetup } from "~/components/second-factor";
 import { Button } from "~/components/ui/button";
 import { Choice } from "~/components/ui/choice";
 import { CodeField } from "~/components/ui/code-field";
+import { Field as FormField } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { BeingDeleted } from "~/components/workspace-lifecycle";
 import { api } from "~/lib/api";
@@ -50,21 +52,20 @@ export function Frame({
   useBrandAccent(shown?.branding?.accent);
   const logo = shown?.branding?.logo;
   return (
-    <div className="flex min-h-full items-center justify-center px-4 py-12">
-      <div className="flex w-full max-w-[380px] flex-col gap-8">
-        <div className="flex h-8 items-center gap-2 text-ink">
+    // Anchored at a fixed height, not centred, so the lockup stays put from step to step (#685).
+    <div className="relative flex min-h-full justify-center overflow-hidden px-4 pt-[18vh] pb-12">
+      <Ambient />
+      <div className="relative flex w-full max-w-[380px] flex-col gap-8">
+        <div className="flex h-8 items-center justify-center text-ink">
           {logo && shown ? (
             <WorkspaceLogo logo={logo} name={shown.name} height={32} maxWidth={200} />
           ) : brand !== undefined || !isPending ? (
-            <>
-              <Mark size={22} aria-hidden="true" />
-              <Wordmark height={18} />
-            </>
+            <Lockup size={30} />
           ) : null}
         </div>
         <div className="flex flex-col gap-2">
-          <h1 className="m-0 text-[24px] font-medium tracking-[-0.02em]">{title}</h1>
-          <p className="m-0 text-[13px] leading-normal text-ink-3">{intro}</p>
+          <h1 className="m-0 text-[24px] leading-tight font-medium tracking-[-0.02em]">{title}</h1>
+          <p className="m-0 text-[14px] leading-normal text-ink-2">{intro}</p>
         </div>
         {children}
       </div>
@@ -72,47 +73,42 @@ export function Frame({
   );
 }
 
+/** The lamps in the room, as the prototype's frame has them: slow, warm and cool, behind it. */
+function Ambient() {
+  return (
+    <div className="ambient" aria-hidden="true" data-e2e-overlap="">
+      <div className="lamp lamp-warm" />
+      <div className="lamp lamp-cool" />
+      <div className="lamp lamp-deep" />
+    </div>
+  );
+}
+
+/** A field of a standalone page: the design system's, its control a little taller. */
 export function Field({
   id,
   label,
+  hint,
   ...props
-}: { id: string; label: string } & Omit<React.InputHTMLAttributes<HTMLInputElement>, "size">) {
+}: { id: string; label: string; hint?: ReactNode } & Omit<
+  React.InputHTMLAttributes<HTMLInputElement>,
+  "size"
+>) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor={id} className="label">
-        {label}
-      </label>
+    <FormField label={label} hint={hint}>
       <Input id={id} name={id} className="h-10" required {...props} />
-    </div>
+    </FormField>
   );
 }
 
 export function ErrorLine({ message }: { message: string | null }) {
   if (!message) return null;
   return (
-    <p role="alert" className="m-0 flex items-center gap-2 text-[13px] text-ink">
-      <span aria-hidden="true" className="size-[7px] rounded-full bg-signal" />
+    <p role="alert" className="m-0 flex items-start gap-2 text-[13px] leading-[20px] text-ink">
+      {/* On the first line's middle, however many lines the message takes (#686). */}
+      <span aria-hidden="true" className="mt-[6.5px] size-[7px] shrink-0 rounded-full bg-signal" />
       {message}
     </p>
-  );
-}
-
-/** How strong a new password reads, under its field. */
-export function PasswordMeter({ password }: { password: string }) {
-  const strength = passwordStrength(password);
-  return (
-    <div className="-mt-2 flex items-center gap-1" aria-live="polite">
-      {[1, 2, 3, 4].map((n) => (
-        <span
-          key={n}
-          aria-hidden="true"
-          className={cn("h-1 flex-1 rounded-full", n <= strength.score ? "bg-ink-2" : "bg-raised")}
-        />
-      ))}
-      <span className="ml-2 w-16 text-right text-[12px] text-ink-2">
-        {password ? strength.label : ""}
-      </span>
-    </div>
   );
 }
 
@@ -291,18 +287,28 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
         <Button variant="primary" size="lg" type="submit" disabled={pending}>
           {pending ? "Signing in" : "Sign in"}
         </Button>
-        <div className={cn("grid gap-2", methods?.sso && "grid-cols-2")}>
+        {/* Every other way in, below one divider, as equal buttons (#685). */}
+        <div className="flex items-center gap-3 text-[12px] text-ink-3">
+          <span aria-hidden="true" className="h-px flex-1 bg-line" />
+          or
+          <span aria-hidden="true" className="h-px flex-1 bg-line" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
           <Button
             variant="secondary"
             size="lg"
-            className="gap-2"
+            className={cn("gap-2", !methods?.sso && !methods?.directory && "col-span-2")}
             disabled={key.pending}
             onClick={async () => {
               if (await key.signIn()) await arrive(search.redirect, navigate);
             }}
           >
             <Icon name="key" size={16} />
-            {key.pending ? "Waiting" : methods?.sso ? "Passkey" : "Sign in with a passkey"}
+            {key.pending
+              ? "Waiting"
+              : methods?.sso || methods?.directory
+                ? "Passkey"
+                : "Sign in with a passkey"}
           </Button>
           {methods?.sso && (
             <Button
@@ -323,24 +329,26 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
               Single sign-on
             </Button>
           )}
+          {methods?.directory && (
+            <Button
+              variant="secondary"
+              size="lg"
+              className={cn("gap-2", methods.sso && "col-span-2")}
+              onClick={() =>
+                void navigate({
+                  to: "/sign-in",
+                  search: {
+                    ...(search.redirect ? { redirect: search.redirect } : {}),
+                    view: "directory",
+                  },
+                })
+              }
+            >
+              <Icon name="building" size={16} />
+              Work account
+            </Button>
+          )}
         </div>
-        {methods?.directory && (
-          <button
-            type="button"
-            onClick={() =>
-              void navigate({
-                to: "/sign-in",
-                search: {
-                  ...(search.redirect ? { redirect: search.redirect } : {}),
-                  view: "directory",
-                },
-              })
-            }
-            className="self-center text-[13px] text-ink-3 transition-colors hover:text-ink"
-          >
-            Sign in with your workspace's directory
-          </button>
-        )}
       </form>
       <p className="m-0 border-t border-hairline pt-4 text-xs leading-normal text-ink-3">
         {methods?.signUp ? (
@@ -362,13 +370,27 @@ function SignIn({ search, forgot }: { search: SignInSearch; forgot: (email: stri
   );
 }
 
+/** An account already holds the address the identity provider gave: it signs in its own way. */
+const notLinked = (code: string | undefined) =>
+  !!code && /not_linked|account_not_linked/i.test(code);
+
 /** An identity provider's refusal, in words: what Better Auth's error codes mean here. */
 const ssoProblem = (code: string | undefined) =>
   !code
     ? null
-    : /not_linked|account_not_linked/i.test(code)
+    : notLinked(code)
       ? "An account with this address already exists. Sign in with its password or passkey instead."
       : "The identity provider did not sign you in. Try again, or ask an admin of your workspace.";
+
+/**
+ * A workspace as someone gives it (#686): its short name, or the address they open it at, as
+ * `endless-hall.review.example` or a link. Its first label, or the name itself.
+ */
+export const workspaceSlugOf = (given: string) => {
+  const text = given.trim().toLowerCase();
+  const host = text.replace(/^[a-z]+:\/\//, "").split(/[/?#]/)[0] ?? "";
+  return host.includes(".") ? (host.split(".")[0] ?? "") : host;
+};
 
 /**
  * Single sign-on: which workspace, then off to its identity provider (OIDC or SAML), which
@@ -382,7 +404,7 @@ function SsoSignIn({ search, back }: { search: SignInSearch; back: () => void })
   const [pending, setPending] = useState(false);
   const providerFor = async (form: HTMLFormElement): Promise<string | null> => {
     if (here) return here.providerId;
-    const workspace = String(new FormData(form).get("workspace")).trim();
+    const workspace = workspaceSlugOf(String(new FormData(form).get("workspace")));
     const found = await api["sign-in-methods"].sso.$get({ query: { workspace } });
     return found.ok ? ((await found.json()) as { providerId: string }).providerId : null;
   };
@@ -416,6 +438,8 @@ function SsoSignIn({ search, back }: { search: SignInSearch; back: () => void })
     }
     window.location.assign(data.url);
   };
+  // Refused because the address has an account of its own: that account's way in leads.
+  const linked = notLinked(search.error);
   return (
     <Frame
       title="Single sign-on"
@@ -425,27 +449,29 @@ function SsoSignIn({ search, back }: { search: SignInSearch; back: () => void })
           : "Which workspace are you signing in to?"
       }
     >
-      {search.reason === "sso" && (
-        <p
-          role="status"
-          className="m-0 rounded-panel border border-line bg-raised/40 px-3 py-2.5 text-[13px] text-ink-2"
-        >
-          Your workspace signs its members in through single sign-on. Sign in that way to carry on
-          where you were.
-        </p>
-      )}
       <form onSubmit={submit} className="flex flex-col gap-4">
         {!here && (
           <Field
             id="workspace"
-            label="Workspace"
-            autoComplete="organization"
+            label="Workspace address"
+            hint="Its short name, or the address you open it at."
+            autoComplete="off"
+            spellCheck={false}
             autoFocus
-            placeholder="endless-hall-records"
           />
         )}
         <ErrorLine message={error} />
-        <Button variant="primary" size="lg" type="submit" disabled={pending}>
+        {linked && (
+          <Button variant="primary" size="lg" onClick={back}>
+            Sign in with password
+          </Button>
+        )}
+        <Button
+          variant={linked ? "secondary" : "primary"}
+          size="lg"
+          type="submit"
+          disabled={pending}
+        >
           {pending ? "Opening the identity provider" : "Continue to the identity provider"}
         </Button>
       </form>
@@ -474,7 +500,7 @@ function DirectorySignIn({ redirect, back }: { redirect?: string; back: () => vo
     const { error } = await authClient.$fetch("/sign-in/directory", {
       method: "POST",
       body: {
-        workspace: here?.slug ?? String(form.get("workspace")),
+        workspace: here?.slug ?? workspaceSlugOf(String(form.get("workspace"))),
         username: String(form.get("username")),
         password: String(form.get("password")),
       },
@@ -489,17 +515,18 @@ function DirectorySignIn({ redirect, back }: { redirect?: string; back: () => vo
   };
   return (
     <Frame
-      title="Sign in with a directory"
+      title="Sign in with your work account"
       intro="Your workspace signs you in with the username and password you use at work."
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
         {!here && (
           <Field
             id="workspace"
-            label="Workspace"
-            autoComplete="organization"
+            label="Workspace address"
+            hint="Its short name, or the address you open it at."
+            autoComplete="off"
+            spellCheck={false}
             autoFocus
-            placeholder="endless-hall-records"
           />
         )}
         <Field id="username" label="Username" autoComplete="username" autoFocus={!!here} />
@@ -567,7 +594,7 @@ function SecondFactor({
       title={recovery ? "Use a recovery code" : "Enter your code"}
       intro={
         recovery
-          ? "One of the codes you kept when you added your code app. Each works once."
+          ? "One of the codes you kept when you set up your authenticator app. Each works once."
           : "The six digits your authenticator app shows for Hekate."
       }
     >
@@ -607,7 +634,7 @@ function SecondFactor({
           }}
           className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
         >
-          {recovery ? "Use your code app instead" : "Lost your phone? Use a recovery code"}
+          {recovery ? "Use your authenticator app instead" : "Lost your phone? Use a recovery code"}
         </button>
         <button
           type="button"
@@ -657,7 +684,7 @@ function Forgot({
   return (
     <Frame
       title="Forgotten your password?"
-      intro="Enter your email. We will send a code, and a link that carries it, to set a new password. Both last ten minutes."
+      intro="Enter your email. We will send a code and a link to set a new password. Both last ten minutes."
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field
@@ -753,9 +780,8 @@ function Reset({
   const strength = passwordStrength(password);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const form = new FormData(e.currentTarget);
-    if (form.get("again") !== password) {
-      setError("The two passwords are not the same.");
+    if (!passwordsAgree(new FormData(e.currentTarget))) {
+      setError(PASSWORDS_DIFFER);
       return;
     }
     setPending(true);
@@ -797,27 +823,10 @@ function Reset({
   return (
     <Frame
       title="Set a new password"
-      intro="Twelve characters or more; a few words are easiest to keep. Every session ends, wherever it was signed in."
+      intro="A few words are easiest to keep. Saving signs you out on every other device."
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field
-          id="new-password"
-          label="New password"
-          type="password"
-          autoComplete="new-password"
-          minLength={12}
-          autoFocus
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <PasswordMeter password={password} />
-        <Field
-          id="again"
-          label="Again"
-          type="password"
-          autoComplete="new-password"
-          minLength={12}
-        />
+        <NewPassword value={password} onChange={setPassword} autoFocus />
         <ErrorLine message={error} />
         {expired ? (
           <Button variant="primary" size="lg" onClick={again}>
@@ -878,7 +887,9 @@ export function SecondFactorPage() {
           onClick={() => setWithKey(!withKey)}
           className="-mt-4 self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
         >
-          {withKey ? "Use a code app instead" : "Use a passkey or hardware security key instead"}
+          {withKey
+            ? "Use an authenticator app instead"
+            : "Use a passkey or hardware security key instead"}
         </button>
       )}
       {foot}
@@ -949,6 +960,12 @@ function PayToReopen() {
   );
 }
 
+/** A reason an operator typed, as a sentence of its own (#685). */
+const asSentence = (text: string) => {
+  const t = text.trim();
+  return /[.!?]$/.test(t) ? t : `${t}.`;
+};
+
 /** The day a workspace its owners are deleting goes (#186). */
 const deletionDay = formatDates({ day: "numeric", month: "long", year: "numeric" });
 
@@ -983,7 +1000,7 @@ export function SuspendedPage() {
               ? "A payment for it is overdue. It opens again as soon as it is paid; nothing in it is lost."
               : "A payment for it is overdue. It opens again as soon as its owners pay; nothing in it is lost."
             : reason
-              ? `The instance’s operators suspended it: ${reason} Nothing in it is lost; it opens again once they reinstate it.`
+              ? `The instance’s operators suspended it. ${asSentence(reason)} Nothing in it is lost; it opens again once they reinstate it.`
               : "The instance’s operators suspended it. Nothing in it is lost; it opens again once they reinstate it."
       }
     >

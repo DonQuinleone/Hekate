@@ -20,13 +20,14 @@ export function Frame({
   children?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-full items-center justify-center px-4 py-12">
+    // Anchored at a fixed height, not centred, so the lockup stays put from step to step.
+    <div className="flex min-h-full justify-center px-4 pt-[18vh] pb-12">
       <div className="flex w-full max-w-[380px] flex-col gap-8">
         <div className="flex justify-center">
           <Lockup size={30} />
         </div>
         <div>
-          <h1 className="text-[24px] leading-[30px] font-medium tracking-[-0.015em]">{title}</h1>
+          <h1 className="text-[24px] leading-tight font-medium tracking-[-0.015em]">{title}</h1>
           {intro && <p className="mt-2 text-ink-2">{intro}</p>}
         </div>
         {children}
@@ -58,6 +59,39 @@ function Field({
         className="h-10 rounded-control border border-edge bg-ground px-3 text-[14px] text-ink shadow-1 placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
       />
     </label>
+  );
+}
+
+/**
+ * Setting a new password, the one way everywhere (reset, sign-up, an invitation, the installer):
+ * "New password" with its strength as wide as the field and the rule under it, then "Confirm
+ * password".
+ */
+export function NewPassword({ strength = 3 }: { strength?: number }) {
+  return (
+    <>
+      <label className="flex flex-col gap-1.5 text-[14px] text-ink-2">
+        New password
+        <input
+          type="password"
+          autoComplete="new-password"
+          className="h-10 rounded-control border border-edge bg-ground px-3 text-[14px] text-ink shadow-1 placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
+        />
+        <span aria-hidden="true" className="flex gap-1">
+          {[1, 2, 3, 4].map((n) => (
+            <span
+              key={n}
+              className={cn("h-1 flex-1 rounded-full", n <= strength ? "bg-ink-2" : "bg-raised")}
+            />
+          ))}
+        </span>
+        <span className="flex items-baseline justify-between gap-3 text-[12px] text-ink-3">
+          <span>12 characters or more</span>
+          <span className="text-ink-2">{["", "weak", "fair", "good", "strong"][strength]}</span>
+        </span>
+      </label>
+      <Field label="Confirm password" type="password" autoComplete="new-password" />
+    </>
   );
 }
 
@@ -189,7 +223,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
     return (
       <Frame
         title="Use a recovery code"
-        intro="One of the codes you kept when you added your code app. Each works once."
+        intro="One of the codes you kept when you set up your authenticator app. Each works once."
       >
         <form
           className="flex flex-col gap-5"
@@ -222,7 +256,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
             className="self-start text-[13px] text-ink-3 transition-colors hover:text-ink"
             onClick={() => setView("code")}
           >
-            Use your code app instead
+            Use your authenticator app instead
           </button>
         </form>
         {back}
@@ -283,7 +317,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
     return (
       <Frame
         title="Forgotten your password?"
-        intro="Enter your email. We will send a code, and a link that carries it, to set a new password. Both last ten minutes."
+        intro="Enter your email. We will send a code and a link to set a new password. Both last ten minutes."
       >
         <form
           className="flex flex-col gap-4"
@@ -334,7 +368,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
     return (
       <Frame
         title="Set a new password"
-        intro="Twelve characters or more; a few words are easiest to keep. Every session ends, wherever it was signed in."
+        intro="A few words are easiest to keep. Saving signs you out on every other device."
       >
         <form
           className="flex flex-col gap-4"
@@ -343,17 +377,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
             done();
           }}
         >
-          <Field label="New password" type="password" autoComplete="new-password" />
-          <div className="-mt-2 flex items-center gap-1" aria-hidden="true">
-            {[1, 2, 3, 4].map((n) => (
-              <span
-                key={n}
-                className={cn("h-1 flex-1 rounded-full", n <= 3 ? "bg-ink-2" : "bg-raised")}
-              />
-            ))}
-            <span className="ml-2 text-[12px] text-ink-3">strong</span>
-          </div>
-          <Field label="Again" type="password" autoComplete="new-password" />
+          <NewPassword />
           <Button type="submit" variant="primary" size="lg">
             Save and sign in
           </Button>
@@ -365,7 +389,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
   if (view === "directory")
     return (
       <Frame
-        title="Sign in with a directory"
+        title="Sign in with your work account"
         intro="Your workspace signs you in with the username and password you use at work."
       >
         <form
@@ -375,7 +399,10 @@ export function SignInPage({ view: initial }: { view?: string }) {
             done();
           }}
         >
-          <Field label="Workspace" autoComplete="organization" placeholder="endless-hall-records" />
+          <Field label="Workspace address" autoComplete="off" />
+          <p className="-mt-2 text-[12px] text-ink-3">
+            Its short name, or the address you open it at.
+          </p>
           <Field label="Username" autoComplete="username" />
           <Field label="Password" type="password" autoComplete="current-password" />
           <Button type="submit" variant="primary" size="lg">
@@ -396,7 +423,10 @@ export function SignInPage({ view: initial }: { view?: string }) {
             done();
           }}
         >
-          <Field label="Workspace" autoComplete="organization" placeholder="endless-hall-records" />
+          <Field label="Workspace address" autoComplete="off" />
+          <p className="-mt-2 text-[12px] text-ink-3">
+            Its short name, or the address you open it at.
+          </p>
           <Button type="submit" variant="primary" size="lg">
             Continue to the identity provider
           </Button>
@@ -406,7 +436,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
     );
 
   return (
-    <Frame title="Sign in" intro="Listen, decide, release.">
+    <Frame title="Sign in" intro="Review for sound and picture.">
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
@@ -453,14 +483,17 @@ export function SignInPage({ view: initial }: { view?: string }) {
             <Icon name="shield" />
             Single sign-on
           </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="lg"
+            className="col-span-2 gap-2"
+            onClick={() => setView("directory")}
+          >
+            <Icon name="building" />
+            Work account
+          </Button>
         </div>
-        <button
-          type="button"
-          className="self-center text-[13px] text-ink-3 transition-colors hover:text-ink"
-          onClick={() => setView("directory")}
-        >
-          Sign in with your workspace's directory
-        </button>
       </form>
       <p className="border-t border-line pt-4 text-[13px] text-ink-3">
         Accounts are by invitation. Guests reviewing a file open the link in their email instead.
@@ -678,7 +711,7 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
           Write and read a test object
         </Button>
         <span className="flex items-center gap-1.5 text-[13px] text-ink-2">
-          <Dot state="approved" /> OK · 11 ms
+          <Dot state="approved" /> Passed · 11 ms
         </span>
       </div>
       <p className="text-[13px] text-ink-3">
@@ -835,10 +868,7 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
       )}
       {field("Your name", "Alex Rivera")}
       {field("Email", "alex@endlesshall.example")}
-      <div className="grid gap-4 @md/app:grid-cols-2">
-        {field("Password", "", "password", "12 characters or more.")}
-        {field("Confirm password", "", "password")}
-      </div>
+      <NewPassword strength={0} />
       {failed && <p className="text-[14px] text-signal">Passwords need at least 12 characters.</p>}
     </div>,
   ];
@@ -848,7 +878,19 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
       <div className="flex w-full max-w-[880px] flex-col gap-8 @3xl/app:flex-row @3xl/app:gap-16">
         <div className="flex shrink-0 flex-col gap-6 @3xl/app:w-[220px]">
           <Lockup size={22} />
-          <ol className="flex flex-wrap gap-x-4 gap-y-1 @3xl/app:flex-col">
+          {/* On a phone, a thin bar under the step's own "Step 1 of 7", not a cloud of names. */}
+          <div
+            aria-hidden="true"
+            className="h-0.5 overflow-hidden rounded-full bg-raised @3xl/app:hidden"
+          >
+            <div
+              className="h-full rounded-full bg-ink-2"
+              style={{
+                width: `${(Math.min(step + 1, installSteps.length) / installSteps.length) * 100}%`,
+              }}
+            />
+          </div>
+          <ol className="hidden flex-col gap-y-1 @3xl/app:flex">
             {installSteps.map((s, i) => (
               <li
                 key={s}
@@ -858,14 +900,13 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
                 )}
               >
                 <span className="flex size-5 shrink-0 items-center justify-center">
+                  {/* An ink tick for done, the signal for where you are, a hollow ring to come. */}
                   {i < step ? (
-                    <span className="flex size-5 items-center justify-center rounded-full bg-ok text-ground">
-                      <Icon name="check" size={12} />
-                    </span>
+                    <Icon name="check" size={14} className="text-ink" />
                   ) : i === step ? (
-                    <span className="size-3.5 rounded-full bg-signal shadow-[0_0_0_3px_var(--hk-signal-line)]" />
+                    <span className="size-2.5 rounded-full bg-signal shadow-[0_0_0_3px_var(--hk-signal-line)]" />
                   ) : (
-                    <span className="size-2 rounded-full bg-ink" />
+                    <span className="size-2.5 rounded-full border-[1.5px] border-ink-3" />
                   )}
                 </span>
                 {s}
@@ -921,7 +962,7 @@ export function InstallerPage({ step: initial = 0 }: { step?: number }) {
                   {step === installSteps.length - 1
                     ? "Create and finish"
                     : step === installSteps.length - 2
-                      ? "Save and start Hekate"
+                      ? "Save and continue"
                       : "Continue"}
                 </Button>
               </div>
@@ -955,7 +996,7 @@ export function SignUpPage({ view: initial }: { view?: string }) {
         title={view === "invite" ? "Workspaces are by invitation" : "Sign-up is closed"}
         intro={
           view === "invite"
-            ? "Someone the instance's operators invite makes a workspace at the link in their invitation. Ask them for one."
+            ? "The instance's operators invite people to make a workspace. Ask them for an invitation."
             : "The instance's operators make its workspaces. To join one, ask its owner for an invitation."
         }
       >
@@ -1025,13 +1066,7 @@ export function SignUpPage({ view: initial }: { view?: string }) {
             </p>
           </div>
           <Field label="Your name" autoComplete="name" placeholder="Mira Solberg" />
-          <Field
-            label="Password"
-            type="password"
-            autoComplete="new-password"
-            placeholder="12 characters or more"
-          />
-          <Field label="Again" type="password" autoComplete="new-password" />
+          <NewPassword strength={0} />
           <Button type="submit" variant="primary" size="lg">
             Make the workspace
           </Button>
@@ -1089,18 +1124,20 @@ export function InvitationPage() {
         title="Signed in as someone else"
         intro="This invitation is for producer@endlesshall.example, and you are signed in as Alex Rivera."
       >
-        <Button variant="primary" size="lg" onClick={() => navigate({ to: "/" })}>
-          Stay as Alex Rivera
-        </Button>
-        <Button variant="secondary" size="lg" onClick={() => navigate({ to: "/sign-in" })}>
-          Sign out and accept
-        </Button>
+        <div className="flex flex-col gap-2">
+          <Button variant="primary" size="lg" onClick={() => navigate({ to: "/sign-in" })}>
+            Sign out and accept
+          </Button>
+          <Button variant="secondary" size="lg" onClick={() => navigate({ to: "/" })}>
+            Stay as Alex Rivera
+          </Button>
+        </div>
       </Frame>
     );
   return (
     <Frame
       title="Join Endless Hall Records"
-      intro="Ines Arlow invited you as a member. Create your account to accept."
+      intro="Ines Arlow invited you to Endless Hall Records as a member."
     >
       <form
         className="flex flex-col gap-4"
@@ -1117,12 +1154,7 @@ export function InvitationPage() {
           placeholder="producer@endlesshall.example"
           autoComplete="username"
         />
-        <Field
-          label="Password"
-          type="password"
-          autoComplete="new-password"
-          placeholder="12 characters or more"
-        />
+        <NewPassword strength={0} />
         <Button type="submit" variant="primary" size="lg">
           Create account and join
         </Button>
@@ -1175,14 +1207,14 @@ export function ConsentPage() {
     >
       <div className="flex flex-col gap-3">
         <span className="text-[13px] text-ink-2">It asks to</span>
-        <ul className="flex flex-col gap-2 rounded-panel border border-line bg-raised/25 p-3 text-[13px]">
+        <ul className="flex flex-col gap-2.5 rounded-panel border border-line bg-raised/25 p-3">
           {[
             ["files:read", "List and read projects, folders, files, tracks, versions and variants"],
             ["downloads", "Download originals and proxies, watermarked and logged"],
           ].map(([k, v]) => (
-            <li key={k} className="flex gap-3">
-              <span className="tabular w-24 shrink-0 text-ink">{k}</span>
-              <span className="text-ink-3">{v}</span>
+            <li key={k} className="flex flex-col">
+              <span className="text-[13px] text-ink">{v}</span>
+              <span className="tabular text-[12px] text-ink-3">{k}</span>
             </li>
           ))}
         </ul>

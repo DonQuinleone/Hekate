@@ -2567,3 +2567,20 @@ The Import section of Production imports a ControlRoom project, not takes, so it
 ## 358. A patch row's source can be a stage plan's microphone
 
 #659. The patch list is linked to the microphones on the stage plan (docs/domain.md), but a row's source was free text. Its dialog names its fields as the table heads them (Input or Output, Source, Device, Cable, Notes); Source still takes any words, and offers the stage plans' microphones beside it: choosing one fills the source and, once the row is saved, links the microphone to it, so its label on the plan follows the list. A row a microphone is linked to is marked in the list. On a phone the notes go under the source rather than off the edge.
+
+## 380. The logs list and narrow by when things happened, counted from the viewer's clock
+
+#598. The instance's logs ordered and filtered by row id, on the ground that a UUIDv7 follows the time of the write. So it does, but a row is not always written when its event happened: an event recorded after the fact, a gateway's late delivery or an import lands where it was written, and a range by id lets it in or keeps it out by the wrong time.
+
+- **By time, then id.** Every log orders by its row's own time (`created_at`, `occurred_at`, `received_at`), then its id, newest first, and a page starts after the last row's time and id: `before` stays the last row's id, as the API has always taken it, and the server reads that row's time. The audit log, which joins the operators' events and the workspaces' access log, does the same over the two together.
+- **A range by time, narrowed by id first.** An id is never older than the moment it records, so `id >= the range's start` still holds for every row in the range and lets the primary key do the narrowing; the time itself then decides. No index is added, and nothing is migrated.
+- **The viewer's clock.** A range counts back from `now` when the page sends it, as Debug tools' errors count the last day by the viewer's clock (#159), and from the server's otherwise. It only moves the window's start: a row after it still shows. The visual suite, whose browser clock is fixed to the seed's day, so sees the seeded rows in the last 24 hours.
+- **Each export is named.** The record of an export says which log it was, all six of them, where it named only three.
+
+## 381. Single sign-on starts from the workspace's address until a workspace can verify its domain
+
+#686 asked that single sign-on start from a work email, finding the provider by the address's verified domain, as Linear, Slack and Vercel do. Hekate has no verified domains: a provider's `domain` column is unused, and taking a domain on a workspace's word would let any workspace's admin send everyone at that domain to an identity provider of their choosing.
+
+- **For now, the workspace's address.** Single sign-on and the work-account (directory) sign-in ask for "Workspace address": its short name, or the address it is opened at, as `endless-hall.review.example` or a link, from which the short name is read (`workspaceSlugOf`). No placeholder names a tenant. On a workspace's own host neither is asked.
+- **What follows.** Starting from an email needs domain verification first: a workspace adds a domain in its single sign-on settings, proves it with a DNS TXT record the server checks, and only a verified domain, claimed by one workspace, finds a provider; anything else falls back to the address. That is its own issue, with its settings in the workspace's Single sign-on page.
+- **A refusal leads to what works.** Refused because an account already holds the address, the page leads with *Sign in with password*, the identity provider second; the notice that repeated the intro is gone.

@@ -43,12 +43,20 @@ export const invitationRoutes = (db: Database, auth: Auth, leakCheck = false) =>
         .select({ id: users.id })
         .from(users)
         .where(eq(users.email, found.invitation.email));
+      // Who sent it (#688), by name only: the page says who invited them, as the email did.
+      const [inviter] = found.invitation.invitedBy
+        ? await db
+            .select({ name: users.name })
+            .from(users)
+            .where(and(eq(users.id, found.invitation.invitedBy), isNull(users.deletedAt)))
+        : [];
       return c.json({
         organisation: found.organisationName,
         email: found.invitation.email,
         role: found.invitation.role,
         status: found.status,
         hasAccount: Boolean(account),
+        invitedBy: inviter?.name ?? null,
       });
     })
     .post("/:token/accept", tokenParam, zValidator("json", acceptInvitationInput), async (c) => {

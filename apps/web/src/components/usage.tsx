@@ -5,6 +5,7 @@ import {
   storageQuotas,
   type WorkspaceUsage,
 } from "@hekate/shared";
+import type { ReactNode } from "react";
 import { Row } from "~/components/settings";
 import { Select } from "~/components/ui/input";
 import { cn } from "~/lib/cn";
@@ -50,13 +51,52 @@ const standingWords = {
   reached: "At the limit",
 } as const;
 
-/** Storage, members and the month so far, as rows of a section. */
+/**
+ * A limit's row: its words, its meter, and the control that sets it where one is given (#602).
+ * With a control, the meter sits under the words, so the limit and what sets it share the row.
+ */
+function LimitRow({
+  name,
+  hint,
+  meter,
+  control,
+}: {
+  name: string;
+  hint: ReactNode;
+  meter: ReactNode;
+  control?: ReactNode;
+}) {
+  return control ? (
+    <Row
+      name={name}
+      hint={
+        <span className="flex flex-col gap-2">
+          <span>{hint}</span>
+          {meter}
+        </span>
+      }
+    >
+      {control}
+    </Row>
+  ) : (
+    <Row name={name} hint={hint}>
+      {meter}
+    </Row>
+  );
+}
+
 /** The storage used against the quota, with its meter: on Storage and on Operations (#510). */
-export function StorageUsageRow({ usage }: { usage: WorkspaceUsage }) {
+export function StorageUsageRow({
+  usage,
+  control,
+}: {
+  usage: WorkspaceUsage;
+  control?: ReactNode;
+}) {
   const { storageQuota } = usage.limits;
   const storage = standing(usage.storageBytes, storageQuota);
   return (
-    <Row
+    <LimitRow
       name="Storage"
       hint={
         <Standing where={storage}>
@@ -65,15 +105,29 @@ export function StorageUsageRow({ usage }: { usage: WorkspaceUsage }) {
             : `${formatBytes(usage.storageBytes)} of ${formatBytes(storageQuota)}${storage === "reached" ? ": uploads are refused" : ""}`}
         </Standing>
       }
-    >
-      {storageQuota !== null && (
-        <QuotaMeter used={usage.storageBytes} limit={storageQuota} label="Storage used" />
-      )}
-    </Row>
+      meter={
+        storageQuota !== null && (
+          <QuotaMeter used={usage.storageBytes} limit={storageQuota} label="Storage used" />
+        )
+      }
+      control={control}
+    />
   );
 }
 
-export function UsageRows({ usage }: { usage: WorkspaceUsage }) {
+/**
+ * Storage, members and the month so far, as rows of a section; an operator's selects for the
+ * quota and the member limit in their own rows where given.
+ */
+export function UsageRows({
+  usage,
+  storageControl,
+  memberControl,
+}: {
+  usage: WorkspaceUsage;
+  storageControl?: ReactNode;
+  memberControl?: ReactNode;
+}) {
   const { memberLimit } = usage.limits;
   const people = standing(usage.members + usage.invited, memberLimit);
   // Set by a plan (#177); an older server sends none.
@@ -81,8 +135,8 @@ export function UsageRows({ usage }: { usage: WorkspaceUsage }) {
   const projects = standing(usage.projects, projectLimit);
   return (
     <>
-      <StorageUsageRow usage={usage} />
-      <Row
+      <StorageUsageRow usage={usage} control={storageControl} />
+      <LimitRow
         name="Members"
         hint={
           <Standing where={people}>
@@ -97,11 +151,13 @@ export function UsageRows({ usage }: { usage: WorkspaceUsage }) {
               .join(" · ")}
           </Standing>
         }
-      >
-        {memberLimit !== null && (
-          <QuotaMeter used={usage.members + usage.invited} limit={memberLimit} label="Members" />
-        )}
-      </Row>
+        meter={
+          memberLimit !== null && (
+            <QuotaMeter used={usage.members + usage.invited} limit={memberLimit} label="Members" />
+          )
+        }
+        control={memberControl}
+      />
       <Row
         name="Guests and projects"
         hint={

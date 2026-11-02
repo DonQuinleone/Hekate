@@ -19,6 +19,7 @@ import { TileGrid } from "~/components/billing";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { StatusSection } from "~/components/incidents";
+import { OpenRow } from "~/components/open-row";
 import { Row, Section } from "~/components/settings";
 import { calmLine } from "~/components/status";
 import { AttachPicker, Thread, TicketListRow, ticketLine } from "~/components/support";
@@ -113,6 +114,7 @@ export function InstanceSupport({
           },
         ]}
       />
+      {/* Each filter is as wide as its longest option, and fills the row on a phone (#601). */}
       <div className="flex flex-wrap items-center gap-2">
         <Input
           value={q}
@@ -125,7 +127,7 @@ export function InstanceSupport({
           value={state}
           onChange={(e) => setState(e.target.value as DeskFilters["state"])}
           aria-label="State"
-          className="w-44"
+          className="min-w-40 flex-1 @3xl/app:w-44 @3xl/app:flex-none"
         >
           <option value="open">Open</option>
           <option value="waiting">Waiting on you</option>
@@ -135,7 +137,7 @@ export function InstanceSupport({
           value={workspace}
           onChange={(e) => setWorkspace(e.target.value)}
           aria-label="Workspace"
-          className="w-48"
+          className="min-w-40 flex-1 @3xl/app:w-48 @3xl/app:flex-none"
         >
           <option value="">Any workspace</option>
           {data?.workspaces.map((w) => (
@@ -148,7 +150,7 @@ export function InstanceSupport({
           value={severity}
           onChange={(e) => setSeverity(e.target.value as SupportSeverity | "")}
           aria-label="Severity"
-          className="w-36"
+          className="min-w-40 flex-1 @3xl/app:w-44 @3xl/app:flex-none"
         >
           <option value="">Any severity</option>
           {supportSeverities.map((s) => (
@@ -211,19 +213,17 @@ function Desk() {
       title="Desk"
       intro="Support is a module: on because the instance runs with HEKATE_SUPPORT=app. Set it to link or mail to answer elsewhere, or off."
     >
-      <Row name="Severities by plan" hint={severityLine}>
-        {desk.billing && (
-          <Button
-            variant="ghost"
-            size="md"
-            onClick={() =>
-              void navigate({ to: "/instance/$section", params: { section: "billing" } })
-            }
-          >
-            Edit
-          </Button>
-        )}
-      </Row>
+      {/* Rows open on a click (#691): the plans that set severities, and the canned replies. */}
+      {desk.billing ? (
+        <OpenRow
+          name="Severities by plan"
+          hint={severityLine}
+          label="Severities by plan, in Billing"
+          onOpen={() => void navigate({ to: "/instance/$section", params: { section: "billing" } })}
+        />
+      ) : (
+        <Row name="Severities by plan" hint={severityLine} />
+      )}
       <Row
         name="On call"
         hint={
@@ -249,18 +249,16 @@ function Desk() {
           ))}
         </Select>
       </Row>
-      <Row
+      <OpenRow
         name="Canned replies"
+        label="Manage the canned replies"
+        onOpen={() => setManaging(true)}
         hint={
           canned && canned.replies.length > 0
             ? canned.replies.map((r) => r.title).join(" · ")
             : "None yet: answers the desk gives often, to start a reply from."
         }
-      >
-        <Button variant="ghost" size="md" onClick={() => setManaging(true)}>
-          Manage
-        </Button>
-      </Row>
+      />
       {save.error && <p className="m-0 px-4 py-2 text-[13px] text-signal">{save.error.message}</p>}
       {managing && <CannedRepliesDialog onClose={() => setManaging(false)} />}
     </Section>
@@ -316,7 +314,7 @@ function CannedRepliesDialog({ onClose }: { onClose: () => void }) {
             </Button>
             <Button variant="primary" onClick={() => open("new")}>
               <Icon name="plus" size={14} />
-              Reply
+              New canned reply
             </Button>
           </>
         )
@@ -436,10 +434,9 @@ function DeskTicket({ id, onClose }: { id: string; onClose: () => void }) {
                 </option>
               ))}
             </Select>
+            {/* The dialog's own close is its ✕: a Close beside Send would read as closing the
+                ticket (#603). */}
             <span className="flex-1" />
-            <Button variant="ghost" onClick={onClose}>
-              Close
-            </Button>
             <Button variant="primary" disabled={!body.trim() || reply.isPending} onClick={send}>
               {reply.isPending ? "Sending" : "Send"}
             </Button>
@@ -525,7 +522,7 @@ function DeskTicket({ id, onClose }: { id: string; onClose: () => void }) {
                 className="mt-2 w-full"
                 onClick={() => openWorkspace(ticket, "members")}
               >
-                Open the account
+                Show in Members
               </Button>
             </div>
             <div>
@@ -539,7 +536,7 @@ function DeskTicket({ id, onClose }: { id: string; onClose: () => void }) {
                   : `${ticket.place.openReviews} open reviews`}
               </p>
               <Button
-                variant="ghost"
+                variant="secondary"
                 size="sm"
                 className="mt-2 w-full"
                 onClick={() => openWorkspace(ticket)}

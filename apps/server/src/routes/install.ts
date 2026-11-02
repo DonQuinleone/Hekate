@@ -313,7 +313,7 @@ export function installRoutes(installer: InstallerOptions | null) {
             state: supported ? "ok" : "warn",
             detail: supported
               ? `in ${reached} · PostgreSQL ${version}`
-              : `in ${reached} · PostgreSQL ${version}: Hekate is built and tested on 18`,
+              : `in ${reached} · PostgreSQL ${version}. Hekate needs PostgreSQL 18: you can continue, but some queries may fail.`,
           },
           { name: "Migrated", state: "ok", detail: "up to date" },
         ];
@@ -360,11 +360,8 @@ export function installRoutes(installer: InstallerOptions | null) {
         save("storage", values, fixedBy.storage(env) ? undefined : /^STORAGE_/);
         return c.json({
           checks: [
-            {
-              name: "Wrote and read a test object",
-              state: "ok",
-              detail: elapsed(started),
-            },
+            // Shown beside the button that ran it, as "Passed · 7 ms" (#689).
+            { name: "Test object", state: "ok", detail: `Passed · ${elapsed(started)}` },
           ] satisfies InstallCheck[],
           state: state(),
         });
@@ -401,14 +398,14 @@ export function installRoutes(installer: InstallerOptions | null) {
         tested.add(mailKey(mail));
         return c.json({
           checks: [
-            {
-              name: "Test message",
-              state: "ok",
-              detail:
-                mailProviders[mail.provider].transport === "log"
-                  ? "written to the log"
-                  : `sent to ${to}`,
-            },
+            // Only to the log reaches nobody: a warning, not a pass (#689).
+            mailProviders[mail.provider].transport === "log"
+              ? {
+                  name: "Test message",
+                  state: "warn",
+                  detail: "Written to the log: nobody will receive email from this instance.",
+                }
+              : { name: "Test message", state: "ok", detail: `sent to ${to}` },
           ] satisfies InstallCheck[],
         });
       })

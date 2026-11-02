@@ -947,7 +947,7 @@ const instanceHome = createRoute({
 const instanceSearch = z.object({
   ticket: z.uuid().optional().catch(undefined),
   workspace: z.uuid().optional().catch(undefined),
-  tab: z.enum(["members"]).optional().catch(undefined),
+  tab: z.enum(["members", "storage"]).optional().catch(undefined),
   /** An error reference to look up in Debug tools, from a job's Details (decision 250). */
   reference: z.string().max(32).optional().catch(undefined),
 });

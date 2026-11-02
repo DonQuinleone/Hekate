@@ -26,7 +26,7 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
   overview: { label: "Overview", hint: "What needs an operator, and what moved" },
   workspaces: {
     label: "Workspaces",
-    hint: "Every tenant, with its people, projects and storage",
+    hint: "Every workspace, with its people, projects and storage",
   },
   operators: { label: "Operators", hint: "The accounts that may manage the instance" },
   billing: { label: "Billing", hint: "Plans, trials, invoices and what each workspace pays" },
@@ -37,7 +37,7 @@ export const instanceSections: Record<InstanceSection, { label: string; hint: st
   },
   logs: {
     label: "Logs",
-    hint: "What people and operators did, every sign-in, the mail the instance sent and every webhook",
+    hint: "What people and operators did, every sign-in and API call, the mail the instance sent, every webhook and the billing gateway's events",
   },
   health: {
     label: "System health",
@@ -113,10 +113,18 @@ export interface OperatorRow {
 
 export interface InstanceOverview {
   workspaces: number;
+  /** Of them, suspended (#599). */
+  suspended?: number;
   people: number;
   storageBytes: number;
+  /** The disk local storage is on, used and total bytes; null where it cannot be read (#599). */
+  disk?: { used: number; total: number } | null;
   /** Null when the queue could not be read. */
   queue: { waiting: number; active: number; failedToday: number } | null;
+  /** Error references since midnight, by where they came from, and how many are not known (#599). */
+  errorsToday?: { api: number; worker: number; unknown: number };
+  /** The release running, and a newer one on the channel; `checking` false when checks are off. */
+  release?: { running: string; newest: string | null; checking: boolean };
   /** What needs an operator, most pressing first. */
   needs: {
     kind:
@@ -125,9 +133,16 @@ export interface InstanceOverview {
       | "key_missing"
       | "queue_unreadable"
       | "quota_near"
-      | "release_available";
+      | "release_available"
+      | "mail_logged";
     title: string;
     detail: string;
+    /** The workspace a quota item is about, to open its Storage tab. */
+    workspaceId?: string;
+    /** A key item about the operator reading it, who can fix it from their account. */
+    self?: boolean;
+    /** A key item that only advises: the rule that operators sign in with a key is off. */
+    advice?: boolean;
   }[];
   recent: { at: string; actor: string | null; action: string; target: string | null }[];
 }
@@ -367,7 +382,23 @@ export const instanceActions: Record<string, string> = {
   "incident.updated": "given an update on the status page",
   "incident.resolved": "resolved on the status page",
   "incident.removed": "taken off the status page",
+  "support.replied": "answered",
+  "support.state": "moved to a new state",
+  "support.reply_saved": "saved as a canned reply",
+  "support.reply_removed": "removed from the canned replies",
+  "support.on_call": "given someone new on call",
+  "support.status_page": "given a new status page",
+  "workspace.export_requested": "set to be exported, everything in it",
+  "workspace.export_downloaded": "had its export downloaded",
+  "dates.format": "changed",
 };
+
+/**
+ * An instance event's action in words (#597). One the catalogue lacks reads "did something",
+ * with its key only where `showKey` (development), so a dotted key never reaches an operator.
+ */
+export const instanceActionLabel = (action: string, showKey = false) =>
+  instanceActions[action] ?? (showKey ? `did something (${action})` : "did something");
 
 /** Where a workspace stands, from its record. */
 export const workspaceStateOf = (w: { suspendedAt: Date | string | null }): WorkspaceState =>

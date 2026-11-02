@@ -53,7 +53,8 @@ test("a clean server installs through the browser alone", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
-  await heading(page, "Requirements");
+  // The code step is titled for what it asks (#689); Requirements follows it.
+  await heading(page, "Setup code");
   await expect(page.getByLabel("Setup code")).toBeVisible();
   await capture(page, "install-code");
   await page.getByLabel("Setup code").fill("AAAA-AAAA-AAAA");
@@ -80,7 +81,7 @@ test("a clean server installs through the browser alone", async ({ page }) => {
   await heading(page, "Storage");
   await page.getByLabel("Path").fill(storagePath);
   await page.getByRole("button", { name: "Write and read a test object" }).click();
-  await expect(page.getByText("Wrote and read a test object")).toBeVisible();
+  await expect(page.getByText(/^Passed · \d+ ms$/)).toBeVisible();
   await capture(page, "install-storage");
   await proceed(page);
 
@@ -102,7 +103,7 @@ test("a clean server installs through the browser alone", async ({ page }) => {
   await page.getByLabel("From").fill("Hekate <hekate@endlesshall.example>");
   await page.getByLabel("Send a test to").fill("mira@endlesshall.example");
   await page.getByRole("button", { name: "Send a test message" }).click();
-  await expect(page.getByText("written to the log", { exact: true })).toBeVisible();
+  await expect(page.getByText(/^Written to the log: nobody will receive email/)).toBeVisible();
   await capture(page, "install-mail");
   await proceed(page);
 
@@ -111,7 +112,7 @@ test("a clean server installs through the browser alone", async ({ page }) => {
   await page.getByRole("button", { name: "Check the address" }).click();
   await expect(page.getByText("it is this server", { exact: true })).toBeVisible();
   await capture(page, "install-address");
-  await proceed(page, "Save and start Hekate");
+  await proceed(page, "Save and continue");
 
   // The first workspace and its owner; the code is not asked for twice.
   await heading(page, "First workspace");
@@ -120,7 +121,7 @@ test("a clean server installs through the browser alone", async ({ page }) => {
   await page.getByLabel("Workspace").fill("Endless Hall Records");
   await page.getByLabel("Your name").fill("Alex Rivera");
   await page.getByLabel("Email").fill("producer@example.test");
-  await page.getByLabel(/^Password/).fill("correct horse battery");
+  await page.getByLabel(/^New password/).fill("correct horse battery");
   await page.getByLabel("Confirm password").fill("correct horse battery");
   await proceed(page, "Create and finish");
   await heading(page, "Hekate is ready");

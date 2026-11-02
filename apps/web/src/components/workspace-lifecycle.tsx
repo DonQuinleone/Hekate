@@ -123,7 +123,7 @@ export function WorkspaceExports({ scope, name }: { scope: ExportScope; name: st
     <>
       <Row
         name="Export everything"
-        hint={`Every record as JSON and every file as it was uploaded, in one archive encrypted with age. Kept ${WORKSPACE_EXPORT_DAYS} days for its download.`}
+        hint={`Every record as JSON and every file as it was uploaded, in one archive encrypted with age (the file encryption tool). Kept ${WORKSPACE_EXPORT_DAYS} days for its download.`}
       >
         <Button variant="secondary" size="md" disabled={making} onClick={() => setAsking(true)}>
           {making ? "Being made…" : "Start an export…"}
@@ -453,7 +453,7 @@ export function BeingDeleted({ name }: { name: string }) {
           disabled={cancel.isPending}
           onClick={() => cancel.mutate(undefined, { onSuccess: () => void navigate({ to: "/" }) })}
         >
-          Keep it
+          Cancel the deletion
         </Button>
         {latest?.status === "ready" ? (
           <Button

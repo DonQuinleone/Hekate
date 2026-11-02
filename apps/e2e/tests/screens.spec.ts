@@ -103,7 +103,7 @@ const screens: Screen[] = [
   {
     name: "sign-in-directory",
     path: () => "/sign-in?view=directory",
-    ready: "text=Sign in with a directory",
+    ready: "text=Sign in with your work account",
     as: "signed-out",
   },
   { name: "reference", path: () => "/reference", ready: "main h1", as: "signed-out" },
@@ -2012,6 +2012,22 @@ test("bell", async ({ page }) => {
   await checkScreen(page);
 });
 
+/**
+ * The instance's workspaces with one open. A phone shows the list alone until one is opened from
+ * it (#690), so the named one, or the first, is opened from the list; side by side, the first is
+ * open already and a named one is opened the same way.
+ */
+async function openWorkspace(page: Page, name?: RegExp) {
+  await page.goto("/instance/workspaces");
+  const rows = page.locator("main ul[aria-label=Workspaces]").getByRole("button");
+  await expect(rows.first()).toBeVisible();
+  if (name) await rows.filter({ hasText: name }).first().click();
+  else {
+    if (test.info().project.name === "phone") await rows.first().click();
+    await settle(page, "main >> text=Recently in this workspace");
+  }
+}
+
 // A workspace on the instance side (#174): its tabs, a suspended one, and making one.
 for (const [name, role, open, ready] of [
   ["instance-workspace-members", "tab", "Members", "main >> text=second factor: none >> nth=0"],
@@ -2033,12 +2049,14 @@ for (const [name, role, open, ready] of [
 ] as const) {
   test(name, async ({ page }) => {
     await page.clock.setFixedTime(FIXED_TIME);
-    await page.goto("/instance/workspaces");
-    await settle(page, "main >> text=Recently in this workspace");
-    await page
-      .getByRole(role, { name: new RegExp(`^${open}`) })
-      .first()
-      .click();
+    // A workspace named is opened from the list; anything else is on the one open.
+    const listed = role === "button" && open !== "New workspace";
+    await openWorkspace(page, listed ? new RegExp(`^${open}`) : undefined);
+    if (!listed)
+      await page
+        .getByRole(role, { name: new RegExp(`^${open}`) })
+        .first()
+        .click();
     await settle(page, ready);
     await saveScreen(page, name);
     await checkScreen(page);
@@ -2048,8 +2066,7 @@ for (const [name, role, open, ready] of [
 // A workspace's rendition cache cleared (decision 255): asked first.
 test("instance-workspace-rendition-cache", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto("/instance/workspaces");
-  await settle(page, "main >> text=Recently in this workspace");
+  await openWorkspace(page);
   await page
     .getByRole("tab", { name: /^Storage/ })
     .first()
@@ -2123,12 +2140,12 @@ for (const [name, path, open, ready] of [
     "instance-support-ticket",
     "/instance/support",
     "button:Raise our quota before Friday",
-    "[role=dialog] >> text=Open the account",
+    "[role=dialog] >> text=Show in Members",
   ],
   [
     "instance-support-replies",
     "/instance/support",
-    "button:Manage",
+    "button:Manage the canned replies",
     "[role=dialog] >> text=Quota raised",
   ],
   ["help-menu", "/", "button:Help", "[role=menu] >> text=Contact support"],
@@ -2163,12 +2180,7 @@ for (const [name, path, open, ready] of [
 // A workspace near its storage quota (#175), as its Storage tab shows it to an operator.
 test("instance-workspace-quota", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto("/instance/workspaces");
-  await settle(page, "main >> text=Recently in this workspace");
-  await page
-    .getByRole("button", { name: /^Saltmarsh Films/ })
-    .first()
-    .click();
+  await openWorkspace(page, /^Saltmarsh Films/);
   await settle(page, "main h2:has-text('Saltmarsh Films')");
   await page.getByRole("tab", { name: /^Storage/ }).click();
   await settle(page, "main >> text=Nearly at the limit");
@@ -3891,7 +3903,7 @@ test("account-second-factor", async ({ page }) => {
   await page.goto("/account/security");
   await settle(page, "main >> text=Code app");
   await page.getByRole("button", { name: "Set up…" }).click();
-  const dialog = page.getByRole("dialog", { name: "Add a code app" });
+  const dialog = page.getByRole("dialog", { name: "Add an authenticator app" });
   await dialog.getByLabel("Password").fill("correct horse battery");
   await dialog.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByRole("dialog", { name: "Scan the code" })).toBeVisible();

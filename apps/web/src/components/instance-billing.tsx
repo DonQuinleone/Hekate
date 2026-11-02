@@ -396,6 +396,10 @@ function ChangeWorkspacePlan({
                     {priceWords(p.price)}
                   </span>
                   {p.hidden && <span className="text-[11px] font-normal text-ink-3">hidden</span>}
+                  {/* Told apart from a choice by its word, not its highlight alone (#694). */}
+                  {p.id === w.plan?.id && (
+                    <span className="text-[11px] font-normal text-ink-2">Current</span>
+                  )}
                 </>
               }
               hint={planSummary(p, formatBytes)}
@@ -407,7 +411,12 @@ function ChangeWorkspacePlan({
               value=""
               checked={planId === ""}
               onChange={() => setPlanId("")}
-              title="No plan"
+              title={
+                <>
+                  No plan
+                  {!w.plan && <span className="text-[11px] font-normal text-ink-2">Current</span>}
+                </>
+              }
               hint="Nothing limited, everything included, nothing charged."
             />
           )}
@@ -521,11 +530,10 @@ function IssueCredit({
   const issue = useIssueCredit(w.id);
   const instanceCurrency = useInstanceCurrency();
   const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState(w.price?.currency ?? instanceCurrency);
+  // In the currency the workspace is billed in, or the instance's, set under Gateways (#694).
+  const currency = w.price?.currency ?? instanceCurrency;
   const [reason, setReason] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
-  // Stripe keeps one balance per customer, in the currency it bills them in.
-  const fixed = w.subscribed && w.price !== null;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const minor = minorUnits(amount, currency);
@@ -573,7 +581,7 @@ function IssueCredit({
     >
       <form id="workspace-credit" onSubmit={submit} className="flex flex-col gap-4">
         <div className="flex flex-wrap gap-3">
-          <Field label={fixed ? `Amount in ${currency}` : "Amount"} className="w-32">
+          <Field label={`Amount in ${currency}`} className="w-36">
             <Input
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
@@ -582,15 +590,6 @@ function IssueCredit({
               autoFocus
             />
           </Field>
-          {!fixed && (
-            <Field label="Currency" className="w-24">
-              <Input
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))}
-                className="uppercase"
-              />
-            </Field>
-          )}
         </div>
         <Field
           label="Why"
@@ -615,6 +614,8 @@ function IssueCredit({
 /** Letting a workspace off what it owes, and opening it again if dunning suspended it. */
 function Waive({ workspace: w, onClose }: { workspace: BillingWorkspaceRow; onClose: () => void }) {
   const waive = useWaive(w.id);
+  // What is let off, named in the dialog and on its button (#694).
+  const owed = (w.owed ?? []).map((o) => formatMoney(o.amount, o.currency)).join(" and ");
   const [reason, setReason] = useState("");
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -622,7 +623,7 @@ function Waive({ workspace: w, onClose }: { workspace: BillingWorkspaceRow; onCl
   };
   return (
     <Dialog
-      title={`Waive what ${w.name} owes?`}
+      title={owed ? `Waive ${owed} for ${w.name}?` : `Waive what ${w.name} owes?`}
       description={
         w.subscribed
           ? "Its open invoices are voided, at Stripe too, and nothing more is collected on them."
@@ -635,12 +636,14 @@ function Waive({ workspace: w, onClose }: { workspace: BillingWorkspaceRow; onCl
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             type="submit"
             form="waive"
             disabled={!reason.trim() || waive.isPending}
           >
-            {w.dunningSuspended ? "Waive and reinstate" : "Waive"}
+            {[owed ? `Waive ${owed}` : "Waive", w.dunningSuspended && "and reinstate"]
+              .filter(Boolean)
+              .join(" ")}
           </Button>
         </>
       }
@@ -843,6 +846,36 @@ const keyFrom = (name: string) =>
     .replace(/^-+|-+$/g, "")
     .slice(0, 32);
 
+/** The project limits a plan offers, and whatever is set now. */
+const projectLimits = [1, 3, 5, 10, 25, 50, 100] as const;
+function ProjectLimitSelect({
+  value,
+  onChange,
+}: {
+  value: number | null;
+  onChange: (value: number | null) => void;
+}) {
+  const offered: number[] = [...projectLimits];
+  if (value !== null && !offered.includes(value)) offered.push(value);
+  return (
+    <Select
+      aria-label="Project limit"
+      value={value === null ? "" : String(value)}
+      onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
+      className="w-40"
+    >
+      {offered
+        .sort((a, b) => a - b)
+        .map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+      <option value="">No limit</option>
+    </Select>
+  );
+}
+
 /** Adding a plan, or changing one: its name, price, limits and what it includes. */
 function PlanEditor({
   plan,
@@ -860,16 +893,15 @@ function PlanEditor({
   const [keyTouched, setKeyTouched] = useState(Boolean(plan));
   const [priced, setPriced] = useState(plan ? plan.price !== null : true);
   const instanceCurrency = useInstanceCurrency();
-  const [currency, setCurrency] = useState(plan?.price?.currency ?? instanceCurrency);
+  // The instance's currency, set under Gateways (#694); a plan priced in another keeps it.
+  const currency = plan?.price?.currency ?? instanceCurrency;
   const [amount, setAmount] = useState(
     plan?.price ? typedAmount(plan.price.amount, plan.price.currency) : "",
   );
   const [interval, setInterval] = useState<"month" | "year">(plan?.price?.interval ?? "month");
   const [storageQuota, setStorageQuota] = useState<number | null>(plan?.storageQuota ?? null);
   const [memberLimit, setMemberLimit] = useState<number | null>(plan?.memberLimit ?? null);
-  const [projectLimit, setProjectLimit] = useState(
-    plan?.projectLimit ? String(plan.projectLimit) : "",
-  );
+  const [projectLimit, setProjectLimit] = useState<number | null>(plan?.projectLimit ?? null);
   const [features, setFeatures] = useState<PlanFeature[]>(plan?.features ?? []);
   const [severities, setSeverities] = useState<SupportSeverity[]>(
     plan?.severities ?? ["low", "normal"],
@@ -882,9 +914,6 @@ function PlanEditor({
     event.preventDefault();
     const minor = priced ? minorUnits(amount, currency) : null;
     if (priced && minor === null) return setProblem(`A price in ${currency}, such as 49.00`);
-    const projects = projectLimit.trim() ? Number(projectLimit) : null;
-    if (projects !== null && (!Number.isInteger(projects) || projects < 1))
-      return setProblem("A whole number of projects, or none for no limit");
     setProblem(null);
     save.mutate(
       {
@@ -895,7 +924,7 @@ function PlanEditor({
           price: priced && minor !== null ? { amount: minor, currency, interval } : null,
           storageQuota,
           memberLimit,
-          projectLimit: projects,
+          projectLimit,
           features: planFeatures.filter((f) => features.includes(f)),
           severities: supportSeverities.filter((s) => severities.includes(s)),
           hidden,
@@ -958,7 +987,7 @@ function PlanEditor({
           <legend className="mb-2 p-0 text-[13px] text-ink-2">Price</legend>
           <div className="flex flex-col gap-2">
             <Choice type="radio" name="priced" checked={priced} onChange={() => setPriced(true)}>
-              A price
+              Fixed price
             </Choice>
             <Choice
               type="radio"
@@ -972,19 +1001,16 @@ function PlanEditor({
           </div>
           {priced && (
             <div className="flex flex-wrap gap-3">
-              <Field label="Amount" className="w-32">
+              <Field
+                label={`Amount in ${currency}`}
+                hint="The currency is the instance's, set under Gateways."
+                className="w-56"
+              >
                 <Input
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   inputMode="decimal"
                   className="tabular"
-                />
-              </Field>
-              <Field label="Currency" className="w-24">
-                <Input
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))}
-                  className="uppercase"
                 />
               </Field>
               <Field label="Every" className="w-32">
@@ -1006,13 +1032,9 @@ function PlanEditor({
           <Field label="Members">
             <MemberLimitSelect value={memberLimit} onChange={setMemberLimit} />
           </Field>
-          <Field label="Projects" hint="Empty for no limit." className="w-32">
-            <Input
-              value={projectLimit}
-              onChange={(e) => setProjectLimit(e.target.value)}
-              inputMode="numeric"
-              className="tabular"
-            />
+          {/* A select like the other limits (#694). */}
+          <Field label="Projects">
+            <ProjectLimitSelect value={projectLimit} onChange={setProjectLimit} />
           </Field>
         </div>
         <div className="grid gap-4 @3xl/app:grid-cols-2">
@@ -1200,7 +1222,8 @@ function PromoEditor({
   );
   const [percent, setPercent] = useState(promo?.percentOff ? String(promo.percentOff) : "");
   const instanceCurrency = useInstanceCurrency();
-  const [currency, setCurrency] = useState(promo?.currency ?? instanceCurrency);
+  // The instance's currency, set under Gateways (#694); a code made in another keeps it.
+  const currency = promo?.currency ?? instanceCurrency;
   const [amount, setAmount] = useState(
     promo?.amountOff && promo.currency ? typedAmount(promo.amountOff, promo.currency) : "",
   );
@@ -1295,23 +1318,14 @@ function PromoEditor({
               />
             </Field>
           ) : (
-            <div className="flex flex-wrap gap-3">
-              <Field label="Amount" className="w-32">
-                <Input
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  inputMode="decimal"
-                  className="tabular"
-                />
-              </Field>
-              <Field label="Currency" className="w-24">
-                <Input
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))}
-                  className="uppercase"
-                />
-              </Field>
-            </div>
+            <Field label={`Amount in ${currency}`} className="w-36">
+              <Input
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                inputMode="decimal"
+                className="tabular"
+              />
+            </Field>
           )}
         </fieldset>
         <div className="flex flex-wrap gap-3">

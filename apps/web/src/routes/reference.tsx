@@ -8,6 +8,8 @@ import { LinkedFiles } from "~/components/file-picker";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { NeedsYou, NeedsYouDot } from "~/components/needs-you";
+import { NewPassword } from "~/components/new-password";
+import { OpenRow } from "~/components/open-row";
 import { Card, Page, SectionHead } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { CommentMarkers } from "~/components/player";
@@ -356,6 +358,7 @@ function Components() {
   const [uploading, setUploading] = useState(false);
   const [chips, setChips] = useState({ loops: true, score: false });
   const [confirming, setConfirming] = useState(false);
+  const [password, setPassword] = useState("a few words to keep");
   const [day, setDay] = useState("2026-10-12");
   const [time, setTime] = useState("13:05");
   const [moment, setMoment] = useState("2026-10-31T23:59");
@@ -530,6 +533,14 @@ function Components() {
           <Field label="Email" error="That is not an email address." className="w-56">
             <Input defaultValue="mira@" aria-invalid="true" />
           </Field>
+        </Spec>
+        <Spec
+          name="New password"
+          rule="The one way to set a password: its strength as wide as the field, the rule under it, then the confirmation. Reset, sign-up, an invitation and the installer alike."
+        >
+          <div className="flex w-72 flex-col gap-4">
+            <NewPassword value={password} onChange={setPassword} />
+          </div>
         </Spec>
         <Spec name="Small" rule="28 px, for dense toolbars such as the player's settings.">
           <Input size="sm" defaultValue="-90" className="tabular w-20" aria-label="Floor" />
@@ -774,6 +785,31 @@ function Components() {
               <Input defaultValue="Joplin Rags" className="w-40" aria-label="Project name" />
             </Row>
             <SwitchRow name="Carried comments shown" checked={on} onChange={setOn} />
+          </Card>
+        </Spec>
+        <Spec
+          name="Row that opens"
+          rule="A list of things to open opens each on a click, with a chevron at its end; its other actions go in its menu, never a text link repeated on every row. Elsewhere, an arrow out."
+        >
+          <Card className="w-full max-w-[460px] divide-y divide-line">
+            <OpenRow
+              name="Canned replies"
+              hint="Quota raised · Fixed in the next patch"
+              onOpen={() => {}}
+            />
+            <OpenRow
+              name="Retry a failed job"
+              hint="media-align · failed 2 minutes ago"
+              onOpen={() => {}}
+              menu={
+                <ActionMenu label="The job" actions={[{ label: "Retry", onSelect: () => {} }]} />
+              }
+            />
+            <OpenRow
+              name="Restore"
+              hint="From a backup and the master key."
+              href="https://example.com/"
+            />
           </Card>
         </Spec>
         <Spec

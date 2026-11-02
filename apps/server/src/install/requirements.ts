@@ -33,20 +33,24 @@ export function checkRequirements(options: {
   checks.push({
     name: "Node.js 26",
     state: major >= 26 ? "ok" : "warn",
-    detail: major >= 26 ? node : `${node}: Hekate is built and tested on 26`,
+    detail:
+      major >= 26
+        ? node
+        : `${node}. Hekate needs Node 26: you can continue, but media processing may fail.`,
   });
 
   const ffmpeg = versionOf("ffmpeg", ["-version"], /ffmpeg version (\S+)/);
   checks.push({
     name: "ffmpeg",
     state: ffmpeg ? "ok" : "warn",
-    detail: ffmpeg ?? "not found: audio and video will not be processed",
+    detail: ffmpeg ?? "Not found: you can continue, but audio and video will not be processed.",
   });
   const poppler = versionOf("pdftoppm", ["-v"], /pdftoppm version (\S+)/);
   checks.push({
     name: "Poppler",
     state: poppler ? "ok" : "warn",
-    detail: poppler ?? "not found: documents and scores will not be rendered",
+    detail:
+      poppler ?? "Not found: you can continue, but documents and scores will not be rendered.",
   });
   const fonts = (() => {
     try {
@@ -58,7 +62,9 @@ export function checkRequirements(options: {
   checks.push({
     name: "Fonts",
     state: fonts ? "ok" : "warn",
-    detail: fonts ? "installed" : "none found: watermarks and pages may render without text",
+    detail: fonts
+      ? "installed"
+      : "None found: you can continue, but watermarks and pages may render without text.",
   });
 
   const directory = dirname(options.settingsFile);
@@ -84,14 +90,20 @@ export function checkRequirements(options: {
     checks.push({
       name: "Disk",
       state: free >= 10 * 1024 ** 3 ? "ok" : "warn",
-      detail: `${gigabytes(free)} free`,
+      detail:
+        free >= 10 * 1024 ** 3
+          ? `${gigabytes(free)} free`
+          : `${gigabytes(free)} free. Hekate wants 10 GB: you can continue, but uploads may run out of room.`,
     });
   }
   const free = freemem();
   checks.push({
     name: "Memory",
     state: free >= 1024 ** 3 ? "ok" : "warn",
-    detail: `${gigabytes(free)} of ${gigabytes(totalmem())} free`,
+    detail:
+      free >= 1024 ** 3
+        ? `${gigabytes(free)} of ${gigabytes(totalmem())} free`
+        : `${gigabytes(free)} of ${gigabytes(totalmem())} free. Hekate wants 1 GB: you can continue, but media may be slow to prepare.`,
   });
   return checks;
 }
