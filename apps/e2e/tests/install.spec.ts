@@ -51,7 +51,8 @@ test("a clean server installs through the browser alone", async ({ page }) => {
 
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
-  await heading(page, "Requirements");
+  // The code step is titled for what it asks (#689); Requirements follows it.
+  await heading(page, "Setup code");
   await expect(page.getByLabel("Setup code")).toBeVisible();
   await capture(page, "install-code");
   await page.getByLabel("Setup code").fill("AAAA-AAAA-AAAA");

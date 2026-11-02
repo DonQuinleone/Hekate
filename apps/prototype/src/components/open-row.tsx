@@ -21,7 +21,10 @@ export function OpenRow({
   hint?: ReactNode;
   onOpen?: () => void;
   href?: string;
-  /** What opening it does, for a screen reader, where the name alone does not say. */
+  /**
+   * What opening it does, for a screen reader, where the name alone does not say. Read before
+   * the row's own words, never in place of them: the visible text stays in its name.
+   */
   label?: string;
   menu?: ReactNode;
   /** A quiet fact before the chevron, such as a time. */
@@ -29,6 +32,7 @@ export function OpenRow({
 }) {
   const inner = (
     <>
+      {label && <span className="sr-only">{label}: </span>}
       <span className="min-w-0 flex-1">
         <span className="block text-[14px] text-ink">{name}</span>
         {hint && <span className="mt-0.5 block text-[13px] text-ink-3">{hint}</span>}
@@ -45,14 +49,13 @@ export function OpenRow({
       {href ? (
         <a
           href={href}
-          aria-label={label}
           className={target}
           {...(/^https?:/.test(href) ? { target: "_blank", rel: "noopener noreferrer" } : {})}
         >
           {inner}
         </a>
       ) : (
-        <button type="button" aria-label={label} onClick={onOpen} className={target}>
+        <button type="button" onClick={onOpen} className={target}>
           {inner}
         </button>
       )}
