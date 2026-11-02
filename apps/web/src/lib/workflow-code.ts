@@ -1,6 +1,7 @@
 import {
   nodeTypes,
   outcomesOf,
+  type ProjectProfile,
   type WorkflowConnector,
   type WorkflowDefinition,
 } from "@hekate/shared";
@@ -13,12 +14,34 @@ import simpleApproval from "@hekate/shared/workflow-templates/simple-approval.wo
  * applying a file would change, and the file's text coloured by what each piece is.
  */
 
-/** The workflows Hekate offers to start from, as the files they ship as. */
-export const workflowTemplates: readonly { id: string; name: string; text: string }[] = [
-  { id: "simple-approval", name: "Simple approval", text: simpleApproval },
-  { id: "conductor-first", name: "Conductor first", text: conductorFirst },
-  { id: "parallel-stakeholders", name: "Parallel stakeholders", text: parallelStakeholders },
+/**
+ * The workflows Hekate offers to start from, as the files they ship as, and the profiles each
+ * is offered to (#675): a conductor's sign-off is a music project's.
+ */
+export const workflowTemplates: readonly {
+  id: string;
+  name: string;
+  text: string;
+  profiles: readonly ProjectProfile[];
+}[] = [
+  {
+    id: "simple-approval",
+    name: "Simple approval",
+    text: simpleApproval,
+    profiles: ["music", "video", "general"],
+  },
+  { id: "conductor-first", name: "Conductor first", text: conductorFirst, profiles: ["music"] },
+  {
+    id: "parallel-stakeholders",
+    name: "Parallel stakeholders",
+    text: parallelStakeholders,
+    profiles: ["music", "video", "general"],
+  },
 ];
+
+/** The templates a project of this profile is offered (#675). */
+export const templatesFor = (profile: ProjectProfile) =>
+  workflowTemplates.filter((t) => t.profiles.includes(profile));
 
 interface Named {
   name: string;

@@ -7,7 +7,7 @@ import {
 } from "./watermark.ts";
 
 /**
- * A project's Asset security page (decision 287): a section for each kind of file it protects,
+ * A project's Watermarks and downloads page (decision 287, #580): a section for each kind of file it protects,
  * in the order its profile puts first, each open where the project has that kind of file and
  * folded to a heading with its summary where it has none. Nothing is hidden: a folded section
  * opens on a click.
@@ -60,16 +60,23 @@ export function assetSecurityLayout(
   }));
 }
 
+/** The page's sections once video, pictures and documents share their one mark (#674). */
+export type ProtectionSection = "audio" | "watermark";
+
 /**
- * Where the visible watermark's controls sit: the first open section of video or of pictures and
- * documents, as the one mark covers both; the other, open too, only says how it is set. Null
- * when both are folded.
+ * The page as it is drawn (#674): the visible watermark covers video, pictures and documents
+ * alike, so it is one section, where the first of them stands in the profile's order, open when
+ * either is.
  */
-export function watermarkHome(
+export function protectionLayout(
   layout: readonly AssetSectionLayout[],
-): Exclude<AssetSection, "audio"> | null {
-  const home = layout.find((s) => s.open && s.section !== "audio");
-  return home ? (home.section as Exclude<AssetSection, "audio">) : null;
+): { section: ProtectionSection; open: boolean }[] {
+  const marked = layout.filter((s) => s.section !== "audio");
+  return layout.flatMap((s): { section: ProtectionSection; open: boolean }[] => {
+    if (s.section === "audio") return [{ section: "audio", open: s.open }];
+    if (s !== marked[0]) return [];
+    return [{ section: "watermark", open: marked.some((m) => m.open) }];
+  });
 }
 
 /** The visible watermark in a line, for a folded section: "Guests only · Tiled · 30%". */

@@ -1,6 +1,6 @@
 import { type WorkflowDefinition, workflowFromYaml } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { workflowChanges, workflowTemplates, yamlPieces } from "./workflow-code";
+import { templatesFor, workflowChanges, workflowTemplates, yamlPieces } from "./workflow-code";
 
 const flow: WorkflowDefinition = {
   groups: [{ id: "round", name: "First round" }],
@@ -120,5 +120,16 @@ describe("colouring a line of the file", () => {
           .map((p) => p.text)
           .join(""),
       ).toBe(line);
+  });
+});
+
+describe("templatesFor", () => {
+  it("offers a conductor's sign-off to a music project only (#675)", () => {
+    expect(templatesFor("music").map((t) => t.id)).toContain("conductor-first");
+    expect(templatesFor("video").map((t) => t.id)).not.toContain("conductor-first");
+    expect(templatesFor("general").map((t) => t.id)).toEqual([
+      "simple-approval",
+      "parallel-stakeholders",
+    ]);
   });
 });

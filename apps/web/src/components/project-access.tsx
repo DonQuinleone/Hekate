@@ -7,7 +7,7 @@ import {
   type ToolException,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useLayoutEffect, useRef, useState } from "react";
 import { Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import {
@@ -34,14 +34,15 @@ import {
   withTool,
 } from "~/lib/role-editor";
 import { Icon } from "./icons";
-import { PlayerToolsTable, type ToolColumn, toolWords } from "./player-tools";
+import { toolWords } from "./player-tools";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
-import { ToggleChip } from "./ui/chip";
+import { Chip, ToggleChip } from "./ui/chip";
 import { Checkbox } from "./ui/choice";
 import { Dialog, useConfirm } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
 import { ActionMenu, MenuList, usePopover } from "./ui/menu";
+import { type Edges, edgesOf } from "./ui/sub-nav";
 import { Switch } from "./ui/toggle";
 
 /** A role's name: a new role's, or one renamed. */
@@ -95,7 +96,7 @@ function RoleDialog({
 }
 
 const kindWords: Record<ToolException["kind"], string> = {
-  member: "Exception",
+  member: "Member",
   guest: "Guest",
   group: "Group",
 };
@@ -108,17 +109,20 @@ function ExceptionDialog({
   projectId,
   roles,
   taken,
+  editing,
   onClose,
 }: {
   projectId: string;
   roles: ProjectRole[];
   taken: ToolException[];
+  /** An exception whose tools are changed, in the same dialog as it was added (#585). */
+  editing?: ToolException;
   onClose: () => void;
 }) {
   const { data: members = [] } = useQuery(projectMembersQuery(projectId));
   const { data: guests = [] } = useQuery(projectGuestsQuery(projectId));
   const { data: groups = [] } = useQuery(projectGroupsQuery(projectId));
-  const { create } = useToolExceptionMutations(projectId);
+  const { create, update } = useToolExceptionMutations(projectId);
   const has = (kind: ToolException["kind"], id: string) =>
     taken.some((e) => e.kind === kind && e.subjectId === id);
   const choices = [
@@ -145,10 +149,15 @@ function ExceptionDialog({
         : null;
     return role ? [...role.tools] : [...playerTools];
   };
-  const [tools, setTools] = useState<PlayerTool[] | null>(null);
+  const [tools, setTools] = useState<PlayerTool[] | null>(editing ? [...editing.tools] : null);
   const shown = tools ?? (chosen ? startFrom(chosen) : []);
+  const saving = editing ? update : create;
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    if (editing) {
+      update.mutate({ id: editing.id, tools: shown }, { onSuccess: onClose });
+      return;
+    }
     const [kind, id] = chosen.split(":");
     if (!id) return;
     create.mutate(
@@ -165,13 +174,13 @@ function ExceptionDialog({
   };
   return (
     <Dialog
-      title="Add exception"
+      title={editing ? `${editing.name}'s tools` : "Add exception"}
       description="Their tools in this project, in place of their role's. A guest keeps no tool their review leaves out."
       onClose={onClose}
       width="sm"
     >
       <form onSubmit={submit} className="flex flex-col gap-4">
-        {choices.length === 0 ? (
+        {editing ? null : choices.length === 0 ? (
           <p className="m-0 text-[13px] text-ink-3">
             Everyone in the project, every guest its reviews have asked and every group already has
             an exception.
@@ -201,7 +210,7 @@ function ExceptionDialog({
             </Select>
           </label>
         )}
-        {chosen && (
+        {(chosen || editing) && (
           <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
             <legend className="mb-1.5 p-0 text-[13px] text-ink-2">Tools</legend>
             {playerTools.map((tool) => (
@@ -221,13 +230,18 @@ function ExceptionDialog({
             ))}
           </fieldset>
         )}
-        {create.error && <p className="m-0 text-[13px] text-signal">{create.error.message}</p>}
+        {saving.error && <p className="m-0 text-[13px] text-signal">{saving.error.message}</p>}
         <div className="mt-1 flex justify-end gap-2">
           <Button type="button" variant="ghost" size="md" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary" size="md" disabled={create.isPending || !chosen}>
-            Add exception
+          <Button
+            type="submit"
+            variant="primary"
+            size="md"
+            disabled={saving.isPending || (!editing && !chosen)}
+          >
+            {editing ? "Save" : "Add exception"}
           </Button>
         </div>
       </form>
@@ -333,6 +347,22 @@ function CopyFromDialog({
 
 /** Every role's level in each area at once, read-only: rows are roles, so more roles never widen it. */
 function CompareDialog({ roles, onClose }: { roles: ProjectRole[]; onClose: () => void }) {
+  // On a phone (#673) its role column stays put and the far edge fades while more lies beyond.
+  const scroller = useRef<HTMLElement>(null);
+  const [edges, setEdges] = useState<Edges>({ start: false, end: false });
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const update = () => setEdges(edgesOf(el.scrollLeft, el.clientWidth, el.scrollWidth));
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const watch = new ResizeObserver(update);
+    watch.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      watch.disconnect();
+    };
+  }, []);
   return (
     <Dialog
       title="Compare roles"
@@ -342,15 +372,26 @@ function CompareDialog({ roles, onClose }: { roles: ProjectRole[]; onClose: () =
     >
       {/* Scrolled from the keyboard too, where a phone is narrower than its nine areas. */}
       <section
+        ref={scroller}
         aria-label="Every role's levels"
         // biome-ignore lint/a11y/noNoninteractiveTabindex: a region that scrolls must take focus to scroll from the keyboard.
         tabIndex={0}
         className="scroll-quiet overflow-x-auto rounded-control focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink-3"
+        style={
+          edges.end
+            ? {
+                maskImage: "linear-gradient(to right, black calc(100% - 32px), transparent)",
+                WebkitMaskImage: "linear-gradient(to right, black calc(100% - 32px), transparent)",
+              }
+            : undefined
+        }
       >
         <table className="w-full border-collapse text-[13px]">
           <thead>
             <tr>
-              <th className="label px-2 py-2 text-left font-normal">Role</th>
+              <th className="label sticky left-0 z-10 bg-overlay px-2 py-2 text-left font-normal">
+                Role
+              </th>
               {accessAreas.map((area) => (
                 <th key={area.id} className="label px-2 py-2 text-left font-normal">
                   {area.label}
@@ -364,7 +405,10 @@ function CompareDialog({ roles, onClose }: { roles: ProjectRole[]; onClose: () =
               <tr key={row.id} className="border-t border-line">
                 <th
                   scope="row"
-                  className="px-2 py-2 text-left font-normal whitespace-nowrap text-ink"
+                  className={cn(
+                    "sticky left-0 z-10 bg-overlay px-2 py-2 text-left font-normal whitespace-nowrap text-ink",
+                    edges.start && "shadow-[1px_0_0_var(--hk-line)]",
+                  )}
                 >
                   {row.name}
                 </th>
@@ -389,8 +433,9 @@ function CompareDialog({ roles, onClose }: { roles: ProjectRole[]; onClose: () =
 /**
  * Roles and access, one role at a time (#506), as XenForo edits its user groups: the roles
  * across the top, then the chosen role's permissions by area, a level picker in each area's
- * header setting every row in it at once, then its player tools, then the exceptions to the
- * tools (decision 258). Twelve roles wrap rather than widen the page. Those who manage roles
+ * header setting every row in it at once, then its player tools; the exceptions to the
+ * tools (decision 258), listed apart above them (#585). Past six roles a choice of role
+ * replaces the chips (#673), so the chrome stays one line. Those who manage roles
  * change them here.
  */
 function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
@@ -403,13 +448,13 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
     null,
   );
   const [shown, setShown] = useState<string | null>(null);
-  // The exceptions on a phone: one column at a time.
-  const [exceptionShown, setExceptionShown] = useState<string | null>(null);
+  // The exception whose tools are being changed, in the dialog that added it (#585).
+  const [changing, setChanging] = useState<ToolException | null>(null);
   if (!roles) return <Loading size="panel" className="px-0" />;
   const role = roles.find((r) => r.id === shown) ?? roles[0];
   if (!role) return <p className="m-0 text-[13px] text-ink-3">This project has no roles.</p>;
   const error = updateRole.error ?? deleteRole.error ?? createRole.error;
-  const exceptionError = excepting.update.error ?? excepting.remove.error;
+  const exceptionError = excepting.remove.error;
   const close = () => setDialog(null);
   const save = (levels: AccessLevels, tools?: PlayerTool[]) =>
     updateRole.mutate({ id: role.id, name: role.name, levels, tools });
@@ -421,52 +466,111 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
       },
     });
 
-  const exceptionColumns: ToolColumn[] = exceptions.map((e) => ({
-    id: e.id,
-    name: e.name,
-    tools: e.tools,
-    caption: kindWords[e.kind],
-    actions: manage ? (
-      <ActionMenu
-        label={e.name}
-        always
-        actions={[
-          {
-            label: "Remove exception…",
-            danger: true,
-            onSelect: () =>
-              confirm({
-                title: `Remove ${e.name}'s exception?`,
-                description: "They have their role's tools in this project again.",
-                action: "Remove exception",
-                onConfirm: () => excepting.remove.mutateAsync(e.id),
-              }),
-          },
-        ]}
-      />
-    ) : undefined,
-  }));
-  const exceptionFocus =
-    exceptionColumns.find((c) => c.id === exceptionShown)?.id ?? exceptionColumns[0]?.id;
-
   return (
     <>
-      <div className="flex flex-col gap-6">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-1.5 border-0 p-0">
-            <legend className="sr-only">Role</legend>
-            {roles.map((r) => (
-              <ToggleChip
-                key={r.id}
-                pressed={r.id === role.id}
-                onClick={() => setShown(r.id)}
-                className="max-w-[200px]"
-                title={r.name}
+      {/* The exceptions (decision 258, #585): apart from any role, as each replaces a role's
+          tools for one person or group, a row each, captioned by what they are. */}
+      <Section
+        title="Exceptions"
+        intro={
+          exceptions.length === 0
+            ? "None: everyone has their role's tools, and a guest their review's."
+            : "An exception's tools replace the role's for that person or group; a guest's stay within their review's."
+        }
+        action={
+          manage ? (
+            <Button variant="secondary" size="md" onClick={() => setDialog("exception")}>
+              <Icon name="plus" size={14} />
+              Add exception
+            </Button>
+          ) : undefined
+        }
+      >
+        {exceptions.length > 0
+          ? exceptions.map((e) => (
+              <Row
+                key={e.id}
+                inline
+                name={
+                  <span className="flex flex-wrap items-baseline gap-x-2">
+                    {e.name}
+                    <span className="text-[12px] text-ink-3">{kindWords[e.kind]}</span>
+                  </span>
+                }
+                hint={
+                  e.tools.length === 0 ? (
+                    "No player tools"
+                  ) : (
+                    <span className="mt-1 flex flex-wrap gap-1">
+                      {playerTools
+                        .filter((t) => e.tools.includes(t))
+                        .map((t) => (
+                          <Chip key={t}>{toolWords[t].label}</Chip>
+                        ))}
+                    </span>
+                  )
+                }
               >
-                <span className="truncate">{r.name}</span>
-              </ToggleChip>
-            ))}
-          </fieldset>
+                {manage && (
+                  <ActionMenu
+                    label={e.name}
+                    always
+                    actions={[
+                      { label: "Change tools…", onSelect: () => setChanging(e) },
+                      "divider",
+                      {
+                        label: "Remove exception…",
+                        danger: true,
+                        onSelect: () =>
+                          confirm({
+                            title: `Remove ${e.name}'s exception?`,
+                            description: "They have their role's tools in this project again.",
+                            action: "Remove exception",
+                            onConfirm: () => excepting.remove.mutateAsync(e.id),
+                          }),
+                      },
+                    ]}
+                  />
+                )}
+              </Row>
+            ))
+          : null}
+      </Section>
+      {exceptionError && <p className="-mt-6 text-[13px] text-signal">{exceptionError.message}</p>}
+
+      <div className="flex flex-col gap-6">
+        {/* One line of role chrome however many roles (#673): chips while they fit, past six a
+            choice of role, as Discord's role settings list them. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {roles.length > 6 ? (
+            <Select
+              aria-label="Role"
+              value={role.id}
+              onChange={(event) => setShown(event.target.value)}
+              className="w-full max-w-64 @3xl/app:w-64"
+            >
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-1.5 border-0 p-0">
+              <legend className="sr-only">Role</legend>
+              {roles.map((r) => (
+                <ToggleChip
+                  key={r.id}
+                  pressed={r.id === role.id}
+                  onClick={() => setShown(r.id)}
+                  className="max-w-[200px]"
+                  title={r.name}
+                >
+                  <span className="truncate">{r.name}</span>
+                </ToggleChip>
+              ))}
+            </fieldset>
+          )}
           {manage && (
             <NewRoleMenu
               roles={roles}
@@ -607,7 +711,7 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
 
       <Section
         title="Player tools"
-        intro={`Which tools ${role.name} sees on the recording page. QA, meters and the spectrogram are refused by the server too. Workspace owners and admins have them all.`}
+        intro={`Which tools ${role.name} sees in the player. QA, meters and the spectrogram are refused by the server too. Workspace owners and admins have them all.`}
       >
         {playerTools.map((tool) => (
           <Row key={tool} name={toolWords[tool].label} hint={toolWords[tool].hint} inline>
@@ -621,58 +725,17 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
         ))}
       </Section>
 
-      <section aria-label="Exceptions" className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <h2 className="text-[16px] font-medium text-ink">Exceptions</h2>
-            <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">
-              {exceptions.length === 0
-                ? "None: everyone has their role's tools, and a guest their review's."
-                : "An exception's tools replace the role's for that person or group; a guest's stay within their review's."}
-            </p>
-          </div>
-          {exceptionColumns.length > 1 && (
-            <div className="flex items-center gap-2 text-[13px] text-ink-3 @3xl/app:hidden">
-              <label htmlFor="exception-shown">Shown</label>
-              <Select
-                id="exception-shown"
-                size="sm"
-                value={exceptionFocus}
-                onChange={(event) => setExceptionShown(event.target.value)}
-                className="w-auto"
-              >
-                {exceptionColumns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.caption ? `${c.name} (${c.caption.toLowerCase()})` : c.name}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
-          {manage && (
-            <Button variant="secondary" size="md" onClick={() => setDialog("exception")}>
-              <Icon name="plus" size={14} />
-              Add exception
-            </Button>
-          )}
-        </div>
-        {exceptionColumns.length > 0 && (
-          <PlayerToolsTable
-            roles={exceptionColumns}
-            manage={manage}
-            column={(id) => (id === exceptionFocus ? "" : "hidden @3xl/app:table-cell")}
-            onToggle={(id, tool, on) => {
-              const exception = exceptions.find((e) => e.id === id);
-              if (exception)
-                excepting.update.mutate({ id, tools: withTool(exception.tools, tool, on) });
-            }}
-          />
-        )}
-        {exceptionError && <p className="m-0 text-[13px] text-signal">{exceptionError.message}</p>}
-      </section>
-
       {dialog === "exception" && (
         <ExceptionDialog projectId={projectId} roles={roles} taken={exceptions} onClose={close} />
+      )}
+      {changing && (
+        <ExceptionDialog
+          projectId={projectId}
+          roles={roles}
+          taken={exceptions}
+          editing={changing}
+          onClose={() => setChanging(null)}
+        />
       )}
       {dialog === "compare" && <CompareDialog roles={roles} onClose={close} />}
       {dialog === "copy" && (

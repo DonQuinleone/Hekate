@@ -1,6 +1,5 @@
 import {
   type AssetPolicy,
-  type AssetSection,
   assetSecurityLayout,
   capital,
   customRef,
@@ -26,16 +25,16 @@ import {
   type ProfileRef,
   type ProjectPermission,
   type ProjectProfile,
+  type ProtectionSection,
   profileFor,
   profiles,
+  protectionLayout,
   referenceSetOf,
   referenceSets,
   type WatermarkPosition,
   type WatermarkScope,
   type WatermarkSettings,
   type WorkflowNotices,
-  type WorkflowSummary,
-  watermarkHome,
   watermarkPositions,
   watermarkPositionWords,
   watermarkScopes,
@@ -50,7 +49,6 @@ import { AssignmentPicker } from "~/components/assignment-picker";
 import { CategoryDialog } from "~/components/category-dialog";
 import {
   deliveryHint,
-  formatDb,
   ProfileEditor,
   ProfileOptions,
   useWorkspaceAdmin,
@@ -60,7 +58,7 @@ import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { VideoMark } from "~/components/player";
 import { ProjectRoles } from "~/components/project-access";
-import { TransferProject } from "~/components/project-transfer";
+import { ConfirmStep, TransferProject } from "~/components/project-transfer";
 import { QaRules } from "~/components/qa-rules";
 import {
   Danger,
@@ -73,9 +71,12 @@ import {
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
-import { Input, Select } from "~/components/ui/input";
+import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { Loading } from "~/components/ui/states";
+import { WorkflowState } from "~/components/workflow-state";
+import { cn } from "~/lib/cn";
+import { categoryTone } from "~/lib/comments";
 import { formatDates } from "~/lib/locale";
 import {
   type CommentCategory,
@@ -86,6 +87,7 @@ import {
   projectStorageQuery,
   projectTracksQuery,
   projectWorkflowsQuery,
+  type Track,
   useArchiveProject,
   useCategoryMutations,
   useProjectCan,
@@ -99,7 +101,8 @@ import {
   useUpdateProject,
   workspaceSettingsQuery,
 } from "~/lib/queries";
-import { basicSteps } from "~/lib/workflow-nodes";
+import { storageName } from "~/lib/storage-names";
+import { problemsOf, stepsOf } from "~/lib/workflow-summary";
 import { ProjectFrame } from "~/routes/project";
 
 /** The project's settings, grouped as in the prototype; more sections arrive with their issues. */
@@ -114,7 +117,8 @@ const sections = [
     id: "comments",
     label: "Comments",
     group: "Project",
-    intro: "What comments may refer to, and how they are categorised and carried between versions.",
+    intro:
+      "What comments may refer to, how they are categorised and carried between versions, and whom new ones are given to.",
   },
   {
     id: "roles",
@@ -127,11 +131,11 @@ const sections = [
     id: "workflow",
     label: "Workflow",
     group: "Project",
-    intro: "Its workflows, who they tell, and what a new version must pass before it lands.",
+    intro: "Its workflows, and who they tell.",
   },
   {
-    id: "security",
-    label: "Asset security",
+    id: "watermarks",
+    label: "Watermarks and downloads",
     group: "Protection",
     intro:
       "How each kind of file names whoever has it, and who may take files away or delete them.",
@@ -148,18 +152,22 @@ const sections = [
     label: "Delivery profile",
     group: "Quality assurance",
     intro:
-      "What QA measures every recording against: loudness, peaks and formats. Anything in the project can have its own; without any, each file is measured against the profile its channels suggest.",
+      "What QA measures every recording against, and plays it back level with: loudness, peaks and formats. Anything in the project can have its own; without any, each file is measured against the profile its channels suggest.",
   },
   {
     id: "qa",
     label: "QA rules",
     group: "Quality assurance",
     intro:
-      "Every check that runs on a recording or a video, by category: plain errors always on, delivery checks and your own rules as you choose.",
+      "Every check that runs on a recording or a video, by category, and what a new version must pass before it lands.",
   },
 ] as const;
 export type ProjectSettingsSection = (typeof sections)[number]["id"];
 export const projectSettingsSections = sections.map((s) => s.id);
+/** Sections' old names in links people kept, and where each now is (#580). */
+export const projectSettingsMoved: Record<string, ProjectSettingsSection> = {
+  security: "watermarks",
+};
 
 /** Whoever edits the project, manages its people or edits its workflow has its settings. */
 export const mayOpenSettings = (can: (permission: ProjectPermission) => boolean) =>
@@ -201,10 +209,10 @@ export function ProjectSettingsPage({
             {current.id === "comments" && <Comments project={project} />}
             {current.id === "roles" && <ProjectRoles projectId={project.id} />}
             {current.id === "workflow" && <Workflow project={project} />}
-            {current.id === "security" && <AssetSecurity project={project} />}
+            {current.id === "watermarks" && <Watermarks project={project} />}
             {current.id === "storage" && <ProjectStorageSection project={project} />}
             {current.id === "delivery" && <Delivery project={project} />}
-            {current.id === "qa" && <QaRules project={project} />}
+            {current.id === "qa" && <QaRulesPage project={project} />}
           </SettingsLayout>
         )
       }
@@ -212,12 +220,16 @@ export function ProjectSettingsPage({
   );
 }
 
-/** A text setting saved when it loses focus, or on Enter; Escape puts it back. */
+/**
+ * A text setting saved when it loses focus, or on Enter; Escape puts it back. Two lines tall
+ * where its words run longer than a name (#706), Shift and Enter starting a new line.
+ */
 function SavedInput({
   value,
   label,
   disabled,
   required = false,
+  multiline = false,
   className,
   onSave,
 }: {
@@ -225,6 +237,7 @@ function SavedInput({
   label: string;
   disabled: boolean;
   required?: boolean;
+  multiline?: boolean;
   className?: string;
   onSave: (value: string) => void;
 }) {
@@ -234,23 +247,28 @@ function SavedInput({
     if (next === value || (required && !next)) setDraft(value);
     else onSave(next);
   };
-  return (
-    <Input
-      key={value}
-      value={draft}
-      aria-label={label}
-      disabled={disabled}
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={save}
-      onKeyDown={(event) => {
-        if (event.key === "Enter") event.currentTarget.blur();
-        if (event.key === "Escape") {
-          setDraft(value);
-          event.currentTarget.blur();
-        }
-      }}
-      className={className}
-    />
+  const keys = (event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      event.currentTarget.blur();
+    }
+    if (event.key === "Escape") {
+      setDraft(value);
+      event.currentTarget.blur();
+    }
+  };
+  const shared = {
+    value: draft,
+    "aria-label": label,
+    disabled,
+    onBlur: save,
+    onKeyDown: keys,
+    className,
+  };
+  return multiline ? (
+    <Textarea key={value} rows={2} {...shared} onChange={(event) => setDraft(event.target.value)} />
+  ) : (
+    <Input key={value} {...shared} onChange={(event) => setDraft(event.target.value)} />
   );
 }
 
@@ -345,7 +363,7 @@ function General({ project }: { project: Project }) {
             required
             disabled={!edit}
             onSave={(name) => update.mutate({ name })}
-            className="w-full @3xl/app:w-64"
+            className="w-full @3xl/app:w-72"
           />
         </Row>
         <Row
@@ -357,7 +375,6 @@ function General({ project }: { project: Project }) {
             aria-label="Profile"
             disabled={!edit}
             onChange={(event) => update.mutate({ profile: event.target.value as ProjectProfile })}
-            className="w-full @3xl/app:w-40"
           >
             {(Object.keys(profiles) as ProjectProfile[]).map((p) => (
               <option key={p} value={p}>
@@ -372,8 +389,9 @@ function General({ project }: { project: Project }) {
             value={project.description ?? ""}
             label="Description"
             disabled={!edit}
+            multiline
             onSave={(description) => update.mutate({ description: description || null })}
-            className="w-full @3xl/app:w-80"
+            className="w-full @3xl/app:w-72"
           />
         </Row>
       </Section>
@@ -447,11 +465,7 @@ function DeleteProject({ project }: { project: Project }) {
   const deletion = project.deletion ?? null;
   const { request, cancel, confirm } = useProjectDeletion(project.id);
   const [dialog, setDialog] = useState<"ask" | "confirm" | null>(null);
-  const [typed, setTyped] = useState("");
-  const close = () => {
-    setDialog(null);
-    setTyped("");
-  };
+  const close = () => setDialog(null);
   const error = request.error ?? cancel.error;
   let row: ReactNode;
   if (deletion?.deleteAfter) {
@@ -486,7 +500,7 @@ function DeleteProject({ project }: { project: Project }) {
         <span className="flex gap-2">
           {deletion.mayCancel && (
             <Button
-              variant="ghost"
+              variant="secondary"
               size="md"
               disabled={cancel.isPending}
               onClick={() => cancel.mutate()}
@@ -496,7 +510,7 @@ function DeleteProject({ project }: { project: Project }) {
           )}
           {deletion.mayConfirm && (
             <Button variant="danger" size="md" onClick={() => setDialog("confirm")}>
-              Delete…
+              Confirm deletion…
             </Button>
           )}
         </span>
@@ -521,7 +535,7 @@ function DeleteProject({ project }: { project: Project }) {
       {dialog === "ask" && (
         <Dialog
           title={`Delete ${project.name}?`}
-          description="A workspace owner other than you confirms before anything happens; a workspace with one owner confirms a day later. It is then archived, and everything in it is removed after seven days."
+          description="Nothing happens yet: a workspace owner other than you confirms first, or you a day later where the workspace has one owner. Once confirmed, it is archived, and everything in it is removed seven days later."
           onClose={close}
           width="sm"
           footer={
@@ -535,7 +549,7 @@ function DeleteProject({ project }: { project: Project }) {
                 disabled={request.isPending}
                 onClick={() => request.mutate(undefined, { onSuccess: close })}
               >
-                Ask to delete
+                Ask to delete project
               </Button>
             </>
           }
@@ -544,36 +558,16 @@ function DeleteProject({ project }: { project: Project }) {
         </Dialog>
       )}
       {dialog === "confirm" && (
-        <Dialog
-          title="Delete this project?"
-          description="It is archived now, and everything in it is removed after seven days; until then it can be kept. Type the project's name to confirm."
+        <ConfirmStep
+          title={`Delete ${project.name}?`}
+          description="Once you confirm, it is archived, and everything in it is removed seven days later; until then it can be kept."
+          projectName={project.name}
+          action="Delete project"
+          pending={confirm.isPending}
+          error={confirm.error}
           onClose={close}
-          width="sm"
-          footer={
-            <>
-              <Button variant="secondary" size="md" onClick={close}>
-                Cancel
-              </Button>
-              <Button
-                variant="danger"
-                size="md"
-                disabled={confirm.isPending || typed.trim() !== project.name}
-                onClick={() => confirm.mutate(undefined, { onSuccess: close })}
-              >
-                Delete
-              </Button>
-            </>
-          }
-        >
-          <Field label="Project name" error={confirm.error?.message}>
-            <Input
-              value={typed}
-              placeholder={project.name}
-              autoComplete="off"
-              onChange={(e) => setTyped(e.target.value)}
-            />
-          </Field>
-        </Dialog>
+          onConfirm={(proof) => confirm.mutate(proof, { onSuccess: close })}
+        />
       )}
     </>
   );
@@ -586,32 +580,35 @@ function ProjectStorageSection({ project }: { project: Project }) {
   const owner = me?.organisations.find((o) => o.id === me.activeOrganisationId)?.role === "owner";
   const choose = useProjectStorage(project.id);
   if (!data) return null;
+  // Each storage by its name, never its id (#586).
+  const named = (backend: string) => storageName(backend, data.available);
   return (
     <>
-      <Section title="Backend">
+      <Section>
         <Row
-          name="Backend for new files"
+          name="Where new files are stored"
           hint={owner ? undefined : "Only a workspace owner can change it."}
         >
           {owner ? (
             <Select
-              aria-label="Backend for new files"
+              aria-label="Where new files are stored"
               value={data.backend ?? ""}
               onChange={(e) => choose.mutate(e.target.value || null)}
-              className="w-full @3xl/app:w-64"
             >
-              <option value="">Workspace default ({data.workspaceBackend})</option>
+              <option value="">As the workspace: {named(data.workspaceBackend)}</option>
               {data.available.map((b) => (
                 <option key={b} value={b}>
-                  {b}
+                  {named(b)}
                 </option>
               ))}
             </Select>
           ) : (
-            <span className="text-[14px] text-ink-2">{data.backend ?? data.workspaceBackend}</span>
+            <span className="text-[14px] text-ink-2">
+              {named(data.backend ?? data.workspaceBackend)}
+            </span>
           )}
         </Row>
-        <Row name="Used by this project" hint="Originals, renditions, pages and peaks">
+        <Row name="Used by this project" hint="Originals, proxies, rendered pages and waveforms">
           <span className="tabular text-[14px] text-ink">{formatBytes(data.bytes)}</span>
         </Row>
       </Section>
@@ -621,18 +618,56 @@ function ProjectStorageSection({ project }: { project: Project }) {
 }
 
 /**
- * Asset security (decision 287): a section for each kind of file, in the order the profile puts
- * first, each open where the project has that kind of file and folded to its summary where it
- * has none. Audio carries the inaudible mark in downloads (decision 239); video, pictures and
- * documents the visible watermark (#31), one setting for both, edited where it shows first.
- * Then who may download and delete (decision 257), whatever the kind.
+ * Watermarks and downloads (decision 287, #580): the inaudible mark on recordings' downloads
+ * (decision 239), and the visible watermark (#31), one setting for video, pictures and documents,
+ * so one section with its three fields labelled and its preview beside them (#674). Each comes
+ * where the profile puts its kind of file, open where the project has that kind and folded to its
+ * summary where it has none. Then who may download and delete (decision 257), whatever the kind.
  */
-function AssetSecurity({ project }: { project: Project }) {
+function Watermarks({ project }: { project: Project }) {
+  // The sections opened or folded by hand, against how the page first lays them out.
+  const [flipped, setFlipped] = useState<ReadonlySet<ProtectionSection>>(new Set());
+  const layout = protectionLayout(assetSecurityLayout(project.profile, project.fileKinds)).map(
+    (s) => ({ ...s, open: flipped.has(s.section) ? !s.open : s.open }),
+  );
+  const flip = (section: ProtectionSection) =>
+    setFlipped((was) => {
+      const next = new Set(was);
+      if (!next.delete(section)) next.add(section);
+      return next;
+    });
+  return (
+    <>
+      {layout.map((s) =>
+        s.section === "audio" ? (
+          <AudioMarking key="audio" project={project} />
+        ) : (
+          <VisibleWatermark
+            key="watermark"
+            project={project}
+            open={s.open}
+            onToggle={() => flip("watermark")}
+          />
+        ),
+      )}
+      <Downloads project={project} />
+    </>
+  );
+}
+
+/** The visible watermark (#31, #674): whom it marks, where and how strongly, and how it looks. */
+function VisibleWatermark({
+  project,
+  open,
+  onToggle,
+}: {
+  project: Project;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
   const { data: me } = useQuery(meQuery);
-  // The sections opened or folded by hand, against how the page first lays them out.
-  const [flipped, setFlipped] = useState<ReadonlySet<AssetSection>>(new Set());
   const settings = project.watermark ?? defaultWatermark;
   // One change at a time: each sends the whole setting, so a second waits for the first.
   const edit = can("edit_project") && !update.isPending;
@@ -644,125 +679,94 @@ function AssetSecurity({ project }: { project: Project }) {
     workspace,
     new Date(),
   );
-  const layout = assetSecurityLayout(project.profile, project.fileKinds).map((s) => ({
-    ...s,
-    open: flipped.has(s.section) ? !s.open : s.open,
-  }));
-  const home = watermarkHome(layout);
-  const flip = (section: AssetSection) =>
-    setFlipped((was) => {
-      const next = new Set(was);
-      if (!next.delete(section)) next.add(section);
-      return next;
-    });
-  const summary =
-    settings.scope === "off"
-      ? watermarkSummary(settings)
-      : `Visible watermark · ${watermarkSummary(settings)}`;
-  // Whom, where and how strongly, on one row: the page leads with audio and fits one screen.
-  const watermarkRows = (
-    <Row
-      name="Visible watermark"
-      hint="Whom it marks, where, and how strongly (10 to 80 per cent)."
-    >
-      <span className="flex w-full flex-wrap gap-2 @3xl/app:w-auto @3xl/app:flex-nowrap">
-        <Select
-          value={settings.scope}
-          aria-label="Visible watermark"
-          disabled={!edit}
-          onChange={(e) => change({ scope: e.target.value as WatermarkScope })}
-          className="w-full @3xl/app:w-36"
-        >
-          {watermarkScopes.map((scope) => (
-            <option key={scope} value={scope}>
-              {watermarkScopeWords[scope]}
-            </option>
-          ))}
-        </Select>
-        <Select
-          value={settings.position}
-          aria-label="Position"
-          disabled={!edit || settings.scope === "off"}
-          onChange={(e) => change({ position: e.target.value as WatermarkPosition })}
-          className="min-w-0 flex-1 @3xl/app:w-36 @3xl/app:flex-none"
-        >
-          {watermarkPositions.map((position) => (
-            <option key={position} value={position}>
-              {watermarkPositionWords[position]}
-            </option>
-          ))}
-        </Select>
-        <SavedInput
-          key={settings.opacity}
-          value={`${settings.opacity}%`}
-          label="Opacity"
-          disabled={!edit || settings.scope === "off"}
-          onSave={(typed) => {
-            const opacity = Number.parseInt(typed, 10);
-            if (Number.isInteger(opacity)) change({ opacity: Math.min(80, Math.max(10, opacity)) });
-          }}
-          className="tabular w-20 shrink-0"
-        />
-      </span>
-    </Row>
-  );
-  // The other open section says how the one mark is set, where it is set.
-  const setAbove = (where: string) => (
-    <Row name="Visible watermark" hint={`The same mark, set under ${where} above.`} inline>
-      <span className="text-[13px] text-ink-2">{watermarkSummary(settings)}</span>
-    </Row>
-  );
-  const sections: Record<AssetSection, ReactNode> = {
-    audio: <AudioMarking key="audio" project={project} />,
-    video: (
-      <FoldingSection
-        key="video"
-        id="asset-security-video"
-        title="Video"
-        intro="The visible watermark, laid over the player and burned into each download."
-        summary={summary}
-        open={layout.some((s) => s.section === "video" && s.open)}
-        onToggle={() => flip("video")}
-      >
-        {home === "video" ? watermarkRows : setAbove("Pictures and documents")}
-        {settings.scope !== "off" && (
-          <Row name="Preview" stacked>
-            {/* A frame stands in for the picture: dark in either theme, as a video is. */}
-            <div
-              className="relative aspect-video w-full max-w-[420px] overflow-hidden rounded-panel"
-              style={{
-                background:
-                  "radial-gradient(120% 90% at 30% 20%, var(--hk-cover-video-lit), var(--hk-cover-video-deep) 70%)",
-              }}
-            >
-              <VideoMark
-                mark={{ text: sample, position: settings.position, opacity: settings.opacity }}
-              />
-            </div>
-          </Row>
-        )}
-      </FoldingSection>
-    ),
-    documents: (
-      <FoldingSection
-        key="documents"
-        id="asset-security-documents"
-        title="Pictures and documents"
-        intro="The visible watermark, burned into each page and picture as it is shown and downloaded."
-        summary={summary}
-        open={layout.some((s) => s.section === "documents" && s.open)}
-        onToggle={() => flip("documents")}
-      >
-        {home === "documents" ? watermarkRows : setAbove("Video")}
-      </FoldingSection>
-    ),
-  };
+  const off = settings.scope === "off";
   return (
-    <>
-      {layout.map((s) => sections[s.section])}
-      {update.error && <p className="-mt-6 text-[13px] text-signal">{update.error.message}</p>}
-      <Downloads project={project} />
-    </>
+    <FoldingSection
+      id="visible-watermark"
+      title="Visible watermark"
+      intro="Over video in the player, and burned into each page, picture and download, in the viewer's name."
+      summary={watermarkSummary(settings)}
+      open={open}
+      onToggle={onToggle}
+    >
+      {/* Its three fields in a row, the preview beside them as a thumbnail, as Stripe lays out a
+          branding setting: compact enough for the page to lead with it. */}
+      <div className="grid gap-5 px-4 py-4 @3xl/app:grid-cols-[minmax(0,1fr)_200px] @3xl/app:gap-6">
+        <div className="grid min-w-0 content-start gap-4 @xl/app:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6rem]">
+          <Field label="Who it marks">
+            <Select
+              value={settings.scope}
+              disabled={!edit}
+              onChange={(e) => change({ scope: e.target.value as WatermarkScope })}
+            >
+              {watermarkScopes.map((scope) => (
+                <option key={scope} value={scope}>
+                  {watermarkScopeWords[scope]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Position">
+            <Select
+              value={settings.position}
+              disabled={!edit || off}
+              onChange={(e) => change({ position: e.target.value as WatermarkPosition })}
+            >
+              {watermarkPositions.map((position) => (
+                <option key={position} value={position}>
+                  {watermarkPositionWords[position]}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Strength">
+            <SavedInput
+              key={settings.opacity}
+              value={`${settings.opacity}%`}
+              label="Strength"
+              disabled={!edit || off}
+              onSave={(typed) => {
+                const opacity = Number.parseInt(typed, 10);
+                if (Number.isInteger(opacity))
+                  change({ opacity: Math.min(80, Math.max(10, opacity)) });
+              }}
+              className="tabular w-24"
+            />
+          </Field>
+          <p className="m-0 text-[12px] text-ink-3 @xl/app:col-span-3">
+            Strength runs from 10 to 80 per cent: faint enough to watch through.
+          </p>
+        </div>
+        <figure className="m-0 flex min-w-0 flex-col gap-1.5">
+          <figcaption className="text-[13px] text-ink-2">
+            {off ? "Preview: nothing is marked" : "Preview"}
+          </figcaption>
+          {/* A frame stands in for the picture: dark in either theme, as a video is. */}
+          <div
+            className="relative aspect-video w-full max-w-[320px] overflow-hidden rounded-panel"
+            style={{
+              background:
+                "radial-gradient(120% 90% at 30% 20%, var(--hk-cover-video-lit), var(--hk-cover-video-deep) 70%)",
+            }}
+          >
+            {/* Laid out at twice the thumbnail's size and drawn at half, so the mark keeps the
+                proportion it has over a picture in the player. */}
+            {!off && (
+              <div className="absolute top-0 left-0 h-[200%] w-[200%] origin-top-left scale-50">
+                <VideoMark
+                  mark={{ text: sample, position: settings.position, opacity: settings.opacity }}
+                />
+              </div>
+            )}
+          </div>
+        </figure>
+        {update.error && (
+          <p role="alert" className="m-0 text-[13px] text-signal @3xl/app:col-span-2">
+            {update.error.message}
+          </p>
+        )}
+      </div>
+    </FoldingSection>
   );
 }
 
@@ -887,6 +891,107 @@ function Downloads({ project }: { project: Project }) {
   );
 }
 
+/**
+ * The tracks that differ from the project in one setting (#671), as Vercel lists only the values
+ * an environment overrides: each with its control, choosing the project's default putting it
+ * back, and "Override for a track…" to give another its own. Named for what they override.
+ */
+function TrackOverrides({
+  project,
+  title,
+  tracks,
+  differs,
+  disabled,
+  control,
+}: {
+  project: Project;
+  /** What the tracks listed have of their own: "Tracks with their own references". */
+  title: string;
+  tracks: Track[] | undefined;
+  differs: (track: Track) => boolean;
+  disabled: boolean;
+  /** A track's control, `done` once it has changed (the dialog closes). */
+  control: (track: Track, done?: () => void) => ReactNode;
+}) {
+  const words = itemWords(project.profile);
+  const [adding, setAdding] = useState(false);
+  const [chosen, setChosen] = useState("");
+  if (!tracks || tracks.length === 0) return null;
+  const listed = tracks.filter(differs);
+  const others = tracks.filter((t) => !differs(t));
+  const picked = others.find((t) => t.id === chosen) ?? others[0];
+  return (
+    <>
+      <Section
+        title={title}
+        count={listed.length > 0 ? listed.length : undefined}
+        intro={
+          listed.length === 0 ? `Every ${words.track} follows the project's choice.` : undefined
+        }
+        action={
+          !disabled && others.length > 0 ? (
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => {
+                setChosen("");
+                setAdding(true);
+              }}
+            >
+              Override for a {words.track}…
+            </Button>
+          ) : undefined
+        }
+      >
+        {listed.length > 0
+          ? listed.map((t) => (
+              <Row
+                key={t.id}
+                name={
+                  <Link
+                    to="/tracks/$trackId"
+                    params={{ trackId: t.id }}
+                    className="transition-colors hover:text-signal"
+                  >
+                    {t.name}
+                  </Link>
+                }
+              >
+                {control(t)}
+              </Row>
+            ))
+          : null}
+      </Section>
+      {adding && picked && (
+        <Dialog
+          title={`Override for a ${words.track}`}
+          description={`The ${words.track} keeps this in place of the project's choice, until it is set back to the project default.`}
+          onClose={() => setAdding(false)}
+          width="sm"
+          footer={
+            <Button variant="secondary" onClick={() => setAdding(false)}>
+              Cancel
+            </Button>
+          }
+        >
+          <div className="flex flex-col gap-4">
+            <Field label={capital(words.track)}>
+              <Select value={picked.id} onChange={(e) => setChosen(e.target.value)}>
+                {others.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Its own">{control(picked, () => setAdding(false))}</Field>
+          </div>
+        </Dialog>
+      )}
+    </>
+  );
+}
+
 function Comments({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
@@ -895,18 +1000,19 @@ function Comments({ project }: { project: Project }) {
   // Tracks may choose their own (#240).
   const { data: tracks } = useQuery(projectTracksQuery(project.id));
   const onTrack = useTrackReferences(project.id);
-  const playsTrack = useTrackNormalisation(project.id);
+  const assignOnTrack = useTrackCommentAssignment(project.id);
   const { data: categories } = useQuery(categoriesQuery(project.id));
   const mutations = useCategoryMutations(project.id);
   const { remove } = mutations;
   const [editing, setEditing] = useState<CommentCategory | "new" | null>(null);
   const [deleting, setDeleting] = useState<CommentCategory | null>(null);
   const shape = can("edit_workflows");
+  const words = itemWords(project.profile);
   return (
     <>
       <Section
         title="References"
-        intro="What reviewers can type beside a comment, as they read it from the score or the document. Never derived from the time; never on the scrub bar. Each track can also have its own."
+        intro={`What reviewers can type beside a comment, as they read it from the score or the document. Never derived from the time; never on the scrub bar. Each ${words.track} can also have its own.`}
       >
         <SwitchRow
           name="Pages"
@@ -930,46 +1036,37 @@ function Comments({ project }: { project: Project }) {
         />
       </Section>
       {onTrack.error && <p className="-mt-6 text-[13px] text-signal">{onTrack.error.message}</p>}
-      {tracks && tracks.length > 0 && (
-        <Section title="Overrides" intro="Tracks whose comments name other references.">
-          {tracks.map((t) => (
-            <Row
-              key={t.id}
-              name={
-                <Link
-                  to="/tracks/$trackId"
-                  params={{ trackId: t.id }}
-                  className="transition-colors hover:text-signal"
-                >
-                  {t.name}
-                </Link>
-              }
-            >
-              <Select
-                value={t.commentReferences ? (referenceSetOf(t.commentReferences) ?? "") : ""}
-                aria-label={`References of ${t.name}`}
-                disabled={!can("edit_project")}
-                onChange={(event) =>
-                  onTrack.mutate({
-                    trackId: t.id,
-                    references:
-                      referenceSets.find((set) => set.id === event.target.value)?.references ??
-                      null,
-                  })
-                }
-                className="w-full @3xl/app:w-56"
-              >
-                <option value="">Project default</option>
-                {referenceSets.map((set) => (
-                  <option key={set.id} value={set.id}>
-                    {set.label}
-                  </option>
-                ))}
-              </Select>
-            </Row>
-          ))}
-        </Section>
-      )}
+      <TrackOverrides
+        project={project}
+        title={`${capital(words.tracks)} with their own references`}
+        tracks={tracks}
+        differs={(t) => t.commentReferences !== null}
+        disabled={!can("edit_project")}
+        control={(t, done) => (
+          <Select
+            value={t.commentReferences ? (referenceSetOf(t.commentReferences) ?? "") : ""}
+            aria-label={`References of ${t.name}`}
+            disabled={!can("edit_project")}
+            onChange={(event) =>
+              onTrack.mutate(
+                {
+                  trackId: t.id,
+                  references:
+                    referenceSets.find((set) => set.id === event.target.value)?.references ?? null,
+                },
+                { onSuccess: done },
+              )
+            }
+          >
+            <option value="">Project default</option>
+            {referenceSets.map((set) => (
+              <option key={set.id} value={set.id}>
+                {set.label}
+              </option>
+            ))}
+          </Select>
+        )}
+      />
       <Section
         title="Categories"
         intro="Triage marks comments with a category, so each kind goes where it belongs."
@@ -987,28 +1084,37 @@ function Comments({ project }: { project: Project }) {
           <Row name="No categories" hint="Comments can still be triaged without one." />
         )}
         {categories?.map((c) => (
-          <Row
-            key={c.id}
-            name={c.name}
-            inline
-            hint={
-              c.handling === "deferred"
-                ? `Deferred to the ${c.stage} stage`
-                : handlingWords[c.handling]
-            }
-          >
-            {shape && (
-              <ActionMenu
-                always
-                label={c.name}
-                actions={[
-                  { label: "Rename or change handling…", onSelect: () => setEditing(c) },
-                  "divider",
-                  { label: "Delete…", danger: true, onSelect: () => setDeleting(c) },
-                ]}
-              />
-            )}
-          </Row>
+          // Each in its colour, by its place among the project's categories (#706, brand.md).
+          <div key={c.id} className="relative">
+            <span
+              aria-hidden="true"
+              className={cn(
+                "absolute inset-y-2.5 left-0 w-[3px] rounded-r-full",
+                categoryTone(categories, c.id),
+              )}
+            />
+            <Row
+              name={c.name}
+              inline
+              hint={
+                c.handling === "deferred"
+                  ? `Deferred to the ${c.stage} stage`
+                  : handlingWords[c.handling]
+              }
+            >
+              {shape && (
+                <ActionMenu
+                  always
+                  label={c.name}
+                  actions={[
+                    { label: "Rename or change handling…", onSelect: () => setEditing(c) },
+                    "divider",
+                    { label: "Delete…", danger: true, onSelect: () => setDeleting(c) },
+                  ]}
+                />
+              )}
+            </Row>
+          </div>
         ))}
       </Section>
       <Section title="Versions">
@@ -1019,72 +1125,44 @@ function Comments({ project }: { project: Project }) {
           disabled={!can("edit_project")}
           onChange={(carriedCommentsShown) => update.mutate({ carriedCommentsShown })}
         />
-        <Row
-          name="Normalised playback"
-          hint="Level-matched to the delivery profile's target, so a louder version is not mistaken for a better one."
-        >
-          <Select
-            value={project.normalisation ?? "off"}
-            aria-label="Normalised playback"
-            disabled={!can("edit_project")}
-            onChange={(event) =>
-              update.mutate({ normalisation: event.target.value as NormalisationMode })
-            }
-            className="w-full @3xl/app:w-48"
-          >
-            {normalisationModes.map((mode) => (
-              <option key={mode} value={mode}>
-                {normalisationWords[mode]}
-              </option>
-            ))}
-          </Select>
+      </Section>
+      {/* Whom new comments are for (#499, moved here from Workflow by #672). */}
+      <Section
+        title="New comments"
+        intro={`Whom a comment is given to as it is opened, unless the step the ${words.track} waits at says otherwise. They are told, as of comments sent to them.`}
+      >
+        <Row name="Assign new comments to" hint="A member, or whoever has held a role the longest">
+          <AssignmentPicker
+            projectId={project.id}
+            value={project.commentAssignment ?? { assign: null }}
+            disabled={!shape || update.isPending}
+            aria-label="Assign new comments to"
+            onChange={(rule) => update.mutate({ commentAssignment: rule })}
+          />
         </Row>
       </Section>
-      {/* A track can play otherwise (#98), as a set heard together might. */}
-      {tracks && tracks.length > 0 && (
-        <Section
-          title="Normalised playback by track"
-          intro="Tracks with a normalisation of their own, in place of the project's: a set heard together can play as one."
-        >
-          {tracks?.map((t) => (
-            <Row
-              key={t.id}
-              name={
-                <Link
-                  to="/tracks/$trackId"
-                  params={{ trackId: t.id }}
-                  className="transition-colors hover:text-signal"
-                >
-                  {t.name}
-                </Link>
-              }
-            >
-              <Select
-                value={t.normalisation ?? ""}
-                aria-label={`Normalised playback of ${t.name}`}
-                disabled={!can("edit_project") || playsTrack.isPending}
-                onChange={(event) =>
-                  playsTrack.mutate({
-                    trackId: t.id,
-                    normalisation: (event.target.value || null) as NormalisationMode | null,
-                  })
-                }
-                className="w-full @3xl/app:w-56"
-              >
-                <option value="">Project default</option>
-                {normalisationModes.map((mode) => (
-                  <option key={mode} value={mode}>
-                    {normalisationWords[mode]}
-                  </option>
-                ))}
-              </Select>
-            </Row>
-          ))}
-          {playsTrack.error && (
-            <p className="m-0 text-[13px] text-signal">{playsTrack.error.message}</p>
-          )}
-        </Section>
+      {assignOnTrack.error && (
+        <p className="-mt-6 text-[13px] text-signal">{assignOnTrack.error.message}</p>
       )}
+      <TrackOverrides
+        project={project}
+        title={`${capital(words.tracks)} whose new comments go to someone else`}
+        tracks={tracks}
+        differs={(t) => t.commentAssignment !== null}
+        disabled={!shape}
+        control={(t, done) => (
+          <AssignmentPicker
+            projectId={project.id}
+            value={t.commentAssignment}
+            inherits="Project default"
+            disabled={!shape}
+            aria-label={`Assign new comments on ${t.name} to`}
+            onChange={(assignment) =>
+              assignOnTrack.mutate({ trackId: t.id, assignment }, { onSuccess: done })
+            }
+          />
+        )}
+      />
       {editing && (
         <CategoryDialog
           mutations={mutations}
@@ -1109,7 +1187,7 @@ function Comments({ project }: { project: Project }) {
                 disabled={remove.isPending}
                 onClick={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
               >
-                Delete
+                Delete category
               </Button>
             </>
           }
@@ -1130,17 +1208,11 @@ function useProjectProfile(project: Project) {
   return { customs, own, inherited, effective: own ?? inherited };
 }
 
-/** "4 steps": the stages a workflow takes a track through, as its builder counts them. */
-const stepsOf = (w: WorkflowSummary) => {
-  const n = basicSteps(w.definition).steps.length;
-  return `${n} ${n === 1 ? "step" : "steps"}`;
-};
-
 function Workflow({ project }: { project: Project }) {
   const can = useProjectCan(project.id);
   const update = useUpdateProject(project.id);
   const edit = can("edit_workflows");
-  const { effective } = useProjectProfile(project);
+  const words = itemWords(project.profile);
   const notices = project.workflowNotices ?? defaultWorkflowNotices;
   // Each sends all three, so a change waits for the one before it.
   const notify = (next: Partial<WorkflowNotices>) => {
@@ -1152,15 +1224,12 @@ function Workflow({ project }: { project: Project }) {
     ...projectWorkflowsQuery(project.id),
     enabled: mayBuild,
   });
-  // Whom new comments are for (#499): the project's rule, and each track's over it.
-  const { data: tracks } = useQuery(projectTracksQuery(project.id));
-  const onTrack = useTrackCommentAssignment(project.id);
   return (
     <>
       {mayBuild && (
         <Section
           title="Workflows"
-          intro="The stages a track goes through as versions arrive, the statuses they set, and who is asked at each."
+          intro={`The steps a ${words.track} goes through as ${words.versions} arrive, the statuses they set, and who is asked at each.`}
           action={
             <Button asChild variant="primary" size="md">
               <Link to="/projects/$projectId/workflow" params={{ projectId: project.id }}>
@@ -1172,27 +1241,31 @@ function Workflow({ project }: { project: Project }) {
           {workflows?.length === 0 && (
             <Row
               name="No workflow"
-              hint="Tracks have no stages until one is made and switched on."
+              hint={`${capital(words.tracks)} have no steps until one is made and switched on.`}
             />
           )}
           {workflows?.map((w) => (
             <Row
               key={w.id}
               name={w.name}
-              hint={`${stepsOf(w)}${
-                w.problems.length > 0 ? ` · ${w.problems.length} to look at` : ""
-              }${w.trackId ? " · for one track" : ""}`}
+              hint={[
+                stepsOf(w.definition),
+                w.problems.length > 0 ? problemsOf(w.problems) : null,
+                w.trackId ? `for one ${words.track}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
               inline
             >
-              <span className="text-[13px] text-ink-2">{w.active ? "Active" : "Draft"}</span>
+              <WorkflowState active={w.active} />
             </Row>
           ))}
         </Section>
       )}
-      <Section title="Notifications" intro="Who is told when a stage or status is entered.">
+      <Section title="Notifications" intro="Who is told when a step or status is entered.">
         <SwitchRow
           name="Participants, in the app"
-          hint="Whoever a stage names, and the track's followers on a new status."
+          hint={`Whoever a step names, and the ${words.track}'s followers on a new status.`}
           checked={notices.app}
           disabled={!edit}
           onChange={(app) => notify({ app })}
@@ -1210,75 +1283,14 @@ function Workflow({ project }: { project: Project }) {
           onChange={(everyoneOnStatus) => notify({ everyoneOnStatus })}
         />
       </Section>
-      <Section
-        title="New comments"
-        intro="Whom a comment is given to as it is opened, unless the stage the track waits at says otherwise. They are told, as of comments sent to them."
-      >
-        <Row name="Assign new comments to" hint="A member, or whoever has held a role the longest">
-          <AssignmentPicker
-            projectId={project.id}
-            value={project.commentAssignment ?? { assign: null }}
-            disabled={!edit || update.isPending}
-            aria-label="Assign new comments to"
-            className="w-full @3xl/app:w-56"
-            onChange={(rule) => update.mutate({ commentAssignment: rule })}
-          />
-        </Row>
-      </Section>
-      {onTrack.error && <p className="-mt-6 text-[13px] text-signal">{onTrack.error.message}</p>}
-      {tracks && tracks.length > 0 && (
-        <Section title="Overrides" intro="Tracks whose new comments go to someone else.">
-          {tracks.map((t) => (
-            <Row
-              key={t.id}
-              name={
-                <Link
-                  to="/tracks/$trackId"
-                  params={{ trackId: t.id }}
-                  className="transition-colors hover:text-signal"
-                >
-                  {t.name}
-                </Link>
-              }
-            >
-              <AssignmentPicker
-                projectId={project.id}
-                value={t.commentAssignment}
-                inherits="Project default"
-                disabled={!edit}
-                aria-label={`Assign new comments on ${t.name} to`}
-                className="w-full @3xl/app:w-56"
-                onChange={(assignment) => onTrack.mutate({ trackId: t.id, assignment })}
-              />
-            </Row>
-          ))}
-        </Section>
-      )}
-      <Section
-        title="Checks on a new version"
-        intro="A version that fails is refused, saying why; whoever edits the workflow can let it through, on the record."
-      >
-        <SwitchRow
-          name="True peak under the delivery profile's ceiling"
-          hint={
-            effective
-              ? `${formatDb(effective.truePeakMax)} dBTP for ${effective.label}, unless a track or file has its own`
-              : "The ceiling of the profile suggested for each file"
-          }
-          checked={project.checkTruePeak ?? false}
-          disabled={!edit}
-          onChange={(checkTruePeak) => update.mutate({ checkTruePeak })}
-        />
-        <SwitchRow
-          name="An edit decision list with every version"
-          hint="The EDL the version was made from, uploaded beside it: it must hold edits, and end within the version."
-          checked={project.requireEdl ?? false}
-          disabled={!edit}
-          onChange={(requireEdl) => update.mutate({ requireEdl })}
-        />
-      </Section>
     </>
   );
+}
+
+/** QA rules, with the delivery profile whose ceiling a new version's true peak is held to. */
+function QaRulesPage({ project }: { project: Project }) {
+  const { effective } = useProjectProfile(project);
+  return <QaRules project={project} profile={effective ?? null} />;
 }
 
 function Delivery({ project }: { project: Project }) {
@@ -1290,14 +1302,15 @@ function Delivery({ project }: { project: Project }) {
   // Tracks, and a video project's deliverables (#16), can each measure against their own.
   const withTracks = project.profile !== "general";
   const words = itemWords(project.profile);
-  const { data: tracks } = useQuery({
-    ...projectTracksQuery(project.id),
-    enabled: withTracks,
-  });
+  const { data: tracks } = useQuery(projectTracksQuery(project.id));
   const onTrack = useTrackDeliveryProfile(project.id);
+  const playsTrack = useTrackNormalisation(project.id);
   const [editing, setEditing] = useState(false);
   const shown = own ?? inherited;
-  const error = update.error ?? onTrack.error;
+  const error = update.error ?? onTrack.error ?? playsTrack.error;
+  // "Custom…" is the select's last choice (#672): it opens the editor, and the select keeps
+  // what it showed until the new profile is saved.
+  const CUSTOM = "custom-new";
   return (
     <>
       <Section>
@@ -1306,68 +1319,104 @@ function Delivery({ project }: { project: Project }) {
             value={project.deliveryProfile ?? ""}
             aria-label="Project default"
             disabled={!edit}
-            onChange={(event) =>
-              update.mutate({ deliveryProfile: (event.target.value || null) as ProfileRef | null })
-            }
-            className="w-full @3xl/app:w-60"
+            onChange={(event) => {
+              if (event.target.value === CUSTOM) {
+                setEditing(true);
+                return;
+              }
+              update.mutate({ deliveryProfile: (event.target.value || null) as ProfileRef | null });
+            }}
           >
             <option value="">
               {inherited ? `Workspace default (${inherited.label})` : "Suggested from each file"}
             </option>
             <ProfileOptions customs={customs} />
+            {edit && admin && <option value={CUSTOM}>Custom…</option>}
           </Select>
-          {edit && admin && (
-            <Button variant="ghost" size="md" onClick={() => setEditing(true)}>
-              Custom…
-            </Button>
-          )}
         </Row>
       </Section>
       {error && <p className="-mt-6 text-[13px] text-signal">{error.message}</p>}
       {withTracks && (
-        <Section
-          title="Overrides"
-          intro={`${capital(words.tracks)} that measure against a different profile.`}
-        >
-          {!tracks && <Loading size="panel" />}
-          {tracks?.length === 0 && (
-            <Row
-              name={`No ${words.tracks} yet`}
-              hint={`Each ${words.track} can measure against its own profile.`}
-            />
-          )}
-          {tracks?.map((t) => (
-            <Row
-              key={t.id}
-              name={
-                <Link
-                  to="/tracks/$trackId"
-                  params={{ trackId: t.id }}
-                  className="transition-colors hover:text-signal"
-                >
-                  {t.name}
-                </Link>
-              }
-            >
-              <Select
-                value={t.deliveryProfile ?? ""}
-                aria-label={`Delivery profile of ${t.name}`}
-                disabled={!edit}
-                onChange={(event) =>
-                  onTrack.mutate({
+        <TrackOverrides
+          project={project}
+          title={`${capital(words.tracks)} with their own profile`}
+          tracks={tracks}
+          differs={(t) => t.deliveryProfile !== null}
+          disabled={!edit}
+          control={(t, done) => (
+            <Select
+              value={t.deliveryProfile ?? ""}
+              aria-label={`Delivery profile of ${t.name}`}
+              disabled={!edit}
+              onChange={(event) =>
+                onTrack.mutate(
+                  {
                     trackId: t.id,
                     deliveryProfile: (event.target.value || null) as ProfileRef | null,
-                  })
-                }
-                className="w-full @3xl/app:w-56"
-              >
-                <option value="">Project default</option>
-                <ProfileOptions customs={customs} />
-              </Select>
-            </Row>
-          ))}
-        </Section>
+                  },
+                  { onSuccess: done },
+                )
+              }
+            >
+              <option value="">Project default</option>
+              <ProfileOptions customs={customs} />
+            </Select>
+          )}
+        />
       )}
+      {/* A listening setting, matched to this profile's target (moved here from Comments, #672). */}
+      <Section title="Playback">
+        <Row
+          name="Normalised playback"
+          hint="Level-matched to the delivery profile's target, so a louder version is not mistaken for a better one."
+        >
+          <Select
+            value={project.normalisation ?? "off"}
+            aria-label="Normalised playback"
+            disabled={!can("edit_project")}
+            onChange={(event) =>
+              update.mutate({ normalisation: event.target.value as NormalisationMode })
+            }
+          >
+            {normalisationModes.map((mode) => (
+              <option key={mode} value={mode}>
+                {normalisationWords[mode]}
+              </option>
+            ))}
+          </Select>
+        </Row>
+      </Section>
+      {/* A track can play otherwise (#98), as a set heard together might. */}
+      <TrackOverrides
+        project={project}
+        title={`${capital(words.tracks)} with their own normalisation`}
+        tracks={tracks}
+        differs={(t) => t.normalisation !== null}
+        disabled={!can("edit_project")}
+        control={(t, done) => (
+          <Select
+            value={t.normalisation ?? ""}
+            aria-label={`Normalised playback of ${t.name}`}
+            disabled={!can("edit_project") || playsTrack.isPending}
+            onChange={(event) =>
+              playsTrack.mutate(
+                {
+                  trackId: t.id,
+                  normalisation: (event.target.value || null) as NormalisationMode | null,
+                },
+                { onSuccess: done },
+              )
+            }
+          >
+            <option value="">Project default</option>
+            {normalisationModes.map((mode) => (
+              <option key={mode} value={mode}>
+                {normalisationWords[mode]}
+              </option>
+            ))}
+          </Select>
+        )}
+      />
       {editing && (
         <ProfileEditor
           onClose={() => setEditing(false)}

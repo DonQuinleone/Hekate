@@ -2584,6 +2584,65 @@ The Import section of Production imports a ControlRoom project, not takes, so it
 
 #659. The patch list is linked to the microphones on the stage plan (docs/domain.md), but a row's source was free text. Its dialog names its fields as the table heads them (Input or Output, Source, Device, Cable, Notes); Source still takes any words, and offers the stage plans' microphones beside it: choosing one fills the source and, once the row is saved, links the microphone to it, so its label on the plan follows the list. A row a microphone is linked to is marked in the list. On a phone the notes go under the source rather than off the edge.
 
+## 360. Watermarks and downloads: named for what it holds, its visible watermark one section
+
+#580, #674. A project settings page was called Asset security, though `docs/domain.md` keeps *asset* out of the vocabulary (say file, track or version). It is now *Watermarks and downloads*, still under Protection, in both apps and the inventory; its section is `watermarks`, and a link that says `security` still opens it.
+
+- **One visible watermark, one section.** The mark covers video, pictures and documents alike (decision 287), yet it showed twice: set under one section and said again under the other ("the same mark, set under … above"), with its preview under Video alone. It is one section, *Visible watermark*, where the first of video or documents stands in the profile's order (`protectionLayout` in `packages/shared`, tested), open where the project has either kind and folded to its summary where it has neither.
+- **Labelled fields.** Its three controls were three unlabelled selects on one row, the hint standing in for their names. They are *Who it marks*, *Position* and *Strength* (10 to 80 per cent), each with its label, in a row with the preview beside them as a thumbnail in the viewer's own name at every setting, saying when nothing is marked, as Stripe lays out a branding setting.
+- **One screen, for the marks.** Decision 287 had the whole page fit one screen at desktop height. With the preview always shown it no longer quite does, so the rule is now that the marks (the audio mark and the visible watermark, with its preview) fit one screen, and who may download and delete may be a scroll below them; the visual suite checks that.
+
+## 361. A project's settings: each where people look for it, and per-track overrides only where a track differs
+
+#671, #672, #675, #706. Each page held settings that belonged to another, and every per-track list repeated every track with *Project default*, eighty rows of defaults for twenty tracks.
+
+- **Where each lives.** Normalised playback is a listening setting matched to the delivery profile's target, so it moves to *Delivery profile*, with its per-track list. *Assign new comments to* is a comments rule, so it moves to *Comments*. The checks on a new version move to *QA rules* (decision 362). *Workflow* keeps its workflows and who they tell.
+- **Overrides, as Vercel lists environment values.** Each per-track list shows only the tracks that have their own, under a heading that names the setting (*Tracks with their own references*, *Tracks whose new comments go to someone else*, *Tracks with their own profile*, *Tracks with their own normalisation*), with a count, *Override for a track…* to give another its own, and choosing *Project default* to put one back. With none, the heading says every track follows the project's choice. A video project says deliverables throughout (`itemWords`).
+- **Delivery profile names itself once.** Its page title was repeated as a section heading with a second intro; the page's own intro now leads its one untitled section, and *Custom…* is the select's last choice rather than a ghost button beside it.
+- **General lines up.** Name, Profile and Description share the settings row's width, Description two lines tall so it is read whole. Each comment category shows its colour as the 3 px bar a thread carries (brand.md).
+- **Words.** The Roles page's player tools are what a role sees *in the player*, not on "the recording page"; the workflow intros say steps and the profile's words.
+
+## 362. QA rules read whole, and a rule can be checked on upload
+
+#584, #672. The QA rules page cut every description short on a phone, lost the Delivery checks switch's label, offered *As measured* as though it were a severity, said *always* where others had a switch, put a *delivery* chip on ten rows, opened Immersive audio and Video in a solo-piano project and promised artwork rules to come.
+
+- **Read whole.** Names and descriptions wrap at every width; on a phone the severity, *On upload* and the switch take a second line. The page is *QA rules*, its section *Rules*, its button *New rule*. *Delivery checks* is the panel's first row, a labelled switch whose hint says what they follow, at every width. *Default (as found)* keeps the severity a built-in check reports. A plain error carries a fixed, checked switch whose tooltip says it always runs. Delivery checks and the project's own rules sit under their own subheadings in each category, not a chip per row. Categories the profile does not use, and immersive audio until a project asks for it, are folded to their heading (`openQaCategories`, tested). The roadmap sentence is gone.
+- **On upload, where it can be known as a version arrives.** The prototype has an *On upload* choice on every rule. A built-in check other than the true peak is measured by the analysis once a file has landed, so it cannot hold an upload back, and offering the choice there would be a promise the server does not keep. So it is offered where it is kept: on the true peak, and on the project's own rules, whose measures are known from the probe and the loudness summary. The true-peak check on upload is the old *True peak under the delivery profile's ceiling* (`checkTruePeak`), the one check shared between the two places, and it holds a version back only while its rule runs (`checkRuns`). A rule of the project's own carries `onUpload` (optional, so rules made before it are unchanged; nothing in the database changes shape): a new version whose files fail it is refused, saying why, as the true peak is, and someone who edits the workflow can let it through on the record (`uploadRuleRefusals` in `packages/shared`, tested; the server's test proves a marked rule refuses and an unmarked one does not). A file still being probed, or measured where the rule asks for loudness, is waited for. The requirement of an edit decision list sits beside them under *Checks on a new version*. The prototype offers the choice in the same places.
+
+## 363. The workflow builder: one switcher, one count, one state and one way to begin
+
+#582, #583, #587, #675. The builder said a workflow's steps, state and problems differently in each view and dialog, chose a workflow three ways, and let a template rewrite the open workflow behind one Apply.
+
+- **One switcher.** The canvas's chips, the code view's tabs and the basic view's stacked list are one control, the workflow switcher in each view's toolbar, as Figma's page list stays put across its modes: each workflow with its state, steps and problems, the chosen one kept across views.
+- **One count.** A workflow is counted in steps, the actions between its start and its finish as the basic view lists them (`stepsOf`, tested), in the settings, the views and the copy dialog, which counted every node. `docs/domain.md` defines a step.
+- **One state.** Active and draft are the status dot's shapes, an ink dot and a ring, never green. The basic view's switch is labelled *Active*.
+- **Problems by level.** "1 problem" or "2 warnings" (`problemsOf`), on the floating chip and the node's mark only; the heading's suffix and the tab's "!" are gone.
+- **The basic view.** The workflow's name is whole and is the link to its place on the canvas, replacing *Open in the advanced view* on every workflow; its state, steps, problems and switch are the line under it. A phone opens the builder in the basic view; the canvas is a tap away.
+- **Templates make new workflows.** *New workflow* in the header, labelled at every width, opens *Blank workflow*, the templates (offered by profile: *Conductor first* to music projects only, `templatesFor`) and *From another project…*; each makes a new workflow and leaves every other unchanged. The code view's import reads a file only, checked against the open workflow before anything is applied, and the basic view's foot no longer repeats the copy.
+
+## 364. The builder's inspector and panels offer only what applies, and its deletions can be undone
+
+#581, #677, #678, and the confirmations of #544 that batch 1 left to the builder.
+
+- **The inspector.** Its title is the node's name, edited where it is shown, as Figma and Linear do, so the separate Name field is gone; a start says what starts it below and has no subtitle. Its labels take the shared label style (13 px, sentence case), not a local 11 px capital eyebrow. *Sets status* is always a choice of the project's statuses. The comments hint is a sentence: "Comments opened while a track is at this step go to this person or role", in the profile's word.
+- **Then.** A start is never offered as a step to go on to.
+- **Statuses** are grouped by how each reads (to do, in progress, done) and moved between them from each one's menu; a line says *Set by 3 steps* only where more than one step sets it, and *Unused* where none does.
+- **Small details.** The hints under the canvas show until it is first panned or zoomed, then not again in this browser. The picker's way back comes before its title, and its descriptions wrap. The walk-through asks *Item* (Audio, Video, Document, Picture) and *Decided by*.
+- **Deleting acts at once, and offers Undo.** A node or a connector deleted from the canvas, its menu or the keyboard, and a status removed, go at once with *Undo* beside the canvas or the list (and Ctrl or Cmd Z), as Figma deletes, until the next change. A canvas edit is cheap to make and to take back, so a confirmation would only slow it.
+- **The code view keeps the reason beside the line.** A refused file's message is written at the end of its marked line in the editor, as an editor shows a problem, so choosing *Line 26* shows the reason with the line; *Apply* says why it cannot run, beside it and as its tooltip ("Fix 1 problem to apply").
+
+## 365. Roles: exceptions apart, and one line of role chrome
+
+#585, #673. Exceptions to the player tools sat under the role being edited, so they read as that role's, captioned *Exception* for a member beside *Guest* and *Group*, and grew a column per person, the sideways matrix decision on #506 removed for roles.
+
+- **Exceptions are their own section,** above the role picker: a row per person, guest or group, captioned *Member*, *Guest* or *Group*, their tools as chips, changed in the dialog that adds one (*Change tools…*) and removed from the row's menu.
+- **One line of role chrome.** Past six roles the chips give way to a choice of role, as Discord's role settings list them, so twelve roles take one line beside *New role* and *Compare*.
+- **Compare on a phone** keeps its role column still and fades its far edge while more lies beyond.
+
+## 366. Deleting a project asks what moving it asks
+
+#676. Confirming a deletion asked for the project's name; moving it asked for the name and the password. Confirming either is as grave, so both ask for the name and the person themself at the keyboard (`transferConfirmation`, `confirmIdentity`), checked by the server too, which now refuses a confirmation without them (the server's test proves a wrong name and a wrong password are refused). The dialog says what happens once you confirm, not that it has; its button is *Delete project*, and the row's *Confirm deletion…*, so asking and confirming no longer share a name. *Withdraw* and *Refuse* are secondary buttons beside the others.
+
 ## 370. Workspace settings are grouped by subject, and General holds the address, the export and the danger zone
 
 #589. The settings sidebar's groups did not say what they held: *Operations* held a page also called Operations (encryption, the storage bar a third time, a row about the instance's operators, the export and deleting the workspace), *Access* held the channels and the API, *Plan and help* mixed billing with the instance's help desk, and Transfers, Leak tracing and the Access log sat under Operations. General's intro promised exporting and deleting, which were not there; the workspace's address sat under Transfers as "Its address", in the code face.

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import postgres from "postgres";
@@ -281,8 +281,8 @@ const screens: Screen[] = [
     path: (s) => `/projects/${s.musicProjectId}/settings?section=storage`,
     ready: "main >> text=Used by this project",
   },
-  // Asset security (decision 287): a music project leads with audio, its documents open and its
-  // video folded; a video project leads with video.
+  // Watermarks and downloads (decision 287, #580): a music project leads with audio; a video
+  // project with its visible watermark.
   {
     name: "project-settings-security",
     path: (s) => `/projects/${s.musicProjectId}/settings?section=security`,
@@ -304,7 +304,8 @@ const screens: Screen[] = [
   // with three named outputs, and a path labelled in thirty characters (#513).
   {
     name: "workflows",
-    path: (s) => `/projects/${s.musicProjectId}/workflow`,
+    // The canvas at both widths: a phone opens the builder as lists of steps (#583).
+    path: (s) => `/projects/${s.musicProjectId}/workflow?view=advanced`,
     ready: "main [data-node]:has-text('Label sign-off')",
   },
   {
@@ -315,7 +316,7 @@ const screens: Screen[] = [
   {
     name: "workflows-code",
     path: (s) => `/projects/${s.musicProjectId}/workflow?view=code`,
-    ready: "main [role=tabpanel] >> text=name: Album review",
+    ready: "main >> text=name: Album review",
   },
   {
     name: "project-settings-qa",
@@ -1246,8 +1247,8 @@ test("project-settings-roles-copy", async ({ page }) => {
   }
 });
 
-// Twelve roles (#506): they wrap across the top rather than widen the page, and Compare shows
-// them all at once, a row each.
+// Twelve roles (#506, #673): one choice of role rather than three lines of chips, and Compare
+// shows them all at once, a row each, its role column held still on a phone.
 test("project-settings-roles-twelve", async ({ page }) => {
   const projectId = seeded().musicProjectId;
   const levels = {
@@ -1280,8 +1281,9 @@ test("project-settings-roles-twelve", async ({ page }) => {
       expect(made.ok()).toBe(true);
     }
     await page.goto(`/projects/${projectId}/settings?section=roles`);
-    await settle(page, "main button[aria-pressed]:has-text('Mastering engineer')");
-    await expect(page.locator("main button[aria-pressed]")).toHaveCount(12);
+    // Past six, the roles are one choice rather than chips (#673): one line of chrome.
+    await settle(page, "main select[aria-label=Role]");
+    await expect(page.locator("main select[aria-label=Role] option")).toHaveCount(12);
     await saveScreen(page, "project-settings-roles-twelve");
     await checkScreen(page);
 
@@ -1721,7 +1723,7 @@ test("file-defer", async ({ page }) => {
 // The workflow builder's canvas (#26), with a node chosen: its inspector beside it.
 test("workflows-inspector", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=advanced`);
   await settle(page, "main [data-node]:has-text('Label approval')");
   await page.getByRole("button", { name: /^Label approval/ }).focus();
   await page.keyboard.press("Enter");
@@ -1734,7 +1736,7 @@ test("workflows-inspector", async ({ page }) => {
 // beside its name, so an approval review never reads as a status of Approved.
 test("workflows-then", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=advanced`);
   await settle(page, "main [data-node]:has-text('Label approval')");
   await page.getByRole("button", { name: /^Label approval/ }).focus();
   await page.keyboard.press("Enter");
@@ -1748,7 +1750,7 @@ test("workflows-then", async ({ page }) => {
 // Adding a node (#511): the families first, in the order a workflow reads, then a family's kinds.
 test("workflows-picker", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=advanced`);
   await settle(page, "main [data-node]:has-text('Label approval')");
   await page.getByRole("button", { name: "Add node", exact: true }).click();
   const panel = page.locator("aside[aria-label=Inspector]");
@@ -1773,7 +1775,7 @@ test("workflows-drag", async ({ page }, info) => {
   await page.route("**/api/workflows/*", (route) =>
     route.request().method() === "PATCH" ? route.abort() : route.fallback(),
   );
-  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=advanced`);
   await settle(page, "main [data-node]:has-text('Label approval')");
   const tile = page.getByRole("button", { name: /^QA check: drag onto the canvas/ });
   const port = page.locator("main [data-node=edit] [data-port=done]");
@@ -1793,7 +1795,7 @@ test("workflows-drag", async ({ page }, info) => {
 // A workflow's one start (#514): what else starts it is set on it, and the panel says so.
 test("workflows-start", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=advanced`);
   await settle(page, "main [data-node]:has-text('Label approval')");
   await page.locator("main [data-node=start] button").first().focus();
   await page.keyboard.press("Enter");
@@ -1966,14 +1968,15 @@ test("project-people-permissions", async ({ page }) => {
   await checkScreen(page);
 });
 
-// The project's statuses (#26): how each reads on the board, and the steps that set it. Looked
+// The project's statuses (#26, #678): grouped by how each reads on the board. Looked
 // at only, so no other capture sees a change.
 test("workflows-statuses", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=advanced`);
   await settle(page, "main [data-node]:has-text('Label approval')");
   await page.getByRole("button", { name: "Statuses" }).click();
-  await settle(page, "aside[aria-label=Inspector] >> text=Set by a step");
+  // Grouped by how each reads (#678).
+  await settle(page, "aside[aria-label=Inspector] section[aria-label='In progress']");
   await saveScreen(page, "workflows-statuses");
   await checkScreen(page);
 });
@@ -1981,7 +1984,7 @@ test("workflows-statuses", async ({ page }) => {
 // An item walked through a workflow (#26): the steps it has taken, and the choices where it waits.
 test("workflows-walk", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=advanced`);
   await settle(page, "main [data-node]:has-text('Label approval')");
   await page.getByRole("button", { name: /^Walk (through|an item through)$/ }).click();
   const panel = page.locator("aside[aria-label=Inspector]");
@@ -1995,13 +1998,23 @@ test("workflows-walk", async ({ page }) => {
   await checkScreen(page);
 });
 
-// A template read into the code view (#145): what applying it would change, before it is saved.
+// A file read into the code view (#145): what applying it would change, before it is saved.
+// Templates make a new workflow instead (#587), so a file is how this one is rewritten.
 test("workflows-code-import", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=code`);
-  await settle(page, "main [role=tabpanel] >> text=name: Album review");
-  await page.getByRole("button", { name: "Import" }).click();
-  await page.getByRole("menuitem", { name: /Simple approval/ }).click();
+  await settle(page, "main >> text=name: Album review");
+  const template = readFileSync(
+    join(
+      import.meta.dirname,
+      "../../../packages/shared/src/workflow-templates/simple-approval.workflow.yaml",
+    ),
+  );
+  await page.locator("main input[type=file]").setInputFiles({
+    name: "simple-approval.workflow.yaml",
+    mimeType: "application/yaml",
+    buffer: template,
+  });
   await settle(page, "main section[aria-label='What applying it changes'] li");
   await saveScreen(page, "workflows-code-import");
   await checkScreen(page);
@@ -2011,7 +2024,7 @@ test("workflows-code-import", async ({ page }) => {
 test("workflows-code-refused", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=code`);
-  await settle(page, "main [role=tabpanel] >> text=name: Album review");
+  await settle(page, "main >> text=name: Album review");
   const editor = page.getByRole("textbox", { name: "Album review as a file" });
   const text = await editor.inputValue();
   await editor.fill(text.replace("action: approval", "action: approve"));
@@ -2030,7 +2043,7 @@ test("workflows-code-refused", async ({ page }) => {
 // The canvas tidied up (#26): every workflow laid out again, nothing overlapping, Undo at hand.
 test("workflows-tidy", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
+  await page.goto(`/projects/${seeded().musicProjectId}/workflow?view=advanced`);
   await settle(page, "main [data-node]:has-text('Label approval')");
   await page.getByRole("button", { name: "Tidy up" }).click();
   await settle(page, "main [role=status]:has-text('Tidied')");
@@ -2754,9 +2767,10 @@ test("project-settings-deletion", async ({ page }) => {
   await settle(page, "main >> text=Deletion asked for");
   await saveScreen(page, "project-settings-deletion");
   await checkScreen(page);
-  await page.getByRole("button", { name: "Delete…" }).click();
-  await page.getByRole("textbox", { name: "Project name" }).fill("Joplin Rags");
-  await settle(page, "[role=dialog] button:has-text('Delete'):not([disabled])");
+  // The same proof as moving it (#676): its name and the password.
+  await page.getByRole("button", { name: "Confirm deletion…" }).click();
+  await page.getByRole("textbox", { name: "Type Joplin Rags to confirm" }).fill("Joplin Rags");
+  await settle(page, "[role=dialog] >> text=Once you confirm, it is archived");
   await saveScreen(page, "project-settings-deletion-confirm");
   await checkScreen(page);
 });
@@ -2793,27 +2807,28 @@ const exportsShown = {
   ],
 };
 
-// A music project's Asset security fits one screen at desktop height, audio first (decision
-// 287); its folded Video opens on Show, with the preview, and says where the mark is set.
+// A music project's Watermarks and downloads leads with its marks in one screen at desktop
+// height, audio first (decision 287), the visible watermark one section with its fields and
+// preview (#674).
 test("project-settings-security-video-opened", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().musicProjectId}/settings?section=security`);
+  await page.goto(`/projects/${seeded().musicProjectId}/settings?section=watermarks`);
   await settle(page, "main >> text=Files in a review cannot be deleted");
   const headings = await page.locator("main h2").allTextContents();
-  expect(headings.slice(0, 3)).toEqual(["Audio", "Pictures and documents", "Video"]);
+  expect(headings.slice(0, 3)).toEqual(["Audio", "Visible watermark", "Downloads and deletion"]);
   if (test.info().project.name === "desktop") {
-    // Its last row ends inside the window: only the page's own margin is below the fold.
+    // The marks lead the page and end inside the window, the watermark's preview with them
+    // (#674); who may download and delete may be a scroll away.
     const overflow = await page.evaluate(() => {
       const main = document.querySelector("main");
-      const last = [...document.querySelectorAll("main section")].at(-1);
-      return main && last
-        ? last.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom
-        : 0;
+      const mark = document.querySelector("main section:has(#visible-watermark)");
+      return main && mark
+        ? mark.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom
+        : 1;
     });
-    expect(overflow, "the page fits one screen").toBeLessThanOrEqual(0);
+    expect(overflow, "the marks fit one screen").toBeLessThanOrEqual(0);
   }
-  await page.getByRole("button", { name: "Show video" }).click();
-  await settle(page, "main >> text=The same mark, set under Pictures and documents above.");
+  await expect(page.getByRole("combobox", { name: "Who it marks" })).toBeVisible();
   await showWhole(page);
   await saveScreen(page, "project-settings-security-video-opened");
   await checkScreen(page);

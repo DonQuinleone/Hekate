@@ -74,6 +74,7 @@ import {
 import {
   ProjectSettingsPage,
   type ProjectSettingsSection,
+  projectSettingsMoved,
   projectSettingsSections,
 } from "~/routes/project-settings";
 import { ProjectsPage } from "~/routes/projects";
@@ -813,8 +814,11 @@ const projectSettings = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId/settings",
   validateSearch: z.object({
+    // A section's old name (Asset security, #580) still opens it.
     section: z
-      .enum(projectSettingsSections as [ProjectSettingsSection])
+      .string()
+      .transform((s) => projectSettingsMoved[s] ?? s)
+      .pipe(z.enum(projectSettingsSections as [ProjectSettingsSection]))
       .optional()
       .catch(undefined),
   }),
