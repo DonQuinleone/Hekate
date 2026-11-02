@@ -170,6 +170,8 @@ export function ProjectCalendar({
   const { days } = monthGrid(month);
   const weeks = Array.from({ length: days.length / 7 }, (_, w) => days.slice(w * 7, w * 7 + 7));
   const today = dayHere();
+  /** Late by the reader's own day as well as the server's, so a chip and its day agree. */
+  const late = (e: CalendarEvent) => e.overdue && e.date < today;
   const byDay = new Map<string, CalendarEvent[]>();
   // An entry over several days is on each of them (for a phone's marks under each day).
   for (const e of data?.events ?? [])
@@ -300,7 +302,7 @@ export function ProjectCalendar({
                                 key={e.id}
                                 className={cn(
                                   "size-1.5 rounded-full",
-                                  e.overdue ? "bg-signal" : "bg-ink-3",
+                                  late(e) ? "bg-signal" : "bg-ink-3",
                                 )}
                               />
                             ))}
@@ -328,7 +330,7 @@ export function ProjectCalendar({
                         cn(
                           "flex min-w-0 flex-1 items-center gap-1 rounded-chip border px-1.5 py-0.5 text-[11px] leading-[15px] text-ink transition-colors hover:border-edge",
                           // The signal is for what is late, and nothing else (docs/brand.md).
-                          e.overdue ? "border-signal/40 bg-signal/10" : "border-line bg-raised",
+                          late(e) ? "border-signal/40 bg-signal/10" : "border-line bg-raised",
                           before && "rounded-l-none border-l-0",
                           after && "rounded-r-none border-r-0",
                         ),
@@ -367,7 +369,7 @@ export function ProjectCalendar({
                 <span
                   className={cn(
                     "tabular w-14 shrink-0 text-[13px]",
-                    e.overdue ? "text-signal" : "text-ink-3",
+                    late(e) ? "text-signal" : "text-ink-3",
                   )}
                 >
                   {dayFormat.format(new Date(`${e.date}T12:00:00Z`))}
@@ -382,7 +384,7 @@ export function ProjectCalendar({
                     </span>
                   )}
                 </span>
-                {e.overdue && <span className="shrink-0 text-[12px] text-signal">Late</span>}
+                {late(e) && <span className="shrink-0 text-[12px] text-signal">Late</span>}
               </>,
             )}
           </li>
