@@ -1995,7 +1995,12 @@ for (const [name, role, open, ready] of [
     "Lantern Pictures",
     "main >> text=The invoice for October is unpaid.",
   ],
-  ["instance-workspace-new", "button", "Workspace", "[role=dialog] >> text=First owner’s email"],
+  [
+    "instance-workspace-new",
+    "button",
+    "New workspace",
+    "[role=dialog] >> text=First owner’s email",
+  ],
 ] as const) {
   test(name, async ({ page }) => {
     await page.clock.setFixedTime(FIXED_TIME);
@@ -4965,7 +4970,8 @@ test("account-passkeys", async ({ browser }, info) => {
     while ((await actions.count()) > 0) {
       const before = await actions.count();
       await actions.first().click();
-      await page.getByRole("menuitem", { name: "Revoke" }).click();
+      await page.getByRole("menuitem", { name: "Revoke…" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Revoke key" }).click();
       await expect(actions).toHaveCount(before - 1);
     }
     await context.close();
