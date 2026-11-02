@@ -20096,7 +20096,7 @@ describe.runIf(url)("api", () => {
             method: "PATCH",
           });
           expect(changed.status).toBe(200);
-          expect(await told(producer)).toEqual(['asks you to follow "Album master"']);
+          expect(await told(producer)).toEqual(['asks you to follow “Album master”']);
           // No one else is told anything new.
           expect(await told(s.ids.accompanist)).toEqual([]);
           expect(await told(s.ids.composer)).toHaveLength(1);
