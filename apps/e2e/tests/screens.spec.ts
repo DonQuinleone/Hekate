@@ -4620,7 +4620,9 @@ test("project-calendar-entry", async ({ page }) => {
   await expect(dialog.getByRole("button", { name: "Create entry" })).toBeDisabled();
   await dialog.getByLabel("Title").fill("Day 4");
   await dialog.getByRole("button", { name: "Session", exact: true }).click();
-  await expect(dialog.getByText("Books a recording session under Production")).toBeVisible();
+  // A session is made with the one New session form (#652), keeping what was typed.
+  const session = page.getByRole("dialog", { name: "New session" });
+  await expect(session.getByLabel("Name")).toHaveValue("Day 4");
   await saveScreen(page, "project-calendar-entry");
   await checkScreen(page);
 });
@@ -4793,7 +4795,7 @@ test("track-takes-upload", async ({ page }) => {
   await dialog.getByRole("button", { name: "Propose the takes" }).click();
   // Both are the track's, in Day 3 as their day says, with the bars given under each.
   await expect(dialog.getByRole("region", { name: "Day 3" })).toContainText("adds to this session");
-  await expect(dialog.getByText("Bars 1 to 16")).toHaveCount(2);
+  await expect(dialog.getByText("Bars 1–16")).toHaveCount(2);
   await expect(dialog.getByLabel(/^Track of/)).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Add 2 takes" })).toBeEnabled();
   await saveScreen(page, "track-takes-upload-proposed");
