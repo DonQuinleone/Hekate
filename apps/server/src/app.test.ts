@@ -7780,6 +7780,45 @@ describe.runIf(url)("api", () => {
         );
       });
 
+      it("lists a segment on its own when its playback started before the range (#684)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const me = await audit.member((await db.select().from(schema.users))[0]?.id ?? "");
+        const file = "01999999-0000-7000-8000-0000000000d2";
+        await audit.record(organisationId, me, { action: "stream.session", fileId: file });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const since = new Date().toISOString();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        for (let i = 0; i < 2; i++)
+          await audit.record(organisationId, me, {
+            action: "stream.segment",
+            fileId: file,
+            details: { segment: i },
+          });
+        const later = await audit.record(organisationId, me, {
+          action: "stream.session",
+          fileId: file,
+        });
+        await audit.record(organisationId, me, { action: "stream.segment", fileId: file });
+
+        type Page = { events: { id: string; action: string; segments?: number }[] };
+        const ranged = (await (
+          await get(
+            `/api/organisation/audit?segments=grouped&from=${encodeURIComponent(since)}`,
+            owner,
+          )
+        ).json()) as Page;
+        // The later playback holds its segment; the earlier one's, its start out of range, stand
+        // alone rather than vanish.
+        expect(ranged.events.map((e) => e.action)).toEqual([
+          "stream.session",
+          "stream.segment",
+          "stream.segment",
+        ]);
+        expect(ranged.events[0]?.id).toBe(later.id);
+        expect(ranged.events[0]?.segments).toBe(1);
+      });
+
       it("names the file each entry touched, and nothing for one it cannot find", async () => {
         const owner = cookieOf(await setup());
         const organisationId = await organisationOf(owner);

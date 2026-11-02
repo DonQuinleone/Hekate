@@ -21,12 +21,18 @@ import {
   lt,
   lte,
   ne,
+  notExists,
+  or,
   type SQL,
+  sql,
 } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { Context } from "hono";
 import { countAccess } from "./metrics/index.ts";
 
 const { accessEvents, users, guests } = schema;
+/** A playback start, read beside the entries it groups (#684). */
+const playback = alias(accessEvents, "playback");
 
 export type AccessEvent = typeof accessEvents.$inferSelect;
 
@@ -174,9 +180,29 @@ export function createAudit(db: Database): Audit {
         f.to ? lte(accessEvents.occurredAt, new Date(f.to)) : undefined,
         // Ids are UUIDv7, so they sort by time: a cursor needs only the last id.
         f.before ? lt(accessEvents.id, f.before) : undefined,
-        // Grouped, a playback's segments are read behind its entry (#684), unless asked for.
+        // Grouped, a playback's segments are read behind its entry (#684), unless asked for. A
+        // segment whose playback started before the range (or that has none) has no entry here
+        // to be read behind, so it is listed on its own rather than lost.
         f.segments === "grouped" && f.action !== "stream.segment"
-          ? ne(accessEvents.action, "stream.segment")
+          ? or(
+              ne(accessEvents.action, "stream.segment"),
+              notExists(
+                db
+                  .select({ id: playback.id })
+                  .from(playback)
+                  .where(
+                    and(
+                      eq(playback.organisationId, accessEvents.organisationId),
+                      eq(playback.action, "stream.session"),
+                      eq(playback.fileId, accessEvents.fileId),
+                      sql`${playback.userId} is not distinct from ${accessEvents.userId}`,
+                      sql`${playback.guestId} is not distinct from ${accessEvents.guestId}`,
+                      lt(playback.id, accessEvents.id),
+                      f.from ? gte(playback.occurredAt, new Date(f.from)) : undefined,
+                    ),
+                  ),
+              ),
+            )
           : undefined,
       ];
       const rows = await db
