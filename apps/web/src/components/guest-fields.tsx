@@ -3,7 +3,16 @@ import { useState } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 
-/** Add a guest reviewer by name and email: someone outside the organisation, without an account. */
+/**
+ * What a guest's label is called on every form (#557): it is shown beside their name, and is
+ * no role, which in a project is a set of permissions.
+ */
+export const shownAs = {
+  label: "Shown as",
+  hint: "Beside their name, for example Conductor, Composer or Violin.",
+} as const;
+
+/** Add a guest reviewer by name and email: someone outside the workspace, without an account. */
 export function GuestFields({
   onAdd,
   submitLabel = "Add guest",
@@ -43,8 +52,8 @@ export function GuestFields({
         className="h-8 w-32 text-[13px]"
         value={label}
         onChange={(e) => setLabel(e.target.value)}
-        placeholder="Role (optional)"
-        aria-label="Guest role"
+        placeholder="Shown as (optional)"
+        aria-label={`${shownAs.label}: ${shownAs.hint}`}
       />
       <Button size="sm" disabled={!valid} onClick={add}>
         {submitLabel}

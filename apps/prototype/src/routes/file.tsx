@@ -28,7 +28,7 @@ import {
 } from "~/components/player/waveform";
 import { QaView } from "~/components/qa";
 import { VideoQaView } from "~/components/qa-video";
-import { fileKindWords, ShareDialog } from "~/components/share";
+import { ShareDialog } from "~/components/share";
 import { Dot } from "~/components/status";
 import { StatusChip } from "~/components/status-chip";
 import {
@@ -1385,11 +1385,13 @@ export function FilePage({
       {sheet === "share" && project && (
         <ShareDialog
           project={project}
-          item={{
-            kind: "file",
-            name: inTrack ? `${inTrack.track.name} V${inTrack.version.number}` : file.name,
-            what: inTrack ? inTrack.variantName : fileKindWords[file.kind],
-          }}
+          // A track's file shares its version, with the file alone as the other choice (#578).
+          item={
+            inTrack
+              ? { kind: "version", name: `${inTrack.track.name} V${inTrack.version.number}` }
+              : { kind: "file", name: file.name }
+          }
+          alternative={inTrack ? { kind: "file", name: file.name } : undefined}
           onClose={() => setSheet(null)}
         />
       )}

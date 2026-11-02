@@ -429,7 +429,7 @@ const screens: Screen[] = [
   {
     name: "review-general",
     path: (s) => `/reviews/${s.signOffId}`,
-    ready: "text=Gate passed",
+    ready: "main >> text=Approved when",
   },
   { name: "review", path: (s) => `/reviews/${s.reviewId}`, ready: "h1:has-text('Album masters')" },
   // The review page in each of its states (#129).
@@ -441,12 +441,12 @@ const screens: Screen[] = [
   {
     name: "review-changes",
     path: (s) => `/reviews/${s.reviewStates.changes}`,
-    ready: "text=Gate not passed",
+    ready: "main ol[aria-label=Steps] >> text=Changes requested",
   },
   {
     name: "review-approved",
     path: (s) => `/reviews/${s.reviewStates.approved}`,
-    ready: "text=Gate passed",
+    ready: "main >> text=Approved when",
   },
   {
     name: "review-cancelled",
@@ -782,6 +782,46 @@ test.describe("guest", () => {
     await showWhole(page);
     await saveScreen(page, "guest-review-branded-light");
     await checkScreen(page);
+  });
+
+  // A guest with nothing open (#667): the home says so, and what will come.
+  test("guest-reviews-empty", async ({ page }) => {
+    await page.route("**/api/guest/me", async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { reviews: unknown[] };
+      await route.fulfill({ response, json: { ...body, reviews: [] } });
+    });
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto("/g");
+    await settle(page, "text=Nothing to review right now");
+    await saveScreen(page, "guest-reviews-empty");
+    await checkScreen(page);
+  });
+
+  // A guest meets the items before the decision (#665), and approving what they have not
+  // opened asks first. Nothing is approved: the answer is amended in this page alone, and a
+  // decision would be refused before it left.
+  test("guest-review-approve-unopened", async ({ page }) => {
+    await page.route(`**/api/reviews/${seeded().reviewId}`, async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as { review: { you: Record<string, unknown> } };
+      body.review.you.opened = [];
+      await route.fulfill({ response, json: body });
+    });
+    await page.route(`**/api/reviews/${seeded().reviewId}/decisions`, (route) => route.abort());
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto(`/g/reviews/${seeded().reviewId}`);
+    await settle(page, "h1:has-text('Album masters')");
+    // The items come before the decision.
+    const items = page.getByRole("heading", { name: "Under review" });
+    const decision = page.getByRole("region", { name: "Your decision" });
+    const [itemsBox, decisionBox] = [await items.boundingBox(), await decision.boundingBox()];
+    expect(itemsBox && decisionBox && itemsBox.y < decisionBox.y).toBe(true);
+    await decision.getByRole("button", { name: "Approve", exact: true }).click();
+    await settle(page, "[role=dialog] >> text=Approve anyway?");
+    await saveScreen(page, "guest-review-approve-unopened");
+    await checkScreen(page);
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
   });
 
   // A guest their review lets invite others (#55): the Reviewers section's Invite, open. The
@@ -1640,14 +1680,16 @@ test("score-marking-export-every", async ({ page }) => {
   }
 });
 
-// Sharing one item (#489) from the player's header: the sheet for this file, with someone
-// chosen and the rest offered as you type.
+// Sharing one item (#489) from the player's header: the sheet for the file's version, the
+// file alone offered beside it (#578), with someone chosen and the rest offered as you type.
 test("file-share", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
   await page.getByRole("button", { name: "Share", exact: true }).click();
-  await settle(page, "[role=dialog] >> text=Link works for 7 days");
+  await settle(page, "[role=dialog] >> text=Access ends");
+  await expect(page.getByRole("dialog", { name: /^Share Maple Leaf Rag V\d+$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "This file only" })).toBeVisible();
   const who = page.getByRole("combobox", { name: "Who" });
   const offered = page.getByRole("listbox", { name: "Who" }).getByRole("option");
   await who.fill("mira");
@@ -1839,7 +1881,7 @@ test("project-people-invite", async ({ page }) => {
   await dialog
     .getByRole("textbox", { name: "Email", exact: true })
     .fill("mira.solberg@example.test");
-  await dialog.getByRole("textbox", { name: /^Role/ }).fill("Conductor");
+  await dialog.getByRole("textbox", { name: /^Shown as/ }).fill("Conductor");
   await dialog.getByRole("combobox", { name: /^Group/ }).selectOption({ label: "Soloists" });
   await dialog.getByRole("textbox", { name: /^Note/ }).fill("Conducts the spring programme.");
   await expect(dialog.getByRole("button", { name: "Add reviewer" })).toBeEnabled();
@@ -3954,6 +3996,9 @@ test.describe("guest code", () => {
         values (gen_random_uuid(), ${workspace?.id ?? ""}, ${guest?.id ?? ""},
           ${createHash("sha256").update(token).digest("hex")}, now() + interval '1 day')`;
       await page.goto(`/guest/${token}`);
+      // The link greets its person first (#573); the code goes out only on their click.
+      await settle(page, "text=Opening your review");
+      await page.getByRole("button", { name: "Email me a code" }).click();
       await settle(page, "text=Check your email");
       await expect(page.getByText("m•••@example.test", { exact: false })).toBeVisible();
       await saveScreen(page, "guest-code");
@@ -3961,6 +4006,71 @@ test.describe("guest code", () => {
     } finally {
       await sql`update organisations set settings = ${sql.json(workspace?.settings ?? {})} where id = ${workspace?.id ?? ""}`;
       await sql`delete from guest_links where token_hash = ${createHash("sha256").update(token).digest("hex")}`;
+      await sql.end();
+    }
+  });
+});
+
+// A guest's link greets them and waits for Continue (#573): loading the page, as a mail scanner
+// does, leaves the link working; their own click spends it, once. Then signing out (#574) asks
+// first and lands on the workspace's own signed-out page (#668). A link made in the database
+// for the seeded guest, in this page's own browser, so the seeded guest session is untouched.
+test.describe("guest link", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+  test("guest-link", async ({ page }) => {
+    const sql = postgres(process.env.E2E_DATABASE_URL ?? process.env.DATABASE_URL ?? "", {
+      max: 1,
+    });
+    const token = `e2e-guest-link-${test.info().project.name}-0123456789`;
+    const hash = createHash("sha256").update(token).digest("hex");
+    const spent = async () =>
+      (
+        await sql<
+          { used: Date | null }[]
+        >`select used_at as used from guest_links where token_hash = ${hash}`
+      )[0]?.used ?? null;
+    const [workspace] = await sql<{ id: string }[]>`
+      select id from organisations where name = 'Endless Hall Records'`;
+    const [guest] = await sql<{ id: string }[]>`
+      select id from guests where email = 'mira@example.test'`;
+    try {
+      await sql`insert into guest_links (id, organisation_id, guest_id, token_hash, expires_at)
+        values (gen_random_uuid(), ${workspace?.id ?? ""}, ${guest?.id ?? ""}, ${hash},
+          now() + interval '3 days')`;
+      await page.clock.setFixedTime(FIXED_TIME);
+      await page.goto(`/guest/${token}`);
+      await settle(page, "text=Opening your review");
+      await expect(page.getByText("Endless Hall Records asked you to")).toBeVisible();
+      await expect(page.getByRole("img", { name: "Endless Hall Records" })).toBeVisible();
+      const go = page.getByRole("button", { name: "Continue as Mira Solberg" });
+      await expect(go).toBeVisible();
+      await saveScreen(page, "guest-link");
+      await checkScreen(page);
+      // Loaded, and loaded again, the link is still unspent.
+      await page.reload();
+      await settle(page, "text=Opening your review");
+      expect(await spent()).toBeNull();
+      await go.click();
+      await expect(page).toHaveURL(/\/g(\/|$)/);
+      expect(await spent()).not.toBeNull();
+
+      // Signing out asks first, saying what follows.
+      await page.getByRole("button", { name: /^Mira Solberg/ }).click();
+      await page.getByRole("menuitem", { name: "Sign out…" }).click();
+      const dialog = page.getByRole("dialog", { name: "Sign out?" });
+      await expect(dialog.getByText("You will need a new link")).toBeVisible();
+      await saveScreen(page, "guest-sign-out");
+      await checkScreen(page);
+      await dialog.getByRole("button", { name: "Sign out" }).click();
+      await settle(page, "text=You are signed out");
+      await expect(page.getByRole("img", { name: "Endless Hall Records" })).toBeVisible();
+      await saveScreen(page, "guest-signed-out-branded");
+      await checkScreen(page);
+      // The spent link greets no one.
+      await page.goto(`/guest/${token}`);
+      await settle(page, "text=This link no longer works");
+    } finally {
+      await sql`delete from guest_links where token_hash = ${hash}`;
       await sql.end();
     }
   });
@@ -4089,17 +4199,22 @@ test("project-files-track-actions", async ({ page }, info) => {
   await checkScreen(page);
 });
 
-// Sharing from a row (#489) opens the same sheet for that track: who, how, its link, Send.
+// Sharing from a row (#489) opens the same sheet for that track: who, how, what they may
+// download, when access ends and the members' link, each saying what it does (#578).
 test("files-share", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/files`);
   await settle(page, "main a:has-text('Maple Leaf Rag - Score.pdf')");
   await page.getByRole("button", { name: "Actions for Maple Leaf Rag", exact: true }).click();
   await page.getByRole("menuitem", { name: "Share…" }).click();
-  await settle(page, "[role=dialog] >> text=Link works for 7 days");
-  await expect(page.getByRole("dialog", { name: "Share Maple Leaf Rag" })).toBeVisible();
-  await page.getByRole("button", { name: "Can download" }).click();
-  await expect(page.getByRole("dialog")).toContainText("download the original, watermarked");
+  await settle(page, "[role=dialog] >> text=Access ends");
+  const dialog = page.getByRole("dialog", { name: "Share Maple Leaf Rag" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Can comment" }).click();
+  await expect(dialog).toContainText("asked for feedback, without sign-off");
+  await expect(dialog.getByRole("button", { name: "Ask for feedback" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Original" }).click();
+  await expect(dialog).toContainText("watermarked for each of them. Every download is logged.");
   await saveScreen(page, "files-share");
   await checkScreen(page);
 });
@@ -4799,16 +4914,15 @@ test("request-review-filled", async ({ page }) => {
   // In steps: Alex first, the soloists and the guest after, each step named.
   await form.getByRole("button", { name: "In steps" }).click();
   await form.getByRole("button", { name: "Add a step" }).click();
-  await form.getByRole("button", { name: "Step for Soloists" }).click();
-  await page.getByRole("menuitemradio", { name: "Step 2" }).click();
-  await form.getByRole("button", { name: "Step for Conductor" }).click();
-  await page.getByRole("menuitemradio", { name: "Step 2" }).click();
+  // Moved from each row's one menu (#663).
+  await form.getByRole("button", { name: "Actions for Soloists" }).click();
+  await page.getByRole("menuitem", { name: "Move to Step 2" }).click();
+  await form.getByRole("button", { name: "Actions for Conductor" }).click();
+  await page.getByRole("menuitem", { name: "Move to Step 2" }).click();
   await form.getByLabel("Name of step 1").fill("Producer");
   await form.getByLabel("Name of step 2").fill("Stakeholders");
-  await expect(form.getByRole("button", { name: "Step for Alex Rivera" })).toContainText(
-    "Producer",
-  );
-  await form.getByRole("button", { name: "a share" }).click();
+  await expect(form.getByRole("region", { name: "Producer" })).toContainText("Alex Rivera");
+  await form.getByRole("button", { name: "At least" }).click();
   await form.getByRole("button", { name: "A week" }).click();
   await expect(form.getByRole("button", { name: "Send the review" })).toBeEnabled();
   await bringIntoView(form.getByRole("heading", { name: "Reviewers" }));
@@ -5189,15 +5303,33 @@ test("file-download-video", async ({ page }) => {
   expect(bytes.toString("latin1", 4, 8)).toBe("ftyp");
 });
 
-// Per-reviewer permissions (#55): a guest's items, earlier versions, tools, download and plays.
+// Invite on an open review (#669): the request page's people field in a popover under the
+// button, a new address with its name and "Shown as" beneath. Nothing is sent.
+test("review-invite", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/reviews/${seeded().reviewId}`);
+  await settle(page, "main >> text=Under review");
+  await page.getByRole("button", { name: "Invite", exact: true }).click();
+  const form = page.getByRole("form", { name: "Invite to this review" });
+  const field = form.getByRole("combobox", { name: "Invite to this review" });
+  await field.fill("new.reviewer@example.test");
+  await field.press("Enter");
+  await expect(form.getByLabel("Shown as")).toBeVisible();
+  await saveScreen(page, "review-invite");
+  await checkScreen(page);
+});
+
+// Per-reviewer permissions (#55): a guest's items, earlier versions, tools, download and plays,
+// in the same dialog as the request page's (#670).
 test("review-reviewer-permissions", async ({ page }) => {
   await page.goto(`/reviews/${seeded().reviewId}`);
   await page.getByRole("button", { name: "Actions for Mira Solberg" }).click();
   await page.getByRole("menuitem", { name: "Override permissions for this review…" }).click();
-  const form = page.getByRole("form", { name: "What Mira Solberg may do" });
+  const dialog = page.getByRole("dialog", { name: "Mira Solberg in this review" });
+  const form = dialog.getByRole("form", { name: "What Mira Solberg may do" });
   await expect(form.getByRole("group", { name: "Items they see" })).toBeVisible();
   await expect(form.getByLabel("Plays of each file, at most")).toBeVisible();
-  await form.evaluate((el) => el.scrollIntoView({ block: "center" }));
+  await expect(form.getByText("Earlier versions")).toBeVisible();
   await saveScreen(page, "review-reviewer-permissions");
   await checkScreen(page);
 });

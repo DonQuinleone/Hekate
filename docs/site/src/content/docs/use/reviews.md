@@ -12,7 +12,7 @@ Reviewers can be members of the workspace, **guests** from outside it (who need 
 
 ## Running a review
 
-A review's page reads in order: where it stands and what is asked of you, its steps, the reviewers with their decisions and notes, the items with the gate, and what has happened so far. Whoever may manage the review can remind everyone it is waiting on (or one reviewer), move or remove the due date, invite more reviewers, send a guest a new link or revoke it, and cancel the review with a reason its reviewers see. Each item shows whether you have opened it yet. Reviewers are reminded on their own the day before a review is due.
+A review's page reads in order: its title and who asked, the items under review, what is asked of you, its steps (ending in its outcome, named by its rule), the reviewers with their decisions and notes, and what has happened so far. Its properties (status, kind, order, rule and due date) sit beside it. Whoever may manage the review can remind everyone it is waiting on (or one reviewer), move or remove the due date, invite more reviewers, send a guest a new link or revoke it, and cancel the review with a reason its reviewers see. Each item shows whether you have opened it yet. Reviewers are reminded on their own the day before a review is due.
 
 ## Comments
 

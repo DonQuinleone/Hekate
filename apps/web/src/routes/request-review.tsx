@@ -1,6 +1,7 @@
 import {
   type ApprovalRule,
   applyPermissions,
+  approvalRules,
   type CreateReviewInput,
   capital,
   type DownloadLevel,
@@ -10,6 +11,9 @@ import {
   type ReviewKind,
   type ReviewStepInput,
   reviewerDefaults,
+  reviewOrderNames,
+  ruleChoiceNames,
+  ruleName,
   stepTitle,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
@@ -29,7 +33,7 @@ import { ChoiceCard } from "~/components/ui/choice";
 import { DateField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { InlineInput, Input, Textarea } from "~/components/ui/input";
-import { Dropdown } from "~/components/ui/menu";
+import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { Loading } from "~/components/ui/states";
 import { Switch } from "~/components/ui/toggle";
@@ -83,12 +87,6 @@ const kinds: { id: ReviewKind; label: string; hint: string }[] = [
     hint: "Comments, then Submit feedback. No formal sign-off.",
   },
 ];
-
-const ruleWords: Record<ApprovalRule, string> = {
-  all: "everyone approves",
-  any: "any one approves",
-  share: "a share approves",
-};
 
 const dueFormat = formatDates({ day: "numeric", month: "long" });
 
@@ -351,6 +349,8 @@ function ReviewForm({
   const { data: settings } = useQuery(workspaceSettingsQuery);
   const { data: known = [] } = useQuery(projectGuestsQuery(projectId));
   const { words, versionLabel } = useItemWords(projectId);
+  const { data: project } = useQuery(projectQuery(projectId));
+  const profile = project?.profile ?? null;
   const create = useCreateReview(projectId);
   // Whether everything in the workspace may be asked about (#501): offered only then. The
   // form is shown only to someone who may request reviews, so the question is always asked.
@@ -559,10 +559,11 @@ function ReviewForm({
     else if (stepIndexOf(steps, key) !== to) setSteps(moveToStep(steps, key, to));
   };
 
-  const personRow = (key: Key, stepIndex: number) => {
+  const personRow = (key: Key) => {
     const { name, hint, avatar } = labelOf(key);
     const refusal = refusalOf(key);
     const group = key.startsWith("group:");
+    const stepIndex = stepIndexOf(steps, key);
     return (
       <li
         key={key}
@@ -574,7 +575,7 @@ function ReviewForm({
         }}
         onDragEnd={() => setDragging(null)}
         className={cn(
-          "flex min-h-12 flex-wrap items-center gap-x-3 gap-y-1 border-b border-line px-3 py-1.5 last:border-b-0",
+          "group flex min-h-12 items-center gap-3 border-b border-line px-3 py-1.5 last:border-b-0",
           dragging === key && "opacity-40",
         )}
       >
@@ -588,7 +589,7 @@ function ReviewForm({
         ) : (
           <Avatar person={avatar} name={name} size={24} />
         )}
-        <span className="min-w-36 flex-1 basis-40">
+        <span className="min-w-0 flex-1">
           <span className={cn("block truncate text-[14px]", refusal ? "text-ink-3" : "text-ink")}>
             {name}
           </span>
@@ -597,38 +598,41 @@ function ReviewForm({
             {refusal ? ` · ${refusal.toLowerCase()}, not asked` : ""}
           </span>
         </span>
-        <span className="ml-auto flex items-center gap-1">
-          {movable && (
-            <Dropdown
-              size="sm"
-              label={`Step for ${name}`}
-              value={<span className="max-w-32 truncate text-[12px]">{stepLabel(stepIndex)}</span>}
-              actions={steps.map((_, i) => ({
-                label: stepLabel(i),
-                checked: i === stepIndex,
-                onSelect: () => setSteps(moveToStep(steps, key, i)),
-              }))}
-            />
-          )}
-          {!group && !refusal && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setOverriding(key)}
-              aria-label={`Override what ${name} may do`}
-            >
-              {overrides[key] ? "Overridden" : "Override"}
-            </Button>
-          )}
-          <button
-            type="button"
-            aria-label={`Remove ${name}`}
-            onClick={() => remove(key)}
-            className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
-          >
-            <Icon name="close" size={12} />
-          </button>
-        </span>
+        {overrides[key] && (
+          <span className="shrink-0 rounded-chip border border-line px-1.5 text-[11px] leading-[18px] text-ink-3">
+            Overridden
+          </span>
+        )}
+        {/* One menu for the row (#663), on hover and focus: moving, overriding, removing. */}
+        <ActionMenu
+          label={name}
+          actions={[
+            ...(movable
+              ? steps.flatMap((_, i) =>
+                  i === stepIndex
+                    ? []
+                    : [
+                        {
+                          label: `Move to ${stepLabel(i)}`,
+                          onSelect: () => setSteps(moveToStep(steps, key, i)),
+                        },
+                      ],
+                )
+              : []),
+            ...(refusal
+              ? []
+              : [
+                  {
+                    label: overrides[key]
+                      ? "Change what they may do…"
+                      : "Override what they may do…",
+                    onSelect: () => setOverriding(key),
+                  },
+                ]),
+            ...(movable || !refusal ? ["divider" as const] : []),
+            { label: "Remove", onSelect: () => remove(key) },
+          ]}
+        />
       </li>
     );
   };
@@ -637,12 +641,7 @@ function ReviewForm({
     // Added to the step that is open; all at once, to the last step, as the server reads it.
     const target = inTurn ? i : steps.length - 1;
     return (
-      <li key={String(i)} className="flex items-start gap-3">
-        {inTurn && (
-          <span className="tabular mt-2.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-raised text-[12px] font-medium text-ink">
-            {i + 1}
-          </span>
-        )}
+      <li key={String(i)} className="flex">
         <Card
           className={cn(
             "min-w-0 flex-1 transition-colors",
@@ -657,11 +656,18 @@ function ReviewForm({
             onDrop={(event) => dropOn(event, i)}
           >
             {inTurn && (
-              <div className="flex h-11 items-center gap-2 border-b border-line px-2">
+              <div className="flex h-11 items-center gap-1 border-b border-line px-2">
+                {/* Named in words, not a second numbered circle beside the section's (#663). */}
+                <span className="tabular shrink-0 pl-1 text-[13px] font-medium text-ink">
+                  Step {i + 1}
+                </span>
+                <span aria-hidden="true" className="text-ink-3">
+                  ·
+                </span>
                 <InlineInput
                   value={step.name}
                   onChange={(e) => setSteps(renameStep(steps, i, e.target.value))}
-                  placeholder={`Name this step, such as ${stepNameExamples[i % stepNameExamples.length]} (optional)`}
+                  placeholder={`Name it, such as ${stepNameExamples[i % stepNameExamples.length]} (optional)`}
                   aria-label={`Name of step ${i + 1}`}
                   maxLength={80}
                   autoComplete="off"
@@ -678,7 +684,7 @@ function ReviewForm({
               </div>
             )}
             {step.people.length > 0 && (
-              <ul className="m-0 list-none p-0">{step.people.map((key) => personRow(key, i))}</ul>
+              <ul className="m-0 list-none p-0">{step.people.map((key) => personRow(key))}</ul>
             )}
             <div className={cn("p-1.5", step.people.length > 0 && "border-t border-line")}>
               <PeoplePicker
@@ -693,7 +699,7 @@ function ReviewForm({
                 }}
                 placeholder={
                   people.length === 0
-                    ? "Members, groups, or an email address for a new guest"
+                    ? "Members, groups or an email address"
                     : step.people.length === 0
                       ? "Add someone to this step"
                       : "Add someone"
@@ -727,7 +733,7 @@ function ReviewForm({
               >
                 <Icon name="copy" size={14} className="shrink-0 text-ink-3" />
                 <span className="min-w-0 truncate">
-                  Filled in from {fromTitle}. Nothing is sent until you press Send.
+                  Filled in from {fromTitle}. Nothing is sent until you press Send the review.
                 </span>
               </p>
             )}
@@ -750,6 +756,18 @@ function ReviewForm({
                   />
                 ))}
               </div>
+              {/* As the prototype points it out (#664): a share asks nothing. */}
+              <p className="m-0 text-[12px] text-ink-3">
+                Only want someone to listen? That is a{" "}
+                <Link
+                  to="/projects/$projectId/files"
+                  params={{ projectId }}
+                  className="text-ink-2 underline decoration-edge underline-offset-2 hover:text-ink"
+                >
+                  share
+                </Link>
+                , made from the file or track itself, not a review.
+              </p>
             </Section>
 
             <Section
@@ -796,7 +814,6 @@ function ReviewForm({
                           className="shrink-0 text-ink-3"
                         />
                         <span className="min-w-0 truncate">{name}</span>
-                        {folder && <span className="shrink-0 text-ink-3">everything in it</span>}
                         {track && latest && (
                           <Dropdown
                             size="sm"
@@ -843,18 +860,10 @@ function ReviewForm({
                   Covers every project you may share, now and those made later. The invitation says
                   so.
                 </p>
-              ) : items.some((key) => key.startsWith("folder:")) ? (
-                <p className="text-[12px] text-ink-3">
-                  A folder covers everything in it, files added later included.
-                </p>
               ) : null}
             </Section>
 
-            <Section
-              n={3}
-              title="Reviewers"
-              hint="Members, groups and guests. An address no one here answers to invites a new guest, by link. What they may do follows the workspace's defaults unless you override it here."
-            >
+            <Section n={3} title="Reviewers" hint="Who is asked, and in what order.">
               <div className="flex flex-col gap-1.5">
                 <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
                   <div className="flex items-center gap-2.5">
@@ -863,8 +872,8 @@ function ReviewForm({
                       label="Order"
                       value={inTurn ? "turn" : "once"}
                       options={[
-                        { value: "once", label: "All at once" },
-                        { value: "turn", label: "In steps" },
+                        { value: "once", label: reviewOrderNames.parallel },
+                        { value: "turn", label: reviewOrderNames.sequence },
                       ]}
                       onChange={(v) => setInTurn(v === "turn")}
                     />
@@ -872,9 +881,9 @@ function ReviewForm({
                   {kind === "approval" && (
                     <fieldset className="m-0 flex flex-wrap items-center gap-1.5 border-0 p-0">
                       <legend className="label float-left mr-1.5">Approved when</legend>
-                      {(Object.keys(ruleWords) as ApprovalRule[]).map((r) => (
+                      {approvalRules.map((r) => (
                         <ToggleChip key={r} pressed={rule === r} onClick={() => setRule(r)}>
-                          {ruleWords[r].replace(" approves", "")}
+                          {ruleChoiceNames[r]}
                         </ToggleChip>
                       ))}
                       {rule === "share" && (
@@ -886,7 +895,7 @@ function ReviewForm({
                             aria-invalid={!shareOk}
                             onChange={(e) => setShare(e.target.value.replace(/\D/g, ""))}
                             className="w-14 text-center"
-                            aria-label="Share that must approve, in per cent"
+                            aria-label="At least this per cent approve"
                           />
                           %
                         </span>
@@ -896,14 +905,14 @@ function ReviewForm({
                 </div>
                 <p className="m-0 text-[13px] text-ink-3">
                   {inTurn
-                    ? "Each step starts when the one before finishes; everyone in a step is asked together. Drag someone to another step, or choose it from their row."
+                    ? "Each step starts when the one before finishes; everyone in a step is asked together. Drag someone to another step, or move them from their row's menu."
                     : "Everyone is asked now."}
                 </p>
               </div>
               <ol aria-label="Steps" className="m-0 flex list-none flex-col gap-2 p-0">
                 {shown.map((step, i) => stepCard(step, i))}
                 {inTurn && (
-                  <li className="pl-10">
+                  <li>
                     {dragging ? (
                       <section
                         aria-label="New step"
@@ -927,8 +936,9 @@ function ReviewForm({
                 )}
               </ol>
               <p className="m-0 text-[12px] text-ink-3">
-                Guests need no account: each is emailed a link that works once, for{" "}
-                {settings?.guestLinkDays ?? 3} days, and reaches only this review.
+                A new address is a guest, emailed a link that works once, for{" "}
+                {settings?.guestLinkDays ?? 3} days. What anyone may do follows the workspace's
+                defaults unless you override it from their row.
               </p>
             </Section>
 
@@ -997,7 +1007,7 @@ function ReviewForm({
                         ? `${sent.length}${
                             inTurn
                               ? `, in ${stepsSent} ${stepsSent === 1 ? "step" : "steps"}`
-                              : ", all at once"
+                              : `, ${reviewOrderNames.parallel.toLowerCase()}`
                           }`
                         : "none yet",
                     ],
@@ -1005,9 +1015,9 @@ function ReviewForm({
                       ? [
                           [
                             "Rule",
-                            rule === "share"
-                              ? `${shareOk ? share : "?"}% approve`
-                              : ruleWords[rule],
+                            rule === "share" && !shareOk
+                              ? "At least …% approve"
+                              : ruleName(kind, rule, shareValue),
                           ],
                         ]
                       : []),
@@ -1040,9 +1050,7 @@ function ReviewForm({
                   Cancel
                 </Link>
               </Button>
-              <p className="text-[12px] text-ink-3">
-                Invitations go by email when you send. Guests get a link that is theirs alone.
-              </p>
+              <p className="text-[12px] text-ink-3">Invitations go by email when you send.</p>
             </Card>
           </aside>
         </form>
@@ -1056,6 +1064,7 @@ function ReviewForm({
           <ReviewerPermissionsEditor
             name={overridingLabel.name}
             kind={kind}
+            profile={profile}
             guest={overriding.startsWith("guest:")}
             initial={applyPermissions(defaults, overrides[overriding] ?? {}).data ?? defaults}
             pending={false}

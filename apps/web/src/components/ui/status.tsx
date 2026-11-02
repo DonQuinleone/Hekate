@@ -33,11 +33,18 @@ export function StatusDot({ state }: { state: ReviewState }) {
   );
 }
 
-export function StatusPill({ state }: { state: ReviewState }) {
+export function StatusPill({
+  state,
+  label,
+}: {
+  state: ReviewState;
+  /** Words of its own, where the state's would mislead: a share is "Shared", not in review. */
+  label?: string;
+}) {
   return (
-    <span className="inline-flex h-6 items-center gap-[7px] rounded-full border border-hairline px-2.5 text-xs text-ink-2">
+    <span className="inline-flex h-6 items-center gap-[7px] rounded-full border border-hairline px-2.5 text-xs whitespace-nowrap text-ink-2">
       <StatusDot state={state} />
-      {reviewStateLabels[state]}
+      {label ?? reviewStateLabels[state]}
     </span>
   );
 }

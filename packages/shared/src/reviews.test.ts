@@ -12,9 +12,11 @@ import {
   type ReviewerFacts,
   type ReviewerState,
   reviewerState,
+  reviewOrderNames,
   reviewOutcome,
   reviewSteps,
   reviewTitleFor,
+  ruleName,
   shareGrant,
   stepNameOf,
   stepPeople,
@@ -450,5 +452,20 @@ describe("named steps (#500)", () => {
         reviewers: [{ name: "Producer", reviewers: ["u1"] }, "u1"],
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("ruleName", () => {
+  it("names each rule one way, never calling the threshold a share", () => {
+    expect(ruleName("approval", "all")).toBe("Everyone approves");
+    expect(ruleName("approval", "any")).toBe("Any one approves");
+    expect(ruleName("approval", "share", 66)).toBe("At least 66% approve");
+    expect(ruleName("feedback", null)).toBe("Everyone submits");
+    for (const rule of ["all", "any", "share"] as const)
+      expect(ruleName("approval", rule, 50).toLowerCase()).not.toContain("share");
+  });
+
+  it("names the orders as the request form offers them", () => {
+    expect(reviewOrderNames).toEqual({ parallel: "All at once", sequence: "In steps" });
   });
 });

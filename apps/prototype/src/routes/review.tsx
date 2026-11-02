@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, type RefObject, useRef, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { FollowButton } from "~/components/follow-button";
 import { Icon, type IconName } from "~/components/icons";
@@ -8,10 +8,12 @@ import { Card, Page, SectionHead } from "~/components/page";
 import { PageTitle, usePageHeader } from "~/components/page-header";
 import { PermissionsDialog } from "~/components/permissions";
 import { Property } from "~/components/property";
+import { PeopleField, type Person } from "~/components/share";
 import { Dot, reviewDot, reviewerCopy, reviewerDot } from "~/components/status";
 import { Thumb } from "~/components/thumb";
 import { Button } from "~/components/ui/button";
-import { ConfirmDialog } from "~/components/ui/dialog";
+import { ConfirmDialog, Dialog } from "~/components/ui/dialog";
+import { Floating } from "~/components/ui/floating";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import {
@@ -37,6 +39,7 @@ import { ago, dueIn, formatDate, formatLongDate, formatTime, plural } from "~/li
 import {
   kindCopy,
   latestDecision,
+  orderCopy,
   responded,
   reviewOutcome,
   ruleCopy,
@@ -122,13 +125,15 @@ function Node({
   first?: boolean;
 }) {
   return (
-    <li className="flex shrink-0 items-center">
+    <li className="flex shrink-0 flex-col items-start @2xl/steps:flex-row @2xl/steps:items-center">
       {!first && (
         <span
           aria-hidden="true"
           className={cn(
-            "h-px w-7",
-            state === "ahead" ? "border-t border-dashed border-edge-strong" : "bg-ink-3",
+            "ml-6 h-4 w-px @2xl/steps:ml-0 @2xl/steps:h-px @2xl/steps:w-7",
+            state === "ahead"
+              ? "border-l border-dashed border-edge-strong @2xl/steps:border-t @2xl/steps:border-l-0"
+              : "bg-ink-3",
           )}
         />
       )}
@@ -169,7 +174,10 @@ function Node({
   );
 }
 
-/** The review's own little workflow: the steps, the gate, and where the items go next. */
+/**
+ * The review's own little workflow: the steps, ending in its outcome named by its rule (#577),
+ * and where the items go next. Top to bottom on a phone, left to right beside.
+ */
 function Steps({ review }: { review: Review }) {
   const outcome = reviewOutcome(review);
   const { next, back } = stagesOf(review);
@@ -180,7 +188,7 @@ function Steps({ review }: { review: Review }) {
     if (rows.some((r) => r.state !== "waiting")) return "current";
     return "ahead";
   };
-  const gateState: StepState =
+  const outcomeState: StepState =
     outcome === "approved" || outcome === "submitted"
       ? "done"
       : outcome === "changes_requested"
@@ -196,7 +204,7 @@ function Steps({ review }: { review: Review }) {
       : rows.map((r) => personById(r.personId).name.split(" ")[0]).join(", ");
   };
   return (
-    <ol className="flex flex-wrap items-center gap-y-2 py-1">
+    <ol className="flex flex-col py-1 @2xl/steps:flex-row @2xl/steps:flex-wrap @2xl/steps:items-center @2xl/steps:gap-y-2">
       <Node
         icon="send"
         title="Requested"
@@ -224,9 +232,19 @@ function Steps({ review }: { review: Review }) {
       {review.kind !== "share" && (
         <Node
           icon="gate"
-          title={review.kind === "approval" ? "Gate" : "Feedback in"}
-          sub={review.kind === "approval" ? ruleCopy(review) : "then the producer triages"}
-          state={gateState}
+          title={
+            review.kind === "approval"
+              ? `Approved when ${ruleCopy(review).replace(/^./, (c) => c.toLowerCase())}`
+              : "Feedback in"
+          }
+          sub={
+            outcome === "changes_requested"
+              ? "Changes requested"
+              : review.kind === "approval"
+                ? undefined
+                : "then the producer triages"
+          }
+          state={outcomeState}
         />
       )}
       {next && (
@@ -253,9 +271,9 @@ function Steps({ review }: { review: Review }) {
 
 function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
   const viewer = useViewer();
-  const navigate = useNavigate();
   const [permissionsFor, setPermissionsFor] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
+  const inviteBox = useRef<HTMLDivElement>(null);
   const ids = fileIdsOf(review);
   const base = viewer.isGuest ? "/g/files/$fileId" : "/files/$fileId";
   const steps = [...new Set(review.reviewers.map((r) => r.position))].sort((a, b) => a - b);
@@ -267,10 +285,19 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
         action={
           manage &&
           review.status === "open" && (
-            <Button variant="ghost" size="sm" onClick={() => setInviting(true)}>
-              <Icon name="userPlus" size={14} />
-              Invite
-            </Button>
+            <div ref={inviteBox}>
+              <Button variant="ghost" size="sm" onClick={() => setInviting(!inviting)}>
+                <Icon name="userPlus" size={14} />
+                Invite
+              </Button>
+              {inviting && (
+                <InvitePopover
+                  review={review}
+                  anchor={inviteBox}
+                  onClose={() => setInviting(false)}
+                />
+              )}
+            </div>
           )
         }
       />
@@ -317,19 +344,22 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
                         <div className="flex items-center gap-3">
                           <Avatar personId={r.personId} size={30} />
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5 text-[14px]">
-                              <span className="truncate font-medium text-ink">
+                            {/* The name wins on a phone (#579): what they are goes under it. */}
+                            <div className="flex flex-col text-[14px] @3xl/app:flex-row @3xl/app:items-baseline @3xl/app:gap-1.5">
+                              <span className="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">
                                 {viewer.isGuest && !you ? p.name.split(" ")[0] : p.name}
+                                {you && <span className="ml-1.5 font-normal text-ink-3">you</span>}
                               </span>
-                              {you && <span className="text-ink-3">you</span>}
-                              {isGuest && !you && <span className="text-ink-3">· guest</span>}
+                              {isGuest && !you && (
+                                <span className="text-[13px] text-ink-3">Guest</span>
+                              )}
                               {r.permissions.expiresAt && !viewer.isGuest && (
                                 <span className="text-ink-3">
                                   · until {formatDate(r.permissions.expiresAt)}
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-1.5 text-[13px] text-ink-3">
+                            <div className="flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink-3">
                               <Dot state={reviewerDot(r.state, decision)} className="size-[7px]" />
                               {decision === "approved"
                                 ? "Approved"
@@ -402,52 +432,12 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
           ))}
         </ul>
       </Card>
-      {inviting && (
-        <form
-          className="rise-in flex flex-col gap-2 rounded-panel border border-line bg-raised/40 p-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setInviting(false);
-          }}
-        >
-          <Label>Invite to this review</Label>
-          <div className="grid gap-2 @3xl/app:grid-cols-3">
-            <Input placeholder="Name" className="h-8" />
-            <Input placeholder="Email" type="email" className="h-8" />
-            <Input placeholder="Label, such as Conductor (optional)" className="h-8" />
-          </div>
-          <p className="text-[12px] text-ink-3">
-            A member of the project gets a notification; anyone else gets a link, with the
-            permissions set for reviewers in{" "}
-            <button
-              type="button"
-              onClick={() =>
-                navigate({
-                  to: "/projects/$projectId/$view",
-                  params: { projectId: review.projectId, view: "people" },
-                })
-              }
-              className="text-ink-2 hover:text-ink"
-            >
-              People
-            </button>
-            .
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setInviting(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" size="sm" type="submit">
-              Send
-            </Button>
-          </div>
-        </form>
-      )}
       {permissionsFor && (
         <PermissionsDialog
           personId={permissionsFor}
           guest={guests.some((g) => g.personId === permissionsFor)}
           reviewTitle={review.title}
+          video={projectById(review.projectId)?.profile === "video"}
           onClose={() => setPermissionsFor(null)}
         />
       )}
@@ -455,7 +445,78 @@ function Reviewers({ review, manage }: { review: Review; manage: boolean }) {
   );
 }
 
-/* ---------- Items and the gate ---------- */
+/**
+ * Invite, under its button (#669): the request page's people field (members, groups or an
+ * email address), "Shown as" beneath a new address, Cancel and Invite at its foot.
+ */
+function InvitePopover({
+  review,
+  anchor,
+  onClose,
+}: {
+  review: Review;
+  anchor: RefObject<HTMLDivElement | null>;
+  onClose: () => void;
+}) {
+  const project = projectById(review.projectId);
+  const [chosen, setChosen] = useState<Person[]>([]);
+  const asked = new Set(review.reviewers.map((r) => r.personId));
+  const offered: Person[] = [
+    ...(project?.members ?? []).map(
+      (m): Person => ({
+        key: m.personId,
+        personId: m.personId,
+        name: personById(m.personId).name,
+        hint: project?.roles.find((r) => r.id === m.roleId)?.name,
+        kind: "member",
+      }),
+    ),
+    ...groups
+      .filter((g) => g.projectId === review.projectId)
+      .map(
+        (g): Person => ({
+          key: g.id,
+          name: g.name,
+          hint: `${g.personIds.length} people`,
+          kind: "group",
+        }),
+      ),
+  ].filter((p) => !asked.has(p.key));
+  const fresh = chosen.filter((p) => p.kind === "guest" && !p.personId);
+  return (
+    <Floating
+      anchor={anchor}
+      align="end"
+      onClose={onClose}
+      className="flex w-[min(380px,calc(100vw-32px))] flex-col gap-3 rounded-panel border border-line bg-overlay p-3 shadow-3"
+    >
+      <Label>Invite to this review</Label>
+      <PeopleField
+        label="Invite to this review"
+        people={offered}
+        chosen={chosen}
+        onChange={setChosen}
+        placeholder="Members, groups or an email address"
+      />
+      {fresh.map((p) => (
+        <label key={p.key} className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+          Shown as, beside {p.name}
+          <Input placeholder="For example Violin (optional)" className="h-8" />
+        </label>
+      ))}
+      <div className="flex justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" size="sm" disabled={chosen.length === 0} onClick={onClose}>
+          Invite
+        </Button>
+      </div>
+    </Floating>
+  );
+}
+
+/* ---------- Items ---------- */
 
 function Items({
   review,
@@ -479,20 +540,11 @@ function Items({
     else n.add(k);
     setSelected(n);
   };
-  const counted = review.reviewers.filter(
-    (r) => r.permissions.decide || review.kind !== "approval",
-  );
-  const approved = counted.filter((r) => latestDecision(r) === "approved").length;
-  const changes = counted.filter((r) => latestDecision(r) === "changes_requested").length;
   const passed = outcome === "approved" || outcome === "submitted";
-  const gateCopy =
-    review.kind === "approval"
-      ? `${ruleCopy(review)[0]?.toUpperCase()}${ruleCopy(review).slice(1)} · ${approved} approved, ${changes} asked for changes, ${counted.length - approved - changes} to come`
-      : `${responded(review)} of ${review.reviewers.length} submitted`;
   return (
     <section className="flex flex-col gap-3">
       <SectionHead
-        title={review.kind === "share" ? "Shared" : "Under review"}
+        title={review.kind === "share" ? "Items" : "Under review"}
         hint={plural(review.items.length, "item")}
         action={
           manage &&
@@ -511,7 +563,7 @@ function Items({
                   ? [
                       {
                         label: `Move all ${review.items.length} to ${next.name}`,
-                        hint: passed ? "gate passed" : "gate not passed",
+                        hint: passed ? "the rule is met" : "the rule is not met yet",
                         onSelect: () => setMoved(`all → ${next.name}`),
                       },
                       {
@@ -540,45 +592,6 @@ function Items({
         }
       />
       <Card>
-        {review.kind !== "share" && (
-          <div
-            className={cn(
-              "flex flex-wrap items-center gap-3 border-b border-line px-4 py-3",
-              passed ? "bg-raised/20" : outcome === "changes_requested" ? "bg-signal/5" : "",
-            )}
-          >
-            <span
-              className={cn(
-                "flex size-7 shrink-0 items-center justify-center rounded-full",
-                passed
-                  ? "bg-ink text-ground"
-                  : outcome === "changes_requested"
-                    ? "bg-signal text-ground"
-                    : "border border-line-strong text-ink-3",
-              )}
-            >
-              <Icon
-                name={passed ? "check" : outcome === "changes_requested" ? "close" : "gate"}
-                size={13}
-              />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[14px] text-ink">
-                {passed
-                  ? `Gate passed: ${next ? `the items can move to ${next.name}` : "the review is complete"}`
-                  : outcome === "changes_requested"
-                    ? `Gate not passed: changes requested${back ? `, the items go back to ${back.name}` : ""}`
-                    : "Gate: not yet"}
-              </span>
-              <span className="block text-[13px] text-ink-3">{gateCopy}</span>
-            </span>
-            {moved && (
-              <span className="rise-in flex items-center gap-2 text-[13px] text-ink">
-                <Dot state="approved" /> {moved === "closed" ? "Review closed" : `Moved ${moved}`}
-              </span>
-            )}
-          </div>
-        )}
         <ul className="flex flex-col">
           {review.items.map((item, i) => {
             const { track, version, file } = resolveItem(item);
@@ -639,7 +652,7 @@ function Items({
                   params={{ fileId: file?.id ?? "" }}
                   search={{ review: review.id }}
                   aria-label="Open"
-                  className="flex size-7 items-center justify-center rounded-control text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-raised hover:text-ink"
+                  className="flex size-7 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised hover:text-ink"
                 >
                   <Icon name="play" size={11} fill="currentColor" strokeWidth={0} />
                 </Link>
@@ -648,6 +661,11 @@ function Items({
           })}
         </ul>
       </Card>
+      {moved && (
+        <p role="status" className="rise-in flex items-center gap-2 text-[13px] text-ink">
+          <Dot state="approved" /> {moved === "closed" ? "Review closed" : `Moved ${moved}`}
+        </p>
+      )}
     </section>
   );
 }
@@ -658,6 +676,7 @@ function YourTurn({ review, me }: { review: Review; me: Reviewer }) {
   const [recorded, setRecorded] = useState<"approved" | "changes_requested" | "submitted" | null>(
     null,
   );
+  const [asking, setAsking] = useState(false);
   const state = useScreenState();
   const decision = recorded && recorded !== "submitted" ? recorded : latestDecision(me);
   const submitted = recorded === "submitted" || me.state === "submitted";
@@ -676,7 +695,7 @@ function YourTurn({ review, me }: { review: Review; me: Reviewer }) {
     return quiet(
       <>
         Your turn comes after {step.map((r) => personById(r.personId).name).join(" and ")}{" "}
-        {step.length === 1 ? "has" : "have"} responded. You will get an email.
+        {step.length === 1 ? "has" : "have"} responded. You will be told when it is your turn.
       </>,
     );
   }
@@ -715,7 +734,7 @@ function YourTurn({ review, me }: { review: Review; me: Reviewer }) {
           </Button>
           {unopened > 0 && (
             <span className="text-[13px] text-ink-3">
-              {unopened === 1 ? "One item not opened yet" : `${unopened} items not opened yet`}
+              {unopened === 1 ? "1 item not opened yet" : `${unopened} items not opened yet`}
             </span>
           )}
         </div>
@@ -747,7 +766,12 @@ function YourTurn({ review, me }: { review: Review; me: Reviewer }) {
       <Label className="text-ink-2">Your decision</Label>
       <Textarea rows={2} className="mt-2" placeholder="A note with your decision (optional)" />
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <Button variant="primary" size="lg" onClick={() => setRecorded("approved")}>
+        <Button
+          variant="primary"
+          size="lg"
+          // Approving what you have not opened asks first (#665).
+          onClick={() => (unopened > 0 ? setAsking(true) : setRecorded("approved"))}
+        >
           Approve
         </Button>
         <Button variant="secondary" size="lg" onClick={() => setRecorded("changes_requested")}>
@@ -755,10 +779,39 @@ function YourTurn({ review, me }: { review: Review; me: Reviewer }) {
         </Button>
         {unopened > 0 && (
           <span className="ml-1 text-[13px] text-ink-3">
-            {unopened === 1 ? "One item not opened yet" : `${unopened} items not opened yet`}
+            {unopened === 1 ? "1 item not opened yet" : `${unopened} items not opened yet`}
           </span>
         )}
       </div>
+      {asking && (
+        <Dialog
+          title="Approve anyway?"
+          description={
+            unopened === 1
+              ? "You have not opened Maple Leaf Rag yet."
+              : `You have not opened ${unopened} of its items yet.`
+          }
+          onClose={() => setAsking(false)}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setAsking(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setAsking(false);
+                  setRecorded("approved");
+                }}
+              >
+                Approve
+              </Button>
+            </>
+          }
+        >
+          {null}
+        </Dialog>
+      )}
     </section>
   );
 }
@@ -819,7 +872,6 @@ export function ReviewBody({
   const navigate = useNavigate();
   const review = reviewById(reviewId);
   const me = review ? viewer.reviewerIn(review) : undefined;
-  const project = review ? projectById(review.projectId) : undefined;
   const allowed = review && (viewer.canSee(review.projectId) || me);
   const manage = Boolean(review && viewer.can(review.projectId, "manage_reviewers"));
   const mayRequest = Boolean(review && viewer.can(review.projectId, "request_reviews"));
@@ -840,24 +892,11 @@ export function ReviewBody({
     >
       <div className="flex min-w-0 flex-col gap-8">
         <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-3">
-            <span className="flex items-center gap-2 text-ink-2">
-              <Dot state={reviewDot(review.status, outcome)} />
-              {outcomeCopy(review)}
-            </span>
-            <span>
-              {kindCopy[review.kind]}
-              {review.kind !== "share" && `, ${ruleCopy(review)}`}
-              {review.order === "sequence" && ", in turn"}
-            </span>
-            {review.dueAt && due && (
-              <span className={cn(overdue && "text-signal")}>
-                {review.kind === "share" ? "Until" : "Due"} {formatDate(review.dueAt)}
-                {review.status === "open" && ` · ${due.label}`}
-              </span>
-            )}
+          {/* The title heads the review, its facts are in Properties once each (#575). */}
+          <div className="flex items-start gap-3">
+            <PageTitle className="min-w-0 flex-1">{review.title}</PageTitle>
             {!viewer.isGuest && (manage || mayRequest) && (
-              <span className="-my-1 ml-auto">
+              <span className="mt-0.5 shrink-0">
                 <ActionMenu
                   always
                   label="review"
@@ -895,10 +934,13 @@ export function ReviewBody({
               </span>
             )}
           </div>
-          <PageTitle>{review.title}</PageTitle>
-          <p className="flex items-center gap-2 text-[13px] text-ink-3">
-            <Avatar personId={review.requestedBy} size={18} />
-            {requester.name}, {formatLongDate(review.requestedAt)}
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-3">
+            <span className="flex items-center gap-2">
+              <Avatar personId={review.requestedBy} size={18} />
+              {review.kind === "share" ? "Shared by" : "Asked by"} {requester.name},{" "}
+              {formatLongDate(review.requestedAt)}
+            </span>
+            {overdue && due && <span className="text-signal">· {due.label}</span>}
           </p>
           {review.message && (
             <p className="max-w-[640px] text-[15px] leading-[24px] text-ink-2">{review.message}</p>
@@ -926,6 +968,8 @@ export function ReviewBody({
             </ConfirmDialog>
           )}
         </div>
+        {/* Someone asked meets the items first, then their decision (#665). */}
+        {me && <Items review={review} me={me} manage={manage} />}
         {me && review.status === "open" && <YourTurn review={review} me={me} />}
         {me && review.kind === "share" && review.status === "open" && (
           <p className="text-[14px] text-ink-2">
@@ -940,16 +984,13 @@ export function ReviewBody({
           </p>
         )}
         {review.kind !== "share" && !viewer.isGuest && (
-          <section className="flex flex-col gap-3">
-            <SectionHead
-              title="Steps"
-              hint={review.order === "sequence" ? "in turn" : "all at once"}
-            />
+          <section className="@container/steps flex flex-col gap-3">
+            <SectionHead title="Steps" />
             <Steps review={review} />
           </section>
         )}
         <Reviewers review={review} manage={manage} />
-        <Items review={review} me={me} manage={manage} />
+        {!me && <Items review={review} me={me} manage={manage} />}
         {!viewer.isGuest && review.kind !== "share" && <Activity review={review} />}
       </div>
       <aside className="flex min-w-0 flex-col gap-6">
@@ -959,29 +1000,12 @@ export function ReviewBody({
             <Dot state={reviewDot(review.status, outcome)} />
             {outcomeCopy(review)}
           </Property>
-          <Property name="Kind">
-            {kindCopy[review.kind]}
-            {review.order === "sequence" && <span className="text-ink-3">in turn</span>}
-          </Property>
+          {review.kind !== "share" && <Property name="Kind">{kindCopy[review.kind]}</Property>}
+          {review.kind !== "share" && <Property name="Order">{orderCopy[review.order]}</Property>}
           {review.kind === "approval" && <Property name="Rule">{ruleCopy(review)}</Property>}
           {review.dueAt && (
             <Property name={review.kind === "share" ? "Until" : "Due"}>
               <span className={cn(overdue && "text-signal")}>{formatLongDate(review.dueAt)}</span>
-            </Property>
-          )}
-          <Property name="Asked by">
-            <Avatar personId={review.requestedBy} size={18} />
-            {requester.name}
-          </Property>
-          {project && !viewer.isGuest && (
-            <Property name="Project">
-              <Link
-                to="/projects/$projectId"
-                params={{ projectId: project.id }}
-                className="truncate hover:text-signal"
-              >
-                {project.name}
-              </Link>
             </Property>
           )}
           {!viewer.isGuest &&
@@ -1001,7 +1025,7 @@ export function ReviewBody({
         {viewer.isGuest && me && (
           <p className="text-[12px] leading-[18px] text-ink-3">
             Your link is yours alone and was sent to {personById(me.personId).email}. What you open
-            here is logged for {projectById(review.projectId)?.name}.
+            here is logged for {requester.name}.
           </p>
         )}
       </aside>

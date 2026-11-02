@@ -515,7 +515,7 @@ export function GuestLinkPage() {
     return (
       <Frame
         title="This link no longer works"
-        intro="This link has been used or has expired. Ask whoever invited you to send a new one."
+        intro="It has been used, or it has expired. Ask whoever invited you for a new one."
       />
     );
   }
@@ -551,7 +551,7 @@ export function GuestLinkPage() {
   return (
     <Frame
       title="Opening your review"
-      intro={`${organisation.name} asked you to review Album masters. This link is yours alone and lasts a fortnight once opened.`}
+      intro={`${organisation.name} asked you to review Album masters. This link is yours alone and works until 17 October; once opened, it keeps you signed in on this device for a fortnight.`}
     >
       <Button
         variant="primary"
@@ -567,17 +567,9 @@ export function GuestLinkPage() {
   );
 }
 
+/** Signed out, or never in: the link they had is spent, so it sends them to whoever invited them. */
 export function GuestSignedOutPage() {
-  return (
-    <Frame
-      title="Open the link in your email"
-      intro="Reviews are reached through the link you were sent. It signs you in on this device; there is no password."
-    >
-      <Button variant="secondary" size="lg" asChild>
-        <Link to="/guest/link">Open the sample link</Link>
-      </Button>
-    </Frame>
-  );
+  return <Frame title="You are signed out" intro="Ask whoever invited you for a new link." />;
 }
 
 /* ---------- Installer ---------- */

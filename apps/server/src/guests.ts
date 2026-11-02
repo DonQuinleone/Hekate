@@ -188,6 +188,47 @@ export async function verificationFor(db: Database, token: string, now = new Dat
 }
 
 /**
+ * What an unspent link opens, read without spending it (#573): whose it is, in which
+ * workspace, until when, and whether a code is asked for too. The page a link lands on shows
+ * this and waits for its person to press Continue, so a mail scanner that loads the page
+ * (and runs its scripts) leaves the link working. Null for a link that no longer works, the
+ * same answer for each reason, as the exchange gives.
+ */
+export async function peekGuestLink(db: Database, token: string, now = new Date()) {
+  const [row] = await db
+    .select({
+      organisationId: guestLinks.organisationId,
+      guestId: guestLinks.guestId,
+      expiresAt: guestLinks.expiresAt,
+      settings: organisations.settings,
+    })
+    .from(guestLinks)
+    .innerJoin(organisations, eq(organisations.id, guestLinks.organisationId))
+    .where(
+      and(
+        eq(guestLinks.tokenHash, hashToken(token)),
+        isNull(guestLinks.usedAt),
+        isNull(guestLinks.revokedAt),
+        gt(guestLinks.expiresAt, now),
+        isNull(organisations.suspendedAt),
+      ),
+    );
+  if (!row) return null;
+  const [guest] = await db
+    .select({ name: guests.name })
+    .from(guests)
+    .where(inOrg(guests, row.organisationId, eq(guests.id, row.guestId)));
+  if (!guest) return null;
+  return {
+    organisationId: row.organisationId,
+    guestId: row.guestId,
+    name: guest.name,
+    expiresAt: row.expiresAt,
+    verification: workspaceSettingsOf(row.settings).guestVerification,
+  };
+}
+
+/**
  * A new code for a guest opening their link, without spending it: the link opens only once
  * the code comes back. Null for a link that no longer works; "wait" or "limit" when another
  * may not go out yet, or at all. Only the code's hash is kept. `deliver` mails it and logs it

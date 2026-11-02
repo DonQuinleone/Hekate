@@ -1,10 +1,11 @@
 import {
-  gateCounts,
   gateState,
   itemWords,
   type ReviewerState,
   reviewKindNames,
+  reviewOrderNames,
   reviewSteps,
+  ruleName,
   type StepState,
   stepTitle,
   versionLabel,
@@ -12,14 +13,23 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type FormEvent,
+  Fragment,
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { Avatar, personKey } from "~/components/avatar";
 import { kindIcon } from "~/components/files";
 import { FollowButton } from "~/components/follow-button";
-import { GuestFields } from "~/components/guest-fields";
+import { shownAs } from "~/components/guest-fields";
 import { Icon, type IconName } from "~/components/icons";
 import { Card, SectionHead } from "~/components/page";
 import { type Crumb, PageHeader } from "~/components/page-header";
+import { PeoplePicker, type Person } from "~/components/people-picker";
 import { Property } from "~/components/property";
 import { ReviewerPermissionsEditor } from "~/components/reviewer-permissions";
 import { reviewState } from "~/components/reviews";
@@ -27,6 +37,7 @@ import { Button } from "~/components/ui/button";
 import { DateField } from "~/components/ui/date-field";
 import { ConfirmDialog, Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
+import { Floating } from "~/components/ui/floating";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
 import { Loading } from "~/components/ui/states";
@@ -38,14 +49,18 @@ import { formatDates } from "~/lib/locale";
 import { permissionSummary, toLocalInput } from "~/lib/permissions";
 import {
   meQuery,
+  projectGroupsQuery,
+  projectGuestsQuery,
+  projectMembersQuery,
   projectQuery,
+  projectRolesQuery,
   type ReviewActivity,
   type ReviewDetail,
   reviewQuery,
   useProjectCan,
   useReviewActions,
 } from "~/lib/queries";
-import { shareLine, shareNote } from "~/lib/shares";
+import { guestFromEmail, shareLine, shareNote } from "~/lib/shares";
 import { useViewer } from "~/lib/viewer";
 import { PageFailed } from "~/routes/problem";
 
@@ -72,14 +87,8 @@ const reviewerCopy: Record<ReviewerState, string> = {
   observing: "Following",
 };
 
-const ruleCopy = (review: ReviewDetail) =>
-  review.kind === "approval"
-    ? review.rule === "any"
-      ? "anyone approves"
-      : review.rule === "share"
-        ? `${review.share ?? 100}% approve`
-        : "everyone approves"
-    : "everyone submits";
+/** The review's rule, in the words the request page uses (#576). */
+const ruleCopy = (review: ReviewDetail) => ruleName(review.kind, review.rule, review.share);
 
 function reviewerDot(r: Reviewer): ReviewerDotState {
   if (r.decision) return r.decision;
@@ -89,7 +98,8 @@ function reviewerDot(r: Reviewer): ReviewerDotState {
   return "in_review";
 }
 
-const plural = (n: number, word: string) => `${n === 1 ? "One" : n} ${word}${n === 1 ? "" : "s"}`;
+/** "1 item", "5 open comments": numerals throughout (#705), as "0 of 2 responded" beside it. */
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /** "one file now", "4 files now": what a folder or the workspace covers at this moment. */
 const filesNow = (n: number) => `${n === 1 ? "one file" : `${n} files`} now`;
 
@@ -109,13 +119,16 @@ function Node({
   first?: boolean;
 }) {
   return (
-    <li className="flex shrink-0 items-center">
+    // Top to bottom on a phone, as Linear's and GitHub's timelines run; left to right beside.
+    <li className="flex shrink-0 flex-col items-start @2xl/steps:flex-row @2xl/steps:items-center">
       {!first && (
         <span
           aria-hidden="true"
           className={cn(
-            "h-px w-7",
-            state === "ahead" ? "border-t border-dashed border-edge-strong" : "bg-ink-3",
+            "ml-6 h-4 w-px @2xl/steps:ml-0 @2xl/steps:h-px @2xl/steps:w-7",
+            state === "ahead"
+              ? "border-l border-dashed border-edge-strong @2xl/steps:border-t @2xl/steps:border-l-0"
+              : "bg-ink-3",
           )}
         />
       )}
@@ -155,19 +168,26 @@ function Node({
   );
 }
 
-/** The review's own small workflow: who is asked in what order, then the gate. */
+/**
+ * The review's own small workflow: who is asked in what order, ending in its outcome, named by
+ * its rule (#577): "Approved when everyone approves", or "Feedback in".
+ */
 function Steps({ review }: { review: ReviewDetail }) {
   const steps = reviewSteps(review.order, review.reviewers);
+  const outcome = gateState(review.status, review.outcome, steps);
   const label = (rows: Reviewer[]) => {
     const group = rows.find((r) => r.group)?.group?.name;
     return group ? `${group} group` : rows.map((r) => r.name.split(" ")[0]).join(", ");
   };
   return (
-    <ol aria-label="Steps" className="m-0 flex list-none flex-wrap items-center gap-y-2 p-0 py-1">
+    <ol
+      aria-label="Steps"
+      className="m-0 flex list-none flex-col p-0 py-1 @2xl/steps:flex-row @2xl/steps:flex-wrap @2xl/steps:items-center @2xl/steps:gap-y-2"
+    >
       <Node
         icon="send"
         title="Requested"
-        sub={`${(review.createdByName ?? "A former member").split(" ")[0]}, ${shortDate.format(new Date(review.createdAt))}`}
+        sub={shortDate.format(new Date(review.createdAt))}
         state="done"
         first
       />
@@ -186,9 +206,21 @@ function Steps({ review }: { review: ReviewDetail }) {
       ))}
       <Node
         icon="gate"
-        title={review.kind === "approval" ? "Gate" : "Feedback in"}
-        sub={ruleCopy(review)}
-        state={gateState(review.status, review.outcome, steps)}
+        title={
+          review.kind === "approval"
+            ? `Approved when ${ruleCopy(review).replace(/^./, (c) => c.toLowerCase())}`
+            : "Feedback in"
+        }
+        sub={
+          outcome === "failed"
+            ? "Changes requested"
+            : review.status === "cancelled"
+              ? "Closed with the review"
+              : review.kind === "approval"
+                ? undefined
+                : "When everyone submits"
+        }
+        state={outcome}
       />
     </ol>
   );
@@ -200,15 +232,15 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
   const { guest } = useViewer();
   const [confirm, confirmation] = useConfirm();
   const actions = useReviewActions(review.id);
-  const { addReviewer, invite, sendLink, revoke, permissions, remind, removeReviewer } = actions;
+  const { sendLink, revoke, permissions, remind, removeReviewer } = actions;
   const [inviting, setInviting] = useState(false);
+  const inviteAnchor = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const editingReviewer = review.reviewers.find((r) => r.id === editing);
   const manage = review.you.canManageReviewers && review.status === "open";
   // A reviewer whose grant allows it invites too, as a guest beside them (#55).
   const mayInvite = manage || review.you.canInvite;
-  const adding = manage ? addReviewer : invite;
-  const error =
-    adding.error ?? sendLink.error ?? revoke.error ?? remind.error ?? removeReviewer.error;
+  const error = sendLink.error ?? revoke.error ?? remind.error ?? removeReviewer.error;
   const steps = reviewSteps(review.order, review.reviewers);
   const responded = review.reviewers.filter((r) => r.state === "submitted").length;
   // A share asks nothing (#138): its people are those it is shared with, opened or not.
@@ -226,10 +258,29 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
         }
         action={
           mayInvite && (
-            <Button variant="ghost" size="sm" onClick={() => setInviting(true)}>
-              <Icon name="userPlus" size={14} />
-              Invite
-            </Button>
+            <div ref={inviteAnchor}>
+              <Button
+                variant="ghost"
+                size="sm"
+                aria-expanded={inviting}
+                onClick={() => setInviting(!inviting)}
+              >
+                <Icon name="userPlus" size={14} />
+                Invite
+              </Button>
+              {inviting && (
+                <InvitePopover
+                  review={review}
+                  anchor={inviteAnchor}
+                  members={manage}
+                  onClose={() => setInviting(false)}
+                  onInvited={(names) => {
+                    setInviting(false);
+                    onNotice(`${names} ${names.includes(" and ") ? "are" : "is"} invited.`);
+                  }}
+                />
+              )}
+            </div>
           )
         }
       />
@@ -257,23 +308,34 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                       key={r.id}
                       className="group flex flex-col gap-2 border-b border-line px-4 py-row last:border-b-0"
                     >
-                      <div className="flex items-center gap-3">
-                        <Avatar person={personKey(r)} name={r.name} size={30} />
+                      {/* The name wins on a phone (#579): the guest's label goes under it, and
+                          the status wraps rather than being cut. */}
+                      <div className="flex items-start gap-3">
+                        <Avatar person={personKey(r)} name={r.name} size={30} className="mt-0.5" />
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 text-[14px]">
-                            <span className="truncate font-medium text-ink">{r.name}</span>
-                            {you && <span className="text-ink-3">you</span>}
+                          <div className="flex flex-col text-[14px] @3xl/app:flex-row @3xl/app:items-baseline @3xl/app:gap-1.5">
+                            <span className="min-w-0 font-medium text-ink [overflow-wrap:anywhere]">
+                              {r.name}
+                              {you && <span className="ml-1.5 font-normal text-ink-3">you</span>}
+                            </span>
                             {r.guest && !you && (
-                              <span className="shrink-0 text-ink-3">
-                                · {r.label ? `${r.label}, guest` : "guest"}
+                              <span className="text-[13px] text-ink-3 @3xl/app:text-[14px]">
+                                <span aria-hidden="true" className="hidden @3xl/app:inline">
+                                  ·{" "}
+                                </span>
+                                {r.label ? `${r.label}, guest` : "Guest"}
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-1.5 text-[13px] text-ink-3">
-                            <ReviewerDot
-                              state={sharing ? (r.viewedAt ? "passed" : "invited") : reviewerDot(r)}
-                            />
-                            <span className="truncate">
+                          <div className="flex items-start gap-1.5 text-[13px] text-ink-3">
+                            <span className="mt-[6px] flex shrink-0">
+                              <ReviewerDot
+                                state={
+                                  sharing ? (r.viewedAt ? "passed" : "invited") : reviewerDot(r)
+                                }
+                              />
+                            </span>
+                            <span className="min-w-0">
                               {sharing
                                 ? shareLine(r, ago)
                                 : r.decision === "approved"
@@ -297,7 +359,11 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                             className="flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2 text-[13px] text-ink-2 no-underline hover:bg-raised hover:text-ink"
                           >
                             <Icon name="comment" size={13} />
-                            {r.comments.count} {r.comments.count === 1 ? "comment" : "comments"}
+                            {r.comments.count}
+                            {/* The count alone on a phone, where the name needs the room. */}
+                            <span className="sr-only @3xl/app:not-sr-only">
+                              {r.comments.count === 1 ? " comment" : " comments"}
+                            </span>
                           </Link>
                         )}
                         {manage && (
@@ -373,24 +439,6 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                           {r.note}
                         </blockquote>
                       )}
-                      {editing === r.id && r.permissions && (
-                        <ReviewerPermissionsEditor
-                          name={r.name}
-                          kind={review.kind}
-                          guest={r.guest}
-                          initial={r.permissions}
-                          items={review.items.map((i) => ({ id: i.id, name: i.name }))}
-                          pending={permissions.isPending}
-                          error={permissions.error?.message ?? null}
-                          onCancel={() => setEditing(null)}
-                          onSave={(change) =>
-                            permissions.mutate(
-                              { reviewerId: r.id, permissions: change },
-                              { onSuccess: () => setEditing(null) },
-                            )
-                          }
-                        />
-                      )}
                     </li>
                   );
                 })}
@@ -399,88 +447,225 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
           ))}
         </ul>
       </Card>
-      {error && <p className="m-0 text-[13px] text-signal">{error.message}</p>}
-      {inviting && (
-        <div className="rise-in flex flex-col gap-2 rounded-panel border border-line bg-raised/40 p-3">
-          <span className="label">Invite to this review</span>
-          <GuestFields
-            submitLabel="Send"
-            onAdd={(g) =>
-              adding.mutate(g, {
-                onSuccess: () => {
-                  setInviting(false);
-                  onNotice(`${g.name} is invited.`);
-                },
-              })
+      {editingReviewer?.permissions && (
+        <Dialog
+          title={`${editingReviewer.name} in this review`}
+          description="An override for this review only; everyone else keeps the workspace's defaults."
+          onClose={() => setEditing(null)}
+        >
+          <ReviewerPermissionsEditor
+            name={editingReviewer.name}
+            kind={review.kind}
+            guest={editingReviewer.guest}
+            profile={review.profile}
+            initial={editingReviewer.permissions}
+            items={review.items.map((i) => ({ id: i.id, name: i.name }))}
+            pending={permissions.isPending}
+            error={permissions.error?.message ?? null}
+            onCancel={() => setEditing(null)}
+            onSave={(change) =>
+              permissions.mutate(
+                { reviewerId: editingReviewer.id, permissions: change },
+                { onSuccess: () => setEditing(null) },
+              )
             }
           />
-          <div className="flex justify-end">
-            <Button variant="ghost" size="sm" onClick={() => setInviting(false)}>
-              Cancel
-            </Button>
-          </div>
-        </div>
+        </Dialog>
       )}
+      {error && <p className="m-0 text-[13px] text-signal">{error.message}</p>}
       {confirmation}
     </section>
   );
 }
 
-/* ---------- Items and the gate ---------- */
+/**
+ * Invite, under its button (#669): the request page's people field, offering the project's
+ * members, groups and known guests to whoever manages the review, or an email address to a
+ * reviewer their grant lets invite. A new address shows its name and "Shown as" beneath.
+ */
+function InvitePopover({
+  review,
+  anchor,
+  members: offerMembers,
+  onClose,
+  onInvited,
+}: {
+  review: ReviewDetail;
+  anchor: RefObject<HTMLDivElement | null>;
+  /** Whoever manages the review may add members and groups; a reviewer only guests. */
+  members: boolean;
+  onClose: () => void;
+  onInvited: (names: string) => void;
+}) {
+  const { guest: asGuest } = useViewer();
+  const { addReviewer, invite } = useReviewActions(review.id);
+  const adding = offerMembers ? addReviewer : invite;
+  const enabled = offerMembers && !asGuest;
+  const projectId = review.projectId;
+  const { data: members = [] } = useQuery({ ...projectMembersQuery(projectId), enabled });
+  const { data: roles = [] } = useQuery({ ...projectRolesQuery(projectId), enabled });
+  const { data: groups = [] } = useQuery({ ...projectGroupsQuery(projectId), enabled });
+  const { data: known = [] } = useQuery({ ...projectGuestsQuery(projectId), enabled });
+  const [chosen, setChosen] = useState<Person[]>([]);
+  // What a new address is called, and shown as, typed beneath the field.
+  const [fresh, setFresh] = useState<Record<string, { name: string; label: string }>>({});
+  const [busy, setBusy] = useState(false);
+  const asked = new Set(
+    review.reviewers.flatMap((r) => [
+      ...(r.userId ? [`member:${r.userId}`] : []),
+      ...(r.email ? [`guest:${r.email}`] : []),
+      ...(r.group ? [`group:${r.group.id}`] : []),
+    ]),
+  );
+  const offered: Person[] = enabled
+    ? [
+        ...members.map(
+          (m): Person => ({
+            key: `member:${m.userId}`,
+            name: m.name,
+            hint: m.ownerSince ? "Owner" : (roles.find((r) => r.id === m.roleId)?.name ?? ""),
+            kind: "member",
+          }),
+        ),
+        ...groups.map(
+          (g): Person => ({
+            key: `group:${g.id}`,
+            name: g.name,
+            hint: `${g.members.length} ${g.members.length === 1 ? "person" : "people"}`,
+            kind: "group",
+          }),
+        ),
+        ...known.map(
+          (g): Person => ({
+            key: `guest:${g.email}`,
+            avatar: g.id,
+            name: g.name,
+            hint: g.label ?? g.email,
+            kind: "guest",
+          }),
+        ),
+      ].filter((p) => !asked.has(p.key))
+    : [];
+  const isNew = (p: Person) =>
+    p.kind === "guest" && !known.some((k) => `guest:${k.email}` === p.key);
+  const entryOf = (p: Person) => {
+    const [type, id = ""] = p.key.split(/:(.*)/s) as [string, string];
+    if (type === "member") return { userId: id };
+    if (type === "group") return { groupId: id };
+    const knownGuest = known.find((k) => k.email === id);
+    const typed = fresh[p.key];
+    const named = guestFromEmail(id);
+    return {
+      name: typed?.name.trim() || knownGuest?.name || named.name,
+      email: id,
+      label: typed?.label.trim() || knownGuest?.label || undefined,
+    };
+  };
+  const send = async (event: FormEvent) => {
+    event.preventDefault();
+    if (chosen.length === 0) return;
+    setBusy(true);
+    try {
+      const sent: string[] = [];
+      for (const person of chosen) {
+        const entry = entryOf(person);
+        if ("userId" in entry || "groupId" in entry) {
+          if (!offerMembers) continue;
+          await addReviewer.mutateAsync(entry);
+        } else await adding.mutateAsync(entry);
+        sent.push(("name" in entry ? entry.name : undefined) ?? person.name);
+      }
+      onInvited(
+        sent.length > 1 ? `${sent.slice(0, -1).join(", ")} and ${sent.at(-1)}` : (sent[0] ?? ""),
+      );
+    } catch {
+      // The refusal is said under the field; the popover stays open to change it.
+    } finally {
+      setBusy(false);
+    }
+  };
+  const error = addReviewer.error ?? invite.error;
+  return (
+    <Floating
+      anchor={anchor}
+      align="end"
+      onClose={onClose}
+      className="z-10 flex w-[min(380px,calc(100vw-32px))] flex-col rounded-panel border border-line bg-overlay p-3 shadow-3"
+    >
+      <form aria-label="Invite to this review" onSubmit={send} className="flex flex-col gap-3">
+        <span className="label">Invite to this review</span>
+        <PeoplePicker
+          label="Invite to this review"
+          autoFocus
+          people={offered}
+          chosen={chosen}
+          onChange={setChosen}
+          placeholder={offerMembers ? "Members, groups or an email address" : "An email address"}
+        />
+        {chosen.filter(isNew).map((p) => {
+          const typed = fresh[p.key] ?? {
+            name: guestFromEmail(p.key.slice("guest:".length)).name,
+            label: "",
+          };
+          const set = (field: "name" | "label", value: string) =>
+            setFresh({ ...fresh, [p.key]: { ...typed, [field]: value } });
+          return (
+            <fieldset key={p.key} className="m-0 grid min-w-0 gap-2 border-0 p-0 sm:grid-cols-2">
+              <legend className="mb-1.5 text-[12px] text-ink-3">
+                {p.key.slice("guest:".length)}, a new guest
+              </legend>
+              <Field label="Name">
+                <Input
+                  value={typed.name}
+                  maxLength={120}
+                  autoComplete="off"
+                  onChange={(e) => set("name", e.target.value)}
+                />
+              </Field>
+              <Field label={shownAs.label}>
+                <Input
+                  value={typed.label}
+                  maxLength={60}
+                  autoComplete="off"
+                  placeholder="For example Violin"
+                  onChange={(e) => set("label", e.target.value)}
+                />
+              </Field>
+            </fieldset>
+          );
+        })}
+        {error && (
+          <p role="alert" className="m-0 text-[13px] text-signal">
+            {error.message}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" size="sm" type="submit" disabled={chosen.length === 0 || busy}>
+            Invite
+          </Button>
+        </div>
+      </form>
+    </Floating>
+  );
+}
+
+/* ---------- Items ---------- */
 
 function Items({ review }: { review: ReviewDetail }) {
   const { guest } = useViewer();
   const fileBase = guest ? "/g/files/$fileId" : "/files/$fileId";
-  const counts = gateCounts(review.kind, review.reviewers);
-  const passed = review.outcome === "approved" || review.outcome === "submitted";
-  const failed = review.outcome === "changes_requested";
   const me = review.you.reviewerId;
   const sharing = review.kind === "share";
   return (
     <section className="flex flex-col gap-3">
       <SectionHead
-        title={sharing ? "Shared" : "Under review"}
+        title={sharing ? "Items" : "Under review"}
         hint={plural(review.items.length, "item")}
       />
       <Card>
-        {/* A share has no gate to pass: it only shares. */}
-        {!sharing && (
-          <div
-            className={cn(
-              "flex flex-wrap items-center gap-3 border-b border-line px-4 py-3",
-              passed ? "bg-raised/20" : failed ? "bg-signal/5" : "",
-            )}
-          >
-            <span
-              className={cn(
-                "flex size-7 shrink-0 items-center justify-center rounded-full",
-                passed
-                  ? "bg-ink text-ground"
-                  : failed
-                    ? "bg-signal text-ground"
-                    : "border border-line-strong text-ink-3",
-              )}
-            >
-              <Icon name={passed ? "check" : failed ? "close" : "gate"} size={13} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[14px] text-ink">
-                {passed
-                  ? "Gate passed: the review is complete"
-                  : failed
-                    ? "Gate not passed: changes requested"
-                    : review.status === "cancelled"
-                      ? "Gate: closed with the review"
-                      : "Gate: not yet"}
-              </span>
-              <span className="block text-[13px] text-ink-3">
-                {review.kind === "approval"
-                  ? `${ruleCopy(review).replace(/^./, (c) => c.toUpperCase())} · ${counts.approved} approved, ${counts.changes} asked for changes, ${counts.toCome} to come`
-                  : `${counts.submitted} of ${counts.total} submitted`}
-              </span>
-            </span>
-          </div>
-        )}
         <ul className="m-0 flex list-none flex-col p-0">
           {review.items.map((item) => {
             const opened = review.you.opened.includes(item.id);
@@ -531,7 +716,7 @@ function Items({ review }: { review: ReviewDetail }) {
                       params={{ fileId: item.fileId }}
                       search={{ review: review.id }}
                       aria-label={`Open ${item.name}`}
-                      className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 hover:bg-raised hover:text-ink focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+                      className="flex size-7 shrink-0 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised hover:text-ink"
                     >
                       <Icon name="play" size={11} fill="currentColor" strokeWidth={0} />
                     </Link>
@@ -603,6 +788,7 @@ function YourTurn({ review }: { review: ReviewDetail }) {
   const { decide, submit } = useReviewActions(review.id);
   const [note, setNote] = useState("");
   const [again, setAgain] = useState(false);
+  const [asking, setAsking] = useState(false);
   const me = review.reviewers.find((r) => r.id === review.you.reviewerId);
   // A share asks nothing of its people (#138); ShareNote says what it gives them instead.
   if (!me || review.status !== "open" || review.kind === "share") return null;
@@ -616,16 +802,14 @@ function YourTurn({ review }: { review: ReviewDetail }) {
   );
   const unopenedCopy =
     unopened > 0 ? (
-      <span className="text-[13px] text-ink-3">
-        {unopened === 1 ? "One item not opened yet" : `${unopened} items not opened yet`}
-      </span>
+      <span className="text-[13px] text-ink-3">{plural(unopened, "item")} not opened yet</span>
     ) : null;
   if (me.state === "waiting") {
     const before = review.reviewers.filter((r) => r.step < me.step && r.state !== "submitted");
     return quiet(
       <>
         Your turn comes after {before.map((r) => r.name).join(" and ")}{" "}
-        {before.length === 1 ? "has" : "have"} responded. You will get an email.
+        {before.length === 1 ? "has" : "have"} responded. You will be told when it is your turn.
       </>,
     );
   }
@@ -688,10 +872,10 @@ function YourTurn({ review }: { review: ReviewDetail }) {
             </Button>
           )}
         </p>
-        {me.note && <p className="m-0 pl-5 text-[14px] text-ink-2">“{me.note}”</p>}
       </div>
     );
   if (!review.you.canDecide) return null;
+  const notOpened = review.items.filter((i) => !review.you.opened.includes(i.id));
   const record = (decision: "approved" | "changes_requested") =>
     decide.mutate(
       { decision, note: note || undefined },
@@ -718,7 +902,8 @@ function YourTurn({ review }: { review: ReviewDetail }) {
           variant="primary"
           size="lg"
           disabled={decide.isPending}
-          onClick={() => record("approved")}
+          // Approving what you have not opened asks first (#665).
+          onClick={() => (notOpened.length > 0 ? setAsking(true) : record("approved"))}
         >
           Approve
         </Button>
@@ -737,6 +922,36 @@ function YourTurn({ review }: { review: ReviewDetail }) {
         )}
         {unopenedCopy}
       </div>
+      {asking && (
+        <Dialog
+          title="Approve anyway?"
+          description={
+            notOpened.length === 1
+              ? `You have not opened ${notOpened[0]?.name} yet.`
+              : `You have not opened ${notOpened.length} of its items yet.`
+          }
+          onClose={() => setAsking(false)}
+          width="sm"
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setAsking(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setAsking(false);
+                  record("approved");
+                }}
+              >
+                Approve
+              </Button>
+            </>
+          }
+        >
+          {null}
+        </Dialog>
+      )}
     </section>
   );
 }
@@ -773,6 +988,8 @@ function activityText(a: ReviewActivity): string {
 }
 
 function Activity({ review }: { review: ReviewDetail }) {
+  // A decision's note is read in its reviewer's row (#575): here only what is not there.
+  const inRows = new Set(review.reviewers.map((r) => r.note).filter(Boolean));
   if (review.activity.length === 0) return null;
   return (
     <section className="flex flex-col gap-3">
@@ -796,7 +1013,9 @@ function Activity({ review }: { review: ReviewDetail }) {
                   {shortDate.format(new Date(a.at))}, {time.format(new Date(a.at))}
                 </span>
               </p>
-              {a.note && <p className="mt-1 mb-0 text-[14px] text-ink-2">“{a.note}”</p>}
+              {a.note && !inRows.has(a.note) && (
+                <p className="mt-1 mb-0 text-[14px] text-ink-2">“{a.note}”</p>
+              )}
             </div>
           </li>
         ))}
@@ -851,20 +1070,17 @@ export function ReviewPage({ reviewId }: { reviewId: string }) {
 }
 
 /**
- * A review in the order it is read: where it stands and what is asked of you, its steps, who
- * is reviewing and what they said, the items with the gate, then the activity. On its own
- * page the title goes to the top bar; embedded (the inbox's reading pane) it heads the pane.
+ * A review in the order it is read: its title and who asked, what is asked of you, its steps,
+ * who is reviewing and what they said, the items, then the activity; its facts beside, in
+ * Properties, once each (#575). The title heads it on its own page and in the inbox alike.
  */
 export function ReviewBody({
   reviewId,
   embedded = false,
-  titled = false,
   markViewed = true,
 }: {
   reviewId: string;
   embedded?: boolean;
-  /** Embedded, with the title already in the top bar: the pane leaves it out. */
-  titled?: boolean;
   /** Record that you have seen it. Off for a review shown only because it came first. */
   markViewed?: boolean;
 }) {
@@ -899,7 +1115,7 @@ export function ReviewBody({
   const overdue = review.status === "open" && due !== null && due.days < 0;
   const manage = review.you.canManage && review.status === "open";
   const kind = reviewKindNames[review.kind];
-  // A share (#138) asks nothing: no steps, gate, decision, reminders or due date.
+  // A share (#138) asks nothing: no steps, outcome, decision, reminders or due date.
   const sharing = review.kind === "share";
   const status = sharing && review.status === "open" ? "Shared" : outcomeCopy[state];
 
@@ -909,8 +1125,16 @@ export function ReviewBody({
         {
           key: "project",
           link: (
-            <Link to="/projects/$projectId/files" params={{ projectId: review.projectId }}>
+            <Link to="/projects/$projectId" params={{ projectId: review.projectId }}>
               {project?.name ?? "Project"}
+            </Link>
+          ),
+        },
+        {
+          key: "reviews",
+          link: (
+            <Link to="/projects/$projectId/reviews" params={{ projectId: review.projectId }}>
+              Reviews
             </Link>
           ),
         },
@@ -945,24 +1169,12 @@ export function ReviewBody({
       >
         <div className="flex min-w-0 flex-col gap-8">
           <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-ink-3">
-              <span className="flex items-center gap-2 text-ink-2">
-                <StatusDot state={state} />
-                {status}
-              </span>
-              <span>
-                {kind}
-                {!sharing && `, ${ruleCopy(review)}`}
-                {review.order === "sequence" && ", in turn"}
-              </span>
-              {review.dueAt && due && (
-                <span className={cn("tabular", overdue && "text-signal")}>
-                  Due {shortDate.format(new Date(review.dueAt))}
-                  {review.status === "open" && ` · ${due.label}`}
-                </span>
-              )}
+            {/* The title heads the page, for members and guests, in the inbox too (#575); the
+                facts about it are in Properties, and only what is urgent is said here. */}
+            <div className="flex items-start gap-3">
+              <h2 className="title m-0 min-w-0 flex-1 [overflow-wrap:anywhere]">{review.title}</h2>
               {!guest && (
-                <span className="-my-1 ml-auto">
+                <span className="mt-0.5 shrink-0">
                   <ActionMenu
                     always
                     label="review"
@@ -975,9 +1187,7 @@ export function ReviewBody({
                                 remind.mutate(undefined, {
                                   onSuccess: (n) =>
                                     setNotice(
-                                      n === 1
-                                        ? "One reviewer is reminded."
-                                        : `${n} reviewers are reminded.`,
+                                      `${plural(n, "reviewer")} ${n === 1 ? "is" : "are"} reminded.`,
                                     ),
                                 }),
                             },
@@ -1029,22 +1239,26 @@ export function ReviewBody({
                 </span>
               )}
             </div>
-            {embedded && !titled && <h2 className="title m-0">{review.title}</h2>}
-            <p className="m-0 flex items-center gap-2 text-[13px] text-ink-3">
-              <Avatar
-                person={review.createdBy ?? "former"}
-                name={review.createdByName ?? "A former member"}
-                size={18}
-              />
-              {review.createdByName ?? "A former member"},{" "}
-              {longDate.format(new Date(review.createdAt))}
+            <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-ink-3">
+              <span className="flex items-center gap-2">
+                <Avatar
+                  person={review.createdBy ?? "former"}
+                  name={review.createdByName ?? "A former member"}
+                  size={18}
+                />
+                {sharing ? "Shared by" : "Asked by"} {review.createdByName ?? "a former member"},{" "}
+                {longDate.format(new Date(review.createdAt))}
+              </span>
+              {overdue && due && <span className="tabular text-signal">· {due.label}</span>}
             </p>
             {review.message && (
               <p className="m-0 max-w-[640px] whitespace-pre-wrap text-[15px] leading-[24px] text-ink-2">
                 {review.message}
               </p>
             )}
-            {review.status === "cancelled" && (
+            {/* Members read who cancelled and why in Activity; guests and a share's people,
+                who see no Activity, read it here. */}
+            {review.status === "cancelled" && (guest || sharing) && (
               <p className="m-0 flex items-center gap-2 text-[14px] text-ink-2">
                 <StatusDot state="cancelled" />
                 {sharing ? "No longer shared" : "Cancelled"}
@@ -1076,19 +1290,20 @@ export function ReviewBody({
               </ConfirmDialog>
             )}
           </div>
+          {/* Someone asked meets what they are asked about first, then their decision, as
+              Frame.io and Dropbox Replay open on the media (#665); a guest above all. */}
+          {mine && <Items review={review} />}
           <YourTurn review={review} />
           {sharing && mine && review.status === "open" && <ShareNote me={mine} />}
           {!guest && !sharing && (
-            <section className="flex flex-col gap-3">
-              <SectionHead
-                title="Steps"
-                hint={review.order === "sequence" ? "in turn" : "all at once"}
-              />
+            // The steps run across only where the review itself is wide enough (#577).
+            <section className="@container/steps flex flex-col gap-3">
+              <SectionHead title="Steps" />
               <Steps review={review} />
             </section>
           )}
           <Reviewers review={review} onNotice={setNotice} />
-          <Items review={review} />
+          {!mine && <Items review={review} />}
           {!guest && !sharing && <Activity review={review} />}
         </div>
         <aside className="flex min-w-0 flex-col gap-6">
@@ -1101,35 +1316,23 @@ export function ReviewBody({
                   {status}
                 </span>
               </Property>
-              <Property name="Kind">
-                {kind}
-                {review.order === "sequence" && <span className="text-ink-3"> in turn</span>}
-              </Property>
+              {/* A share's status says it is one; a kind beside it would say it again. */}
+              {!sharing && <Property name="Kind">{kind}</Property>}
+              {!sharing && <Property name="Order">{reviewOrderNames[review.order]}</Property>}
               {review.kind === "approval" && <Property name="Rule">{ruleCopy(review)}</Property>}
               {review.dueAt && (
-                <Property name="Due">
+                <Property name={sharing ? "Until" : "Due"}>
                   <span className={cn(overdue && "text-signal")}>
                     {longDate.format(new Date(review.dueAt))}
                   </span>
-                </Property>
-              )}
-              <Property name="Asked by">{review.createdByName ?? "A former member"}</Property>
-              {project && !guest && (
-                <Property name="Project">
-                  <Link
-                    to="/projects/$projectId"
-                    params={{ projectId: project.id }}
-                    className="truncate text-ink no-underline hover:text-signal"
-                  >
-                    {project.name}
-                  </Link>
                 </Property>
               )}
             </dl>
           </section>
           {guest && mine && (
             <p className="m-0 text-[12px] leading-[18px] text-ink-3">
-              Your link is yours alone. What you open here is logged for whoever asked you.
+              Your link is yours alone. What you open here is logged for{" "}
+              {review.createdByName ?? "whoever asked you"}.
             </p>
           )}
         </aside>

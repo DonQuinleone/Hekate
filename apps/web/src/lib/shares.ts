@@ -1,11 +1,14 @@
 import {
   type CreateReviewInput,
   capital,
+  type DownloadLevel,
   type FileKind,
   type GuestInput,
   type ItemWords,
+  type ProjectProfile,
   type ReviewerInput,
   type ReviewItemInput,
+  versionLabel,
 } from "@hekate/shared";
 import { type Item, itemsIn } from "./browser";
 import type { Folder, ProjectFile, Track } from "./queries";
@@ -54,31 +57,53 @@ export function shareNote(
 
 /**
  * Sharing one item (#489): what the people it is shared with may do, as a share sheet asks
- * it. Viewing is a share (#138), which has no comments by design; commenting, and downloading
- * with it, are a feedback review, which asks for comments and no sign-off.
+ * it. Viewing is a share (#138), which asks nothing; commenting is a feedback review, which
+ * asks them for feedback without sign-off, and the sheet says so (#578).
  */
-export const shareAccesses = ["view", "comment", "download"] as const;
+export const shareAccesses = ["view", "comment"] as const;
 export type ShareAccess = (typeof shareAccesses)[number];
 
 export const shareAccessCopy: Record<ShareAccess, { label: string; hint: string }> = {
   view: { label: "Can view", hint: "They listen or look. Nothing is asked of them." },
-  comment: { label: "Can comment", hint: "They leave comments on it. No sign-off is asked." },
-  download: {
-    label: "Can download",
-    hint: "They comment, and download the original, watermarked for them.",
+  comment: {
+    label: "Can comment",
+    hint: "They are asked for feedback, without sign-off.",
   },
 };
 
-/** How long a link works: a week unless chosen otherwise; null is until it is withdrawn. */
+/**
+ * What they may download (#578): nothing unless chosen, the review copy first, the original
+ * a second choice that says what it costs.
+ */
+export const shareDownloads = [
+  "none",
+  "proxy",
+  "original",
+] as const satisfies readonly DownloadLevel[];
+export type ShareDownload = (typeof shareDownloads)[number];
+
+export const shareDownloadCopy: Record<ShareDownload, { label: string; hint: string | null }> = {
+  none: { label: "No download", hint: null },
+  proxy: {
+    label: "Review copy",
+    hint: "A review copy, made and marked for each of them. Every download is logged.",
+  },
+  original: {
+    label: "Original",
+    hint: "The original file, watermarked for each of them. Every download is logged.",
+  },
+};
+
+/** When their access ends: a week unless chosen otherwise; null is until it is withdrawn. */
 export const linkLives = [7, 14, 30, null] as const;
 export type LinkLife = (typeof linkLives)[number];
 
+/** When access ends, as the sheet says it beside "Access ends". */
 export const linkLifeWords = (life: LinkLife) =>
-  life === null ? "Link works until withdrawn" : `Link works for ${life} days`;
+  life === null ? "When withdrawn" : `In ${life} days`;
 
 /** A life as its menu names it. */
-export const linkLifeChoice = (life: LinkLife) =>
-  life === null ? "Until withdrawn" : `${life} days`;
+export const linkLifeChoice = linkLifeWords;
 
 /** When a link of that life ends, from now; null never. */
 export const linkEnd = (life: LinkLife, now: Date): string | null =>
@@ -123,7 +148,7 @@ export interface ShareTarget {
   name: string;
   /** A version's track. */
   trackId?: string;
-  /** What it is, under the name: "Audio", "Track", "Version 3". The kind, when left out. */
+  /** What it is, where its name does not say: unused under the title since #578. */
   what?: string;
 }
 
@@ -207,27 +232,47 @@ export function targetItems(
   return under(target.id);
 }
 
-/** The request a sheet sends: its level, its people, its items and how long it works. */
+/** The request a sheet sends: its level, what may be downloaded, its people, items and end. */
 export function shareRequest(input: {
   access: ShareAccess;
+  download?: ShareDownload;
   life: LinkLife;
   items: ReviewItemInput[];
   reviewers: ReviewerInput[];
   now: Date;
 }): CreateReviewInput {
-  const { access, life, items, reviewers, now } = input;
+  const { access, download = "none", life, items, reviewers, now } = input;
   const expiresAt = linkEnd(life, now);
   if (access === "view") {
-    return { kind: "share", items, reviewers, permissions: { download: "none", expiresAt } };
+    return { kind: "share", items, reviewers, permissions: { download, expiresAt } };
   }
   return {
     kind: "feedback",
     items,
     reviewers,
-    permissions: {
-      comment: true,
-      download: access === "download" ? "original" : "none",
-      expiresAt,
+    permissions: { comment: true, download, expiresAt },
+  };
+}
+
+/**
+ * What Share offers from a file's page (#578): a track's file shares its version, every
+ * variant of it, with the file alone as the other choice; any other file shares itself.
+ */
+export function fileShareTargets(file: {
+  id: string;
+  name: string;
+  profile: ProjectProfile;
+  variant: { versionId: string; versionNumber: number; trackId: string; trackName: string } | null;
+}): { item: ShareTarget; alternative: ShareTarget | null } {
+  const alone: ShareTarget = { kind: "file", id: file.id, name: file.name };
+  if (!file.variant) return { item: alone, alternative: null };
+  return {
+    item: {
+      kind: "version",
+      id: file.variant.versionId,
+      trackId: file.variant.trackId,
+      name: `${file.variant.trackName} ${versionLabel(file.variant.versionNumber, file.profile)}`,
     },
+    alternative: alone,
   };
 }

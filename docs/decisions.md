@@ -317,6 +317,7 @@ Deleting a project (#240) is asked for by someone whose role may delete it, and 
 ## 078. A project may keep its new files on a backend of its own
 
 A project may choose the storage backend for its new files (#240), over the workspace's choice (decision 017) and the instance default, under Protection, Storage, as the prototype shows. As with the workspace's choice, admins see it and only owners change it, and existing files stay where they are: everything made from a file afterwards (renditions, pages, peaks, loudness and spectrograms), comment attachments and new uploads go to the project's backend. A project's usage is the same count the workspace's storage page gives it. The choice is not copied by templates or into projects started from another, since it is the workspace's arrangement rather than the project's set-up.
+
 ## 079. A project chooses whom its visible watermark marks, where and how strongly
 
 The visible watermark (#31, docs/security.md) is a project setting under Protection, Asset security: whom it marks (off, guests only, or everyone), where (tiled, the bottom right corner, or the centre) and how strongly (an opacity from 10 to 80 per cent), with a preview in the viewer's own name. Until a project chooses, it marks guests only, tiled and faint, as before. Pages and pictures carry the mark burned in on the server for whoever it marks; a video carries it as a layer the player draws over the picture, worded by the server: the person's name and email, the workspace and the day. A layer in the browser deters casual capture and makes a capture say whose it was, but it is no defence against someone who removes it; forensic marking (#32) is that defence. Downloads are always marked for the person who asked, whatever the project chooses (decision 056). The choice goes into templates and projects started from another, and is the project's edit level's to change.
@@ -581,7 +582,6 @@ A project's board (#141) shows every track as a card in a column, as Linear's bo
 - **Fresh within seconds.** The board asks again every fifteen seconds, so a transition made elsewhere shows without reloading.
 - **Not yet.** Moving a card by dragging it is left out: the prototype has none, and a track's status is the workflow's to set. The calendar, its subscription and the timeline follow in parts of their own.
 
-
 ## 126. A project's calendar, and a feed of it that only its owner's access opens
 
 The board's Calendar view (#141) shows a month of the project: reviews due (not cancelled), tasks due, and, for those who may see takes, the days sessions were recorded. Each opens where it is; one past its date and not finished is marked late. At phone width the days carry dots and the month's events are listed under the grid, as Apple Calendar does.
@@ -704,7 +704,6 @@ A browser plays at most eight channels from one stream, so a 7.1.4 or wider reco
 - **Not sample-locked.** The parts stay within a frame or two of each other, which is enough for review listening. Measurements (levels, phase, loudness) come from the server's own decode of the whole file, not from the browser, so they are exact.
 - **Earlier files.** A file prepared before this change has one stream of eight; the player says its channels cannot be heard apart rather than playing a partial layout.
 
-
 ## 140. An ADM master's objects are heard through the EBU ADM Renderer
 
 An ADM master (BS.2076, as Atmos and other object-based mixes are delivered) holds a bed of channels and objects whose place moves with the music. Until now only the bed was heard (#74). The owner chose the EBU ADM Renderer (`ear`, BSD-3-Clause, the reference renderer of ITU-R BS.2127) over writing one.
@@ -732,7 +731,6 @@ The rest of #55: what the prototype's People page and workspace Defaults show.
 - **One family per viewer.** A player picks one encoding before the stream starts and drops the other's renditions, so the picture never changes codec mid-stream. It takes AV1 where H.264 cannot be played, or where the browser says it decodes AV1 smoothly and power-efficiently; otherwise H.264, which every device decodes in hardware. The browser is asked at the video's own frame rate, as a decoder smooth at 30 frames a second may not be at 60. Choosing a rendition by hand offers the chosen family's rungs, named "720p · AV1". Downloads still make their proxy from the H.264 encoding, which is quicker to decode.
 - **The ladder is the instance's.** `VIDEO_LADDER` lists the rungs as height and bitrate, highest first (1080p at 6 Mbit/s, 720p at 3, 480p at 1.2 by default). A video gets the highest rungs at or below its own height, up to `VIDEO_RUNGS` (two). The AV1 or VP9 rung gets two thirds of the H.264 rate. A video rendition advertises its measured peak (RFC 8216's peak segment bit rate) wherever a busy scene took it over its planned rate, so a player never picks a picture its connection cannot keep up with.
 - **A GPU where there is one.** `VIDEO_HARDWARE` names a VAAPI render node (Intel or AMD); H.264 is then encoded on it. A rendition the GPU cannot encode (no device, a busy one, a picture it refuses) is encoded again in software, and the worker logs why. AV1 stays in software: few GPUs encode it.
-
 
 ## 143. Cuts compared in the player, their comments and findings on the comparison page
 
@@ -1240,7 +1238,6 @@ CI runs the API suite through PgBouncer in transaction mode at its defaults (the
 - **Rolling updates without a gap.** `api` starts each new replica, healthy, before stopping an old one, and rolls back by itself when a new one fails; workers stop first, their jobs finishing or going back to the queue. Every app task has 40 seconds to stop (decision 193).
 - **One PostgreSQL** on a labelled machine, for a start; the docs point to a managed service or Patroni for more (decision 190). Caddy on a manager, through Swarm's virtual address for `api`, retrying for up to five seconds when a replica stops as a request arrives.
 - **CI checks the stack reads** (`docker stack config`) on every pull request; it is not deployed there, as it needs S3 and a swarm.
-
 
 ## 195. Load testing
 
@@ -2097,6 +2094,7 @@ Routes: `GET /api/files/:id/metadata` (the format, the fields that may be correc
 Every pull request waited for every job, about half an hour, whatever it changed. Now `scripts/ci-changes.sh` reads the diff against the base and each job in `ci.yml` runs only when files it covers changed: lint and typecheck for any code, the server suites (with their directory, identity provider and S3 server) for the server and the packages, the web and prototype suites for the web, the visual suite for anything the browser could see, the image for what goes into it, the chart for the chart, the docs site for the docs. A change to the workflow itself, the lockfile or a root manifest runs everything, as do a push to `master`, a nightly run and a run by hand, so nothing the filters miss stays missed for long.
 
 The one required status is `ci`, a last job that fails if any job that ran failed and passes over the ones skipped, since a skipped required check would block merging. The visual suite is split four ways across runners, each shard seeding its own instance and the first running the restore drill; their captures are merged into the one `screens` artefact. The old `check` job is split in three (`check`, `server`, `web`) so a web change never waits for LDAP and Keycloak to start.
+
 ## 266. One seed for the visual suite and the demo, driven through the API
 
 `deploy/compose.laptop.yml` brought up an empty Hekate: trying anything meant making projects, tracks, reviews and settings by hand, while the visual suite already seeded a rich instance, as a Playwright test. The seed is now one module the server ships (`apps/server/src/demo/seed.ts`), and `deploy/compose.demo.yml`, in place of the laptop file, brings up an instance that seeds itself: one command, no `.env`.
@@ -2272,7 +2270,6 @@ The calendar showed what the board and the schedule already knew and offered not
 - **On the timeline.** Under the tracks, a row per entry in the weeks shown. A track's bar grows a handle at its end for whoever may organise tracks: dragging it sets the deadline a day at a time (where none was set, from where the bar ended). An entry's bar is dragged whole to move it and by its end to change its length (`movedRange`, `resizedRange`, `daysDragged`, shared and tested). Each change is saved as the pointer lifts and offered back on an undo line (what was done, Undo, Dismiss; gone by itself after twelve seconds), which the reference page shows. The keyboard sets the same through the track's sheet and the entry's dialog, so the handles are pointer-only.
 
 **Expanding only:** one nullable column and two new tables; an older release reads none of them (decision 198). The prototype's board, timeline and calendar show the same.
-
 
 ## 284. Roles are edited one at a time, copied from one another, and set an area at a time
 
@@ -2522,6 +2519,25 @@ Some organisations must keep their material in storage they own, and a workspace
 
 - **The score beside the player** on a wide screen, the frame's full height, as wide as the viewer drags its edge (or moves it with the arrow keys), remembered per browser (`scoreWidth` in the panel layout); on a phone it follows the player. Its thumbnails show paper until they are drawn, and every page is drawn on the paper token.
 - **Triage's passage** is the prototype's: the media small with its loop, play, and the passage's times. The same media element plays on as the queue moves, so nothing restarts between threads.
+
+## 340. A guest's link is spent by their own click on Continue, never by opening it
+
+#573, #574 and #668. The page a guest's link opened exchanged it as it loaded. Corporate mail scanners that run a page's scripts (Safe Links and the like) load every link in a message before its reader does, so a client's first contact was "This link no longer works". The prototype's guest-link screen already greeted its person and waited for a button.
+
+- **Look, then spend.** The page asks `POST /api/guest/sessions/lookup` what the link opens: the workspace and its brand, the open reviews it reaches, when the link lapses, whether a code is asked for, and the guest's name. It spends nothing, sends nothing and sets no cookie; a link that no longer works gets the same `link_gone` as the exchange, whatever the reason (decision 260). It sits under the guest routes' rate limit, per address, like the exchange and the codes. The token goes in the body, never the path, so it stays out of request logs.
+- **Continue spends it.** "Continue as Mira Solberg" calls the exchange, which spends the link atomically as before: once, on one device. Where the workspace asks for a code, the button is "Email me a code", and the code goes out only then, so a scanner neither opens the review nor fills the guest's inbox. In that mode the lookup names no one: whoever holds a forwarded mail learns nothing the mail did not say. The server's test proves a looked-at link still works, a spent or unknown one gets `link_gone`, and a code-mode lookup sends no mail; the visual suite loads the page twice, checks the link is unspent, and only then presses Continue.
+- **Signing out.** It is in a menu on the guest's avatar, with a confirmation: "You will need a new link from whoever invited you to come back." The page they land on says "You are signed out. Ask whoever invited you for a new link.", never to open a link that is spent.
+- **One frame.** The arrival, the code, the spent link and the signed-out pages are all the standalone `Frame`, aligned alike. Each wears the workspace's logo and accent where the workspace is known (the greeting, the code, after signing out of a session); a spent link opened cold, which may be anyone's, keeps Hekate's lockup. The workspace a guest signed out of is held in memory only, so a fresh load of the signed-out page knows none.
+
+## 341. The share sheet says what each control does: how, download, when access ends, and a link for members
+
+#578, revising decision 271's sheet (#489). Its controls did more than they said: "Can comment" and "Can download" turned a share into a feedback review while the hint said no sign-off was asked; "Can download" handed over originals in one click; and the link's dropdown ("Link works for 7 days") set the recipients' access, though the copied address neither lapses nor opens for a guest.
+
+- **How** is *Can view* or *Can comment*. Viewing is a share; commenting is a feedback review, and the hint and the button say so before anything is sent: "They are asked for feedback, without sign-off.", and the button reads *Ask for feedback* (or *Share*). The confirmation repeats it.
+- **Download** is its own choice, apart from how: *No download* (the default), *Review copy*, then *Original*, each with what it costs ("watermarked for each of them. Every download is logged."). A share may hand over a download and still ask nothing, as `shareGrant` already allowed.
+- **Access ends** is the recipients' expiry, labelled for what it is: in 7, 14 or 30 days, or when withdrawn.
+- **Link for members with access** is the item's address in the app, with *Copy link*: it never expires and opens only in a member's session (docs/security.md); recipients get their own links by email.
+- **What is shared.** The subtitle that named the kind ("Audio", "Track") is gone; only a folder keeps a line, its count. From a track's file, Share shares the version, every variant of it, with *This file only* as the other choice (`fileShareTargets`), since a reviewer means the track or version rather than "Dry v2.wav".
 
 ## 350. A track's and a session's name is their page's heading, and a track's header shares once
 

@@ -10,7 +10,7 @@ import { PeopleField, type Person } from "~/components/share";
 import { Button } from "~/components/ui/button";
 import { DateField } from "~/components/ui/date-field";
 import { Input, Textarea } from "~/components/ui/input";
-import { Dropdown } from "~/components/ui/menu";
+import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
 import {
   type Folder,
@@ -436,7 +436,7 @@ export function RequestReviewPage({
         }}
         onDragEnd={() => setDragging(null)}
         className={cn(
-          "flex min-h-11 items-center gap-3 border-b border-line px-3 py-1.5 last:border-b-0",
+          "group flex min-h-11 items-center gap-3 border-b border-line px-3 py-1.5 last:border-b-0",
           dragging === id && "opacity-40",
         )}
       >
@@ -458,49 +458,33 @@ export function RequestReviewPage({
           <span className="block truncate text-[14px] text-ink">{name}</span>
           <span className="block truncate text-[12px] text-ink-3">{hint}</span>
         </span>
-        {inTurn && steps.length > 1 && (
-          <Dropdown
-            size="sm"
-            value={
-              <span className="text-[12px]">
-                {stepTitle(steps[stepIndex]?.name, stepIndex + 1)}
-              </span>
-            }
-            actions={steps.map((s, i) => ({
-              label: stepTitle(s.name, i + 1),
-              checked: i === stepIndex,
-              onSelect: () => moveTo(id, i),
-            }))}
-          />
-        )}
-        {!isGroup(id) && (
-          <button
-            type="button"
-            onClick={() => setOverride(id)}
-            className="text-[12px] text-ink-3 hover:text-ink"
-          >
-            Override
-          </button>
-        )}
-        <button
-          type="button"
-          aria-label={`Remove ${name}`}
-          onClick={() => remove(id)}
-          className="flex size-7 items-center justify-center rounded-control text-ink-3 hover:bg-raised hover:text-ink"
-        >
-          <Icon name="close" size={12} />
-        </button>
+        {/* One menu for the row (#663): moving, overriding (groups too), removing. */}
+        <ActionMenu
+          label={name}
+          actions={[
+            ...(inTurn && steps.length > 1
+              ? steps.flatMap((st, i) =>
+                  i === stepIndex
+                    ? []
+                    : [
+                        {
+                          label: `Move to ${stepTitle(st.name, i + 1)}`,
+                          onSelect: () => moveTo(id, i),
+                        },
+                      ],
+                )
+              : []),
+            { label: "Override what they may do…", onSelect: () => setOverride(id) },
+            "divider" as const,
+            { label: "Remove", onSelect: () => remove(id) },
+          ]}
+        />
       </li>
     );
   };
 
   const stepCard = (step: Step, i: number) => (
-    <li key={String(i)} className="flex items-start gap-3">
-      {inTurn && (
-        <span className="tabular mt-2 flex size-7 shrink-0 items-center justify-center rounded-full bg-raised text-[12px] font-medium text-ink">
-          {i + 1}
-        </span>
-      )}
+    <li key={String(i)} className="flex">
       <Card
         className={cn(
           "min-w-0 flex-1 transition-colors",
@@ -519,11 +503,15 @@ export function RequestReviewPage({
           }}
         >
           {inTurn && (
-            <div className="flex h-11 items-center gap-2 border-b border-line px-3">
+            <div className="flex h-11 items-center gap-1 border-b border-line px-3">
+              <span className="shrink-0 text-[13px] font-medium text-ink">Step {i + 1}</span>
+              <span aria-hidden="true" className="text-ink-3">
+                ·
+              </span>
               <Input
                 value={step.name}
                 onChange={(e) => rename(i, e.target.value)}
-                placeholder={`Name this step (optional), such as ${["Producer", "Stakeholders", "Label"][i % 3]}`}
+                placeholder={`Name it, such as ${["Producer", "Stakeholders", "Label"][i % 3]} (optional)`}
                 aria-label={`Name of step ${i + 1}`}
                 className="h-7 flex-1 border-transparent bg-transparent px-1 shadow-none hover:border-edge"
               />
@@ -576,7 +564,7 @@ export function RequestReviewPage({
           {original && (
             <p className="flex items-center gap-2 rounded-panel border border-line bg-raised/40 px-3 py-2 text-[13px] text-ink-2">
               <Icon name="copy" size={14} className="text-ink-3" />
-              Filled in from {original.title}. Nothing is sent until you press Send.
+              Filled in from {original.title}. Nothing is sent until you press Send the review.
             </p>
           )}
           <Section n={1} title="Kind">
@@ -656,7 +644,6 @@ export function RequestReviewPage({
                         className="text-ink-3"
                       />
                       {track ? track.name : name.replace(/^file-/, "")}
-                      {folder && <span className="text-ink-3">everything in it</span>}
                       {track && (
                         <Dropdown
                           size="sm"
@@ -697,18 +684,10 @@ export function RequestReviewPage({
                 Covers every project you may share, now and those made later. The invitation says
                 so.
               </p>
-            ) : chosenItems.some((id) => folders.some((f: Folder) => f.id === id)) ? (
-              <p className="text-[12px] text-ink-3">
-                A folder covers everything in it, files added later included.
-              </p>
             ) : null}
           </Section>
 
-          <Section
-            n={3}
-            title="Reviewers"
-            hint="Members, groups and guests. An address no one here answers to invites a new guest, by link. Their usual permissions apply unless you override them here."
-          >
+          <Section n={3} title="Reviewers" hint="Who is asked, and in what order.">
             <div className="flex flex-col gap-1.5">
               <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <div className="flex items-center gap-2">
@@ -746,20 +725,20 @@ export function RequestReviewPage({
                   <div className="flex items-center gap-1.5">
                     <Label>Approved when</Label>
                     <Chip active={rule === "all"} onClick={() => setRule("all")}>
-                      everyone approves
+                      Everyone
                     </Chip>
                     <Chip active={rule === "any"} onClick={() => setRule("any")}>
-                      any one approves
+                      Any one
                     </Chip>
                     <Chip active={rule === "quorum"} onClick={() => setRule("quorum")}>
-                      a share
+                      At least
                     </Chip>
                     {rule === "quorum" && (
                       <span className="flex items-center gap-1 text-[13px] text-ink-3">
                         <Input
                           defaultValue="66"
                           className="h-7 w-14 text-center"
-                          aria-label="Percent"
+                          aria-label="At least this per cent approve"
                         />
                         %
                       </span>
@@ -769,14 +748,14 @@ export function RequestReviewPage({
               </div>
               <p className="text-[13px] text-ink-3">
                 {inTurn
-                  ? "Each step starts when the one before finishes; everyone in a step is asked together. Drag someone to another step, or choose it from theirs."
+                  ? "Each step starts when the one before finishes; everyone in a step is asked together. Drag someone to another step, or move them from their row's menu."
                   : "Everyone is asked now."}
               </p>
             </div>
             <ol className="flex flex-col gap-2">
               {(inTurn ? steps : [{ name: "", people }]).map((step, i) => stepCard(step, i))}
               {inTurn && (
-                <li className="pl-10">
+                <li>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -845,10 +824,10 @@ export function RequestReviewPage({
                         [
                           "Rule",
                           rule === "all"
-                            ? "everyone approves"
+                            ? "Everyone approves"
                             : rule === "any"
-                              ? "any one approves"
-                              : "a share approves",
+                              ? "Any one approves"
+                              : "At least 66% approve",
                         ],
                       ]
                     : []),
@@ -879,9 +858,7 @@ export function RequestReviewPage({
                 Cancel
               </Link>
             </Button>
-            <p className="text-[12px] text-ink-3">
-              Invitations go by email when you send. Guests get a link that is theirs alone.
-            </p>
+            <p className="text-[12px] text-ink-3">Invitations go by email when you send.</p>
           </Card>
         </aside>
       </form>
