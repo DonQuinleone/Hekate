@@ -49,7 +49,7 @@ services:
       db: { condition: service_healthy }
 
   db:
-    image: postgres:18-alpine
+    image: postgres:18-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
     restart: unless-stopped
     environment:
       POSTGRES_USER: hekate
@@ -64,7 +64,7 @@ services:
       retries: 10
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
     restart: unless-stopped
     ports: ["80:80", "443:443", "443:443/udp"]
     environment:

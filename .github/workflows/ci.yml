@@ -122,7 +122,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:18-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
         env:
           POSTGRES_USER: hekate
           POSTGRES_PASSWORD: hekate
@@ -223,7 +223,7 @@ jobs:
         shard: [1, 2, 3, 4]
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:18-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
         env:
           POSTGRES_USER: hekate
           POSTGRES_PASSWORD: hekate
@@ -288,7 +288,7 @@ jobs:
       contents: read
     services:
       postgres:
-        image: postgres:18-alpine
+        image: postgres:18-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
         env:
           POSTGRES_USER: hekate
           POSTGRES_PASSWORD: hekate
