@@ -1273,7 +1273,7 @@ test("stage-plan", async ({ page }) => {
   ]);
   expect(pdf.suggestedFilename()).toBe("Joplin Rags Endless Hall stage plan.pdf");
   // The hall's floor plan under the stage, chosen from the project's documents.
-  await page.getByRole("button", { name: "Stage plan" }).click();
+  await page.getByRole("button", { name: /^Stage plan/ }).click();
   await page.getByRole("menuitem", { name: "Floor plan" }).click();
   const floor = page.getByRole("dialog", { name: "Floor plan" });
   await expect(floor.getByRole("button", { name: "File" })).toHaveText(
