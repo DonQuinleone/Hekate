@@ -109,9 +109,9 @@ export interface DeferChoiceGroup {
 
 /**
  * What the defer dialog lists (#499): each workflow's stages with the current one marked, then
- * the stages the project's categories name that no workflow has, each said to be a category's
- * (so "Noise reduction" reads as the Noise category's stage, not an unexplained button), and
- * the stage the thread already waits for where it is neither. Nothing is typed.
+ * each stage a category names that no workflow has, under where that category's comments go
+ * (so "Noise reduction" sits under "Where Noise comments go", #643), and the stage the thread
+ * already waits for where it is neither. Nothing is typed.
  */
 export function deferChoices(
   stages: DeferStages | undefined,
@@ -125,13 +125,14 @@ export function deferChoices(
       stages: w.stages.map((s) => ({ name: s.name, current: s.current, note: null })),
     }));
   const known = new Set(groups.flatMap((g) => g.stages.map((s) => s.name.toLowerCase())));
-  const named: DeferChoiceGroup["stages"] = [];
   for (const c of categories) {
     if (!c.stage || known.has(c.stage.toLowerCase())) continue;
     known.add(c.stage.toLowerCase());
-    named.push({ name: c.stage, current: false, note: `${c.name} category` });
+    groups.push({
+      label: `Where ${c.name} comments go`,
+      stages: [{ name: c.stage, current: false, note: null }],
+    });
   }
-  if (named.length > 0) groups.push({ label: "Named by a category", stages: named });
   if (deferredTo && !known.has(deferredTo.toLowerCase()))
     groups.push({
       label: "Deferred now",

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { anchor, parseBars } from "./anchor.ts";
-import { formatAnchor, formatClock, formatTimecode } from "./format.ts";
+import {
+  audioCodecName,
+  containerName,
+  formatAnchor,
+  formatClock,
+  formatSpan,
+  formatTimecode,
+  mediaFormat,
+} from "./format.ts";
 import { allowsAnchor } from "./profile.ts";
 
 describe("anchor schema", () => {
@@ -31,31 +39,37 @@ describe("anchor schema", () => {
 });
 
 describe("formatting", () => {
-  it("writes clock times and timecode", () => {
-    expect(formatClock(271.25)).toBe("04:31.250");
+  it("writes media positions one way, to the millisecond (#645)", () => {
+    expect(formatClock(12)).toBe("0:12.000");
+    expect(formatClock(271.25)).toBe("4:31.250");
     expect(formatClock(3871.25)).toBe("1:04:31.250");
+    expect(formatClock(-1)).toBe("0:00.000");
+    expect(formatSpan(12, 15.5)).toBe("0:12.000–0:15.500");
+    expect(formatSpan(12, 12)).toBe("0:12.000");
     expect(formatTimecode(72.32, 25)).toBe("00:01:12:08");
   });
 
-  it("writes anchors the way the brand system does", () => {
-    expect(formatAnchor({ kind: "bar", from: { bar: 112, beat: 1 } })).toBe("BAR 112");
-    expect(formatAnchor({ kind: "bar", from: { bar: 112, beat: 3 } })).toBe("BAR 112.3");
+  it("writes anchors in sentence case, ranges with an en dash, a page once (#702)", () => {
+    expect(formatAnchor({ kind: "bar", from: { bar: 112, beat: 1 } })).toBe("Bar 112");
+    expect(formatAnchor({ kind: "bar", from: { bar: 112, beat: 3 } })).toBe("Bar 112.3");
     expect(formatAnchor({ kind: "bar", from: { bar: 118, beat: 1 }, to: { bar: 124 } })).toBe(
-      "BARS 118–124",
+      "Bars 118–124",
     );
+    expect(formatAnchor({ kind: "bar", page: 3, from: { bar: 5, beat: 1 } })).toBe("p. 3 · bar 5");
     expect(formatAnchor({ kind: "time", start: 72.32, end: 72.32, frame: 1808 }, { fps: 25 })).toBe(
-      "00:01:12:08 · F 1808",
+      "00:01:12:08 · frame 1808",
     );
+    expect(formatAnchor({ kind: "time", start: 14.3, end: 15.1 })).toBe("0:14.300–0:15.100");
+    // A region is where it is: the kind adds nothing.
     expect(formatAnchor({ kind: "region", page: 7, x: 0.1, y: 0.2, width: 0.3, height: 0.1 })).toBe(
-      "P. 7 · REGION",
+      "p. 7",
     );
-    expect(formatAnchor({ kind: "region", page: 7, x: 0, y: 0, width: 1, height: 1 })).toBe("P. 7");
+    expect(formatAnchor({ kind: "region", page: 7, x: 0, y: 0, width: 1, height: 1 })).toBe("p. 7");
     expect(formatAnchor({ kind: "region", x: 0.1, y: 0.1, width: 0.5, height: 0.5 })).toBe(
-      "REGION",
+      "Region",
     );
-    // A whole video frame is still a region, not a time.
     expect(formatAnchor({ kind: "region", at: 12, x: 0, y: 0, width: 1, height: 1 })).toBe(
-      "00:12.000 · REGION",
+      "0:12.000",
     );
   });
 });
@@ -94,5 +108,36 @@ describe("parseBars", () => {
   it("keeps where in the recording a bar was named", () => {
     expect(anchor.parse({ kind: "bar", from: { bar: 25 }, at: 21.4 })).toMatchObject({ at: 21.4 });
     expect(anchor.safeParse({ kind: "bar", from: { bar: 25 }, at: -1 }).success).toBe(false);
+  });
+});
+
+describe("a file's format in words (#635)", () => {
+  it("names codecs as people say them, never by ffmpeg's id", () => {
+    expect(audioCodecName("pcm_s16le")).toBe("PCM 16-bit");
+    expect(audioCodecName("pcm_f32le")).toBe("PCM 32-bit float");
+    expect(audioCodecName("eac3")).toBe("Dolby Digital Plus");
+    expect(audioCodecName("wavpack")).toBe("WAVPACK");
+  });
+
+  it("names a container by its type, never a MIME type", () => {
+    expect(containerName("wav", "audio/wav")).toBe("WAV");
+    expect(containerName("mov,mp4,m4a,3gp,3g2,mj2", "video/quicktime")).toBe("QuickTime");
+    expect(containerName("matroska,webm", "application/octet-stream")).toBe("MATROSKA");
+  });
+
+  it("says a recording's and a video's format in one line", () => {
+    expect(
+      mediaFormat({
+        audio: { codec: "pcm_s16le", channels: 2, sampleRate: 44_100, bitDepth: 16 },
+        duration: 40,
+      }),
+    ).toBe("PCM 16-bit · 44.1 kHz · stereo");
+    expect(
+      mediaFormat({
+        video: { codec: "h264", width: 1280, height: 720, fps: 25 },
+        audio: { codec: "aac", channels: 2, sampleRate: 48_000 },
+      }),
+    ).toBe("1280 × 720 · 25 fps · AAC · 48 kHz · stereo");
+    expect(mediaFormat(null)).toBeNull();
   });
 });

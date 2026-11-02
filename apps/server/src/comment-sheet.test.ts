@@ -38,9 +38,9 @@ describe("the comment sheet", () => {
       "Endless Hall Records · Joplin Rags · Tomas Varga, Engineer · 2026-10-18 09:30 UTC",
     );
     expect(text).toContain("2 open threads");
-    expect(text).toContain("001 · 00:06.200 · L · Mira Solberg");
+    expect(text).toContain("001 · 0:06.200 · L · Mira Solberg");
     expect(text).toContain("Reply from Ines Arlow: Gone in the wet mix.");
-    expect(text.some((t) => t.startsWith("002 · BARS 9–12"))).toBe(true);
+    expect(text.some((t) => t.startsWith("002 · Bars 9–12"))).toBe(true);
     expect(text).not.toContain("Lovely overall.");
   });
 

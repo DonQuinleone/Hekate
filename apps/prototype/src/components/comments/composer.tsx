@@ -92,7 +92,7 @@ export function Composer({
       ? fmt(playback.time)
       : target === "range"
         ? loop
-          ? `${formatClock(loop.start, false)}–${formatClock(loop.end, false)}`
+          ? `${formatClock(loop.start)}–${formatClock(loop.end)}`
           : "Range"
         : target === "whole"
           ? "Whole file"

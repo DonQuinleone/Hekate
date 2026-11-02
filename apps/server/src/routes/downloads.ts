@@ -8,6 +8,7 @@ import { type Database, inOrg, schema } from "@hekate/db";
 import {
   allowsDownload,
   assetPolicyOf,
+  containerName,
   DOWNLOAD_LINK_SECONDS,
   type DownloadKind,
   type DownloadLevel,
@@ -23,6 +24,7 @@ import {
   rateLimits,
   type ScoreMarkKind,
   scoresDownloadInput,
+  soundLine,
   type WatermarkSettings,
   watermarkOf,
   watermarkText,
@@ -243,6 +245,10 @@ async function firstPage(db: Database, organisationId: string, fileId: string) {
   return row ?? null;
 }
 
+/** About how large an encode of `bandwidth` bits a second is over `duration` (#635). */
+const aboutSize = (bandwidth: number, duration: number | undefined) =>
+  duration && bandwidth > 0 ? `about ${formatBytes((bandwidth * duration) / 8)}` : null;
+
 /**
  * What can be made of a file now, and in what form. A recording: its original and an AAC
  * encode like its stream's, each with an inaudible mark for its recipient where the workspace
@@ -269,13 +275,23 @@ async function choices(db: Database, organisationId: string, file: FileRow, mark
         marked: true,
         inaudible: true,
       };
+    // The format and the size in words (#635), never a MIME type.
+    const sound = file.mediaInfo?.audio ? soundLine(file.mediaInfo.audio) : null;
     return {
       proxy: rendition
-        ? { available: true, detail: `AAC ${Math.round(rendition.bandwidth / 1000)} kb/s` }
+        ? {
+            available: true,
+            detail: [
+              `AAC ${Math.round(rendition.bandwidth / 1000)} kb/s`,
+              aboutSize(rendition.bandwidth, file.mediaInfo?.duration),
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          }
         : { available: false, detail: "Not prepared yet" },
       original: {
         available: true,
-        detail: `${file.contentType}, ${formatBytes(file.byteSize)}${corrected(file) ? ", with its corrected metadata" : ""}`,
+        detail: `${[containerName(file.mediaInfo?.format, file.contentType), sound, formatBytes(file.byteSize)].filter(Boolean).join(" · ")}${corrected(file) ? ", with its corrected metadata" : ""}`,
       },
       marked: false,
     };
@@ -297,12 +313,21 @@ async function choices(db: Database, organisationId: string, file: FileRow, mark
     const video = file.mediaInfo?.video;
     return {
       proxy: rendition
-        ? { available: true, detail: `The ${rendition.height}p stream as reviewed, as MP4` }
+        ? {
+            available: true,
+            detail: [
+              `${rendition.height}p as reviewed, MP4`,
+              aboutSize(rendition.bandwidth, file.mediaInfo?.duration),
+            ]
+              .filter(Boolean)
+              .join(" · "),
+          }
         : { available: false, detail: "Not prepared yet" },
+      // Encoded again to carry the mark (#635): its title says so, and here its size and form.
       original: video
         ? {
             available: true,
-            detail: `${video.width} × ${video.height}, encoded again to carry the mark, as QuickTime`,
+            detail: `${video.width} × ${video.height} at full quality, QuickTime`,
           }
         : { available: false, detail: "Not prepared yet" },
       marked: true,

@@ -731,6 +731,19 @@ test.describe("guest", () => {
   // Every guest page carries the label's logo and accent (#185), seeded.
   for (const screen of screens.filter((s) => s.as === "guest")) capture(screen);
 
+  // A guest opening a file from their review (#666): the review in the trail, its decision
+  // beside the comments, and the review kept in the address as the version changes.
+  test("guest-file-from-review", async ({ page }) => {
+    await page.clock.setFixedTime(FIXED_TIME);
+    await page.goto(`/g/files/${seeded().dryFileId}?review=${seeded().reviewId}`);
+    await settle(page, "section[aria-label=Comments] li");
+    await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toContainText(
+      "Maple Leaf Rag",
+    );
+    await saveScreen(page, "guest-file-from-review");
+    await checkScreen(page);
+  });
+
   // A guest whose review gives them compare (#44, #55) flips between what it gives them,
   // opened from the transport as the prototype's (#15).
   test("guest-file-compare", async ({ page }) => {
@@ -1556,7 +1569,7 @@ test("score-marking-export", async ({ page }) => {
   await expect(dialog.getByText(/as reviewed, as a PDF/)).toBeVisible();
   await saveScreen(page, "score-marking-export");
   await checkScreen(page);
-  await dialog.getByText("Proxy").click();
+  await dialog.getByText("Review copy").click();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     dialog.getByRole("button", { name: "Download" }).click(),
@@ -1599,7 +1612,7 @@ test("score-marking-export-every", async ({ page }) => {
     await expect(dialog).toContainText("Every score, 2 tracks, with their marks");
     await saveScreen(page, "score-marking-export-every");
     await checkScreen(page);
-    await dialog.getByText("Proxy").click();
+    await dialog.getByText("Review copy").click();
     const [download] = await Promise.all([
       page.waitForEvent("download"),
       dialog.getByRole("button", { name: "Download" }).click(),
@@ -1641,7 +1654,7 @@ test("file-share", async ({ page }) => {
 });
 
 // Deferring a thread to a stage (#499): the stages of the workflows that apply to the track,
-// listed by workflow, then the stage the Noise category names, said to be its. Nothing typed.
+// listed by workflow, then where Noise comments go. Nothing typed, and nothing chosen (#643).
 test("file-defer", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/files/${seeded().dryFileId}`);
@@ -1652,8 +1665,9 @@ test("file-defer", async ({ page }) => {
     .first();
   await thread.getByRole("button", { name: "Actions for this thread" }).click();
   await page.getByRole("menuitem", { name: "Defer to a stage…" }).click();
-  await settle(page, "[role=dialog] >> text=Named by a category");
+  await settle(page, "[role=dialog] >> text=Where Noise comments go");
   await expect(page.getByRole("radio", { name: /Label approval/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Defer", exact: true })).toBeDisabled();
   await saveScreen(page, "file-defer");
   await checkScreen(page);
 });
@@ -3016,7 +3030,15 @@ test("file-status-menu", async ({ page }) => {
             trackId,
             state: "running",
             status: "Editing",
-            waiting: [{ nodeId: "edit", name: "Engineer edits", type: "task" }],
+            // What a person may choose, by where it leads (#566): never "Due date passed".
+            waiting: [
+              {
+                nodeId: "edit",
+                name: "Engineer edits",
+                type: "task",
+                choices: [{ outcome: "done", leadsTo: "Label approval" }],
+              },
+            ],
             steps: [],
             startedBy: null,
             startedAt: "2026-10-12T09:00:00Z",
@@ -3029,16 +3051,19 @@ test("file-status-menu", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
   await page.getByRole("button", { name: "Status: Editing. Move on" }).click();
-  await expect(page.getByRole("menuitem", { name: "Done" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Done, to Label approval…" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: /Due date/ })).toHaveCount(0);
   await saveScreen(page, "file-status-menu");
   await checkScreen(page);
   // Each move is confirmed before the step ends.
-  await page.getByRole("menuitem", { name: "Done" }).click();
+  await page.getByRole("menuitem", { name: "Done, to Label approval…" }).click();
   await expect(page.getByRole("dialog", { name: "Engineer edits: done" })).toBeVisible();
 });
 
 // Zoomed into a recording (#34): two steps in, the view scrolled with the playhead.
-test("file-zoom", async ({ page }) => {
+test("file-zoom", async ({ page }, info) => {
+  // A phone zooms with a pinch; the zoom buttons and the arrow keys are a wide screen's (#637).
+  test.skip(info.project.name === "phone", "A phone zooms with a pinch");
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
   await page.getByRole("button", { name: "Zoom into the waveform" }).click();
@@ -3049,7 +3074,7 @@ test("file-zoom", async ({ page }) => {
   await surface.focus();
   await page.keyboard.press("ArrowRight");
   await expect.poll(() => surface.evaluate((e) => e.scrollLeft)).toBeGreaterThan(0);
-  await expect(page.getByText("0:00 / 0:40")).toBeVisible();
+  await expect(page.getByText(/^0:00\.000 \/ 0:40\.\d{3}/)).toBeVisible();
   await page.keyboard.press("Home");
   await expect.poll(() => surface.evaluate((e) => e.scrollLeft)).toBe(0);
   await saveScreen(page, "file-zoom");
@@ -3073,8 +3098,12 @@ test("file-channels-levels", async ({ page }, info) => {
       .getByTitle("The channel it is about"),
   ).toHaveText("L");
   // A phone's composer opens in a sheet, from a button.
-  if (info.project.name !== "phone")
+  // The composer's channel comes in once it is focused (#563).
+  if (info.project.name !== "phone") {
+    await comments.getByRole("textbox", { name: "Comment at the playhead" }).focus();
     await expect(comments.getByRole("combobox", { name: "Channel" })).toBeAttached();
+    await comments.getByRole("textbox", { name: "Comment at the playhead" }).blur();
+  }
   await page.getByRole("button", { name: "Channels", exact: true }).click();
   const menu = page.getByRole("region", { name: "Channels" });
   await expect(menu.getByRole("meter", { name: /^L: RMS/ })).toBeAttached();
@@ -3103,12 +3132,16 @@ test("file-channels", async ({ page }) => {
   await expect(menu).toBeVisible();
   if (await menu.getByRole("button", { name: "Solo C" }).count()) {
     await menu.getByRole("button", { name: "Solo C" }).click();
-    await menu.getByRole("switch", { name: "Hear the stereo downmix" }).click();
+    await menu.getByRole("button", { name: "Stereo downmix" }).click();
     await expect(page.getByRole("button", { name: /^Channels: solo c/ })).toBeVisible();
-    // Binaural in its place: one or the other.
-    await menu.getByRole("switch", { name: "Hear it binaurally, on headphones" }).click();
+    // Binaural in its place: one choice of three (#639).
+    await menu.getByRole("button", { name: "Binaural" }).click();
     await expect(page.getByRole("button", { name: "Channels: solo c, binaural" })).toBeVisible();
-    await expect(menu.getByRole("switch", { name: "Hear the stereo downmix" })).not.toBeChecked();
+    await expect(menu.getByRole("button", { name: "Stereo downmix" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    await expect(menu.getByRole("button", { name: "Clear solos" })).toBeVisible();
   }
   await saveScreen(page, "file-channels");
   await checkScreen(page);
@@ -3189,9 +3222,9 @@ test("file-qa-filtered", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}?view=qa`);
   await settle(page, "section[aria-label=Checks] h2");
   const checks = page.locator("section[aria-label=Checks]");
-  await checks.getByRole("button", { name: /failed$/ }).click();
+  await checks.getByRole("button", { name: /^Fails \d/ }).click();
   await checks.getByRole("combobox", { name: "Check" }).selectOption("clipping");
-  await expect(checks.getByRole("button", { name: /failed$/ })).toHaveAttribute(
+  await expect(checks.getByRole("button", { name: /^Fails \d/ })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -3374,7 +3407,7 @@ test("file-qa-video", async ({ page }) => {
   await checkScreen(page);
 });
 
-// Normalised playback as each person's choice (#240): the View menu's switch, and the level heard.
+// Normalised playback as each person's choice (#240): beside the volume (#636), and the level heard.
 // The file's answer is amended in this page alone, so no other capture sees the project change.
 test("file-normalised", async ({ page }) => {
   await page.route(`**/api/files/${seeded().dryFileId}`, async (route) => {
@@ -3385,29 +3418,31 @@ test("file-normalised", async ({ page }) => {
   });
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "button:has-text('View')");
-  await page.getByRole("button", { name: "View", exact: true }).click();
-  await page.getByRole("switch", { name: "Normalised playback" }).click();
-  await settle(page, "text=Normalised to −14 LUFS");
+  await page.getByRole("button", { name: "Normalised playback" }).click();
+  await expect(
+    page.getByRole("button", { name: "Normalised playback", pressed: true }),
+  ).toBeVisible();
+  await settle(page, "button[aria-pressed=true] >> text=−14 LUFS");
   await saveScreen(page, "file-normalised");
   await checkScreen(page);
 });
 
-// Following the DAW (#450, decision 240): in the player's View menu, its MIDI input and where the
+// Following the DAW (#450, decision 240): in the transport's menu (#636), its MIDI input and where the
 // file starts on the DAW's timeline. MIDI is allowed, and no port exists here, so it says so.
 test("player-follow-daw", async ({ page, context }, info) => {
   await context.grantPermissions(["midi"]);
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "button:has-text('View')");
-  await page.getByRole("button", { name: "View", exact: true }).click();
+  await page.getByRole("button", { name: "Playback settings" }).click();
   await page.getByRole("switch", { name: "Follow the DAW" }).click();
-  await settle(page, "section#player-view >> text=File starts at");
+  await settle(page, "section#player-playback >> text=File starts at");
   // A browser with no MIDI device says so; one that refuses MIDI (headless Chromium) says that.
-  await expect(page.locator("section#player-view")).toContainText(
+  await expect(page.locator("section#player-playback")).toContainText(
     /No MIDI input|MIDI was not allowed/,
   );
   if (info.project.name === "phone")
     await page
-      .locator("section#player-view")
+      .locator("section#player-playback")
       .evaluate((el) => el.scrollIntoView({ block: "center" }));
   await saveScreen(page, "player-follow-daw");
   await checkScreen(page);
@@ -3438,8 +3473,7 @@ for (const [place, wave] of [
     await saveScreen(page, `player-view-${place}`);
     await checkScreen(page);
     if (place !== "below") return;
-    // Naming the view to keep it as a preset; not saved, so no other capture sees it.
-    await page.getByRole("button", { name: "Save as…" }).click();
+    // Naming the view to keep it as a preset, in place (#636); not saved, so no other capture sees it.
     await page.getByRole("textbox", { name: "Preset name" }).fill("Noise hunt");
     await saveScreen(page, "player-view-preset");
     await checkScreen(page);
@@ -3489,7 +3523,7 @@ test("player-spectrogram-analysis", async ({ page }, info) => {
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "[role=img][aria-label^=Spectrogram]:not(.animate-pulse) canvas");
   await page.getByRole("button", { name: "View", exact: true }).click();
-  await page.getByRole("button", { name: "Channel, levels, range and analysis…" }).click();
+  await page.getByRole("button", { name: "Spectrogram settings" }).click();
   // Each choice asks for its spectrograms once it has taken; the next follows it.
   const asked = page.waitForRequest(/spectrograms\?.*window=kaiser/);
   await page.getByLabel("Window").selectOption("kaiser");
@@ -3675,7 +3709,7 @@ test("file-comment-attach-takes", async ({ page }, info) => {
   // The button stayed where it was.
   expect(await attach.boundingBox()).toEqual(before);
   const dialog = page.getByRole("dialog", { name: "Takes from this track" });
-  await expect(dialog.getByRole("listitem").first()).toContainText("Day 2 · bars 1 to 16");
+  await expect(dialog.getByRole("listitem").first()).toContainText("Day 2 · bars 1–16");
   await expect(dialog.getByRole("link", { name: /^Hear take 1 in a new tab/ })).toBeVisible();
   await dialog.getByRole("checkbox", { name: "Attach take 1" }).check();
   await dialog.getByRole("checkbox", { name: "Attach take 2" }).check();
@@ -3709,7 +3743,7 @@ test("file-comment-link-files", async ({ page }, info) => {
   let form = page.locator("section[aria-label=Comments] form");
   if (phone) {
     await page.getByRole("button", { name: "Comment at the playhead" }).click();
-    form = page.getByRole("dialog", { name: "Comment at the playhead" }).locator("form");
+    form = page.getByRole("dialog", { name: "New comment" }).locator("form");
   }
   await form.getByRole("textbox", { name: "Comment at the playhead" }).fill(words);
   await form.getByRole("button", { name: "Attach", exact: true }).click();
@@ -3804,7 +3838,7 @@ test("shortcuts", async ({ page }, info) => {
   // i and o set the loop at the playhead.
   await page.keyboard.press("l");
   await page.keyboard.press("i");
-  await expect(page.getByRole("region", { name: "Loop" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Loop", pressed: true })).toBeVisible();
 
   // c starts a comment at the playhead; in the field, the keys are just letters.
   await page.keyboard.press("c");
@@ -3831,7 +3865,7 @@ test("file-comment-sheet", async ({ page }, info) => {
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
   await page.getByRole("button", { name: "Comment at the playhead" }).click();
-  const sheet = page.getByRole("dialog", { name: "Comment at the playhead" });
+  const sheet = page.getByRole("dialog", { name: "New comment" });
   await expect(sheet.getByRole("textbox", { name: "Comment at the playhead" })).toBeVisible();
   await saveScreen(page, "file-comment-sheet");
   await checkScreen(page);
@@ -4068,7 +4102,8 @@ test("file-without-details", async ({ page }, info) => {
   await page.goto(`/files/${seeded().dryFileId}`);
   await settle(page, "section[aria-label=Comments] li");
   await expect(page.locator("aside[aria-label=Details]")).toHaveCount(0);
-  await page.getByRole("button", { name: "Details" }).click();
+  await page.getByRole("button", { name: "Actions for file" }).click();
+  await page.getByRole("menuitem", { name: "Details" }).click();
   await expect(page.locator("aside[aria-label=Details]")).toBeVisible();
 });
 
@@ -4076,9 +4111,14 @@ test("file-without-details", async ({ page }, info) => {
 test("file-details", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/files/${seeded().dryFileId}?sheet=details`);
-  await settle(page, "aside[aria-label=Details] >> text=Renditions");
   await settle(page, "aside[aria-label=Details] >> text=Access");
+  // Storage, encryption and renditions fold away (#635), opened on asking.
+  await expect(page.locator("aside[aria-label=Details]")).not.toContainText("Renditions");
   await saveScreen(page, "file-details");
+  await checkScreen(page);
+  await page.getByRole("button", { name: "Storage and delivery" }).click();
+  await settle(page, "aside[aria-label=Details] >> text=Renditions");
+  await saveScreen(page, "file-details-storage");
   await checkScreen(page);
 });
 
@@ -4134,10 +4174,13 @@ test("deliverable-renditions", async ({ page }) => {
 
 // Two cuts of a deliverable compared frame by frame (#147): the second wiped over the first,
 // then side by side.
-test("deliverable-compare-cuts", async ({ page }) => {
+test("deliverable-compare-cuts", async ({ page }, info) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/files/${seeded().cutTwoFileId}`);
-  await page.getByRole("button", { name: "Frame" }).click();
+  // On a phone the frame's guides are in the view's overflow (#637).
+  if (info.project.name === "phone")
+    await page.getByRole("button", { name: "Actions for the view" }).click();
+  else await page.getByRole("button", { name: "Frame" }).click();
   await page.getByRole("menuitemradio", { name: /Compare cuts: wipe/ }).click();
   await expect(page.getByRole("slider", { name: "Wipe" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Comments and findings" })).toBeVisible();
@@ -4204,7 +4247,8 @@ test("video-captions", async ({ page }) => {
   await saveScreen(page, "video-transcript-search");
   await checkScreen(page);
   await page.getByRole("tab", { name: "Comments" }).click();
-  await page.getByRole("button", { name: "Details" }).click();
+  await page.getByRole("button", { name: "Actions for file" }).click();
+  await page.getByRole("menuitem", { name: "Details" }).click();
   const details = page.getByRole("complementary", { name: "Details" });
   await expect(details.getByRole("list", { name: "Captions" })).toContainText(
     "Subtitles · SubRip · 4 captions",
@@ -4213,6 +4257,7 @@ test("video-captions", async ({ page }) => {
     "Captions (SDH) · WebVTT · 3 captions",
   );
   // Its filmstrip (#16), made with its streams.
+  await details.getByRole("button", { name: "Storage and delivery" }).click();
   await expect(details).toContainText("Filmstrip, 12 frames");
   await details.getByText("Captions", { exact: true }).first().scrollIntoViewIfNeeded();
   await saveScreen(page, "video-captions-details");
@@ -5019,16 +5064,27 @@ test("file-triage", async ({ page }) => {
   await expect(page.getByRole("button", { name: /their list/ })).toHaveCount(0);
 });
 
+/** The file's download: in the header on a wide screen, in its "…" on a phone (#561). */
+async function openDownload(page: Page) {
+  const button = page.getByRole("button", { name: "Download", exact: true });
+  await page.getByRole("button", { name: "Actions for file" }).waitFor();
+  if (await button.isVisible()) await button.click();
+  else {
+    await page.getByRole("button", { name: "Actions for file" }).click();
+    await page.getByRole("menuitem", { name: "Download…" }).click();
+  }
+}
+
 // Downloads (#136): what you may take, made for you; the proxy is the stream's own AAC, whole.
 test("file-download", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}`);
-  await page.getByRole("button", { name: "Download", exact: true }).click();
+  await openDownload(page);
   const dialog = page.getByRole("dialog", { name: "Download" });
   await expect(dialog.getByText(/AAC \d+ kb\/s/)).toBeVisible();
   await expect(dialog.getByRole("radio", { name: /Original/ })).toBeChecked();
   await saveScreen(page, "file-download");
   await checkScreen(page);
-  await dialog.getByText("Proxy").click();
+  await dialog.getByText("Review copy").click();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     dialog.getByRole("button", { name: "Download" }).click(),
@@ -5051,7 +5107,7 @@ test("file-download", async ({ page }) => {
 // with the name of whoever asked, as a PDF.
 test("file-download-document", async ({ page }) => {
   await page.goto(`/files/${seeded().scoreFileId}`);
-  await page.getByRole("button", { name: "Download", exact: true }).click();
+  await openDownload(page);
   const dialog = page.getByRole("dialog", { name: "Download" });
   await expect(dialog.getByText(/at print resolution/)).toBeVisible();
   await expect(dialog.getByRole("radio", { name: /Original/ })).toBeChecked();
@@ -5078,13 +5134,14 @@ test("file-download-document", async ({ page }) => {
 // mark burned into the picture as it is sent.
 test("file-download-video", async ({ page }) => {
   await page.goto(`/files/${seeded().cutFileId}`);
-  await page.getByRole("button", { name: "Download", exact: true }).click();
+  await openDownload(page);
   const dialog = page.getByRole("dialog", { name: "Download" });
-  await expect(dialog.getByText(/stream as reviewed, as MP4/)).toBeVisible();
-  await expect(dialog.getByText(/encoded again to carry the mark/)).toBeVisible();
+  await expect(dialog.getByText(/as reviewed, MP4/)).toBeVisible();
+  await expect(dialog.getByText(/at full quality, QuickTime/)).toBeVisible();
+  await expect(dialog.getByText("Original, re-encoded with your mark")).toBeVisible();
   await saveScreen(page, "file-download-video");
   await checkScreen(page);
-  await dialog.getByText("Proxy").click();
+  await dialog.getByText("Review copy").click();
   const [download] = await Promise.all([
     page.waitForEvent("download"),
     dialog.getByRole("button", { name: "Download" }).click(),
@@ -5284,5 +5341,64 @@ test("upload-tray", async ({ page }) => {
     "Title sequence, cut 4.mov",
   );
   await saveScreen(page, "upload-tray");
+  await checkScreen(page);
+});
+
+// Loop is always to be pressed, and its settings open from it (#638): with no passage it says
+// how to make one; with one, its edges and rolls, in a panel that moves nothing on the page.
+test("file-loop-settings", async ({ page }) => {
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  const loop = page.getByRole("button", { name: "Loop", exact: true });
+  await expect(loop).toBeEnabled();
+  const transport = page.getByRole("button", { name: "Play", exact: true });
+  const before = await transport.boundingBox();
+  await loop.click();
+  await settle(page, "section[aria-label=Loop] >> text=Drag on the waveform to loop");
+  await saveScreen(page, "file-loop-empty");
+  await checkScreen(page);
+  await page.keyboard.press("Escape");
+  await page.goto(`/files/${seeded().dryFileId}?loop=14.2-15.4`);
+  await settle(page, "section[aria-label=Comments] li");
+  await expect(page.getByRole("button", { name: "Loop", pressed: true })).toBeVisible();
+  // Setting a loop moves nothing: the transport stays where it was.
+  expect((await transport.boundingBox())?.y).toBe(before?.y);
+  await page.getByRole("button", { name: "Loop settings" }).click();
+  await settle(page, "section[aria-label=Loop] >> text=Clear loop");
+  await saveScreen(page, "file-loop-settings");
+  await checkScreen(page);
+});
+
+// On a phone the less used view controls go into one overflow (#637).
+test("file-view-overflow", async ({ page }, info) => {
+  test.skip(info.project.name !== "phone", "A wide screen shows them in the row");
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  await page.getByRole("button", { name: "Actions for the view" }).click();
+  await expect(page.getByRole("menuitemradio", { name: "Meters" })).toBeVisible();
+  await saveScreen(page, "file-view-overflow");
+  await checkScreen(page);
+});
+
+// The composer at rest is one row (#563): where the comment goes, the words and send; on focus
+// the references, channel, category, Attach and Mention come in, and where it goes is a menu.
+test("file-composer-open", async ({ page }, info) => {
+  test.skip(info.project.name === "phone", "On a phone the composer is a sheet");
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/files/${seeded().dryFileId}`);
+  await settle(page, "section[aria-label=Comments] li");
+  const form = page.locator("section[aria-label=Comments] form").last();
+  await expect(form.getByRole("button", { name: "Attach", exact: true })).toBeHidden();
+  await form.getByRole("textbox", { name: "Comment at the playhead" }).focus();
+  await expect(form.getByRole("button", { name: "Attach", exact: true })).toBeVisible();
+  await expect(form.getByRole("textbox", { name: "Bar" })).toHaveAttribute(
+    "placeholder",
+    "Bar, or 9–12",
+  );
+  await saveScreen(page, "file-composer-open");
+  await checkScreen(page);
+  await form.getByRole("button", { name: /^Where the comment goes/ }).click();
+  await expect(page.getByRole("menuitemradio", { name: "The whole file" })).toBeVisible();
+  await saveScreen(page, "file-composer-where");
   await checkScreen(page);
 });

@@ -10,6 +10,8 @@ import { Kbd } from "~/components/kbd";
 import { NeedsYou, NeedsYouDot } from "~/components/needs-you";
 import { Card, Page, SectionHead } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
+import { CommentMarkers } from "~/components/player";
+import { QaStats } from "~/components/qa";
 import { Crop, Gauge, Verdict } from "~/components/qa-report";
 import { FoldingSection, Row, Section, SwitchRow } from "~/components/settings";
 import { StatusChipView } from "~/components/status-chip";
@@ -993,6 +995,49 @@ function Components() {
           ))}
         </Spec>
         <Spec
+          name="Comment markers"
+          rule="A thread's number over the waveform or filmstrip: quiet when open, the signal for work to do, dashed when deferred, filled when its thread is open; a bar for a passage."
+        >
+          <div className="relative h-12 w-full max-w-md rounded-control bg-raised/40">
+            <CommentMarkers
+              duration={40}
+              active="c"
+              onPick={() => {}}
+              markers={[
+                {
+                  id: "a",
+                  number: 1,
+                  at: 6.2,
+                  state: "open",
+                  preview: "Mira Solberg: Pedal noise",
+                },
+                {
+                  id: "b",
+                  number: 2,
+                  at: 14.2,
+                  end: 20,
+                  state: "todo",
+                  preview: "Ines Arlow: Rushes",
+                },
+                { id: "c", number: 3, at: 26, state: "open", preview: "Tomas Varga: Lift" },
+                { id: "d", number: 4, at: 34, state: "deferred", preview: "Alex Rivera: Later" },
+              ]}
+            />
+          </div>
+        </Spec>
+        <Spec
+          name="QA figures"
+          rule="The figures that matter first, in one hairline row, for a recording and a video alike."
+        >
+          <QaStats
+            stats={[
+              { label: "Loudness", value: "−16.0 LUFS", hint: "Target −14.0 ± 1" },
+              { label: "True peak", value: "0.9 dBTP", hint: "Ceiling −1.0" },
+              { label: "Length", value: "0:40.000" },
+            ]}
+          />
+        </Spec>
+        <Spec
           name="Status chip"
           rule="A track's status in the player's header; with moves, a menu that confirms each."
         >
@@ -1008,13 +1053,7 @@ function Components() {
                 step: "Engineer edits",
                 outcome: "done",
                 label: "Done",
-              },
-              {
-                runId: "run",
-                nodeId: "edit",
-                step: "Engineer edits",
-                outcome: "overdue",
-                label: "Due date passed",
+                leadsTo: "Mastering",
               },
             ]}
             onMove={() => {}}

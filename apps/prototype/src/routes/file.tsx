@@ -13,7 +13,6 @@ import { usePlayback } from "~/components/player/playback";
 import { FrequencyScale, Spectrogram } from "~/components/player/spectrogram";
 import {
   defaultView,
-  LoopBar,
   Seg,
   Transport,
   type View,
@@ -428,6 +427,12 @@ export function FilePage({
   const chain = file && !inTrack ? chainOf(file) : [];
   const latestInChain = !chain.length || chain[chain.length - 1]?.id === file?.id;
   const _trackName = inTrack?.track.name;
+  // Whether the file's "…" offers its track's takes.
+  const hasTakes =
+    isAudio &&
+    inTrack !== null &&
+    tools.has("takes") &&
+    allTakes.some((t) => t.trackId === inTrack.track.id && t.coverage);
 
   usePageHeader({
     crumbs: viewer.isGuest
@@ -535,6 +540,20 @@ export function FilePage({
                       },
                     ]
                   : []),
+                // A track's takes (#644): from here and the track page, never among its versions.
+                ...(hasTakes && inTrack
+                  ? [
+                      {
+                        label: "Takes of this track",
+                        onSelect: () =>
+                          navigate({
+                            to: "/tracks/$trackId",
+                            params: { trackId: inTrack.track.id },
+                            search: { view: "takes" },
+                          }),
+                      },
+                    ]
+                  : []),
                 { label: "Details", onSelect: () => setSheet("details") },
                 ...(project && viewer.can(project.id, "organise")
                   ? [
@@ -635,11 +654,6 @@ export function FilePage({
   const latestNumber = inTrack ? Math.max(...inTrack.track.versions.map((x) => x.number)) : 0;
   const decisionStrip =
     review && viewer.reviewerIn(review) ? <DecisionStrip reviewId={review.id} /> : null;
-  const hasTakes =
-    isAudio &&
-    inTrack !== null &&
-    tools.has("takes") &&
-    allTakes.some((t) => t.trackId === inTrack.track.id && t.coverage);
   // The version's edit decision list, as a lane under its waveform: the take of each stretch.
   const edits: EditStretch[] =
     isAudio && inTrack && tools.has("takes")
@@ -652,7 +666,7 @@ export function FilePage({
                 start: (u.barFrom - 1) * 1.2,
                 end: Math.min(duration, u.barTo * 1.2),
                 label: `T${t.number}`,
-                bars: `bars ${u.barFrom} to ${u.barTo}`,
+                bars: `bars ${u.barFrom}–${u.barTo}`,
                 take: true,
               })),
           )
@@ -707,19 +721,6 @@ export function FilePage({
                     search: { view: "versions" },
                   }),
               },
-              ...(hasTakes
-                ? [
-                    {
-                      label: "Takes",
-                      onSelect: () =>
-                        navigate({
-                          to: "/tracks/$trackId",
-                          params: { trackId: inTrack.track.id },
-                          search: { view: "takes" },
-                        }),
-                    },
-                  ]
-                : []),
             ]),
       ]}
     />
@@ -875,12 +876,7 @@ export function FilePage({
             <AudioLayoutMenu layout={file.media.layout ?? "stereo"} />
           )}
           {isAudio && !pending && !failed && (
-            <ViewMenu
-              view={view}
-              onView={setView}
-              spectrogramAllowed={tools.has("spectrogram")}
-              normaliseAllowed={tools.has("normalise") && project.normalisation === "optional"}
-            />
+            <ViewMenu view={view} onView={setView} spectrogramAllowed={tools.has("spectrogram")} />
           )}
         </div>
       </div>
@@ -1119,8 +1115,13 @@ export function FilePage({
             zoom={isAudio ? zoom : undefined}
             onZoom={isAudio ? setZoom : undefined}
             marks={marks}
+            normalise={
+              isAudio && tools.has("normalise") && project.normalisation === "optional"
+                ? { on: view.normalised, onChange: (on) => setView({ ...view, normalised: on }) }
+                : null
+            }
+            follow={!viewer.isGuest}
           />
-          <LoopBar playback={playback} />
           {compareOpen && (
             <CompareBar
               sources={sources}
@@ -1324,7 +1325,6 @@ export function FilePage({
               onCompare={() => {}}
               marks={marks}
             />
-            <LoopBar playback={playback} />
           </div>
         </div>
         <div className="scroll-quiet min-h-0 flex-1 overflow-auto p-4 @3xl/app:p-6">

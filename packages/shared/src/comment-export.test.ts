@@ -122,7 +122,7 @@ describe("exportComments", () => {
       "FCM: NON-DROP FRAME",
       "",
       "001  001      V     C        00:00:40:00 00:00:40:01 00:00:40:00 00:00:40:01  ",
-      " |C:ResolveColorRed |M:BAR 25 Alex Rivera: =SUM(A1) is a joke, but the rubato is not |D:1",
+      " |C:ResolveColorRed |M:Bar 25 Alex Rivera: =SUM(A1) is a joke, but the rubato is not |D:1",
       "",
       "002  001      V     C        00:01:12:08 00:01:12:09 00:01:12:08 00:01:12:09  ",
       " |C:ResolveColorRed |M:Mira Solberg: The pedal blurs the left hand here. |D:1",
@@ -151,10 +151,10 @@ describe("exportComments", () => {
       "Start (seconds),End (seconds),Name,Comment,Author,Anchor,Status,Channel",
     );
     expect(lines[1]).toBe(
-      '10.000,14.500,"Ines Arlow: Balance, right hand too loud","Balance, right hand too loud",Ines Arlow,00:10.000 – 00:14.500,Resolved,Every channel',
+      '10.000,14.500,"Ines Arlow: Balance, right hand too loud","Balance, right hand too loud",Ines Arlow,0:10.000–0:14.500,Resolved,Every channel',
     );
     expect(out.text).toContain(
-      `,"'=SUM(A1) is a joke, but the rubato is not",Alex Rivera,BAR 25,Open`,
+      `,"'=SUM(A1) is a joke, but the rubato is not",Alex Rivera,Bar 25,Open`,
     );
     expect(out.text).toContain(
       ",,Mira Solberg: Overall: lovely.,Overall: lovely.,Mira Solberg,Whole file,Open,Every channel",
@@ -165,7 +165,7 @@ describe("exportComments", () => {
 
   it("writes samples where the recording's rate is known", () => {
     const out = run({ target: "csv", time: "samples" });
-    expect(out.text).toContain('\r\n1920000,1920000,"BAR 25 Alex Rivera:');
+    expect(out.text).toContain('\r\n1920000,1920000,"Bar 25 Alex Rivera:');
   });
 
   it("writes Nuendo's CSV in timecode", () => {
@@ -173,7 +173,7 @@ describe("exportComments", () => {
     expect(out.text?.split("\r\n")[0]).toBe(
       "Timecode In,Timecode Out,Name,Comment,Author,Anchor,Status,Channel",
     );
-    expect(out.text).toContain('\r\n00:00:40:00,00:00:40:00,"BAR 25 Alex Rivera:');
+    expect(out.text).toContain('\r\n00:00:40:00,00:00:40:00,"Bar 25 Alex Rivera:');
     expect(out.untimed).toBe(1);
   });
 
@@ -182,7 +182,7 @@ describe("exportComments", () => {
     expect(out.text?.split("\r\n")).toEqual([
       "#,Name,Start,End,Length,Color",
       'R1,"Ines Arlow: Balance, right hand too loud",00:00:10:00,00:00:14:13,00:00:04:13,',
-      'M1,"BAR 25 Alex Rivera: =SUM(A1) is a joke, but the rubato is not",00:00:40:00,,,',
+      'M1,"Bar 25 Alex Rivera: =SUM(A1) is a joke, but the rubato is not",00:00:40:00,,,',
       "M2,Mira Solberg: The pedal blurs the left hand here.,00:01:12:08,,,",
       "",
     ]);
@@ -195,7 +195,7 @@ describe("exportComments", () => {
     );
     expect(out.text).toBe(
       [
-        "Alex Rivera\t01:00:40:00\tV1\tred\tBAR 25 Alex Rivera: =SUM(A1) is a joke, but the rubato is not\t1\n",
+        "Alex Rivera\t01:00:40:00\tV1\tred\tBar 25 Alex Rivera: =SUM(A1) is a joke, but the rubato is not\t1\n",
         "Mira Solberg\t01:01:12:08\tV1\tred\tMira Solberg: The pedal blurs the left hand here.\t1\n",
       ].join(""),
     );
@@ -254,7 +254,7 @@ describe("exportComments", () => {
     const length = (l0 << 24) | (l1 << 16) | (l2 << 8) | l3;
     expect(b.length).toBe(22 + length);
     // The first marker sits 40 s in: 76,800 ticks as a variable-length quantity.
-    const at = chars(b).indexOf("BAR 25 Alex Rivera");
+    const at = chars(b).indexOf("Bar 25 Alex Rivera");
     expect(at).toBeGreaterThan(0);
     expect([...b.slice(at - 6, at - 2)]).toEqual([0x84, 0xd8, 0x00, 0xff]);
     expect(b[at - 2]).toBe(0x06);
@@ -272,7 +272,7 @@ describe("exportComments", () => {
     expect(out.text).toContain(
       "003  00:01:12:08  Mira Solberg\r\n     The pedal blurs the left hand here.\r\n     Try the dry take.\r\n     Reply from Tomas Varga: Agreed, will retake.",
     );
-    expect(out.text).toContain("002  00:00:40:00  BAR 25  Alex Rivera");
+    expect(out.text).toContain("002  00:00:40:00  Bar 25  Alex Rivera");
     expect(out.text).toContain("004  Whole file  Mira Solberg");
   });
 
@@ -292,7 +292,7 @@ describe("exportComments", () => {
     };
     const out = exportComments([named], recording, options({ target: "csv", time: "seconds" }));
     expect(out.text?.split("\r\n")[1]).toBe(
-      "5.000,5.000,'=HYPERLINK(1): Listen,Listen,'=HYPERLINK(1),00:05.000,Open,Every channel",
+      "5.000,5.000,'=HYPERLINK(1): Listen,Listen,'=HYPERLINK(1),0:05.000,Open,Every channel",
     );
   });
 
@@ -395,7 +395,7 @@ describe("a thread about one channel", () => {
   it("says so in the marker's name, the sheet and the text", () => {
     const sheet = exportComments([left], recording, options({ target: "csv", time: "seconds" }));
     expect(sheet.text).toContain(
-      "6.200,6.200,[L] Alex Rivera: Pedal noise on the left.,Pedal noise on the left.,Alex Rivera,00:06.200,Open,L",
+      "6.200,6.200,[L] Alex Rivera: Pedal noise on the left.,Pedal noise on the left.,Alex Rivera,0:06.200,Open,L",
     );
     const text = exportComments([left], recording, options({ target: "text", time: "seconds" }));
     expect(text.text).toContain("001  6.200  [L]  Alex Rivera");

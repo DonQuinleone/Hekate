@@ -10937,7 +10937,7 @@ describe.runIf(url)("api", () => {
         // The format fails Streaming (48 kHz, no bit depth): the whole file's first, then in time.
         expect(document.groups[0]?.findings.map((f) => [f.name, f.at])).toEqual([
           ["Format", "Whole file"],
-          ["Clipping", "00:12.000–00:12.500"],
+          ["Clipping", "0:12.000–0:12.500"],
         ]);
         expect(document.appendix.link).toMatch(new RegExp(`/files/${s.mix}\\?view=qa$`));
 
@@ -17210,6 +17210,17 @@ describe.runIf(url)("api", () => {
           expect((await step({ nodeId: "fb", outcome: "done" }, s.engineer)).status).toBe(403);
           expect((await step({ nodeId: "edit", outcome: "done" })).status).toBe(409);
           expect((await step({ nodeId: "fb", outcome: "approved" })).status).toBe(422);
+          // The clock's outcome is never chosen by hand (#566), and another workspace's member
+          // cannot end the step at all.
+          expect((await step({ nodeId: "fb", outcome: "overdue" })).status).toBe(409);
+          expect((await step({ nodeId: "fb", outcome: "done" }, outsiderBoard)).status).toBe(404);
+          // The track's runs offer only the outcomes a person decides, each with where it leads.
+          const offered = (await (
+            await getAs(`/api/tracks/${s.trackId}/workflow-runs`, s.owner)
+          ).json()) as { runs: { waiting: { nodeId: string; choices: unknown[] }[] }[] };
+          expect(offered.runs[0]?.waiting.find((w) => w.nodeId === "fb")?.choices).toEqual([
+            { outcome: "done", leadsTo: "Engineer edits" },
+          ]);
           expect((await step({ nodeId: "fb", outcome: "done" })).status).toBe(200);
           const told = await db
             .select({ text: schema.notifications.text, detail: schema.notifications.detail })
@@ -23060,7 +23071,7 @@ describe.runIf(url)("api", () => {
           await exported("target=csv&threads=all&replies=true&time=seconds")
         ).text();
         expect(csv).toContain(
-          "5.000,8.000,Producer: Too loud,Too loud,Producer,00:05.000 – 00:08.000,Resolved",
+          "5.000,8.000,Producer: Too loud,Too loud,Producer,0:05.000–0:08.000,Resolved",
         );
         expect(csv).toContain('"Pedal, again\nReply from Producer: Fixed now"');
         expect(csv).toContain(",,Producer: Lovely overall,Lovely overall,Producer,Whole file,Open");

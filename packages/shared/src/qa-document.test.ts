@@ -6,9 +6,12 @@ import {
   cropWindow,
   findingAdvice,
   findingAt,
+  findingLine,
+  findingWords,
   formatDump,
   loudnessCurve,
   loudnessGauge,
+  qaAttention,
   qaDocument,
   qaVerdict,
   reportGroups,
@@ -186,17 +189,39 @@ describe("findings in the report", () => {
   it("groups them by severity, then time, the whole file first; passes left out", () => {
     const groups = reportGroups(findings, streaming, 40, null);
     expect(groups.map((g) => [g.label, g.findings.map((f) => f.at)])).toEqual([
-      [
-        "Fails",
-        ["Whole file", "00:12.000–00:12.500", "00:30.000–00:30.200", "00:31.000–00:31.040"],
-      ],
+      ["Fails", ["Whole file", "0:12.000–0:12.500", "0:30.000–0:30.200", "0:31.000–0:31.040"]],
       ["Worth a look", ["Whole file"]],
     ]);
     const dropout = groups[0]?.findings[3];
     expect(dropout).toMatchObject({ name: "Dropouts", channel: "Channel 2" });
     expect(dropout?.crop).toMatchObject({ markFrom: 31, envelope: null });
     expect(groups[0]?.findings[0]?.crop).toBeNull();
-    expect(severityCounts(findings)).toEqual({ fail: 4, warn: 1, info: 0, pass: 1 });
+    // Checks, not findings (#564): clipping in two places is one check that fails.
+    expect(severityCounts(findings)).toEqual({ fail: 3, warn: 1, info: 0, pass: 1 });
+    expect(qaAttention(findings)).toBe(4);
+  });
+
+  it("counts a check once, at its worst, and a project rule as a check of its own", () => {
+    expect(
+      severityCounts([
+        finding({ severity: "warn" }),
+        finding({ severity: "fail" }),
+        finding({ check: "custom", severity: "warn", details: { name: "ISRC" } }),
+        finding({ check: "custom", severity: "info", details: { name: "Title" } }),
+      ]),
+    ).toEqual({ fail: 1, warn: 1, info: 1, pass: 0 });
+  });
+
+  it("names a finding's check once, before its words or not at all (#564)", () => {
+    const peak = finding({ check: "true-peak", summary: "True peak 0.9 dBTP, over the ceiling" });
+    expect(findingLine(peak)).toBe("True peak 0.9 dBTP, over the ceiling");
+    expect(findingWords(peak)).toBe("0.9 dBTP, over the ceiling");
+    expect(findingLine(finding({}))).toBe("Clipping: Clipped 118 times");
+    expect(findingWords(finding({}))).toBe("Clipped 118 times");
+    // A word that only starts like the name is not it.
+    expect(findingWords(finding({ check: "layout", summary: "Layouts differ" }))).toBe(
+      "Layouts differ",
+    );
   });
 
   it("sets out the first few of a check in full, and the rest a line each", () => {
@@ -217,8 +242,8 @@ describe("findings in the report", () => {
   });
 
   it("writes where each is", () => {
-    expect(findingAt({ start: 12, end: 12.5 })).toBe("00:12.000–00:12.500");
-    expect(findingAt({ start: 12, end: 12.001 })).toBe("00:12.000");
+    expect(findingAt({ start: 12, end: 12.5 })).toBe("0:12.000–0:12.500");
+    expect(findingAt({ start: 12, end: 12.001 })).toBe("0:12.000");
     expect(findingAt({ start: null, end: null })).toBe("Whole file");
   });
 
@@ -364,11 +389,11 @@ describe("the appendices", () => {
       }),
     ).toEqual([
       ["Container", "wav"],
-      ["Codec", "pcm_s16le"],
+      ["Codec", "PCM 16-bit"],
       ["Sample rate", "44.1 kHz"],
       ["Bit depth", "16-bit"],
       ["Channels", "2 (stereo)"],
-      ["Duration", "00:40.000"],
+      ["Duration", "0:40.000"],
       ["Bit rate", "1411 kb/s"],
       ["Originator", "Endless Hall Records"],
       ["Title", "Maple Leaf Rag"],

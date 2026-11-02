@@ -238,7 +238,7 @@ export function FollowDaw() {
       <div className={row}>
         <span>
           Follow the DAW
-          <span className="block text-[12px] text-ink-3">Plays where its MIDI timecode is</span>
+          <span className="block text-[12px] text-ink-3">Follows the DAW's MIDI timecode</span>
         </span>
         <Switch label="Follow the DAW" checked={on} onChange={setOn} />
       </div>

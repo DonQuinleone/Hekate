@@ -1,12 +1,12 @@
 import { SILENCE } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
-import { type ChannelMix, isPlain, mixLabel, plainMix } from "~/lib/channel-mix";
+import { type ChannelMix, mixLabel } from "~/lib/channel-mix";
 import { cn } from "~/lib/cn";
 import { loudnessQuery, loudnessSeriesQuery } from "~/lib/queries";
 import { Icon } from "./icons";
 import { formatLevel, METER_FLOOR, meterFraction, usePlayheadFrame } from "./loudness";
 import { Button } from "./ui/button";
-import { Switch } from "./ui/toggle";
+import { Segmented } from "./ui/segmented";
 
 const toggle =
   "tabular flex size-6 cursor-pointer items-center justify-center rounded-chip border bg-transparent p-0 text-[11px]";
@@ -38,7 +38,9 @@ export function ChannelsButton({
       className={cn(open && "bg-raised text-ink")}
     >
       <Icon name="volume" size={14} />
-      Channels{heard ? " " : ""}
+      {/* On a phone the icon alone, so the player's row fits one line (#637). */}
+      <span className="sr-only sm:not-sr-only">Channels</span>
+      {heard ? " " : ""}
       {heard && <span className="tabular text-signal">{heard}</span>}
     </Button>
   );
@@ -173,35 +175,33 @@ export function ChannelsPanel({
               </li>
             ))}
           </ul>
-          {names.length > 2 && canDownmix && (
-            <div className="flex items-center justify-between gap-3 text-[13px] text-ink">
-              Hear the stereo downmix
-              <Switch
-                label="Hear the stereo downmix"
-                checked={mix.downmix}
-                onChange={(downmix) => onMix({ ...mix, downmix, binaural: false })}
+          {/* How it is heard is one choice of three (#639), solos and mutes cleared apart. */}
+          {names.length > 2 && (canDownmix || canBinaural) && (
+            <div className="flex items-center gap-3 text-[13px] text-ink-2">
+              Hear
+              <Segmented
+                label="Hear"
+                value={mix.binaural ? "binaural" : mix.downmix ? "downmix" : "recorded"}
+                onChange={(heard) =>
+                  onMix({ ...mix, downmix: heard === "downmix", binaural: heard === "binaural" })
+                }
+                options={[
+                  { value: "recorded", label: "As recorded" },
+                  ...(canDownmix ? [{ value: "downmix" as const, label: "Stereo downmix" }] : []),
+                  // Each speaker placed around the listener, for headphones (#74).
+                  ...(canBinaural ? [{ value: "binaural" as const, label: "Binaural" }] : []),
+                ]}
               />
             </div>
           )}
-          {names.length > 2 && canBinaural && (
-            // Each speaker placed around the listener, for headphones (#74).
-            <div className="flex items-center justify-between gap-3 text-[13px] text-ink">
-              Hear it binaurally, on headphones
-              <Switch
-                label="Hear it binaurally, on headphones"
-                checked={mix.binaural}
-                onChange={(binaural) => onMix({ ...mix, binaural, downmix: false })}
-              />
-            </div>
-          )}
-          {!isPlain(mix) && (
+          {(mix.solo !== null || mix.muted.length > 0) && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => onMix(plainMix)}
+              onClick={() => onMix({ ...mix, solo: null, muted: [] })}
               className="self-start"
             >
-              Hear it as recorded
+              Clear solos
             </Button>
           )}
         </div>

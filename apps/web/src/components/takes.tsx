@@ -1137,7 +1137,7 @@ export function TakePicker({
   return (
     <Dialog
       title="Takes from this track"
-      description="They go on the comment for whoever reads it to hear, at its bar where it has one."
+      description="Attached takes play at the comment's bar."
       onClose={onClose}
       footer={
         <>

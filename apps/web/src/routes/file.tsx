@@ -1,16 +1,19 @@
 import {
   type CaptionTrack,
+  containerName,
   fileStart,
+  findingLine,
   formatBytes,
-  formatChannels,
-  formatDuration,
+  formatClock,
   type MediaInfo,
+  mediaFormat,
   type QaFinding,
   type ReviewerTool,
+  soundLine,
   videoClock,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Checksum } from "~/components/checksum";
 import {
@@ -40,7 +43,7 @@ import { EmbeddedMetadataPanel } from "~/components/metadata";
 import { type Crumb, PageHeader } from "~/components/page-header";
 import { CommentsSplitter, PanelPlacement } from "~/components/panel-placement";
 import { Player, PlayerStrip } from "~/components/player";
-import { checkNames, findingMarks, QualityChecks, qaIssues } from "~/components/qa";
+import { findingMarks, QaLayout, QualityChecks, qaIssues, soundStats } from "~/components/qa";
 import { VideoQa } from "~/components/qa-video";
 import { ScorePane } from "~/components/score";
 import { ShareDialog } from "~/components/share";
@@ -74,6 +77,7 @@ import {
   playbackQuery,
   projectQuery,
   qaQuery,
+  reviewQuery,
   trackTakesQuery,
   useMarks,
   usePreferences,
@@ -150,6 +154,7 @@ function Playback({
   draft,
   onDraft,
   compact = false,
+  passage = false,
   captions,
   caption,
   onCaption,
@@ -157,7 +162,12 @@ function Playback({
   compare = null,
   follow,
   gain,
+  onMarker,
+  activeMarker = null,
 }: {
+  /** A thread's marker picked over the media (#562), and the thread open beside it. */
+  onMarker?: (id: string) => void;
+  activeMarker?: string | null;
   file: FileDetail;
   /** What it plays at under the volume: normalised playback's gain, or null while the comparison sets it. */
   gain: number | null;
@@ -167,6 +177,8 @@ function Playback({
   compare?: { open: boolean; onToggle: () => void } | null;
   /** A video's picture small, beside its lanes, for QA (#42). */
   compact?: boolean;
+  /** Only the passage, small, as triage shows it (#632). */
+  passage?: boolean;
   /** The file's caption tracks (#201), and the one the player shows. */
   captions: readonly CaptionTrack[] | undefined;
   caption: string | null;
@@ -284,8 +296,11 @@ function Playback({
       info={file.mediaInfo}
       onMedia={onMedia}
       markers={markers}
+      onMarker={onMarker}
+      activeMarker={activeMarker}
       findings={findings}
-      edits={variant ? edits : []}
+      // Triage's passage is the passage alone (#632): no lane of edits under it.
+      edits={variant && !passage ? edits : []}
       loop={loop}
       onLoop={onLoop}
       cue={cue}
@@ -302,6 +317,7 @@ function Playback({
       onDraft={file.kind === "video" && canComment ? onDraft : undefined}
       cuts={cuts}
       compact={compact}
+      passage={passage}
       follow={follow}
       gain={gain}
       onExpired={() => client.resetQueries({ queryKey: playbackQuery(file.id).queryKey })}
@@ -309,24 +325,36 @@ function Playback({
   );
 }
 
-/** The facts an engineer checks, in the order they check them. */
-function technicalDetails(info: MediaInfo | null): [string, string][] {
-  if (!info) return [];
-  const rows: [string, string][] = [];
-  if (info.video) {
-    rows.push(["Video", `${info.video.codec} · ${info.video.width} × ${info.video.height}`]);
-    if (info.video.fps) rows.push(["Frame rate", `${info.video.fps} fps`]);
-  }
-  if (info.audio) {
-    rows.push(["Audio", info.audio.codec]);
-    rows.push([
-      "Sample rate",
-      `${info.audio.sampleRate / 1000} kHz${info.audio.bitDepth ? ` · ${info.audio.bitDepth}-bit` : ""}`,
-    ]);
-    rows.push(["Channels", formatChannels(info.audio.channels, info.audio.channelLayout)]);
-  }
-  if (info.duration !== undefined) rows.push(["Duration", formatDuration(info.duration)]);
-  return rows;
+/** A guest's facts about the file (#635), folded under one "Details" until asked for. */
+function GuestDetails({ facts }: { facts: [string, string][] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-col border-t border-hairline">
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="-mx-2 mt-1 self-start text-ink-3"
+      >
+        <Icon name={open ? "chevronDown" : "chevronRight"} size={14} />
+        Details
+      </Button>
+      {open && (
+        <dl className="m-0 flex flex-col">
+          {facts.map(([term, value]) => (
+            <div
+              key={term}
+              className="grid grid-cols-[minmax(0,120px)_1fr] gap-x-6 border-b border-hairline py-2.5"
+            >
+              <dt className="text-[13px] text-ink-3">{term}</dt>
+              <dd className="tabular m-0 truncate text-[13px] text-ink-2">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
 }
 
 export type FileView = "review" | "qa" | "triage";
@@ -417,11 +445,15 @@ export function FilePage({
   /** A source comparison should bring in and play first: before, for before and after. */
   const [focus, setFocus] = useState<CompareFocus | null>(null);
   const { guest } = useViewer();
+  const navigate = useNavigate();
+  const wide = useWide();
   // The checksum for QA's format panel (#491) comes with the details, which members may read.
   const { data: fileDetails } = useQuery({
     ...fileDetailsQuery(fileId),
     enabled: !guest && view === "qa",
   });
+  // What QA measured, for its row of figures (#634); the checks keep the same query fresh.
+  const { data: qaData } = useQuery({ ...qaQuery(fileId), enabled: view === "qa" });
   const preferences = usePreferences();
   /** On a document: the page shown, and the region drawn or thread picked on it. */
   const [pageFocus, setPageFocus] = useState<PageFocus>(initialFocus);
@@ -430,6 +462,10 @@ export function FilePage({
   const [importing, setImporting] = useState(false);
   const [versioning, setVersioning] = useState(false);
   const [sharing, setSharing] = useState(false);
+  /** The thread whose marker was picked over the media (#562): opened and marked beside it. */
+  const [pickedThread, setPickedThread] = useState<string | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a thread belongs to its file.
+  useEffect(() => setPickedThread(null), [fileId]);
   const [chosenNormal, setChosenNormal] = useNormalisedChoice();
   // Arriving from another version or variant: start where that one was (#15).
   const { media, onMedia } = useFileMedia(fileId, startAt, onStarted);
@@ -449,10 +485,12 @@ export function FilePage({
   const lastPlace = useRef<"right" | "below" | null>(null);
   if (layout.comments !== "hidden") lastPlace.current = layout.comments;
   const commentsShown = layout.comments !== "hidden";
-  // Fetched only while they are put away: shown, the pane keeps the same query fresh.
+  // The same query as the pane's: the header's toggle carries the count of open threads, the
+  // one place a wide screen says it (#642).
   const { data: commentList } = useQuery({
     ...commentsQuery(fileId),
-    enabled: layout.comments === "hidden",
+    // A take shared with a guest to hear has no comments for them (#133).
+    enabled: file !== undefined && !file.grant?.listenOnly,
   });
   // Another file starts on its first page, with nothing drawn.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset whenever the file changes.
@@ -482,6 +520,11 @@ export function FilePage({
     setTranscriptId(null);
   }, [fileId]);
   const can = useProjectCan(guest || !file ? undefined : file.projectId);
+  // A guest's trail names the review the file was opened from (#666).
+  const { data: openedFrom } = useQuery({
+    ...reviewQuery(reviewId ?? ""),
+    enabled: Boolean(guest && reviewId),
+  });
   // Guests see the files of their reviews, never the project around them.
   const { data: project } = useQuery({
     ...projectQuery(file?.projectId ?? ""),
@@ -535,7 +578,8 @@ export function FilePage({
     setSeed({
       key: Date.now(),
       at,
-      body: `${checkNames[finding.check]}: ${finding.summary}`,
+      // The check named once (#564): "True peak 0.9 dBTP", not "True peak: True peak 0.9 dBTP".
+      body: findingLine(finding),
       // Only a recording of two channels or more has one to be about.
       channel: (file.mediaInfo?.audio?.channels ?? 0) >= 2 ? finding.channel : null,
     });
@@ -570,33 +614,54 @@ export function FilePage({
   const comparing = comparable && shown === "review";
   const playerGain = comparing && compareOpen ? null : gain;
   const summary = mediaSummary(file.kind, file.mediaInfo, file.streamStatus);
-  const details: [string, string][] = [
-    ["Type", file.contentType],
-    ["Size", formatBytes(file.byteSize)],
-    ...technicalDetails(file.mediaInfo),
-    ["Added", dateFormat.format(new Date(file.createdAt))],
-    ...(file.uploadedBy ? [["Added by", file.uploadedBy] as [string, string]] : []),
+  /**
+   * The format's facts in words (#635), said once on the page: QA's Format for a recording, a
+   * guest's Details. Never a MIME type or a codec's id.
+   */
+  const container = containerName(file.mediaInfo?.format, file.contentType);
+  const formatFacts: [string, ReactNode][] = [
+    ...(file.mediaInfo?.audio
+      ? [["Sound", soundLine(file.mediaInfo.audio)] as [string, string]]
+      : []),
+    ["File", [container, formatBytes(file.byteSize)].filter(Boolean).join(" · ")],
+    // The checksum, with a copy, where the details have arrived (#491).
+    ...(fileDetails
+      ? [
+          ["Checksum", <Checksum key="sum" sha256={fileDetails.storage.sha256} />] as [
+            string,
+            ReactNode,
+          ],
+        ]
+      : []),
   ];
-  const detailRows = details.map(([term, value]) => (
-    <div
-      key={term}
-      className="grid grid-cols-[minmax(0,140px)_1fr] gap-x-6 border-b border-hairline py-2.5"
-    >
-      <dt className="label">{term}</dt>
-      <dd className="tabular m-0 truncate text-[13px] text-ink-2">{value}</dd>
-    </div>
-  ));
-  /** The checksum, with a copy, where QA shows the format and the details have arrived. */
-  const checksumRow = fileDetails && (
-    <div className="grid grid-cols-[minmax(0,140px)_1fr] gap-x-6 border-b border-hairline py-2.5">
-      <dt className="label">Checksum</dt>
-      <dd className="m-0 min-w-0 text-[13px] text-ink-2">
-        <Checksum sha256={fileDetails.storage.sha256} />
-      </dd>
-    </div>
-  );
+  /** What a file with no player is, in words (#635): never its MIME type. */
+  const fileWords = fileSummary(file) === file.contentType ? "File" : fileSummary(file);
+  /** What a guest may read of the file (#635), behind a disclosure so comments come first. */
+  const guestFacts: [string, string][] = [
+    ["Format", mediaFormat(file.mediaInfo) ?? fileWords],
+    ["File", [container, formatBytes(file.byteSize)].filter(Boolean).join(" · ")],
+    ...(file.mediaInfo?.duration !== undefined
+      ? [["Length", formatClock(file.mediaInfo.duration)] as [string, string]]
+      : []),
+    ["Added", dateFormat.format(new Date(file.createdAt))],
+  ];
   const crumbs: Crumb[] = guest
-    ? [{ key: "reviews", link: <Link to="/g">Your reviews</Link> }]
+    ? [
+        { key: "reviews", link: <Link to="/g">Your reviews</Link> },
+        // The review it was opened from (#666), so a guest never loses which one they are in.
+        ...(reviewId && openedFrom
+          ? [
+              {
+                key: "review",
+                link: (
+                  <Link to="/g/reviews/$reviewId" params={{ reviewId }}>
+                    {openedFrom.title}
+                  </Link>
+                ),
+              },
+            ]
+          : []),
+      ]
     : [
         {
           key: "project",
@@ -606,26 +671,21 @@ export function FilePage({
             </Link>
           ),
         },
-        ...(file.variant
-          ? [
-              {
-                key: "track",
-                link: (
-                  <Link
-                    to="/tracks/$trackId"
-                    params={{ trackId: file.variant.trackId }}
-                    search={{ view: "versions" }}
-                  >
-                    {file.variant.trackName}
-                  </Link>
-                ),
-              },
-            ]
-          : []),
       ];
+  /**
+   * A track's file is titled by its track, in full (#561): the strip under the header says
+   * which version and variant it is, as the prototype has it. A loose file keeps its name.
+   */
+  const title = file.variant ? file.variant.trackName : file.name;
   // What QA shows beside the checks, for a recording and for a video alike.
   const loudness = file.mediaInfo?.audio && allows("meters") && preferences.showLoudness && (
-    <Loudness fileId={file.id} media={media} layout={file.mediaInfo.audio.channelLayout} />
+    <Loudness
+      fileId={file.id}
+      media={media}
+      layout={file.mediaInfo.audio.channelLayout}
+      // QA's row of figures gives integrated loudness and true peak where QA is a tool here.
+      figures={!allows("qa")}
+    />
   );
   const metadata = file.mediaInfo?.metadata && (
     <EmbeddedMetadataPanel
@@ -659,12 +719,7 @@ export function FilePage({
     lead:
       shown !== "triage" && (file.variant || file.chain.some((v) => v.id === file.id)) ? (
         <>
-          <FileContext
-            file={file}
-            media={media}
-            guest={guest}
-            takes={!guest && can("view_takes")}
-          />
+          <FileContext file={file} media={media} guest={guest} />
           <FileChain file={file} />
           {/* Where the track stands (#498), moved on from here by those who may. */}
           {file.variant && !guest && (
@@ -702,11 +757,18 @@ export function FilePage({
       draft={frameDraft}
       onDraft={setFrameDraft}
       compact={picture && shown === "qa"}
+      passage={shown === "triage"}
       captions={captions}
       caption={captionId}
       onCaption={setCaptionId}
       follow={guest ? undefined : <FollowRecorderSettings follow={follow} />}
       gain={playerGain}
+      onMarker={(id) => {
+        setPickedThread(id);
+        // Its thread is beside the player: shown if the comments were put away.
+        if (layout.comments === "hidden") setLayout({ comments: lastPlace.current ?? "right" });
+      }}
+      activeMarker={pickedThread ?? focusComment ?? null}
     />
   );
   /** The transcript is offered beside the comments wherever there is a track to read. */
@@ -722,7 +784,7 @@ export function FilePage({
               key: "file",
               link: (
                 <Link to="/files/$fileId" params={{ fileId: file.id }}>
-                  {file.name}
+                  {title}
                 </Link>
               ),
             },
@@ -737,31 +799,25 @@ export function FilePage({
         <TriageView
           file={file}
           media={media}
-          player={
-            // Framed in the queue, as a card beside the thread in hand.
-            file.kind === "audio" || file.kind === "video" ? (
-              <div className="rounded-panel border border-hairline bg-surface">{playback}</div>
-            ) : (
-              playback
-            )
-          }
+          // The passage alone (#632), as the prototype's triage has it; pages stay pages.
+          player={playback}
           onLoop={onLoop}
           onDone={() => onView("review")}
         />
       </>
     );
-  const downloadButton =
-    downloads && downloads.level !== "none" ? (
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setDownloading(true)}
-        title={`Download the ${downloads.level}, made for you and logged`}
-      >
-        <Icon name="download" size={14} />
-        Download
-      </Button>
-    ) : undefined;
+  const mayDownload = downloads !== undefined && downloads.level !== "none";
+  const downloadButton = mayDownload ? (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={() => setDownloading(true)}
+      title={`Download the ${downloads.level}, made for you and logged`}
+    >
+      <Icon name="download" size={14} />
+      Download
+    </Button>
+  ) : undefined;
   /** The comments shown or put away, from one place whatever their state, with how many are open. */
   const commentsButton =
     shown === "review" && !file.grant?.listenOnly ? (
@@ -790,9 +846,8 @@ export function FilePage({
   const below = layout.comments === "below";
   // A take shared with a guest is theirs to hear, with no comments (#133).
   const commented = shown === "review" && !file.grant?.listenOnly;
-  const detailList = (
-    <dl className="m-0 flex shrink-0 flex-col border-t border-hairline">{detailRows}</dl>
-  );
+  /** A guest's details, folded (#635): the comments come first under the player. */
+  const detailList = guest ? <GuestDetails facts={guestFacts} /> : null;
 
   /** What the column beside the comments holds: the player and what goes with it, or pages. */
   let main: ReactNode;
@@ -803,11 +858,23 @@ export function FilePage({
     // the score. More than the frame holds scrolls, the comments staying beside it. QA keeps
     // the player at the top and scrolls what was measured under it. Both views share one tree,
     // so switching between them never remounts the player or stops the music.
-    main = (
+    /** The score beside the player on a wide screen (#646), rather than under its transport. */
+    const scoreBeside =
+      !qaShown && hasScore && layout.score && file.variant?.scoreFileId ? (
+        <ScorePane
+          scoreFileId={file.variant.scoreFileId}
+          guest={guest}
+          onHide={() => setLayout({ score: false })}
+          width={layout.scoreWidth}
+          onWidth={(scoreWidth) => setLayout({ scoreWidth })}
+        />
+      ) : null;
+    const column = (
       <div
         className={cn(
           "flex flex-col lg:min-h-0 lg:flex-1",
           !qaShown && "scroll-quiet lg:overflow-y-auto",
+          scoreBeside && "min-w-0",
         )}
       >
         <ListeningNotice sync={listening} />
@@ -816,6 +883,7 @@ export function FilePage({
         </div>
         {qaShown ? (
           <div className="scroll-quiet p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:p-6">
+            {/* One layout for a recording and a video (#634). */}
             {picture && file.mediaInfo && allows("qa") ? (
               <VideoQa
                 fileId={file.id}
@@ -830,23 +898,29 @@ export function FilePage({
                 {loudness}
               </VideoQa>
             ) : (
-              <div className="flex min-w-0 flex-col gap-6">
-                {allows("qa") && (
-                  <QualityChecks
-                    fileId={file.id}
-                    media={media}
-                    canChoose={!guest && can("edit_workflows")}
-                    onLoop={allows("loops") ? hear : undefined}
-                    onComment={canComment ? commentOn : undefined}
-                  />
-                )}
+              <QaLayout
+                stats={[
+                  ...(allows("qa") ? soundStats(qaData?.findings ?? []) : []),
+                  ...(file.mediaInfo?.duration !== undefined
+                    ? [{ label: "Length", value: formatClock(file.mediaInfo.duration) }]
+                    : []),
+                ]}
+                checks={
+                  allows("qa") && (
+                    <QualityChecks
+                      fileId={file.id}
+                      media={media}
+                      canChoose={!guest && can("edit_workflows")}
+                      onLoop={allows("loops") ? hear : undefined}
+                      onComment={canComment ? commentOn : undefined}
+                    />
+                  )
+                }
+                format={formatFacts}
+                aside={metadata}
+              >
                 {loudness}
-                <dl className="m-0 flex flex-col border-t border-hairline">
-                  {detailRows}
-                  {checksumRow}
-                </dl>
-                {metadata}
-              </div>
+              </QaLayout>
             )}
           </div>
         ) : (
@@ -855,18 +929,19 @@ export function FilePage({
               <Compare file={file} media={media} focus={focus} gain={gain} />
             )}
             {!guest && <VersionNote file={file} />}
-            {hasScore && layout.score && file.variant?.scoreFileId && (
-              <ScorePane
-                scoreFileId={file.variant.scoreFileId}
-                guest={guest}
-                onHide={() => setLayout({ score: false })}
-              />
-            )}
-            {/* A recording's details belong to QA; one without it keeps them here. */}
-            {!hasQa && <div className="px-3 pb-4 lg:px-4">{detailList}</div>}
+            {/* A file's details are the Details sheet's (#635); a guest's fold away here. */}
+            {detailList && <div className="px-3 pb-4 lg:px-4">{detailList}</div>}
           </>
         )}
       </div>
+    );
+    main = scoreBeside ? (
+      <div className="flex flex-col lg:min-h-0 lg:flex-1 lg:flex-row">
+        {column}
+        {scoreBeside}
+      </div>
+    ) : (
+      column
     );
   } else if (pages) {
     // A document or picture fills the frame, its pages scrolling inside it; its details
@@ -877,7 +952,7 @@ export function FilePage({
           <FileChain file={file} />
           {playback}
         </div>
-        <div className="px-3 pb-4 lg:px-4">{detailList}</div>
+        {detailList && <div className="px-3 pb-4 lg:px-4">{detailList}</div>}
       </div>
     );
   } else {
@@ -892,7 +967,7 @@ export function FilePage({
           )}
           {playback}
         </div>
-        <div className="px-3 pb-4 lg:px-4">{detailList}</div>
+        {detailList && <div className="px-3 pb-4 lg:px-4">{detailList}</div>}
       </div>
     );
   }
@@ -905,9 +980,9 @@ export function FilePage({
       )}
       <PageHeader
         crumbs={crumbs}
-        title={file.name}
+        title={title}
         // Media formats show in the player; other files say what they are here.
-        meta={summary ? undefined : fileSummary(file)}
+        meta={summary ? undefined : fileWords}
         actions={
           guest ? (
             <>
@@ -920,16 +995,8 @@ export function FilePage({
               {viewSwitch}
               {commentsButton}
               {plays && <ListenTogether fileId={file.id} projectId={file.projectId} />}
-              {downloadButton}
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-pressed={showDetails}
-                onClick={() => onDetails(!showDetails)}
-              >
-                <Icon name="info" size={14} />
-                Details
-              </Button>
+              {/* On a phone, Download goes into "…" so Share, the page's main action, stays in reach. */}
+              {wide && downloadButton}
               {/* Sharing this file (#489): the sheet the browser and a track's versions open too. */}
               {can("request_reviews") && project && !project.archivedAt && (
                 <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
@@ -937,31 +1004,49 @@ export function FilePage({
                   Share
                 </Button>
               )}
-              {(canTriage || canVersion) && (
-                <ActionMenu
-                  always
-                  label="file"
-                  actions={[
-                    ...(canVersion
-                      ? [{ label: "New version…", onSelect: () => setVersioning(true) }]
-                      : []),
-                    ...(canTriage
-                      ? [
-                          { label: "Export comments…", onSelect: () => setExporting(true) },
-                          ...(plays
-                            ? [
-                                {
-                                  label: "Import a marker list…",
-                                  onSelect: () => setImporting(true),
-                                },
-                              ]
-                            : []),
-                          { label: "Triage comments", onSelect: () => onView("triage") },
-                        ]
-                      : []),
-                  ]}
-                />
-              )}
+              <ActionMenu
+                always
+                label="file"
+                actions={[
+                  ...(!wide && mayDownload
+                    ? [{ label: "Download…", onSelect: () => setDownloading(true) }]
+                    : []),
+                  ...(canVersion
+                    ? [{ label: "New version…", onSelect: () => setVersioning(true) }]
+                    : []),
+                  ...(canTriage
+                    ? [
+                        { label: "Export comments…", onSelect: () => setExporting(true) },
+                        ...(plays
+                          ? [
+                              {
+                                label: "Import a marker list…",
+                                onSelect: () => setImporting(true),
+                              },
+                            ]
+                          : []),
+                        { label: "Triage comments", onSelect: () => onView("triage") },
+                      ]
+                    : []),
+                  // A track's takes (#644): reached from here and the track page, never the version menu.
+                  ...(file.variant && can("view_takes")
+                    ? [
+                        {
+                          label: "Takes of this track",
+                          onSelect: () =>
+                            void navigate({
+                              to: "/tracks/$trackId",
+                              params: { trackId: file.variant?.trackId ?? "" },
+                              search: { view: "takes" },
+                            }),
+                        },
+                      ]
+                    : []),
+                  "divider" as const,
+                  // The details sheet (#561), as the prototype offers it: from the menu.
+                  { label: "Details", onSelect: () => onDetails(true) },
+                ]}
+              />
             </>
           )
         }
@@ -1038,7 +1123,7 @@ export function FilePage({
                 onLoop={allows("loops") ? hear : undefined}
                 heading={tabs}
                 tools={<PanelPlacement layout={layout} onChange={setLayout} />}
-                focus={focusComment}
+                focus={pickedThread ?? focusComment}
               />
             )}
           </div>
@@ -1046,6 +1131,23 @@ export function FilePage({
       </div>
     </>
   );
+}
+
+/** Whether the window is a wide screen's (Tailwind's `lg`), where the header has room for more. */
+function useWide(): boolean {
+  const query = "(min-width: 64rem)";
+  const [wide, setWide] = useState(
+    () => typeof matchMedia !== "function" || matchMedia(query).matches,
+  );
+  useEffect(() => {
+    if (typeof matchMedia !== "function") return;
+    const media = matchMedia(query);
+    const change = () => setWide(media.matches);
+    change();
+    media.addEventListener("change", change);
+    return () => media.removeEventListener("change", change);
+  }, []);
+  return wide;
 }
 
 const NORMALISED_KEY = "hekate.player.normalised";

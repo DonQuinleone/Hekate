@@ -1,4 +1,4 @@
-import { capital, nodeTypes, type WorkflowRunSummary } from "@hekate/shared";
+import { capital, choosableOutcome, nodeTypes, type WorkflowRunSummary } from "@hekate/shared";
 
 /** A move the workflow allows from here: a step the run waits on, ended by one of its outcomes. */
 export interface StatusMove {
@@ -6,13 +6,17 @@ export interface StatusMove {
   nodeId: string;
   step: string;
   outcome: string;
+  /** The outcome in words, named by where it leads (#566): "Done, to Mastering". */
   label: string;
+  /** The step it leads to, where one follows. */
+  leadsTo: string | null;
 }
 
 /**
- * The moves a track's running workflow allows from where it is: each step it waits on that
- * someone ends (a task done, an approval decided), by each outcome; events it waits for
- * (a decision recorded, a due date passed) are not ended by hand.
+ * The moves a track's running workflow allows from where it is (#566): each step it waits on
+ * that someone ends (a task done, an approval decided), by each outcome a person decides, named
+ * by where it leads. Events it waits for and outcomes only an event raises (a due date passed,
+ * what the checks found) are not chosen by hand.
  */
 export function movesOf(runs: readonly WorkflowRunSummary[]): StatusMove[] {
   return runs
@@ -20,14 +24,33 @@ export function movesOf(runs: readonly WorkflowRunSummary[]): StatusMove[] {
     .flatMap((run) =>
       run.waiting.flatMap((step) => {
         const info = nodeTypes[step.type];
-        if (info.kind !== "action" || info.immediate) return [];
-        return info.outcomes.map((o) => ({
-          runId: run.id,
-          nodeId: step.nodeId,
-          step: step.name,
-          outcome: o.id,
-          label: capital(o.label || o.id),
-        }));
+        const choices =
+          step.choices ??
+          info.outcomes
+            .filter((o) => choosableOutcome(step.type, o.id))
+            .map((o) => ({ outcome: o.id, leadsTo: null }));
+        return choices.flatMap((choice) => {
+          if (!choosableOutcome(step.type, choice.outcome)) return [];
+          // A wait ended by hand stops waiting; any other outcome says itself.
+          const words =
+            step.type === "wait"
+              ? "Stop waiting"
+              : info.outcomes.find((o) => o.id === choice.outcome)?.label || choice.outcome;
+          return [
+            {
+              runId: run.id,
+              nodeId: step.nodeId,
+              step: step.name,
+              outcome: choice.outcome,
+              label: capital(words),
+              leadsTo: choice.leadsTo,
+            },
+          ];
+        });
       }),
     );
 }
+
+/** A move as its menu item says it: its outcome, then where it leads. */
+export const moveLabel = (move: StatusMove) =>
+  move.leadsTo ? `${move.label}, to ${move.leadsTo}` : move.label;

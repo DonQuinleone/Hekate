@@ -1,6 +1,6 @@
 import type { WorkflowRunSummary } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
-import { movesOf } from "./status-moves";
+import { moveLabel, movesOf } from "./status-moves";
 
 const run = (
   id: string,
@@ -22,7 +22,7 @@ const run = (
 });
 
 describe("movesOf", () => {
-  it("offers each outcome of every step a running workflow waits on someone to end", () => {
+  it("offers each outcome a person decides of every step a running workflow waits on", () => {
     const moves = movesOf([
       run("r1", "running", [
         { nodeId: "n1", name: "Producer's approval", type: "approval" },
@@ -34,8 +34,25 @@ describe("movesOf", () => {
       ["r1", "n1", "Producer's approval", "mixed", "Some approved"],
       ["r1", "n1", "Producer's approval", "changes", "Changes requested"],
       ["r1", "n2", "Tidy the edit", "done", "Done"],
-      ["r1", "n2", "Tidy the edit", "overdue", "Due date passed"],
     ]);
+  });
+
+  it("names each move by where it leads, from what the server says (#566)", () => {
+    const moves = movesOf([
+      run("r1", "running", [
+        {
+          nodeId: "n2",
+          name: "Tidy the edit",
+          type: "task",
+          choices: [
+            { outcome: "done", leadsTo: "Mastering" },
+            // Never offered, whatever an older answer says: the clock raises it.
+            { outcome: "overdue", leadsTo: "Chase" },
+          ],
+        },
+      ]),
+    ]);
+    expect(moves.map(moveLabel)).toEqual(["Done, to Mastering"]);
   });
 
   it("offers nothing for a finished or cancelled run", () => {
@@ -56,11 +73,11 @@ describe("movesOf", () => {
     ).toEqual([]);
   });
 
-  it("names an outcome by its id where it has no words of its own", () => {
+  it("offers to stop a wait early, in those words", () => {
     expect(
       movesOf([run("r1", "running", [{ nodeId: "n1", name: "Hold", type: "wait" }])]).map(
         (m) => m.label,
       ),
-    ).toEqual(["Elapsed"]);
+    ).toEqual(["Stop waiting"]);
   });
 });

@@ -85,7 +85,7 @@ export function AddVariantDialog({
                 <Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
               </label>
               <label className="flex h-9 items-center gap-2 text-[14px] text-ink-2">
-                <input type="checkbox" /> Make it the primary
+                <input type="checkbox" /> Make primary variant
               </label>
             </div>
             {/* The names the project's other variants go by: one press names this one. */}

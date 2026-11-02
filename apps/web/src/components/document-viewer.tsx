@@ -290,19 +290,23 @@ export function DocumentViewer({
                     onClick={() => go(p.page)}
                     className="flex w-full cursor-pointer flex-col items-center gap-1 border-0 bg-transparent p-0"
                   >
-                    <img
-                      src={p.thumbUrl}
-                      alt=""
-                      loading="lazy"
-                      draggable={false}
-                      width={p.width}
-                      height={p.height}
-                      onError={refresh}
-                      className={cn(
-                        "h-auto w-full rounded-[3px] bg-ground outline outline-1",
-                        p.page === page ? "outline-signal" : "outline-hairline",
-                      )}
-                    />
+                    {/* Paper until it is drawn (#646), and drawn on paper (#702): the server's
+                        white page multiplied onto the paper token. */}
+                    <span className="isolate block w-full rounded-[3px] bg-paper">
+                      <img
+                        src={p.thumbUrl}
+                        alt=""
+                        loading="lazy"
+                        draggable={false}
+                        width={p.width}
+                        height={p.height}
+                        onError={refresh}
+                        className={cn(
+                          "block h-auto w-full rounded-[3px] mix-blend-multiply outline outline-1",
+                          p.page === page ? "outline-signal" : "outline-hairline",
+                        )}
+                      />
+                    </span>
                     <span
                       className={cn(
                         "tabular flex items-center gap-1.5 text-[11px]",
@@ -336,7 +340,7 @@ export function DocumentViewer({
             <div
               ref={sheet}
               className={cn(
-                "relative mx-auto select-none",
+                "relative isolate mx-auto bg-paper select-none",
                 canDraw && "cursor-crosshair",
                 // Drawing on, a finger draws rather than scrolling the page.
                 canDraw && drawing && "touch-none",
@@ -359,7 +363,8 @@ export function DocumentViewer({
                 height={current.height}
                 onError={refresh}
                 onContextMenu={(event) => event.preventDefault()}
-                className="block h-auto w-full max-w-none"
+                // The page on the paper token (#702): its white multiplied onto the sheet's paper.
+                className="block h-auto w-full max-w-none mix-blend-multiply"
               />
               {here.map((m) => {
                 const picked = m.id === focus.selected;

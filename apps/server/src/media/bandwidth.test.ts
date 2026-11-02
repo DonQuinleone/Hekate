@@ -127,7 +127,7 @@ describe("whether a file decodes whole (#41)", () => {
     expect(integrityFinding(83.4, 180, 0)).toMatchObject({
       severity: "fail",
       start: 83.4,
-      summary: "Decodes to 01:23.400 of the 03:00.000 it declares: the file is likely cut short",
+      summary: "Decodes to 1:23.400 of the 3:00.000 it declares: the file is likely cut short",
     });
   });
 

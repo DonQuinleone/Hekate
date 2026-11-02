@@ -153,6 +153,7 @@ function AddCaptionsForm({ onClose }: { onClose: () => void }) {
 /** What the server knows about a file, and who has touched it. */
 export function FileDetailsSheet({ file, onClose }: { file: File; onClose: () => void }) {
   const log = accessLog.filter((e) => e.fileId === file.id);
+  const [storageOpen, setStorageOpen] = useState(false);
   const renditions =
     file.kind === "audio"
       ? [
@@ -197,40 +198,56 @@ export function FileDetailsSheet({ file, onClose }: { file: File; onClose: () =>
             <Avatar personId={file.uploadedBy} size={18} />
             {personById(file.uploadedBy).name}, {formatDateTime(file.uploadedAt)}
           </Property>
-          <Property name="Storage">Hetzner Object Storage (S3)</Property>
-          <Property name="At rest">
-            <Dot state="approved" />
-            Encrypted, key k-3f1a, rotated 2 Oct
-          </Property>
-          <Property name="Analysis">
-            {file.state === "ready" ? (
-              <>
-                <Dot state="passed" />
-                Done
-              </>
-            ) : file.state === "pending" ? (
-              <>
-                <Dot state="working" />
-                Running
-              </>
-            ) : (
-              <>
-                <Dot state="changes_requested" />
-                Failed
-              </>
-            )}
-          </Property>
         </section>
+        {/* Storage, encryption and renditions, folded (#635): the instance's business. */}
         <section className="flex flex-col gap-1.5">
-          <Label>Renditions</Label>
-          {renditions.filter(Boolean).map((r) => (
-            <span key={r} className="text-[13px] text-ink-2">
-              {r}
-            </span>
-          ))}
-          <span className="text-[12px] text-ink-3">
-            The original never leaves storage except through a permitted, watermarked download.
-          </span>
+          <button
+            type="button"
+            aria-expanded={storageOpen}
+            onClick={() => setStorageOpen(!storageOpen)}
+            className="-mx-1 flex h-7 w-fit items-center gap-1.5 rounded-control px-1 text-[13px] text-ink-3 hover:bg-raised hover:text-ink"
+          >
+            <Icon name={storageOpen ? "chevronDown" : "chevronRight"} size={14} />
+            Storage and delivery
+          </button>
+          {storageOpen && (
+            <>
+              <div className="flex flex-col gap-0.5">
+                <Property name="Storage">Hetzner Object Storage (S3)</Property>
+                <Property name="At rest">
+                  <Dot state="approved" />
+                  Encrypted, key k-3f1a, rotated 2 Oct
+                </Property>
+                <Property name="Analysis">
+                  {file.state === "ready" ? (
+                    <>
+                      <Dot state="passed" />
+                      Done
+                    </>
+                  ) : file.state === "pending" ? (
+                    <>
+                      <Dot state="working" />
+                      Running
+                    </>
+                  ) : (
+                    <>
+                      <Dot state="changes_requested" />
+                      Failed
+                    </>
+                  )}
+                </Property>
+              </div>
+              <Label>Renditions</Label>
+              {renditions.filter(Boolean).map((r) => (
+                <span key={r} className="text-[13px] text-ink-2">
+                  {r}
+                </span>
+              ))}
+              <span className="text-[12px] text-ink-3">
+                The original never leaves storage except through a permitted, watermarked download.
+              </span>
+            </>
+          )}
         </section>
         {(file.kind === "video" || file.kind === "audio") && <CaptionTracks file={file} />}
         <section className="flex flex-col gap-1.5">
@@ -300,7 +317,14 @@ export function DownloadDialog({
                 !can && "cursor-not-allowed opacity-50",
               )}
             >
-              <span className="text-[14px] text-ink">{w === "proxy" ? "Proxy" : "Original"}</span>
+              {/* In words people use (#635). */}
+              <span className="text-[14px] text-ink">
+                {w === "proxy"
+                  ? "Review copy"
+                  : file.kind === "video"
+                    ? "Original, re-encoded with your mark"
+                    : "Original"}
+              </span>
               <span className="text-[13px] text-ink-3">
                 {w === "proxy"
                   ? file.kind === "video"
