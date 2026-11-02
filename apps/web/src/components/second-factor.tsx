@@ -73,7 +73,7 @@ export function RecoveryCodes({ codes }: { codes: string[] }) {
     <div className="flex flex-col gap-3">
       <ol
         aria-label="Recovery codes"
-        className="m-0 grid list-none grid-cols-2 gap-x-6 gap-y-1.5 rounded-panel border border-line bg-raised/40 px-4 py-3 font-mono text-[14px] tabular-nums text-ink"
+        className="m-0 grid list-none grid-cols-2 gap-x-6 gap-y-1.5 rounded-panel border border-line bg-raised/40 px-4 py-3 text-[14px] tracking-wide tabular-nums text-ink"
       >
         {codes.map((code) => (
           <li key={code}>{code}</li>
@@ -237,7 +237,7 @@ export function CodeAppSetup({
             <p className="m-0 text-[13px] leading-normal text-ink-3">
               No camera? Type this key into the app instead:
               {/* Whole groups wrap, never a group split across lines. */}
-              <span className="mt-1.5 flex flex-wrap gap-x-2 font-mono text-[14px] text-ink">
+              <span className="tabular mt-1.5 flex flex-wrap gap-x-2 text-[14px] tracking-wide text-ink">
                 {keyOf(stage.uri)
                   .split(" ")
                   .map((group, i) => (

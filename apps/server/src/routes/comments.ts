@@ -150,15 +150,20 @@ export const wroteIt = (
 ) => (actor.kind === "guest" ? c.guestAuthorId === actor.guestId : c.authorId === actor.userId);
 
 /**
- * A comment as it leaves the server: which guest wrote it stays inside, and whether it is the
- * viewer's own is said instead, since a guest cannot tell from its author.
+ * A comment as it leaves the server: whether it is the viewer's own is said, since a guest
+ * cannot tell from its author. Which guest wrote it reaches members only, for the guest's
+ * avatar colour (#604); a guest is never told who another guest is.
  */
 function publicComment<C extends { authorId: string | null; guestAuthorId: string | null }>(
   row: C,
   actor: ViewerVariables["actor"],
 ) {
-  const { guestAuthorId: _, ...rest } = row;
-  return { ...rest, mine: wroteIt(actor, row) };
+  const { guestAuthorId, ...rest } = row;
+  return {
+    ...rest,
+    authorGuestId: actor.kind === "guest" ? null : guestAuthorId,
+    mine: wroteIt(actor, row),
+  };
 }
 
 /**

@@ -652,6 +652,8 @@ async function activityOf(
       id: e.id,
       action: e.action,
       name: nameOfLabel(e.label),
+      /** Whose avatar it carries (#604): the member's user id or the guest's id. */
+      person: e.userId ?? e.guestId,
       at: e.at,
       decision: null as ReviewDecision | null,
       /** Who it concerned: the reviewer added, removed, reminded or revoked. */
@@ -668,10 +670,12 @@ async function activityOf(
     };
   });
   for (const d of decisions) {
+    const row = rows.find((r) => r.id === d.reviewerId);
     entries.push({
       id: d.id,
       action: "review.decision",
-      name: rows.find((row) => row.id === d.reviewerId)?.name ?? "A former member",
+      name: row?.name ?? "A former member",
+      person: row ? (row.userId ?? row.guestId) : null,
       at: d.createdAt,
       decision: d.decision,
       subject: null,
@@ -793,6 +797,8 @@ async function reviewView(db: Database, actor: Actor, reviewId: string) {
     reviewers: rows.map((row, i) => ({
       id: row.id,
       userId: row.userId,
+      /** The guest, the same in every review, for their avatar (#604); members only. */
+      guestId: member ? row.guestId : null,
       guest: row.guestId !== null,
       name: row.name,
       label: row.label,

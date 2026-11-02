@@ -11,6 +11,7 @@ import {
   useSwitchOrganisation,
   useTransferMutations,
 } from "~/lib/queries";
+import { CopyButton } from "./copy-button";
 import { useIdentityCheck } from "./identity-check";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
@@ -77,13 +78,12 @@ export function ConfirmStep({
           </p>
         )}
         <span className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Keep it here
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
           </Button>
           <Button
             type="submit"
-            variant="secondary"
-            className="text-signal"
+            variant="danger"
             disabled={!nameMatches(typed, projectName) || !identity.ready || pending}
           >
             {action}
@@ -338,7 +338,12 @@ export function TransfersSection() {
             name="Its address"
             hint="Someone moving a project here from a workspace you are not in gives it."
           >
-            <code className="tabular text-[14px] text-ink">{here.address}</code>
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="tabular truncate text-[14px] tracking-wide text-ink">
+                {here.address}
+              </span>
+              <CopyButton value={here.address} label="Copy the address" />
+            </span>
           </Row>
         </Section>
       )}

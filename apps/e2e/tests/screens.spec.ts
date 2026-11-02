@@ -7,6 +7,7 @@ import postgres from "postgres";
 import { waveBytes } from "../../../packages/shared/src/fixtures/wave.ts";
 import { croomFixtureBytes } from "../../server/src/croom/fixture.ts";
 import { checkScreen } from "./checks.ts";
+import { onTheFixedClock } from "./clock.ts";
 import { FIXED_TIME, type Seeded, saveScreen, seeded, state } from "./fixtures.ts";
 
 /**
@@ -20,7 +21,9 @@ import { FIXED_TIME, type Seeded, saveScreen, seeded, state } from "./fixtures.t
  * screen that caused it.
  */
 const violations = new WeakMap<Page, string[]>();
-test.beforeEach(({ page }) => {
+test.beforeEach(async ({ page }) => {
+  // Every capture at the fixed time the seed's rows are set to (#543).
+  await onTheFixedClock(page);
   const seen: string[] = [];
   violations.set(page, seen);
   page.on("console", (message) => {
@@ -42,6 +45,8 @@ interface Screen {
   ready: string;
   /** Whose screen it is: the owner's, someone signed out, or a guest reviewer's. */
   as?: "owner" | "signed-out" | "guest";
+  /** What the screen is about, where it is part of a page another capture shows: that part alone. */
+  subject?: string;
 }
 
 const screens: Screen[] = [
@@ -163,7 +168,8 @@ const screens: Screen[] = [
   },
   {
     name: "guest-file",
-    path: (s) => `/g/files/${s.dryFileId}`,
+    // As a guest arrives from their review, which the file page opens with (#610).
+    path: (s) => `/g/files/${s.dryFileId}?review=${s.reviewId}`,
     ready: "section[aria-label=Comments]",
     as: "guest",
   },
@@ -331,17 +337,27 @@ const screens: Screen[] = [
     path: (s) => `/tracks/${s.trackId}?view=versions`,
     ready: "text=Bars 12 to 16",
   },
-  // Its workflow's history of transitions (#25), under the versions: who moved it on, and when.
+  // Its workflow's history of transitions (#25), under the versions: who moved it on, and when,
+  // a wait among them ended by hand.
   {
     name: "track-history",
     path: (s) => `/tracks/${s.trackId}?view=versions`,
     ready: "section[aria-label='Workflow history'] >> text=Let it settle",
+    subject: "section[aria-label='Workflow history']",
   },
   // A deliverable (#16): a track in a video project, in video words, its renditions described.
   {
     name: "deliverable",
     path: (s) => `/tracks/${s.deliverableId}?view=versions`,
     ready: "text=Picture lock candidate",
+  },
+  // Its own workflow's history: a run moved on by hand, then stopped by the second cut, which
+  // started it again where it was.
+  {
+    name: "deliverable-history",
+    path: (s) => `/tracks/${s.deliverableId}?view=versions`,
+    ready: "section[aria-label='Workflow history'] >> text=Stopped",
+    subject: "section[aria-label='Workflow history']",
   },
   // Two versions side by side (#137): aligned by their audio, the checks fixed and new.
   {
@@ -637,15 +653,40 @@ async function showWhole(page: Page) {
   if (hidden > 0 && size) await page.setViewportSize({ ...size, height: size.height + hidden });
 }
 
+/**
+ * Scrolls what a screen is about into its scrolling pane (the main area, or a pane inside it),
+ * and nothing else: the document itself never scrolls, so the shell stays where it is.
+ */
+async function bringIntoView(target: Locator, block: "start" | "center" = "start") {
+  await target.evaluate((el, block) => {
+    let pane = el.parentElement;
+    while (
+      pane &&
+      !(
+        pane.scrollHeight > pane.clientHeight &&
+        /auto|scroll/.test(getComputedStyle(pane).overflowY)
+      )
+    )
+      pane = pane.parentElement;
+    if (!pane) return;
+    const box = el.getBoundingClientRect();
+    const frame = pane.getBoundingClientRect();
+    const top = box.top - frame.top + pane.scrollTop;
+    pane.scrollTop = block === "start" ? top - 24 : top - (pane.clientHeight - box.height) / 2;
+  }, block);
+}
+
 function capture(screen: Screen) {
   test(screen.name, async ({ page }) => {
     await page.clock.setFixedTime(FIXED_TIME);
     await page.goto(screen.path(seeded()));
     await settle(page, screen.ready);
-    await showWhole(page);
+    const subject = screen.subject ? page.locator(screen.subject).first() : undefined;
+    if (subject) await bringIntoView(subject);
+    else await showWhole(page);
     await settle(page, screen.ready);
     // Captured first, so a screen that fails its checks still leaves a picture to look at.
-    await saveScreen(page, screen.name);
+    await saveScreen(page, screen.name, subject);
     await checkScreen(page);
   });
 }
@@ -981,7 +1022,7 @@ test("instance-operator-new", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/instance/operators");
   await settle(page, "main >> text=producer@example.test");
-  await page.getByRole("button", { name: "Operator", exact: true }).click();
+  await page.getByRole("button", { name: "Add operator", exact: true }).click();
   await settle(page, "[role=dialog] >> text=Their email address");
   // The dialog's own entrance played out (the lamps and the like run for ever).
   await page.waitForFunction(() =>
@@ -1089,7 +1130,7 @@ test("project-settings-exception", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/settings?section=roles`);
   // The seeded group's exception has loaded (on a phone its column waits behind the chooser).
   await settle(page, "main >> text=tools replace the role");
-  await page.getByRole("button", { name: "Add an exception" }).click();
+  await page.getByRole("button", { name: "Add exception" }).click();
   await settle(page, "[role=dialog] >> text=Tools");
   await saveScreen(page, "project-settings-exception");
   await checkScreen(page);
@@ -1201,7 +1242,7 @@ test("project-settings-roles-twelve", async ({ page }) => {
 test("settings-delivery-profile", async ({ page }) => {
   await page.goto("/settings/delivery");
   await settle(page, "main >> text=Built in >> nth=0");
-  await page.getByRole("button", { name: "Profile", exact: true }).click();
+  await page.getByRole("button", { name: "New profile", exact: true }).click();
   await settle(page, "[role=dialog] >> text=Frame rate");
   await page.getByLabel("Size").selectOption("1920x1080");
   await page.getByLabel("Frame rate").selectOption("25");
@@ -1232,7 +1273,7 @@ test("stage-plan", async ({ page }) => {
   ]);
   expect(pdf.suggestedFilename()).toBe("Joplin Rags Endless Hall stage plan.pdf");
   // The hall's floor plan under the stage, chosen from the project's documents.
-  await page.getByRole("button", { name: "Stage plan" }).click();
+  await page.getByRole("button", { name: /^Stage plan/ }).click();
   await page.getByRole("menuitem", { name: "Floor plan" }).click();
   const floor = page.getByRole("dialog", { name: "Floor plan" });
   await expect(floor.getByRole("button", { name: "File" })).toHaveText(
@@ -1641,7 +1682,7 @@ test("workflows-picker", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/workflow`);
   await settle(page, "main [data-node]:has-text('Label approval')");
-  await page.getByRole("button", { name: "Node", exact: true }).click();
+  await page.getByRole("button", { name: "Add node", exact: true }).click();
   const panel = page.locator("aside[aria-label=Inspector]");
   await settle(page, "aside[aria-label=Inspector] >> text=Add a node");
   // Once a workflow has its start, a start begins a new workflow, offered last (#514).
@@ -1729,10 +1770,11 @@ test("sidebar-collapsed-switcher", async ({ page }, info) => {
   await checkScreen(page);
 });
 
-// The template menu on the empty Workflows page, out of the card that clipped it (#476).
+// The template menu on the empty Workflows page, out of the card that clipped it (#476): the
+// booklet's project, as the video project's deliverable has a workflow of its own.
 test("workflows-templates", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
-  await page.goto(`/projects/${seeded().videoProjectId}/workflow?view=basic`);
+  await page.goto(`/projects/${seeded().generalProjectId}/workflow?view=basic`);
   await settle(page, "main >> text=No workflows yet");
   await page.getByRole("button", { name: "From a template" }).click();
   await page.getByRole("menuitem", { name: "From another project…" }).hover({ timeout: 5_000 });
@@ -1744,7 +1786,7 @@ test("workflows-templates", async ({ page }) => {
 test("workflows-copy", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   // From a project with none yet, to one with two.
-  await page.goto(`/projects/${seeded().videoProjectId}/workflow?view=basic`);
+  await page.goto(`/projects/${seeded().generalProjectId}/workflow?view=basic`);
   await settle(page, "main >> text=No workflows yet");
   await page.getByRole("button", { name: "From a template" }).click();
   await page.getByRole("menuitem", { name: "From another project…" }).click();
@@ -1911,6 +1953,8 @@ test("workflows-code-refused", async ({ page }) => {
     .getByRole("button", { name: /^Line \d+$/ })
     .first()
     .click();
+  // The reason and the marked line together (#610).
+  await showWhole(page);
   await saveScreen(page, "workflows-code-refused");
   await checkScreen(page);
 });
@@ -1951,7 +1995,12 @@ for (const [name, role, open, ready] of [
     "Lantern Pictures",
     "main >> text=The invoice for October is unpaid.",
   ],
-  ["instance-workspace-new", "button", "Workspace", "[role=dialog] >> text=First owner’s email"],
+  [
+    "instance-workspace-new",
+    "button",
+    "New workspace",
+    "[role=dialog] >> text=First owner’s email",
+  ],
 ] as const) {
   test(name, async ({ page }) => {
     await page.clock.setFixedTime(FIXED_TIME);
@@ -2148,7 +2197,7 @@ test("account-token-new", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/account/tokens");
   await settle(page, "main >> text=Logic Pro export");
-  await page.getByRole("button", { name: "Token", exact: true }).click();
+  await page.getByRole("button", { name: "New token", exact: true }).click();
   await settle(page, "[role=dialog] >> text=Pick the least it needs.");
   await saveScreen(page, "account-token-new");
   await checkScreen(page);
@@ -2160,7 +2209,7 @@ test("settings-oauth-clients", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/settings/api");
   await settle(page, "main >> text=Hekate for Slack");
-  await page.getByRole("button", { name: "Client", exact: true }).click();
+  await page.getByRole("button", { name: "New client", exact: true }).click();
   await settle(page, "[role=dialog] >> text=Scopes it may ask for");
   await saveScreen(page, "settings-oauth-client-new");
   await checkScreen(page);
@@ -2280,7 +2329,7 @@ test("settings-notifications-new", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto("/settings/notifications");
   await settle(page, "main >> text=Release desk >> nth=0");
-  await page.getByRole("button", { name: "Channel", exact: true }).click();
+  await page.getByRole("button", { name: "New channel", exact: true }).click();
   await page.getByLabel("Kind").selectOption("webhook");
   await settle(page, "[role=dialog] >> text=Each event arrives as JSON");
   await saveScreen(page, "settings-notifications-new");
@@ -2602,16 +2651,17 @@ test("file-comment-mention", async ({ page }, info) => {
   await checkScreen(page);
 });
 
-// Deleting a project (#240): asked for by one person, confirmed by a second owner typing its name.
-// The project's answer is amended in this page alone, so nothing is ever deleted.
+// Deleting a project (#240): asked for by one person, confirmed by a second owner typing its name;
+// here the workspace's only owner, who asked yesterday. The project's answer is amended in this
+// page alone, so nothing is ever deleted.
 test("project-settings-deletion", async ({ page }) => {
   await page.route(`**/api/projects/${seeded().musicProjectId}`, async (route) => {
     if (route.request().method() !== "GET") return route.continue();
     const response = await route.fetch();
     const body = (await response.json()) as { project: Record<string, unknown> };
     body.project.deletion = {
-      requestedBy: "Mira Solberg",
-      requestedAt: "2026-10-15T09:30:00Z",
+      requestedBy: "Alex Rivera",
+      requestedAt: "2026-10-13T09:30:00Z",
       mayConfirm: true,
       mayCancel: true,
       confirmableAt: null,
@@ -2639,11 +2689,11 @@ const exportsShown = {
       requestedBy: "Alex Rivera",
       byOperator: false,
       recipient: `age1${"q".repeat(58)}`,
-      createdAt: "2026-10-20T18:04:00Z",
-      finishedAt: "2026-10-20T18:31:00Z",
+      createdAt: "2026-10-12T18:04:00Z",
+      finishedAt: "2026-10-12T18:31:00Z",
       byteSize: 38_200_000_000,
       fileCount: 1204,
-      expiresAt: "2026-10-27T18:31:00Z",
+      expiresAt: "2026-10-19T18:31:00Z",
       error: null,
     },
     {
@@ -2703,7 +2753,7 @@ test("settings-export", async ({ page }) => {
     });
   });
   await page.goto("/settings/operations");
-  await settle(page, "main >> text=until 2026-10-27");
+  await settle(page, "main >> text=until 2026-10-19");
   await saveScreen(page, "settings-export");
   await checkScreen(page);
   await page.getByRole("button", { name: "Start an export…" }).click();
@@ -2716,7 +2766,8 @@ test("settings-export", async ({ page }) => {
   await checkScreen(page);
 });
 
-// Deleting the workspace (#186): asked for by one owner, confirmed by another typing its name.
+// Deleting the workspace (#186): asked for by one owner, confirmed by another typing its name;
+// the seeded workspace has one owner, who asked yesterday and may confirm it now, a day later.
 // The answer is amended in this page alone, so nothing is ever deleted.
 test("settings-workspace-deletion", async ({ page }) => {
   await page.route("**/api/organisation/deletion", async (route) => {
@@ -2724,8 +2775,8 @@ test("settings-workspace-deletion", async ({ page }) => {
     await route.fulfill({
       json: {
         deletion: {
-          requestedBy: "Mira Solberg",
-          requestedAt: "2026-10-15T09:30:00Z",
+          requestedBy: "Alex Rivera",
+          requestedAt: "2026-10-13T09:30:00Z",
           mayConfirm: true,
           mayCancel: true,
           confirmableAt: null,
@@ -2749,36 +2800,28 @@ test("settings-workspace-deletion", async ({ page }) => {
 
 // A workspace its owners are deleting (#186), as its owner sees it: the day it goes, keeping
 // it, and its export. Who they are is amended in the page alone, so nothing is suspended.
-for (const [name, viewport] of [
-  ["workspace-being-deleted", { width: 1440, height: 900 }],
-  ["workspace-being-deleted-phone", { width: 390, height: 844 }],
-] as const) {
-  test(name, async ({ page }) => {
-    await page.route("**/api/me", async (route) => {
-      const response = await route.fetch();
-      const body = (await response.json()) as {
-        activeOrganisationId: string;
-        organisations: { id: string; suspended: unknown }[];
-      };
-      for (const o of body.organisations)
-        if (o.id === body.activeOrganisationId)
-          o.suspended = {
-            reason: "Its owners are deleting it.",
-            payable: false,
-            deleteAfter: "2026-11-22T09:30:00Z",
-          };
-      await route.fulfill({ response, json: body });
-    });
-    await page.route("**/api/organisation/exports", (route) =>
-      route.fulfill({ json: exportsShown }),
-    );
-    await page.setViewportSize(viewport);
-    await page.goto("/suspended");
-    await settle(page, "text=Download the export");
-    await saveScreen(page, name);
-    await checkScreen(page);
+test("workspace-being-deleted", async ({ page }) => {
+  await page.route("**/api/me", async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as {
+      activeOrganisationId: string;
+      organisations: { id: string; suspended: unknown }[];
+    };
+    for (const o of body.organisations)
+      if (o.id === body.activeOrganisationId)
+        o.suspended = {
+          reason: "Its owners are deleting it.",
+          payable: false,
+          deleteAfter: "2026-11-13T09:30:00Z",
+        };
+    await route.fulfill({ response, json: body });
   });
-}
+  await page.route("**/api/organisation/exports", (route) => route.fulfill({ json: exportsShown }));
+  await page.goto("/suspended");
+  await settle(page, "text=Download the export");
+  await saveScreen(page, "workspace-being-deleted");
+  await checkScreen(page);
+});
 
 // A workspace's own bucket (#508), on a plan that includes it: the seeded workspace's plan does
 // not, so the answer is amended in the page alone, with a bucket saved and taking new files;
@@ -2859,6 +2902,8 @@ test("project-settings-transfer", async ({ page }) => {
   );
   await page.goto(`/projects/${seeded().musicProjectId}/settings`);
   await settle(page, "main >> text=Moving to Endless Hall Records East");
+  // The pending move, in the middle of the pane, at either width (#610).
+  await bringIntoView(page.getByText("Moving to Endless Hall Records East").first(), "center");
   await saveScreen(page, "project-settings-transfer");
   await checkScreen(page);
   await page.getByRole("button", { name: "Approve…" }).click();
@@ -3065,6 +3110,9 @@ test("file-channels", async ({ page }) => {
 // the current timecode, refusing one the file does not reach. The suite's browser cannot
 // decode the cut itself, so the reference shows them.
 test("video-frame-tools", async ({ page }) => {
+  // A window tall enough for the whole section and the box below it, at either width.
+  const size = page.viewportSize() ?? { width: 1440, height: 900 };
+  await page.setViewportSize({ width: size.width, height: 2400 });
   await page.goto("/reference");
   await settle(page, "main h1");
   await page.getByRole("button", { name: "Go to" }).click();
@@ -3080,8 +3128,27 @@ test("video-frame-tools", async ({ page }) => {
   await field.fill("09:59:59:00");
   await field.press("Enter");
   await expect(page.getByText("That timecode is not in this file.")).toBeVisible();
-  await page.getByText("Mattes and safe areas").scrollIntoViewIfNeeded();
-  await saveScreen(page, "video-frame-tools");
+  // The reference's Video frame section and the Go to box open over its foot, not the page
+  // around them (#610).
+  const section = page
+    .locator("section")
+    .filter({ has: page.getByRole("heading", { name: "Video frame" }) });
+  await bringIntoView(section);
+  const boxes = (
+    await Promise.all(
+      [section, field, page.getByText("That timecode is not in this file.")].map((l) =>
+        l.boundingBox(),
+      ),
+    )
+  ).flatMap((b) => (b ? [b] : []));
+  const top = Math.max(0, Math.min(...boxes.map((b) => b.y)) - 16);
+  const bottom = Math.max(...boxes.map((b) => b.y + b.height)) + 16;
+  await saveScreen(page, "video-frame-tools", {
+    x: 0,
+    y: top,
+    width: size.width,
+    height: Math.min(2400, bottom) - top,
+  });
   await checkScreen(page);
 });
 
@@ -3640,9 +3707,9 @@ test("file-comment-link-files", async ({ page }, info) => {
   await form.getByRole("button", { name: "Attach", exact: true }).click();
   const menu = page.getByRole("menu", { name: "Attach" });
   await expect(menu.getByRole("menuitem")).toHaveText([
-    "Takes from this track",
-    "Files from this project",
-    "Upload",
+    "Takes from this track…",
+    "Files from this project…",
+    "Upload…",
   ]);
   await menu.getByRole("menuitem", { name: "Files from this project" }).click();
   const dialog = page.getByRole("dialog", { name: "Files from this project" });
@@ -4312,7 +4379,7 @@ test("project-calendar-subscribe", async ({ page }) => {
   await settle(page, 'main >> a:visible:has-text("Re-export the stems at 96 kHz")');
   await page.getByRole("button", { name: "Add to your calendar" }).click();
   const dialog = page.getByRole("dialog", { name: "Add to your calendar" });
-  await expect(dialog.getByRole("button", { name: "Make my link" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Create link" })).toBeVisible();
   await saveScreen(page, "project-calendar-subscribe");
   await checkScreen(page);
 });
@@ -4324,7 +4391,7 @@ test("project-calendar-entry", async ({ page }) => {
   await settle(page, 'main >> a:visible:has-text("Re-export the stems at 96 kHz")');
   await page.getByRole("button", { name: "New entry" }).click();
   const dialog = page.getByRole("dialog", { name: "New entry" });
-  await expect(dialog.getByRole("button", { name: "Add entry" })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "Create entry" })).toBeDisabled();
   await dialog.getByLabel("Title").fill("Day 4");
   await dialog.getByRole("button", { name: "Session", exact: true }).click();
   await expect(dialog.getByText("Books a recording session under Production")).toBeVisible();
@@ -4343,7 +4410,7 @@ test("project-timeline-entry", async ({ page }) => {
     .first()
     .click();
   const dialog = page.getByRole("dialog", { name: "Entry" });
-  await expect(dialog.getByRole("button", { name: "Remove", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Remove…", exact: true })).toBeVisible();
   await saveScreen(page, "project-timeline-entry");
   await checkScreen(page);
 });
@@ -4414,7 +4481,7 @@ test("project-task-new", async ({ page }) => {
   await page.getByRole("button", { name: "New task" }).click();
   const dialog = page.getByRole("dialog", { name: "New task" });
   await dialog.getByLabel("Title").fill("Book the hall for the patch session");
-  await expect(dialog.getByRole("button", { name: "Add task" })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Create task" })).toBeEnabled();
   await saveScreen(page, "project-task-new");
   await checkScreen(page);
 });
@@ -4428,7 +4495,7 @@ test("project-session-new", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "New session" });
   await dialog.getByLabel("Name").fill("Day 4");
   await dialog.getByRole("checkbox").first().check();
-  await expect(dialog.getByRole("button", { name: "Make the session" })).toBeEnabled();
+  await expect(dialog.getByRole("button", { name: "Create session" })).toBeEnabled();
   await saveScreen(page, "project-session-new");
   await checkScreen(page);
 });
@@ -4472,7 +4539,7 @@ const dayThreeFiles = () =>
       mics: ["Mix", "Spot", "Tree"],
     },
     { take: "29", scene: "Pine Apple Rag", day: "2026-10-14", start: 37_571 },
-    { take: "30", scene: "The Entertainer", day: "2026-10-16", start: 50_520 },
+    { take: "30", scene: "The Entertainer", day: "2026-10-12", start: 50_520 },
   ]);
 
 // Takes are added from their track (#490): the Add takes dialog with the track settled, from
@@ -4541,12 +4608,12 @@ test("project-sessions-import-made", async ({ page }) => {
   const cleanUp = async () => {
     await sql`delete from takes where id in (select take_id from files where name in ${sql(names)})`;
     await sql`delete from files where name in ${sql(names)}`;
-    await sql`delete from sessions where name = '2026-10-16'`;
+    await sql`delete from sessions where name = '2026-10-12'`;
   };
   try {
     const files = sessionFiles([
-      { take: "41", scene: "The Entertainer", day: "2026-10-16", start: 40_000 },
-      { take: "42", scene: "The Entertainer", day: "2026-10-16", start: 40_600 },
+      { take: "41", scene: "The Entertainer", day: "2026-10-12", start: 40_000 },
+      { take: "42", scene: "The Entertainer", day: "2026-10-12", start: 40_600 },
     ]);
     const dialog = await openTakeImport(page);
     await dialog.getByLabel("Session files").setInputFiles(files);
@@ -4558,7 +4625,7 @@ test("project-sessions-import-made", async ({ page }) => {
     await expect(dialog.getByText("The Entertainer, 100% sure")).toHaveCount(2);
     await dialog.getByRole("button", { name: "Import 2 takes" }).click();
     // The new session opens with the takes made in it, each its track's next take.
-    await expect(page.getByRole("heading", { name: "2026-10-16" })).toBeVisible({
+    await expect(page.getByRole("heading", { name: "2026-10-12" })).toBeVisible({
       timeout: 30_000,
     });
     const table = page.locator("main table");
@@ -4660,9 +4727,7 @@ test("request-review-filled", async ({ page }) => {
   await form.getByRole("button", { name: "a share" }).click();
   await form.getByRole("button", { name: "A week" }).click();
   await expect(form.getByRole("button", { name: "Send the review" })).toBeEnabled();
-  await form
-    .getByRole("heading", { name: "Reviewers" })
-    .evaluate((el) => el.scrollIntoView({ block: "start" }));
+  await bringIntoView(form.getByRole("heading", { name: "Reviewers" }));
   await saveScreen(page, "request-review-filled");
   await checkScreen(page);
 });
@@ -4862,6 +4927,7 @@ test("account-passkeys", async ({ browser }, info) => {
     baseURL: info.project.use.baseURL,
   });
   const page = await context.newPage();
+  await onTheFixedClock(page);
   const cdp = await context.newCDPSession(page);
   await cdp.send("WebAuthn.enable");
   await cdp.send("WebAuthn.addVirtualAuthenticator", {
@@ -4882,7 +4948,7 @@ test("account-passkeys", async ({ browser }, info) => {
 
     await page.goto("/account/security");
     await settle(page, "main >> text=Passkeys and hardware security keys");
-    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("button", { name: "Add passkey", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Add a passkey or hardware security key" });
     await dialog.getByLabel("Name").fill("Studio laptop");
     await dialog.getByRole("button", { name: "Add", exact: true }).click();
@@ -4904,7 +4970,8 @@ test("account-passkeys", async ({ browser }, info) => {
     while ((await actions.count()) > 0) {
       const before = await actions.count();
       await actions.first().click();
-      await page.getByRole("menuitem", { name: "Revoke" }).click();
+      await page.getByRole("menuitem", { name: "Revoke…" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Revoke key" }).click();
       await expect(actions).toHaveCount(before - 1);
     }
     await context.close();
@@ -4915,7 +4982,7 @@ test("account-passkeys", async ({ browser }, info) => {
 test("file-triage", async ({ page }) => {
   await page.goto(`/files/${seeded().dryFileId}?view=triage`);
   const queue = page.getByRole("complementary", { name: "Queue" });
-  await expect(queue.getByText("Queue · 4")).toBeVisible();
+  await expect(queue.getByText(/^Queue\s*4$/)).toBeVisible();
   await settle(page, "aside li");
   await saveScreen(page, "file-triage");
   await checkScreen(page);
@@ -5079,5 +5146,108 @@ test("search-fields", async ({ page }) => {
   await page.getByRole("button", { name: /^Fields/ }).click();
   await settle(page, "role=dialog[name='Search by field']");
   await saveScreen(page, "search-fields");
+  await checkScreen(page);
+});
+
+// A date typed the workspace's way (#541): the deadline's field with its calendar open on the
+// month of the day it holds, Monday first.
+test("track-deadline-calendar", async ({ page }) => {
+  await page.clock.setFixedTime(FIXED_TIME);
+  await page.goto(`/tracks/${seeded().trackId}?view=versions`);
+  await settle(page, "main >> text=Maple Leaf Rag");
+  await page.getByRole("button", { name: /^Due / }).click();
+  const sheet = page.getByRole("dialog", { name: "Deadline" });
+  await sheet.getByRole("button", { name: "Choose a day" }).click();
+  await settle(page, "role=dialog[name='Calendar'] >> button[data-day]");
+  await saveScreen(page, "track-deadline-calendar");
+  await checkScreen(page);
+});
+
+// Nothing is deleted by one click (#544): deleting a venue asks first, naming it and saying
+// what happens, with Cancel and the danger action at the right.
+test("venues-delete", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/venues`);
+  await settle(page, "main >> text=Endless Hall Studio 2");
+  await page.getByRole("button", { name: "Actions for Endless Hall Studio 2" }).click();
+  await page.getByRole("menuitem", { name: "Delete…" }).click();
+  await settle(page, "role=dialog[name='Delete Endless Hall Studio 2?']");
+  await saveScreen(page, "venues-delete");
+  await checkScreen(page);
+});
+
+// When a page cannot be shown (#546): an address that leads nowhere, in the shell and signed
+// out; a project this account may not open; and a failure while loading the app, with its
+// reference to quote. And a page whose content could not be loaded (#545): Failed in its place,
+// with the reference and Try again.
+test("not-found", async ({ page }) => {
+  await page.goto("/no-such-page");
+  await settle(page, "main >> text=This page does not exist");
+  await saveScreen(page, "not-found");
+  await checkScreen(page);
+});
+
+test.describe("not found, signed out", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+  test("not-found-signed-out", async ({ page }) => {
+    await page.goto("/no-such-page");
+    await settle(page, "text=This page does not exist");
+    await saveScreen(page, "not-found-signed-out");
+    await checkScreen(page);
+  });
+});
+
+test("refused", async ({ page }) => {
+  const projectId = seeded().musicProjectId;
+  await page.route(`**/api/projects/${projectId}`, (route) =>
+    route.fulfill({
+      status: 403,
+      json: { error: { code: "forbidden", message: "Not allowed" } },
+    }),
+  );
+  await page.goto(`/projects/${projectId}`);
+  await settle(page, "main >> text=You cannot open this");
+  await saveScreen(page, "refused");
+  await checkScreen(page);
+});
+
+test("error-page", async ({ page }) => {
+  await page.route("**/api/me", (route) =>
+    route.fulfill({
+      status: 500,
+      json: {
+        error: { code: "internal", message: "Something went wrong", reference: "HK-7F3A-2C" },
+      },
+    }),
+  );
+  await page.goto("/");
+  await settle(page, "text=Something went wrong");
+  await expect(page.getByText("HK-7F3A-2C")).toBeVisible();
+  await saveScreen(page, "error-page");
+  await checkScreen(page);
+});
+
+test("failed", async ({ page }) => {
+  const projectId = seeded().musicProjectId;
+  await page.route(`**/api/projects/${projectId}/board`, (route) =>
+    route.fulfill({
+      status: 500,
+      json: {
+        error: { code: "internal", message: "Something went wrong", reference: "HK-2B91-E0" },
+      },
+    }),
+  );
+  await page.goto(`/projects/${projectId}/board`);
+  await settle(page, "main >> text=The board could not be loaded");
+  await saveScreen(page, "failed");
+  await checkScreen(page);
+});
+
+test("loading", async ({ page }) => {
+  const projectId = seeded().musicProjectId;
+  // The board's answer never comes: its place shows the content's shape, not a word.
+  await page.route(`**/api/projects/${projectId}/board`, () => undefined);
+  await page.goto(`/projects/${projectId}/board`);
+  await expect(page.locator("main output[aria-label='Loading']").first()).toBeVisible();
+  await saveScreen(page, "loading");
   await checkScreen(page);
 });

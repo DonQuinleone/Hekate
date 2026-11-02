@@ -21,6 +21,7 @@ const comment = (id: string, extra: Partial<Comment> = {}): Comment => ({
   anchor: null,
   body: id,
   authorId: null,
+  authorGuestId: null,
   authorName: null,
   authorGuest: false,
   mine: false,
@@ -158,6 +159,13 @@ describe("comment threads", () => {
     expect(ago("2026-10-14T11:59:50.000Z", now)).toBe("just now");
     expect(ago("2026-10-14T11:55:00.000Z", now)).toBe("5 minutes ago");
     expect(ago("2026-10-13T12:00:00.000Z", now)).toBe("yesterday");
+  });
+
+  it("never says something that happened will happen: an instant ahead is just now", () => {
+    const now = Date.parse("2026-10-14T12:00:00.000Z");
+    expect(ago("2026-10-14T12:00:30.000Z", now)).toBe("just now");
+    expect(ago("2026-11-01T18:21:00.000Z", now)).toBe("just now");
+    expect(ago("2026-10-14T11:59:00.000Z", now)).toBe("1 minute ago");
   });
 });
 

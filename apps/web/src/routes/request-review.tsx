@@ -26,10 +26,12 @@ import { ReviewerPermissionsEditor } from "~/components/reviewer-permissions";
 import { Button } from "~/components/ui/button";
 import { ToggleChip } from "~/components/ui/chip";
 import { ChoiceCard } from "~/components/ui/choice";
+import { DateField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { InlineInput, Input, Textarea } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
+import { Loading } from "~/components/ui/states";
 import { Switch } from "~/components/ui/toggle";
 import { itemsIn } from "~/lib/browser";
 import { cn } from "~/lib/cn";
@@ -67,6 +69,7 @@ import {
 } from "~/lib/review-form";
 import { toggleScope, WORKSPACE_KEY } from "~/lib/review-scope";
 import { guestFromEmail } from "~/lib/shares";
+import { PageFailed } from "~/routes/problem";
 
 const kinds: { id: ReviewKind; label: string; hint: string }[] = [
   {
@@ -219,7 +222,7 @@ export function RequestReviewPage({
   /** A review to duplicate (#502): everything filled in from it. */
   from?: string;
 }) {
-  const { data: project, error } = useQuery(projectQuery(projectId));
+  const { data: project, error, refetch } = useQuery(projectQuery(projectId));
   const can = useProjectCan(projectId);
   const mayRequest = can("request_reviews");
   const { data: original, error: originalError } = useQuery({
@@ -227,10 +230,9 @@ export function RequestReviewPage({
     enabled: Boolean(from) && mayRequest,
   });
 
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!project) return <p className="p-8 text-ink-3">Loading</p>;
+  if (error) return <PageFailed what="This project" error={error} retry={refetch} />;
+  if (!project) return <Loading />;
   const crumbs = [
-    { key: "projects", link: <Link to="/projects">Projects</Link> },
     {
       key: "project",
       link: (
@@ -269,7 +271,7 @@ export function RequestReviewPage({
     return (
       <>
         <PageHeader crumbs={crumbs} title="New review" />
-        <p className="p-8 text-ink-3">Loading</p>
+        <Loading />
       </>
     );
   }
@@ -436,7 +438,13 @@ function ReviewForm({
       };
     }),
     ...[...guestsByKey].map(
-      ([key, g]): Person => ({ key, name: g.name, hint: g.label ?? g.email, kind: "guest" }),
+      ([key, g]): Person => ({
+        key,
+        avatar: known.find((k) => k.email === g.email)?.id,
+        name: g.name,
+        hint: g.label ?? g.email,
+        kind: "guest",
+      }),
     ),
   ];
 
@@ -476,7 +484,8 @@ function ReviewForm({
     return {
       name: g?.name ?? id,
       hint: `${g?.label ?? (fresh ? "New guest" : "Guest")} · ${id}`,
-      avatar: id,
+      // A guest the project knows takes their colour from who they are (#604), as everywhere.
+      avatar: known.find((k) => `guest:${k.email}` === key)?.id ?? id,
     };
   };
 
@@ -577,7 +586,7 @@ function ReviewForm({
             <Icon name="users" size={15} />
           </span>
         ) : (
-          <Avatar id={avatar} name={name} size={24} />
+          <Avatar person={avatar} name={name} size={24} />
         )}
         <span className="min-w-36 flex-1 basis-40">
           <span className={cn("block truncate text-[14px]", refusal ? "text-ink-3" : "text-ink")}>
@@ -928,12 +937,11 @@ function ReviewForm({
                 <span className="label" id="request-due">
                   Due
                 </span>
-                <Input
-                  type="date"
+                <DateField
                   value={due}
-                  aria-labelledby="request-due"
+                  aria-label="Due"
                   min={daysFromNow(0)}
-                  onChange={(e) => setDue(e.target.value)}
+                  onChange={setDue}
                   className="w-44"
                 />
                 {(

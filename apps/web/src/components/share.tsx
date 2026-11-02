@@ -102,6 +102,7 @@ export function ShareDialog({
     ...known.map(
       (g): Person => ({
         key: `guest:${g.email}`,
+        avatar: g.id,
         name: g.name,
         hint: g.label ?? g.email,
         kind: "guest",

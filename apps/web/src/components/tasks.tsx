@@ -14,15 +14,18 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useState } from "react";
-import { Avatar } from "~/components/avatar";
+import { Avatar, personKey } from "~/components/avatar";
 import { Empty } from "~/components/empty";
 import { Icon, type IconName } from "~/components/icons";
 import { Card } from "~/components/page";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { DateField } from "~/components/ui/date-field";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
+import { FilterTabs } from "~/components/ui/filter-tabs";
 import { InlineInput, Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
+import { Failed, Loading } from "~/components/ui/states";
 import { ReviewerDot, type ReviewerDotState } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
@@ -124,6 +127,7 @@ function TaskPanel({
   onClose: () => void;
 }) {
   const { data: task, error } = useQuery(taskQuery(taskId));
+  const [confirm, confirmation] = useConfirm();
   const { data: me } = useQuery(meQuery);
   const mutations = useTaskMutations(projectId);
   const [note, setNote] = useState("");
@@ -181,10 +185,15 @@ function TaskPanel({
                   ? [
                       "divider" as const,
                       {
-                        label: "Delete",
+                        label: "Delete…",
                         danger: true,
                         onSelect: () =>
-                          mutations.remove.mutate(task.id, { onSuccess: () => onClose() }),
+                          confirm({
+                            title: `Delete ${task.title}?`,
+                            description: "The task and its comments go for everyone.",
+                            action: "Delete task",
+                            onConfirm: () => mutations.remove.mutateAsync(task.id).then(onClose),
+                          }),
                       },
                     ]
                   : []),
@@ -204,7 +213,7 @@ function TaskPanel({
       <div className="scroll-quiet min-h-0 flex-1 overflow-auto">
         {failure && <p className="m-0 px-5 pt-4 text-[13px] text-signal">{failure.message}</p>}
         {!task ? (
-          !error && <p className="m-0 px-5 py-5 text-[13px] text-ink-3">Loading</p>
+          !error && <Loading size="panel" className="px-5 py-5" />
         ) : (
           <TaskBody
             key={task.id}
@@ -219,7 +228,7 @@ function TaskPanel({
           onSubmit={addNote}
           className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-3"
         >
-          {me && <Avatar id={me.user.id} name={me.user.name} size={24} />}
+          {me && <Avatar person={me.user.id} name={me.user.name} size={24} />}
           <Input
             aria-label="Add a note"
             placeholder="Add a note"
@@ -236,6 +245,7 @@ function TaskPanel({
           </Button>
         </form>
       )}
+      {confirmation}
     </aside>
   );
 }
@@ -287,7 +297,7 @@ function TaskBody({
             value={
               task.assignee ? (
                 <span className="flex items-center gap-2 text-ink">
-                  <Avatar id={task.assignee.id} name={task.assignee.name} size={20} />
+                  <Avatar person={task.assignee.id} name={task.assignee.name} size={20} />
                   {task.assignee.name}
                 </span>
               ) : (
@@ -311,7 +321,7 @@ function TaskBody({
           <span className="flex items-center gap-2 text-ink">
             {task.assignee ? (
               <>
-                <Avatar id={task.assignee.id} name={task.assignee.name} size={20} />
+                <Avatar person={task.assignee.id} name={task.assignee.name} size={20} />
                 {task.assignee.name}
               </>
             ) : (
@@ -346,13 +356,13 @@ function TaskBody({
         <span className="text-ink-3">Due</span>
         {edit ? (
           <span className="flex items-center gap-2">
-            <Input
-              type="date"
+            <DateField
               size="sm"
               aria-label="Due"
               className="w-[150px]"
+              onLeave
               value={task.dueOn ?? ""}
-              onChange={(e) => onChange({ dueOn: e.target.value || null })}
+              onChange={(dueOn) => onChange({ dueOn: dueOn || null })}
             />
             {due && <span className={late ? "text-signal" : "text-ink-3"}>{due}</span>}
           </span>
@@ -447,7 +457,7 @@ function TaskBody({
           {task.events.map((e) => (
             <li key={e.id} className="flex items-start gap-2.5 text-[13px]">
               <Avatar
-                id={e.actorName ?? "workflow"}
+                person={personKey({ userId: e.actorId, name: e.actorName ?? "workflow" })}
                 name={e.actorName ?? "Workflow"}
                 size={20}
                 className="mt-px"
@@ -518,7 +528,7 @@ function NewTaskDialog({
             onClick={() => submit()}
             disabled={!title.trim() || create.isPending}
           >
-            Add task
+            Create task
           </Button>
         </>
       }
@@ -552,7 +562,7 @@ function NewTaskDialog({
             </Select>
           </Field>
           <Field label="Due">
-            <Input type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} />
+            <DateField value={dueOn} onChange={setDueOn} />
           </Field>
         </div>
         {tracks.length > 0 && (
@@ -598,7 +608,7 @@ export function ProjectTasks({
   canMake: boolean;
 }) {
   const navigate = useNavigate();
-  const { data, error } = useQuery(projectTasksQuery(projectId));
+  const { data, error, refetch } = useQuery(projectTasksQuery(projectId));
   const { data: me } = useQuery(meQuery);
   const [filter, setFilter] = useState<TaskFilter>("open");
   const open = (task?: string, make = false) =>
@@ -607,8 +617,8 @@ export function ProjectTasks({
       params: { projectId },
       search: { ...(task ? { task } : {}), ...(make ? { new: true } : {}) },
     });
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data) return <p className="m-0 text-ink-3">Loading</p>;
+  if (error) return <Failed what="The tasks" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const list = filterTasks(data.tasks, filter, me?.user.id ?? "", today());
   const groups = taskGroupOrder
     .map((s) => [s, list.filter((t) => t.status === s)] as const)
@@ -616,23 +626,12 @@ export function ProjectTasks({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-1">
-        <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-1 border-0 p-0">
-          <legend className="sr-only">Show</legend>
-          {filters.map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={filter === id}
-              onClick={() => setFilter(id)}
-              className={cn(
-                "h-8 rounded-control px-3 text-[13px] transition-colors",
-                filter === id ? "bg-raised text-ink shadow-1" : "text-ink-3 hover:text-ink",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </fieldset>
+        <FilterTabs
+          label="Show"
+          value={filter}
+          options={filters.map(([id, label]) => ({ value: id, label }))}
+          onChange={setFilter}
+        />
         <span className="ml-auto flex gap-1">
           {data.tasks.length > 0 && (
             <a
@@ -723,7 +722,7 @@ export function ProjectTasks({
                         <span className="hidden min-w-0 items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
                           {t.assignee ? (
                             <>
-                              <Avatar id={t.assignee.id} name={t.assignee.name} size={20} />
+                              <Avatar person={t.assignee.id} name={t.assignee.name} size={20} />
                               <span className="truncate">{t.assignee.name}</span>
                             </>
                           ) : (

@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { type createSql, uuidv7 } from "@hekate/db";
+import { taskKey } from "@hekate/shared";
 import { CHUNK_SIZE } from "@hekate/storage";
 import { textPdfOf } from "../media/pdf.ts";
 import { samplePdf } from "../media/sample-pdf.ts";
@@ -267,9 +268,111 @@ async function settled(session: Session, projectId: string): Promise<SeededFile[
   throw new Error("The media worker did not finish in time");
 }
 
+/**
+ * Tables the server keeps against its own clock, measuring the machine or counting attempts:
+ * left on the real time, as the server reads them against it.
+ */
+const liveTables = new Set([
+  "health_samples",
+  "service_days",
+  "request_limits",
+  "sign_in_attempts",
+]);
+
+/** The decision log and the access log refuse changes (migrations 0006 and 0016). */
+const appendOnly = new Set(["review_decisions", "access_events"]);
+
+/** Every column of `when`, run with the append-only tables' triggers paused. */
+async function eachMoment(
+  sql: Sql,
+  when: (table: string, column: string) => boolean,
+  run: (table: string, column: string) => Promise<unknown>,
+) {
+  const columns = await sql<{ table_name: string; column_name: string }[]>`
+    select c.table_name, c.column_name from information_schema.columns c
+    join information_schema.tables t on t.table_schema = c.table_schema
+      and t.table_name = c.table_name and t.table_type = 'BASE TABLE'
+    where c.table_schema = 'public' and c.data_type like 'timestamp%'
+    order by c.table_name, c.column_name`;
+  for (const { table_name: table, column_name: column } of columns) {
+    if (liveTables.has(table) || !when(table, column)) continue;
+    // The seed owns its tables, and lets its fixed clock through by pausing their triggers.
+    if (appendOnly.has(table)) await sql.unsafe(`alter table "${table}" disable trigger user`);
+    try {
+      await run(table, column);
+    } finally {
+      if (appendOnly.has(table)) await sql.unsafe(`alter table "${table}" enable trigger user`);
+    }
+  }
+}
+
+/**
+ * Moves every moment the seed wrote at the real time (from `began` to now, in any table and
+ * column but the server's live ones and those saying when something will end) onto the fixed
+ * clock: ranked across all of them together, so whatever came first still does, a minute apart
+ * (closer, where there are more than 110), the last ten minutes before FIXED_TIME.
+ */
+async function onTheFixedClock(sql: Sql, began: Date) {
+  const [ended] = await sql<{ now: Date }[]>`select now()`;
+  const written = (_table: string, column: string) => !/expires|until|after/.test(column);
+  await sql`create temporary table seed_moments (at timestamptz primary key)`;
+  await eachMoment(sql, written, (table, column) =>
+    sql.unsafe(
+      `insert into seed_moments select distinct "${column}" from "${table}"
+       where "${column}" between $1 and $2 on conflict do nothing`,
+      [began, ended?.now ?? new Date()],
+    ),
+  );
+  await sql`create temporary table seed_clock as
+    select at, row_number() over (order by at) as n, count(*) over () as total from seed_moments`;
+  await eachMoment(sql, written, (table, column) =>
+    sql.unsafe(
+      `update "${table}" t set "${column}" = $1::timestamptz - interval '10 minutes'
+         - (c.total - c.n) * least(interval '1 minute', interval '110 minutes' / c.total)
+       from seed_clock c where t."${column}" = c.at`,
+      [FIXED_TIME],
+    ),
+  );
+  await sql`drop table seed_moments, seed_clock`;
+}
+
+/**
+ * Moves one thing back by whole days, with everything that refers to it by `key` (a review's
+ * reviewers, notifications and access log, a task's history): when they were made, last
+ * changed or logged.
+ */
+async function backdate(sql: Sql, key: "review_id" | "task_id", id: string, days: number) {
+  const owner = key === "review_id" ? "reviews" : "tasks";
+  const keyed = new Set(
+    (
+      await sql<{ table_name: string }[]>`
+        select table_name from information_schema.columns
+        where table_schema = 'public' and column_name = ${key}`
+    ).map((r) => r.table_name),
+  );
+  await eachMoment(
+    sql,
+    (table, column) =>
+      (table === owner || keyed.has(table)) &&
+      ["created_at", "updated_at", "occurred_at"].includes(column),
+    (table, column) =>
+      sql.unsafe(
+        `update "${table}" set "${column}" = "${column}" - make_interval(days => $1::int)
+         where "${table === owner ? "id" : key}" = $2::uuid`,
+        [days, id],
+      ),
+  );
+}
+
 /** Fills a fresh instance, and says what it made. */
 export async function seed<S extends Session>(options: SeedOptions<S>): Promise<Seeded> {
   const { client, sql } = options;
+  // When the seed began, by the database's clock: what it writes from here is moved onto the
+  // fixed clock at the end. A little before, for what the server wrote as it started.
+  const began = sql
+    ? ((await sql<{ began: Date }[]>`select now() - interval '15 minutes' as began`)[0]?.began ??
+      new Date())
+    : new Date();
   const owner = client.owner;
   const media = options.media ?? mkdtempSync(join(tmpdir(), "hekate-demo-"));
   mkdirSync(media, { recursive: true });
@@ -420,11 +523,7 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
   if (main) {
     await owner.api("PATCH", `/api/variants/${main.id}`, { subtitled: false, graded: true });
   }
-  // Its second cut, to compare with the first frame by frame (#147).
-  await owner.api("POST", `/api/tracks/${deliverable.id}/versions`, {
-    notes: "Titles moved up a second.",
-    variants: [{ fileId: rendition("Cut 2"), name: "Main" }],
-  });
+  // Its second cut follows once its own workflow is under way, below.
 
   // A track in two versions, and one not yet started.
   const { track } = await owner.api<{ track: { id: string } }>(
@@ -1490,6 +1589,51 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
   // running, as the screens of a new version's restart and the canvas expect.
   await owner.api("PATCH", `/api/workflows/${mastering.id}`, { active: false });
 
+  // The deliverable's own workflow (#25), its history's other states: a run moved on by hand
+  // past the director's notes, then stopped by the second cut, which starts it again there.
+  const { workflow: pictureLock } = await owner.api<{ workflow: { id: string } }>(
+    "POST",
+    `/api/projects/${video.id}/workflows`,
+    {
+      name: "Picture lock",
+      trackId: deliverable.id,
+      definition: {
+        groups: [],
+        nodes: [
+          step("start", "manual", "Started by hand", 0),
+          step("edit", "status", "In the edit", 1, 0, { status: "In the edit" }),
+          step("notes", "wait", "Notes from the director", 2, 0, { days: "3" }),
+          step("grade", "status", "Grading", 3, 0, { status: "Grading" }),
+          step("settle", "wait", "Grade review", 4, 0, { days: "2" }),
+          step("done", "finish", "Locked", 5, 0, { status: "Locked" }),
+        ],
+        connectors: [
+          { id: "c1", from: "start", outcome: "happened", to: "edit" },
+          { id: "c2", from: "edit", outcome: "set", to: "notes" },
+          { id: "c3", from: "notes", outcome: "elapsed", to: "grade" },
+          { id: "c4", from: "grade", outcome: "set", to: "settle" },
+          { id: "c5", from: "settle", outcome: "elapsed", to: "done" },
+        ],
+      },
+    },
+  );
+  await owner.api("PATCH", `/api/workflows/${pictureLock.id}`, { active: true });
+  const { run: lockRun } = await owner.api<{ run: { id: string } }>(
+    "POST",
+    `/api/tracks/${deliverable.id}/workflow-runs`,
+    { workflowId: pictureLock.id },
+  );
+  await owner.api("POST", `/api/workflow-runs/${lockRun.id}/steps`, {
+    nodeId: "notes",
+    outcome: "elapsed",
+  });
+  // Its second cut, to compare with the first frame by frame (#147).
+  await owner.api("POST", `/api/tracks/${deliverable.id}/versions`, {
+    notes: "Titles moved up a second.",
+    variants: [{ fileId: rendition("Cut 2"), name: "Main" }],
+    restartFrom: { workflowId: pictureLock.id, nodeId: "notes" },
+  });
+
   // API tokens (#198): two of the owner's own (one since run out) and a service token for the
   // release pipeline, whose calls, one of them refused for want of a scope, fill the API log.
   const { secret: pipeline } = await owner.api<{ secret: string }>(
@@ -1850,18 +1994,19 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
     impact: "partial",
     services: ["storage", "worker"],
     state: "resolved",
-    body: "Every upload since 14:02 is in and measured. A full disk on the worker held them back; it has more room now.",
+    body: "Every upload since 11:00 is in and measured. A full disk on the worker held them back; it has more room now.",
     startedAt: new Date(Date.now() - 41 * 86_400_000).toISOString(),
     resolvedAt: new Date(Date.now() - 41 * 86_400_000 + 30 * 60_000).toISOString(),
   });
-  // 90 days measured, to the database's today: the September outage, and a slow day in July.
+  // 90 days measured, to the fixed clock's today: the September outage (the day of the incident
+  // posted for it), and a slow day in August.
   if (sql)
     await sql`insert into service_days (id, day, service, minutes, down, last_minute)
       select gen_random_uuid(), d::date, s, 1440,
-        case when s in ('storage', 'worker') and d::date = current_date - 41 then 30
-             when s = 'api' and d::date = current_date - 58 then 18 else 0 end,
+        case when s in ('storage', 'worker') and d::date = ${FIXED_TIME}::date - 41 then 30
+             when s = 'api' and d::date = ${FIXED_TIME}::date - 58 then 18 else 0 end,
         d + interval '1439 minutes'
-      from generate_series(current_date - 89, current_date - 1, interval '1 day') as d,
+      from generate_series(${FIXED_TIME}::date - 89, ${FIXED_TIME}::date - 1, interval '1 day') as d,
         unnest(array['api', 'database', 'storage', 'worker']) as s
       on conflict (day, service) do nothing`;
 
@@ -1946,6 +2091,32 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
         (18000000 + 15000000 * sin(n / 100.0))::bigint, 0.38, 8, 10500000000, 17179869184
       from generate_series(1, 1440) as n`;
 
+    // Everything the seed did, at the real time it did it, set to the fixed clock instead, so
+    // the captures (taken at FIXED_TIME) never see a past event in the future. One clock for
+    // every table and column, keeping the order things happened in: a decision stays after its
+    // request, a reply after its comment. A minute apart (closer, were there more than 110
+    // moments), the last of them ten minutes before the fixed time.
+    await onTheFixedClock(sql, began);
+    // The review already overdue was asked for a week before it was due, and the late task
+    // made before it was: each with all it led to, eleven days earlier.
+    await backdate(sql, "review_id", overdue, 11);
+    await backdate(sql, "task_id", lateTask, 11);
+    // The task reminder the hourly job would send for the late task, sent at the fixed time;
+    // and every seeded task taken as reminded, so the job, which reads the real clock, never
+    // finds a task late that the captures' clock has not yet reached.
+    const [late] = await sql<{ number: number; title: string }[]>`
+      select number, title from tasks where id = ${lateTask} and organisation_id = ${labelId}`;
+    if (late)
+      await sql`insert into notifications (id, organisation_id, user_id, kind, project_id, text,
+          detail, link, in_app, created_at, updated_at)
+        values (${uuidv7()}, ${labelId}, ${user.id}, 'task', ${music.id},
+          ${`your task ${taskKey("Joplin Rags", late.number)} is overdue`}, ${late.title},
+          ${`/projects/${music.id}/tasks?task=${lateTask}`}, true,
+          ${FIXED_TIME}::timestamptz - interval '5 minutes',
+          ${FIXED_TIME}::timestamptz - interval '5 minutes')`;
+    await sql`update tasks set due_reminded_on = due_on, late_reminded_on = due_on
+      where due_on is not null`;
+
     // The tokens' uses and ends, against the fixed clock: one used two hours ago, one
     // yesterday, and the old laptop's six weeks ago and run out since.
     const at = (hours: number) => new Date(Date.parse(FIXED_TIME) + hours * 60 * 60_000);
@@ -1956,28 +2127,6 @@ export async function seed<S extends Session>(options: SeedOptions<S>): Promise<
       where name = 'Old laptop'`;
     // Slack's last call for the owner (#447), three hours ago.
     await sql`update api_tokens set last_used_at = ${at(-3)} where kind = 'oauth'`;
-
-    const columns = await sql<{ table_name: string; column_name: string }[]>`
-      select table_name, column_name from information_schema.columns
-      where table_schema = 'public' and data_type like 'timestamp%'
-        and column_name in ('created_at', 'updated_at', 'decided_at', 'viewed_at', 'submitted_at', 'resolved_at', 'occurred_at', 'opened_at', 'completed_at', 'suspended_at')`;
-    for (const { table_name: table, column_name: column } of columns) {
-      // The decision log and the access log refuse changes (migrations 0006 and 0016); the
-      // seed owns its tables, and lets its fixed clock through by pausing their triggers.
-      const appendOnly = table === "review_decisions" || table === "access_events";
-      if (appendOnly) await sql.unsafe(`alter table "${table}" disable trigger user`);
-      // One minute apart, in the order they happened: an hour or so before the fixed time.
-      await sql.unsafe(
-        `with ordered as (
-           select ctid, row_number() over (order by "${column}", ctid) as n
-           from "${table}" where "${column}" is not null
-         )
-         update "${table}" t set "${column}" = $1::timestamptz - interval '2 hours' + ordered.n * interval '1 minute'
-         from ordered where t.ctid = ordered.ctid`,
-        [FIXED_TIME],
-      );
-      if (appendOnly) await sql.unsafe(`alter table "${table}" enable trigger user`);
-    }
     // The desk's first reply, as long after its ticket as on a good day (#182).
     await sql`update tickets set first_reply_at = created_at + interval '108 minutes'
       where first_reply_at is not null`;

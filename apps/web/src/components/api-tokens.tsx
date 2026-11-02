@@ -14,6 +14,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { Loading } from "~/components/ui/states";
 import {
   personalTokensQuery,
   serviceTokensQuery,
@@ -74,15 +75,9 @@ export function TokensSection({ kind }: { kind: ApiTokenKind }) {
   if (!tokens) return null;
   const personal = kind === "personal";
   const create = (
-    <Button variant={personal ? "primary" : "secondary"} size="md" onClick={() => setMaking(true)}>
-      {personal ? (
-        <>
-          <Icon name="plus" size={14} />
-          Token
-        </>
-      ) : (
-        "Create"
-      )}
+    <Button variant="secondary" size="md" onClick={() => setMaking(true)}>
+      <Icon name="plus" size={14} />
+      New token
     </Button>
   );
   return (
@@ -94,7 +89,7 @@ export function TokensSection({ kind }: { kind: ApiTokenKind }) {
             ? "A token can do no more than you can, and only what its scopes allow. It reaches this workspace alone, and is shown once."
             : "Tokens that act as the workspace rather than a person, for the release pipeline and the like. Scoped and logged like any other."
         }
-        action={personal ? create : undefined}
+        action={create}
       >
         {tokens.length === 0 && (
           <Row
@@ -138,11 +133,6 @@ export function TokensSection({ kind }: { kind: ApiTokenKind }) {
             </Row>
           );
         })}
-        {!personal && (
-          <Row name="New service token" hint="Shown once; owners and admins only.">
-            {create}
-          </Row>
-        )}
       </Section>
       {making && <NewTokenDialog kind={kind} onClose={() => setMaking(false)} />}
       {editing && (
@@ -393,11 +383,11 @@ function RevokeDialog({
       width="sm"
       footer={
         <>
-          <Button variant="ghost" size="md" onClick={onClose}>
+          <Button variant="secondary" size="md" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="md"
             disabled={revoke.isPending}
             onClick={() => revoke.mutate(token.id, { onSuccess: onClose })}
@@ -548,7 +538,7 @@ export function WorkspaceApiLogSection() {
       intro="The latest calls made with this workspace's tokens, members' own among them, over the last week."
     >
       {isPending ? (
-        <Row name="Loading" />
+        <Loading size="panel" />
       ) : !rows || rows.length === 0 ? (
         <Row name="No calls yet" hint="A call made with any token here shows up at once." />
       ) : (

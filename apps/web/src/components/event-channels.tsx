@@ -17,6 +17,7 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type CSSProperties, type FormEvent, useState } from "react";
+import { Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
 import { formatDates } from "~/lib/locale";
@@ -34,7 +35,7 @@ import { MailLogNotice } from "./mail-log-notice";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/choice";
-import { Dialog } from "./ui/dialog";
+import { Dialog, useConfirm } from "./ui/dialog";
 import { Field } from "./ui/field";
 import { Input, Select } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
@@ -65,6 +66,7 @@ function channelHint(c: ChannelRow) {
  */
 export function ChannelsSection() {
   const { data: channels } = useQuery(channelsQuery);
+  const [confirm, confirmation] = useConfirm();
   const { change, remove, test } = useChannels();
   const [editing, setEditing] = useState<ChannelRow | "new" | null>(null);
   const [choosing, setChoosing] = useState<ChannelRow | null>(null);
@@ -87,7 +89,7 @@ export function ChannelsSection() {
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
             <Icon name="plus" size={14} />
-            Channel
+            New channel
           </Button>
         }
       >
@@ -157,7 +159,18 @@ export function ChannelsSection() {
                   { label: "Edit…", onSelect: () => setEditing(c) },
                   { label: "Which events…", onSelect: () => setChoosing(c) },
                   "divider",
-                  { label: "Remove", danger: true, onSelect: () => remove.mutate(c.id) },
+                  {
+                    label: "Remove…",
+                    danger: true,
+                    onSelect: () =>
+                      confirm({
+                        title: `Remove ${c.name}?`,
+                        description:
+                          "Nothing more is sent to it. What it was sent before stays where it went.",
+                        action: "Remove channel",
+                        onConfirm: () => remove.mutateAsync(c.id),
+                      }),
+                  },
                 ]}
               />
             </div>
@@ -183,6 +196,7 @@ export function ChannelsSection() {
           onClose={() => setChoosing(null)}
         />
       )}
+      {confirmation}
     </>
   );
 }
@@ -429,6 +443,7 @@ function ChannelDialog({ channel, onClose }: { channel: ChannelRow | null; onClo
  */
 function MailRow({ onEdit, onBounced }: { onEdit: () => void; onBounced: () => void }) {
   const { data: mail, isPending } = useQuery(workspaceMailQuery);
+  const [confirm, confirmation] = useConfirm();
   const { remove, resume, test } = useWorkspaceMail();
   if (isPending) return null;
   const outcome = test.data ?? (test.error ? { ok: false, result: test.error.message } : null);
@@ -493,14 +508,22 @@ function MailRow({ onEdit, onBounced }: { onEdit: () => void; onBounced: () => v
               ...(mail.bounceUrl ? [{ label: "Bounced addresses…", onSelect: onBounced }] : []),
               "divider",
               {
-                label: "Back to the instance's mail",
+                label: "Back to the instance's mail…",
                 danger: true,
-                onSelect: () => remove.mutate(),
+                onSelect: () =>
+                  confirm({
+                    title: "Go back to the instance's mail?",
+                    description:
+                      "The workspace's own mail settings are removed, and its mail is sent through the instance's again.",
+                    action: "Remove the workspace's mail",
+                    onConfirm: () => remove.mutateAsync(),
+                  }),
               },
             ]}
           />
         )}
       </div>
+      {confirmation}
     </Row>
   );
 }
@@ -710,7 +733,7 @@ export function SuppressionsDialog({
     >
       <div className="flex max-h-[60vh] flex-col divide-y divide-line overflow-y-auto rounded-panel border border-line">
         {isPending ? (
-          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+          <Loading size="panel" />
         ) : !rows || rows.length === 0 ? (
           <p className="m-0 px-4 py-3 text-[13px] text-ink-3">None: every address is sent to.</p>
         ) : (

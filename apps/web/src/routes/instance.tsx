@@ -88,11 +88,13 @@ import {
 } from "~/components/settings";
 import { InstanceSupport } from "~/components/support-desk";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Count } from "~/components/ui/chip";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
+import { FilterTabs } from "~/components/ui/filter-tabs";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
-import { Segmented } from "~/components/ui/segmented";
+import { Failed, failureText, Loading } from "~/components/ui/states";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { MemberLimitSelect, QuotaSelect, UsageRows } from "~/components/usage";
@@ -465,7 +467,9 @@ function Debug({ initial }: { initial?: string | undefined }) {
               That is not an error reference: they look like HK-7F3A-2C.
             </p>
           )}
-          {report.isError && <p className="m-0 text-[13px] text-signal">{report.error.message}</p>}
+          {report.isError && (
+            <p className="m-0 text-[13px] text-signal">{failureText(report.error)}</p>
+          )}
           {reference && report.data === null && (
             <p className="m-0 text-[13px] text-ink-2">
               No report has {reference}. Reports are kept for {ERROR_REPORT_DAYS} days.
@@ -770,7 +774,9 @@ function GatewayReplayDialog({ onClose }: { onClose: () => void }) {
     >
       <div className="flex max-h-[60vh] flex-col divide-y divide-line overflow-y-auto rounded-panel border border-line">
         {log.isPending ? (
-          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+          <Loading size="panel" />
+        ) : log.isError ? (
+          <Failed what="The events" error={log.error} retry={log.refetch} size="panel" />
         ) : rows.length === 0 ? (
           <div className="p-4">
             <Empty title="No events this week" text="The gateway has sent nothing." />
@@ -826,7 +832,9 @@ function ReplayDialog({ onClose }: { onClose: () => void }) {
     >
       <div className="flex max-h-[60vh] flex-col divide-y divide-line overflow-y-auto rounded-panel border border-line">
         {log.isPending ? (
-          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+          <Loading size="panel" />
+        ) : log.isError ? (
+          <Failed what="The deliveries" error={log.error} retry={log.refetch} size="panel" />
         ) : rows.length === 0 ? (
           <div className="p-4">
             <Empty title="No deliveries this week" text="Nothing has been sent to a channel." />
@@ -960,7 +968,8 @@ const until = formatDates({ day: "numeric", month: "short" });
 /** Operators' invitations to make a workspace, each withdrawn from its menu. */
 function SignUpInvitations() {
   const client = useQueryClient();
-  const { data: invitations, error } = useQuery(signUpInvitationsQuery);
+  const [confirm, confirmation] = useConfirm();
+  const { data: invitations, error, refetch } = useQuery(signUpInvitationsQuery);
   const withdraw = useMutation({
     mutationFn: async (id: string) =>
       (
@@ -970,8 +979,8 @@ function SignUpInvitations() {
       ).invitations,
     onSuccess: (next) => client.setQueryData(signUpInvitationsQuery.queryKey, next),
   });
-  if (error) return <Row name="Invitations" hint={error.message} />;
-  if (!invitations) return null;
+  if (error) return <Failed what="Invitations" error={error} retry={refetch} size="panel" />;
+  if (!invitations) return <Loading size="panel" />;
   if (invitations.length === 0)
     return (
       <Row
@@ -991,11 +1000,24 @@ function SignUpInvitations() {
           <ActionMenu
             always
             label={i.email}
-            actions={[{ label: "Withdraw", danger: true, onSelect: () => withdraw.mutate(i.id) }]}
+            actions={[
+              {
+                label: "Withdraw…",
+                danger: true,
+                onSelect: () =>
+                  confirm({
+                    title: `Withdraw the invitation to ${i.email}?`,
+                    description: "Its link stops working. You can invite them again.",
+                    action: "Withdraw",
+                    onConfirm: () => withdraw.mutateAsync(i.id),
+                  }),
+              },
+            ]}
           />
         </Row>
       ))}
       {withdraw.isError && <Row name="Not withdrawn" hint={withdraw.error.message} />}
+      {confirmation}
     </>
   );
 }
@@ -1097,7 +1119,7 @@ function InviteToSignUp({ onClose }: { onClose: () => void }) {
  */
 function Settings() {
   const client = useQueryClient();
-  const { data, error } = useQuery(instanceOwnSettingsQuery);
+  const { data, error, refetch } = useQuery(instanceOwnSettingsQuery);
   const [message, setMessage] = useState<string | null>(null);
   const [bounced, setBounced] = useState(false);
   const save = useMutation({
@@ -1118,8 +1140,8 @@ function Settings() {
     mutationFn: async () =>
       json<{ to: string; mail: InstanceMail }>(await api.instance.settings["mail-test"].$post()),
   });
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data) return null;
+  if (error) return <Failed what="Settings" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const { settings, environment: env } = data;
   const maintenance = settings.maintenance;
   const words = message ?? maintenance.message;
@@ -1474,7 +1496,7 @@ function SystemInformation() {
   const client = useQueryClient();
   // A check asked for runs as a job: read again every few seconds until it has been done.
   const [checking, setChecking] = useState<{ since: string | null; until: number } | null>(null);
-  const { data, error } = useQuery({
+  const { data, error, refetch } = useQuery({
     ...instanceSystemQuery,
     refetchInterval: checking ? 3_000 : false,
   });
@@ -1506,8 +1528,8 @@ function SystemInformation() {
     onSuccess: () =>
       setChecking({ since: data?.check.checkedAt ?? null, until: Date.now() + 120_000 }),
   });
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data) return null;
+  if (error) return <Failed what="The system" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const built = data.build === "dev" ? "A development build" : `Build ${data.build.slice(0, 12)}`;
   return (
     <>
@@ -1796,9 +1818,9 @@ function Logs() {
       </div>
       <div className="flex flex-col divide-y divide-line rounded-panel-lg border border-line bg-raised/25 shadow-1">
         {log.isPending ? (
-          <p className="m-0 px-4 py-3 text-[13px] text-ink-3">Loading</p>
+          <Loading size="panel" />
         ) : log.isError ? (
-          <p className="m-0 px-4 py-3 text-[13px] text-signal">{log.error.message}</p>
+          <Failed what="The log" error={log.error} retry={log.refetch} size="panel" />
         ) : rows.length === 0 ? (
           <div className="p-4">
             <Empty
@@ -2011,7 +2033,7 @@ function reconciliationHint({ last, runningSince, open }: HealthStorage["reconci
  */
 function SystemHealthPage() {
   const [range, setRange] = useState<HealthRange>("24h");
-  const { data, error, dataUpdatedAt } = useQuery({
+  const { data, error, dataUpdatedAt, refetch } = useQuery({
     ...instanceHealthQuery(range),
     placeholderData: keepPreviousData,
   });
@@ -2030,8 +2052,8 @@ function SystemHealthPage() {
     const timer = setInterval(() => setClock(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, []);
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data) return null;
+  if (error) return <Failed what="System health" error={error} retry={refetch} />;
+  if (!data) return <Loading />;
   const { now, series } = data;
   const when = (i: number) => {
     const minutes = (series.requestsPerMinute.length - 1 - i) * series.step;
@@ -2292,7 +2314,7 @@ function Workspaces({
           operator ? (
             <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
               <Icon name="plus" size={14} />
-              Workspace
+              New workspace
             </Button>
           ) : undefined
         }
@@ -2317,7 +2339,7 @@ function Workspaces({
               aria-label="Find a workspace by name or subdomain"
             />
             {operator && (
-              <Segmented
+              <FilterTabs
                 label="Show"
                 value={filter}
                 options={filters}
@@ -2468,8 +2490,12 @@ function WorkspaceDetail({
       <Tabs value={tab} onValueChange={(v) => setTab(v as WorkspaceTab)}>
         <TabsList className="overflow-x-auto">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="members">Members · {w.members}</TabsTrigger>
-          <TabsTrigger value="projects">Projects · {w.projects}</TabsTrigger>
+          <TabsTrigger value="members">
+            Members<Count>{w.members}</Count>
+          </TabsTrigger>
+          <TabsTrigger value="projects">
+            Projects<Count>{w.projects}</Count>
+          </TabsTrigger>
           <TabsTrigger value="storage">Storage</TabsTrigger>
           <TabsTrigger value="billing">Billing</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
@@ -2576,6 +2602,7 @@ const factorWords: Record<InstanceMemberRow["factor"], string> = {
 
 function WorkspaceMembers({ id, operator }: { id: string; operator: boolean }) {
   const { data: members = [] } = useQuery(instanceMembersQuery(id));
+  const [confirm, confirmation] = useConfirm();
   const [said, setSaid] = useState<{ text: string; error: boolean } | null>(null);
   const help = useMutation({
     mutationFn: async ({ userId, action }: { userId: string; action: MemberHelp }) =>
@@ -2627,9 +2654,16 @@ function WorkspaceMembers({ id, operator }: { id: string; operator: boolean }) {
                 },
                 "divider",
                 {
-                  label: "Sign out everywhere",
+                  label: "Sign out everywhere…",
                   danger: true,
-                  onSelect: () => help.mutate({ userId: m.userId, action: "sessions" }),
+                  onSelect: () =>
+                    confirm({
+                      title: `Sign ${m.name} out everywhere?`,
+                      description:
+                        "Every session they have ends now, on each device. They can sign in again.",
+                      action: "Sign out",
+                      onConfirm: () => help.mutateAsync({ userId: m.userId, action: "sessions" }),
+                    }),
                 },
               ]}
             />
@@ -2644,6 +2678,7 @@ function WorkspaceMembers({ id, operator }: { id: string; operator: boolean }) {
           {said.text}
         </p>
       )}
+      {confirmation}
     </Section>
   );
 }
@@ -3092,11 +3127,11 @@ function DeleteWorkspace({
       width="sm"
       footer={
         <>
-          <Button variant="ghost" size="md" onClick={onClose}>
+          <Button variant="secondary" size="md" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="md"
             type="submit"
             form="delete-workspace"
@@ -3330,11 +3365,11 @@ function SuspendWorkspace({
       width="sm"
       footer={
         <>
-          <Button variant="ghost" size="md" onClick={onClose}>
+          <Button variant="secondary" size="md" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            variant="primary"
+            variant="danger"
             size="md"
             type="submit"
             form="suspend-workspace"
@@ -3368,6 +3403,7 @@ function SuspendWorkspace({
 
 function Operators() {
   const client = useQueryClient();
+  const [confirm, confirmation] = useConfirm();
   const { data: operators = [] } = useQuery(instanceOperatorsQuery);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -3387,13 +3423,13 @@ function Operators() {
   return (
     <>
       {adding && <AddOperator onClose={() => setAdding(false)} />}
+      {/* The page says what operators are; its one list needs no title of its own (#609). */}
       <Section
-        title="Operators"
-        intro="Accounts that may open this side of the application. They sign in with a passkey or hardware security key, and what they do is listed under their name."
+        intro="They sign in with a passkey or hardware security key, and what they do is listed under their name."
         action={
-          <Button variant="primary" size="md" onClick={() => setAdding(true)}>
+          <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
             <Icon name="plus" size={14} />
-            Operator
+            Add operator
           </Button>
         }
       >
@@ -3425,9 +3461,16 @@ function Operators() {
                 { label: "Sign out everywhere", onSelect: () => revoke.mutate(o.userId) },
                 "divider",
                 {
-                  label: "Remove as operator",
+                  label: "Remove as operator…",
                   danger: true,
-                  onSelect: () => remove.mutate(o.userId),
+                  onSelect: () =>
+                    confirm({
+                      title: `Remove ${o.name} as an operator?`,
+                      description:
+                        "They can no longer open the instance's side. Their account and what they did here stay.",
+                      action: "Remove operator",
+                      onConfirm: () => remove.mutateAsync(o.userId),
+                    }),
                 },
               ]}
             />
@@ -3439,6 +3482,7 @@ function Operators() {
           {error}
         </p>
       )}
+      {confirmation}
     </>
   );
 }

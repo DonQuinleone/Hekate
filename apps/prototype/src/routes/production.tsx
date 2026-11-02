@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { Icon, type IconName } from "~/components/icons";
-import { Kbd, Label } from "~/components/label";
+import { Count, Kbd, Label } from "~/components/label";
 import { Page } from "~/components/pages";
 import { RecorderControl } from "~/components/recorder";
 import { SideNav, Split } from "~/components/settings";
@@ -64,7 +64,9 @@ function Repertoire() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-2">
-        <Label>Works · {list.length}</Label>
+        <Label>
+          Works<Count>{list.length}</Count>
+        </Label>
         <span className="ml-auto flex items-center gap-1">
           <Dropdown
             value={order === "alpha" ? "Alphabetical" : "Schedule order"}
@@ -82,9 +84,9 @@ function Repertoire() {
               },
             ]}
           />
-          <Button variant="secondary" size="md">
+          <Button variant="primary" size="md">
             <Icon name="plus" size={14} />
-            Work
+            New work
           </Button>
         </span>
       </div>
@@ -113,10 +115,10 @@ function Repertoire() {
                   always
                   label={w.title}
                   actions={[
-                    { label: "Edit", onSelect: () => {} },
+                    { label: "Edit…", onSelect: () => {} },
                     { label: "Swap the score, keeping marks", onSelect: () => {} },
                     "divider",
-                    { label: "Delete", danger: true, onSelect: () => {} },
+                    { label: "Delete…", danger: true, onSelect: () => {} },
                   ]}
                 />
               </span>
@@ -171,10 +173,12 @@ function Venues() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
-        <Label>Venues · {list.length}</Label>
-        <Button variant="secondary" size="md" className="ml-auto">
+        <Label>
+          Venues<Count>{list.length}</Count>
+        </Label>
+        <Button variant="primary" size="md" className="ml-auto">
           <Icon name="plus" size={14} />
-          Venue
+          New venue
         </Button>
       </div>
       <ul className="-mx-2 flex flex-col">
@@ -194,9 +198,9 @@ function Venues() {
             <ActionMenu
               label={v.name}
               actions={[
-                { label: "Edit", onSelect: () => {} },
+                { label: "Edit…", onSelect: () => {} },
                 "divider",
-                { label: "Delete", danger: true, onSelect: () => {} },
+                { label: "Delete…", danger: true, onSelect: () => {} },
               ]}
             />
           </li>
@@ -238,7 +242,7 @@ function PersonnelView() {
               {kind === "artist" && (
                 <Button variant="secondary" size="md" className="ml-auto">
                   <Icon name="plus" size={14} />
-                  Person
+                  Add person
                 </Button>
               )}
             </div>
@@ -300,7 +304,7 @@ function PersonnelView() {
                     <ActionMenu
                       label={p.name}
                       actions={[
-                        { label: "Edit", onSelect: () => {} },
+                        { label: "Edit…", onSelect: () => {} },
                         {
                           label: p.personId
                             ? "Unlink from the member"
@@ -308,7 +312,7 @@ function PersonnelView() {
                           onSelect: () => {},
                         },
                         "divider",
-                        { label: "Remove", danger: true, onSelect: () => {} },
+                        { label: "Remove…", danger: true, onSelect: () => {} },
                       ]}
                     />
                   </div>
@@ -413,9 +417,9 @@ function Schedule() {
               { label: "XLSX", onSelect: () => {} },
             ]}
           />
-          <Button variant="secondary" size="md">
+          <Button variant="primary" size="md">
             <Icon name="plus" size={14} />
-            Day
+            New day
           </Button>
         </span>
       </div>
@@ -518,12 +522,12 @@ function Schedule() {
                       <ActionMenu
                         label={track?.name ?? r.label ?? "row"}
                         actions={[
-                          { label: "Edit", onSelect: () => {} },
+                          { label: "Edit…", onSelect: () => {} },
                           { label: "Insert a break after", onSelect: () => {} },
                           { label: "Move up", onSelect: () => {} },
                           { label: "Move down", onSelect: () => {} },
                           "divider",
-                          { label: "Remove", danger: true, onSelect: () => {} },
+                          { label: "Remove…", danger: true, onSelect: () => {} },
                         ]}
                       />
                     </li>
@@ -1597,7 +1601,9 @@ function StagePlan() {
         </section>
         {items.length > 0 && (
           <section className="rounded-panel-lg border border-line bg-raised/25 p-3">
-            <Label>On the stage · {items.length}</Label>
+            <Label>
+              On the stage<Count>{items.length}</Count>
+            </Label>
             <ul className="mt-2 flex max-h-[240px] flex-col overflow-auto">
               {[...items].reverse().map((i) => (
                 <li key={i.id}>
@@ -1645,7 +1651,9 @@ function Patch() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-2">
-        <Label>Stage boxes · {boxes.length}</Label>
+        <Label>
+          Stage boxes<Count>{boxes.length}</Count>
+        </Label>
         <span className="ml-auto flex gap-1">
           <Dropdown
             value="Export"
@@ -1657,7 +1665,7 @@ function Patch() {
           />
           <Button variant="secondary" size="md">
             <Icon name="plus" size={14} />
-            Stage box
+            Add stage box
           </Button>
         </span>
       </div>
@@ -1700,10 +1708,10 @@ function Patch() {
                         <ActionMenu
                           label={r.source}
                           actions={[
-                            { label: "Edit", onSelect: () => {} },
+                            { label: "Edit…", onSelect: () => {} },
                             { label: "Link to a microphone on the plan", onSelect: () => {} },
                             "divider",
-                            { label: "Remove", danger: true, onSelect: () => {} },
+                            { label: "Remove…", danger: true, onSelect: () => {} },
                           ]}
                         />
                       </td>
@@ -1838,6 +1846,7 @@ export function ProductionView({ project, section }: { project: Project; section
       nav={
         <SideNav
           label="Production"
+          phoneLabel="Production"
           sections={productionSections}
           current={sec}
           link={(id) => ({

@@ -67,7 +67,7 @@ function daysWith(marks: Record<number, [DayState, string]>, from = 0) {
   const end = Date.UTC(2026, 9, 14);
   return Array.from({ length: 90 }, (_, i) => {
     const at = new Date(end - (89 - i) * 86_400_000);
-    const day = at.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+    const day = at.toISOString().slice(0, 10);
     const [state, note] =
       i < from ? (["none", "not measured"] as const) : (marks[i] ?? ["operational", "no downtime"]);
     return { day, state, note: `${day} · ${note}` };

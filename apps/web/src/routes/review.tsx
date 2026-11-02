@@ -13,7 +13,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
-import { Avatar } from "~/components/avatar";
+import { Avatar, personKey } from "~/components/avatar";
 import { kindIcon } from "~/components/files";
 import { FollowButton } from "~/components/follow-button";
 import { GuestFields } from "~/components/guest-fields";
@@ -24,10 +24,12 @@ import { Property } from "~/components/property";
 import { ReviewerPermissionsEditor } from "~/components/reviewer-permissions";
 import { reviewState } from "~/components/reviews";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { DateField } from "~/components/ui/date-field";
+import { ConfirmDialog, Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Loading } from "~/components/ui/states";
 import { ReviewerDot, type ReviewerDotState, StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
@@ -45,6 +47,7 @@ import {
 } from "~/lib/queries";
 import { shareLine, shareNote } from "~/lib/shares";
 import { useViewer } from "~/lib/viewer";
+import { PageFailed } from "~/routes/problem";
 
 const shortDate = formatDates({ day: "numeric", month: "short" });
 const longDate = formatDates({ day: "numeric", month: "long", year: "numeric" });
@@ -195,6 +198,7 @@ function Steps({ review }: { review: ReviewDetail }) {
 
 function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: string) => void }) {
   const { guest } = useViewer();
+  const [confirm, confirmation] = useConfirm();
   const actions = useReviewActions(review.id);
   const { addReviewer, invite, sendLink, revoke, permissions, remind, removeReviewer } = actions;
   const [inviting, setInviting] = useState(false);
@@ -254,7 +258,7 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                       className="group flex flex-col gap-2 border-b border-line px-4 py-row last:border-b-0"
                     >
                       <div className="flex items-center gap-3">
-                        <Avatar id={r.userId ?? r.id} name={r.name} size={30} />
+                        <Avatar person={personKey(r)} name={r.name} size={30} />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5 text-[14px]">
                             <span className="truncate font-medium text-ink">{r.name}</span>
@@ -347,9 +351,16 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                                 ? [
                                     "divider" as const,
                                     {
-                                      label: "Remove from the review",
+                                      label: "Remove from the review…",
                                       danger: true,
-                                      onSelect: () => removeReviewer.mutate(r.id),
+                                      onSelect: () =>
+                                        confirm({
+                                          title: `Remove ${r.name} from the review?`,
+                                          description:
+                                            "They are no longer asked, and lose access to its items. What they wrote stays.",
+                                          action: "Remove reviewer",
+                                          onConfirm: () => removeReviewer.mutateAsync(r.id),
+                                        }),
                                     },
                                   ]
                                 : []),
@@ -410,6 +421,7 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
           </div>
         </div>
       )}
+      {confirmation}
     </section>
   );
 }
@@ -768,7 +780,12 @@ function Activity({ review }: { review: ReviewDetail }) {
       <ul className="m-0 flex list-none flex-col p-0">
         {review.activity.map((a) => (
           <li key={a.id} className="flex gap-3 py-row-tight">
-            <Avatar id={a.name} name={a.name} size={22} className="mt-px" />
+            <Avatar
+              person={personKey({ userId: a.person, name: a.name })}
+              name={a.name}
+              size={22}
+              className="mt-px"
+            />
             <div className="min-w-0 flex-1">
               <p className="m-0 text-[14px] text-ink-2">
                 <span className="text-ink">{a.name}</span>{" "}
@@ -820,7 +837,7 @@ function DueDialog({ review, onClose }: { review: ReviewDetail; onClose: () => v
       }
     >
       <Field label="Due" error={due.error?.message}>
-        <Input type="date" value={value} onChange={(e) => setValue(e.target.value)} />
+        <DateField value={value} onChange={setValue} />
       </Field>
     </Dialog>
   );
@@ -851,7 +868,7 @@ export function ReviewBody({
   /** Record that you have seen it. Off for a review shown only because it came first. */
   markViewed?: boolean;
 }) {
-  const { data: review, error } = useQuery(reviewQuery(reviewId));
+  const { data: review, error, refetch } = useQuery(reviewQuery(reviewId));
   const { guest } = useViewer();
   const { data: me } = useQuery({ ...meQuery, enabled: !guest });
   const { data: project } = useQuery({
@@ -875,8 +892,8 @@ export function ReviewBody({
     }
   }, [markViewed, mine?.state, viewed]);
 
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!review) return <p className="p-8 text-ink-3">Loading</p>;
+  if (error) return <PageFailed what="This review" error={error} retry={refetch} />;
+  if (!review) return <Loading />;
   const state = reviewState(review);
   const due = review.dueAt ? dueIn(review.dueAt) : null;
   const overdue = review.status === "open" && due !== null && due.days < 0;
@@ -889,7 +906,6 @@ export function ReviewBody({
   const crumbs: Crumb[] = guest
     ? [{ key: "reviews", link: <Link to="/g">Your reviews</Link> }]
     : [
-        { key: "projects", link: <Link to="/projects">Projects</Link> },
         {
           key: "project",
           link: (
@@ -1016,7 +1032,7 @@ export function ReviewBody({
             {embedded && !titled && <h2 className="title m-0">{review.title}</h2>}
             <p className="m-0 flex items-center gap-2 text-[13px] text-ink-3">
               <Avatar
-                id={review.createdByName ?? "former"}
+                person={review.createdBy ?? "former"}
                 name={review.createdByName ?? "A former member"}
                 size={18}
               />
@@ -1043,34 +1059,21 @@ export function ReviewBody({
               </p>
             )}
             {cancelling && (
-              <div className="rise-in flex flex-col gap-3 rounded-panel border border-signal/40 bg-signal/10 px-4 py-3 text-[14px] text-ink">
-                <span>
-                  {sharing
-                    ? "Stop sharing? Those it was shared with lose access to what it shares. What they opened stays in the record."
-                    : "Cancel this review? Reviewers lose access to its items. Decisions already recorded stay in the record."}
-                </span>
-                <Field label="Reason (optional, shown on the review)" error={cancel.error?.message}>
+              <ConfirmDialog
+                title={sharing ? `Stop sharing ${review.title}?` : `Cancel ${review.title}?`}
+                description={
+                  sharing
+                    ? "Those it was shared with lose access to what it shares. What they opened stays in the record."
+                    : "Reviewers lose access to its items. Decisions already recorded stay in the record."
+                }
+                action={sharing ? "Stop sharing" : "Cancel the review"}
+                onConfirm={() => cancel.mutateAsync({ reason: reason || undefined })}
+                onClose={() => setCancelling(false)}
+              >
+                <Field label="Reason (optional, shown on the review)">
                   <Input value={reason} onChange={(e) => setReason(e.target.value)} />
                 </Field>
-                <div className="flex justify-end gap-2">
-                  <Button variant="ghost" size="sm" onClick={() => setCancelling(false)}>
-                    Keep it
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={cancel.isPending}
-                    onClick={() =>
-                      cancel.mutate(
-                        { reason: reason || undefined },
-                        { onSuccess: () => setCancelling(false) },
-                      )
-                    }
-                  >
-                    {sharing ? "Stop sharing" : "Cancel the review"}
-                  </Button>
-                </div>
-              </div>
+              </ConfirmDialog>
             )}
           </div>
           <YourTurn review={review} />

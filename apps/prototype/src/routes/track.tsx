@@ -380,10 +380,11 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
       navigate({ to: "/files/$fileId", params: { fileId: playable.id }, replace: true });
   }, [playable, navigate]);
   usePageHeader({
-    crumbs: [
-      { label: "Projects", to: "/projects" },
-      ...(project && visible ? [{ label: project.name, to: `/projects/${project.id}` }] : []),
-    ],
+    // A trail inside a project starts at the project; the sidebar has Projects (#547).
+    crumbs:
+      project && visible
+        ? [{ label: project.name, to: `/projects/${project.id}` }]
+        : [{ label: "Projects", to: "/projects" }],
     title:
       track && visible ? `${track.name}: ${view === "takes" ? "takes" : "versions"}` : "Not found",
     heading: "page",

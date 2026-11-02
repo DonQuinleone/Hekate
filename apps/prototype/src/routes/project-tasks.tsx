@@ -6,6 +6,7 @@ import { Label } from "~/components/label";
 import { Card } from "~/components/page";
 import { Dot, type DotState } from "~/components/status";
 import { Button } from "~/components/ui/button";
+import { DateField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
@@ -447,7 +448,7 @@ export function ProjectTasks({
                 Cancel
               </Button>
               <Button variant="primary" onClick={() => setCreating(false)}>
-                Add task
+                Create task
               </Button>
             </>
           }
@@ -481,7 +482,7 @@ export function ProjectTasks({
               </label>
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Due
-                <Input type="date" defaultValue="2026-10-21" />
+                <DateField defaultValue="2026-10-21" />
               </label>
             </div>
             <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">

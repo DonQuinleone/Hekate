@@ -41,6 +41,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { Failed } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import {
   ago,
@@ -76,7 +77,7 @@ import {
 } from "~/lib/queries";
 import { useShortcuts } from "~/lib/shortcuts";
 import { useViewer } from "~/lib/viewer";
-import { Avatar } from "./avatar";
+import { Avatar, personKey } from "./avatar";
 import { CommentAssignee } from "./comment-assignee";
 import { DeferDialog } from "./defer-dialog";
 import type { RegionMarker } from "./document-viewer";
@@ -405,7 +406,7 @@ function Composer({
                   i === index ? "bg-ground/60 text-ink" : "text-ink-2",
                 )}
               >
-                <Avatar id={person.id} name={person.name} size={18} />
+                <Avatar person={person.id} name={person.name} size={18} />
                 <span className="truncate">{person.name}</span>
               </div>
             ))}
@@ -504,7 +505,7 @@ function Composer({
                   ...(takesFrom
                     ? [
                         {
-                          label: "Takes from this track",
+                          label: "Takes from this track…",
                           icon: <Icon name="take" size={14} />,
                           onSelect: () => setAttaching("takes"),
                         },
@@ -513,14 +514,14 @@ function Composer({
                   ...(filesFrom
                     ? [
                         {
-                          label: "Files from this project",
+                          label: "Files from this project…",
                           icon: <Icon name="folder" size={14} />,
                           onSelect: () => setAttaching("files"),
                         },
                       ]
                     : []),
                   {
-                    label: "Upload",
+                    label: "Upload…",
                     icon: <Icon name="upload" size={14} />,
                     hint:
                       files.length >= COMMENT_ATTACHMENTS_MAX
@@ -666,7 +667,11 @@ function CommentBody({
     <div className="flex flex-col gap-1.5">
       <div className="flex min-w-0 items-center gap-2 text-xs">
         <Avatar
-          id={comment.authorId ?? comment.authorName ?? "former"}
+          person={personKey({
+            userId: comment.authorId,
+            guestId: comment.authorGuestId,
+            name: comment.authorName ?? "former",
+          })}
           name={comment.authorName ?? "Former member"}
           size={20}
         />
@@ -1381,7 +1386,7 @@ export function Comments({
   /** On a document or picture: the page shown and the region drawn on it. */
   pages?: PageComments;
 }) {
-  const { data, error } = useQuery(commentsQuery(fileId));
+  const { data, error, refetch } = useQuery(commentsQuery(fileId));
   const { guest } = useViewer();
   const can = useProjectCan(guest ? undefined : projectId);
   // A guest reviewer may comment on the files of their review when it allows, never triage.
@@ -2014,7 +2019,15 @@ export function Comments({
               </>
             )}
             <div className="scroll-quiet flex flex-col gap-3 px-3 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:px-4">
-              {error && <p className="m-0 text-xs text-signal">{error.message}</p>}
+              {error && (
+                <Failed
+                  what="The comments"
+                  error={error}
+                  retry={refetch}
+                  size="panel"
+                  className="px-0"
+                />
+              )}
               {data && listed.length === 0 && (
                 <p className="m-0 py-8 text-center text-[13px] text-ink-3">
                   {query?.trim()

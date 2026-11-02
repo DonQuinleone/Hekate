@@ -7,6 +7,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { ssoQuery, useSaveSso } from "~/lib/queries";
+import { CopyButton } from "./copy-button";
 import { Row, Section, SwitchRow } from "./settings";
 import { Button } from "./ui/button";
 import { Input, Select, Textarea } from "./ui/input";
@@ -41,13 +42,16 @@ const groupsOf = (text: string) =>
 function Given({ name, value }: { name: string; value: string }) {
   return (
     <Row name={name}>
-      <Input
-        readOnly
-        aria-label={name}
-        value={value}
-        onFocus={(e) => e.currentTarget.select()}
-        className="w-full font-mono text-[12px] @3xl/app:w-96"
-      />
+      <span className="flex w-full items-center gap-1 @3xl/app:w-96">
+        <Input
+          readOnly
+          aria-label={name}
+          value={value}
+          onFocus={(e) => e.currentTarget.select()}
+          className="tabular min-w-0 flex-1 text-[13px]"
+        />
+        <CopyButton value={value} label={`Copy ${name.charAt(0).toLowerCase()}${name.slice(1)}`} />
+      </span>
     </Row>
   );
 }

@@ -5,8 +5,10 @@ import { CalendarSubscribeDialog } from "~/components/calendar-subscribe";
 import { Icon, type IconName } from "~/components/icons";
 import { Label } from "~/components/label";
 import { Card } from "~/components/page";
+import { Chip } from "~/components/permissions";
 import { Dot } from "~/components/status";
 import { Button } from "~/components/ui/button";
+import { DateField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
@@ -119,22 +121,15 @@ function Customise({ display, set }: { display: Display; set: (d: Display) => vo
                   ["due", "Due"],
                 ] as const
               ).map(([id, label]) => (
-                <button
+                <Chip
                   key={id}
-                  type="button"
-                  aria-pressed={display.fields[id]}
+                  active={display.fields[id]}
                   onClick={() =>
                     set({ ...display, fields: { ...display.fields, [id]: !display.fields[id] } })
                   }
-                  className={cn(
-                    "h-7 rounded-chip border px-2.5 text-[13px]",
-                    display.fields[id]
-                      ? "border-edge bg-raised text-ink"
-                      : "border-line text-ink-3 hover:text-ink",
-                  )}
                 >
                   {label}
-                </button>
+                </Chip>
               ))}
             </div>
           </div>
@@ -675,7 +670,7 @@ function EntryDialog({
             Cancel
           </Button>
           <Button variant="primary" onClick={onClose}>
-            {entry ? "Save" : "Add entry"}
+            {entry ? "Save" : "Create entry"}
           </Button>
         </>
       }
@@ -716,11 +711,11 @@ function EntryDialog({
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
             Starts
-            <Input type="date" defaultValue={entry?.startsOn ?? day ?? "2026-10-14"} />
+            <DateField defaultValue={entry?.startsOn ?? day ?? "2026-10-14"} />
           </label>
           <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
             Ends
-            <Input type="date" defaultValue={entry?.endsOn ?? ""} />
+            <DateField defaultValue={entry?.endsOn ?? ""} />
             <span className="text-[12px] text-ink-3">Leave empty for one day</span>
           </label>
         </div>

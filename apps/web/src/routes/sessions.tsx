@@ -10,10 +10,12 @@ import { TakeImportDialog } from "~/components/take-import";
 import { Rating } from "~/components/takes";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
+import { DateField, TimeField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { formatDates } from "~/lib/locale";
 import {
   editDecisionsQuery,
@@ -26,6 +28,7 @@ import {
 } from "~/lib/queries";
 import { slotMoment, slotTime } from "~/lib/take-log";
 import { coverageLabel, falseStartsLabel, timecodeSpan, usedInLabel } from "~/lib/take-page";
+import { PageFailed } from "~/routes/problem";
 import { ProjectFrame } from "~/routes/project";
 
 /** A session's own page, framed as the other pages of the project are. */
@@ -51,7 +54,11 @@ export function SessionsPage({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
   const [making, setMaking] = useState(false);
   const [importing, setImporting] = useState(false);
-  const { data: sessions, error } = useQuery({
+  const {
+    data: sessions,
+    error,
+    refetch,
+  } = useQuery({
     ...projectSessionsQuery(projectId),
     enabled: can("view_takes"),
   });
@@ -59,37 +66,18 @@ export function SessionsPage({ projectId }: { projectId: string }) {
   // Importing uploads the takes' files, which needs the project's upload permission too.
   const canImport = canEdit && can("upload");
   return (
-    <ProjectFrame
-      projectId={projectId}
-      title="Sessions"
-      actions={
-        canEdit && sessions && sessions.length > 0 ? (
-          <>
-            <Button variant="secondary" size="sm" onClick={() => setMaking(true)}>
-              <Icon name="plus" size={14} />
-              New session
-            </Button>
-            {canImport && (
-              <Button variant="secondary" size="sm" onClick={() => setImporting(true)}>
-                <Icon name="upload" size={14} />
-                Import takes
-              </Button>
-            )}
-          </>
-        ) : undefined
-      }
-    >
+    <ProjectFrame projectId={projectId} title="Sessions">
       {(project) => (
         <ProductionBody projectId={projectId} current="sessions" can={can}>
           {!can("view_takes") ? (
-            <Empty
+            <Refused
               title="Not among what your role shows"
               text="Sessions and takes are shown to the roles the project's access gives them."
             />
           ) : error ? (
-            <p className="m-0 text-signal">{error.message}</p>
+            <Failed what="The sessions" error={error} retry={refetch} />
           ) : !sessions ? (
-            <p className="m-0 text-ink-3">Loading</p>
+            <Loading />
           ) : sessions.length === 0 ? (
             <Empty
               title="No sessions yet"
@@ -113,40 +101,57 @@ export function SessionsPage({ projectId }: { projectId: string }) {
               }
             />
           ) : (
-            <ul aria-label="Sessions" className="-mx-2 m-0 flex list-none flex-col p-0">
-              {sessions.map((s) => (
-                <li key={s.id}>
-                  <Link
-                    to="/sessions/$sessionId"
-                    params={{ sessionId: s.id }}
-                    className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 rounded-panel px-2 py-2.5 no-underline transition-colors hover:bg-raised/60 @3xl/app:grid-cols-[auto_minmax(0,1fr)_160px_120px_100px]"
-                  >
-                    <span className="flex size-9 items-center justify-center rounded-panel bg-raised text-ink-2">
-                      <Icon name="mic" size={16} />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-[14px] font-medium text-ink">
-                        {s.name}
+            <div className="flex flex-col gap-3">
+              {/* Inside a project the view's actions sit at the right of its content (#548). */}
+              {canEdit && !project.archivedAt && (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {canImport && (
+                    <Button variant="secondary" size="md" onClick={() => setImporting(true)}>
+                      <Icon name="upload" size={14} />
+                      Import takes
+                    </Button>
+                  )}
+                  <Button variant="primary" size="md" onClick={() => setMaking(true)}>
+                    <Icon name="plus" size={14} />
+                    New session
+                  </Button>
+                </div>
+              )}
+              <ul aria-label="Sessions" className="-mx-2 m-0 flex list-none flex-col p-0">
+                {sessions.map((s) => (
+                  <li key={s.id}>
+                    <Link
+                      to="/sessions/$sessionId"
+                      params={{ sessionId: s.id }}
+                      className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 rounded-panel px-2 py-2.5 no-underline transition-colors hover:bg-raised/60 @3xl/app:grid-cols-[auto_minmax(0,1fr)_160px_120px_100px]"
+                    >
+                      <span className="flex size-9 items-center justify-center rounded-panel bg-raised text-ink-2">
+                        <Icon name="mic" size={16} />
                       </span>
-                      <span className="block truncate text-[13px] text-ink-3">
-                        {whenAndWhere(s) || "No day or place given"}
+                      <span className="min-w-0">
+                        <span className="block truncate text-[14px] font-medium text-ink">
+                          {s.name}
+                        </span>
+                        <span className="block truncate text-[13px] text-ink-3">
+                          {whenAndWhere(s) || "No day or place given"}
+                        </span>
                       </span>
-                    </span>
-                    <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
-                      {s.takes === 0
-                        ? "No takes yet"
-                        : `${count(s.takes, "take")}${s.starred > 0 ? ` · ${s.starred} starred` : ""}`}
-                    </span>
-                    <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
-                      {s.tracks.length === 0 ? "No tracks" : count(s.tracks.length, "track")}
-                    </span>
-                    <span className="tabular text-right text-[13px] text-ink-3">
-                      {s.takes > 0 ? formatDuration(s.duration) : ""}
-                    </span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
+                      <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
+                        {s.takes === 0
+                          ? "No takes yet"
+                          : `${count(s.takes, "take")}${s.starred > 0 ? ` · ${s.starred} starred` : ""}`}
+                      </span>
+                      <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
+                        {s.tracks.length === 0 ? "No tracks" : count(s.tracks.length, "track")}
+                      </span>
+                      <span className="tabular text-right text-[13px] text-ink-3">
+                        {s.takes > 0 ? formatDuration(s.duration) : ""}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           {making && <SessionDialog projectId={project.id} onClose={() => setMaking(false)} />}
           {importing && (
@@ -222,7 +227,7 @@ function SessionDialog({
             form="session"
             disabled={saving || name.trim() === ""}
           >
-            {session ? "Save" : "Make the session"}
+            {session ? "Save" : "Create session"}
           </Button>
         </>
       }
@@ -239,7 +244,7 @@ function SessionDialog({
         </Field>
         <div className="grid gap-4 @md/app:grid-cols-2">
           <Field label="Day">
-            <Input type="date" value={recordedOn} onChange={(e) => setRecordedOn(e.target.value)} />
+            <DateField value={recordedOn} onChange={setRecordedOn} />
           </Field>
           <Field label="Where">
             <Input
@@ -252,10 +257,10 @@ function SessionDialog({
         </div>
         <div className="grid gap-4 @md/app:grid-cols-3">
           <Field label="Slot from">
-            <Input type="time" value={slotFrom} onChange={(e) => setSlotFrom(e.target.value)} />
+            <TimeField value={slotFrom} onChange={setSlotFrom} />
           </Field>
           <Field label="To">
-            <Input type="time" value={slotTo} onChange={(e) => setSlotTo(e.target.value)} />
+            <TimeField value={slotTo} onChange={setSlotTo} />
           </Field>
           <Field label="Takes numbered">
             <Select
@@ -295,7 +300,7 @@ function SessionDialog({
  * only gathers those made on the day.
  */
 export function SessionPage({ sessionId }: { sessionId: string }) {
-  const { data: session, error } = useQuery(sessionQuery(sessionId));
+  const { data: session, error, refetch } = useQuery(sessionQuery(sessionId));
   const { data: project } = useQuery({
     ...projectQuery(session?.projectId ?? ""),
     enabled: Boolean(session),
@@ -311,15 +316,14 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
     queries: trackIds.map((id) => ({ ...editDecisionsQuery(id), retry: false })),
   });
   const decisions = new Map(trackIds.map((id, i) => [id, lists[i]?.data ?? null]));
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!session || !project) return <p className="p-8 text-ink-3">Loading</p>;
+  if (error) return <PageFailed what="This session" error={error} retry={refetch} />;
+  if (!session || !project) return <Loading />;
   const canEdit = can("edit_takes") && !project.archivedAt;
   const rows = session.takeRows;
   return (
     <>
       <PageHeader
         crumbs={[
-          { key: "projects", link: <Link to="/projects">Projects</Link> },
           {
             key: "project",
             link: (
@@ -491,11 +495,11 @@ export function SessionPage({ sessionId }: { sessionId: string }) {
           onClose={() => setDeleting(false)}
           footer={
             <>
-              <Button variant="ghost" onClick={() => setDeleting(false)}>
+              <Button variant="secondary" onClick={() => setDeleting(false)}>
                 Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 disabled={remove.isPending}
                 onClick={() =>
                   remove.mutate(session.id, {

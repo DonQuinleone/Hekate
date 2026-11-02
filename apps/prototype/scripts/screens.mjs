@@ -58,6 +58,10 @@ const screens = [
   { name: "guest-home", route: "/g", persona: "guest" },
   { name: "status", route: "/status" },
   { name: "status-incident", route: "/status", state: "failed" },
+  { name: "not-found", route: "/problem/not-found" },
+  { name: "not-found-signed-out", route: "/no-such-page" },
+  { name: "refused", route: "/problem/refused" },
+  { name: "error-page", route: "/problem/error" },
   { name: "upload-request", route: "/u/req-atmos" },
 
   // 3.2 Home and navigation

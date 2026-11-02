@@ -142,7 +142,7 @@ export function TakeManager({
                 key={t.id}
                 className={cn(
                   "group col-span-3 grid grid-cols-subgrid items-center border-b border-line transition-colors hover:bg-raised/40",
-                  on && "bg-signal/10",
+                  on && "bg-raised",
                 )}
               >
                 <button
@@ -153,7 +153,7 @@ export function TakeManager({
                   <span
                     className={cn(
                       "flex size-6 shrink-0 items-center justify-center rounded-full",
-                      on ? "bg-signal text-ground" : "bg-raised text-ink",
+                      on ? "bg-ink text-ground" : "bg-raised text-ink",
                     )}
                   >
                     <Icon
@@ -205,7 +205,7 @@ export function TakeManager({
                     {used.map((u) => (
                       <span
                         key={`${u.barFrom}-${u.barTo}`}
-                        className="absolute top-0 bottom-0 bg-signal/90"
+                        className="absolute top-0 bottom-0 bg-ink/90"
                         style={{
                           left: `${((u.barFrom - from) * 100) / (to - from + 1)}%`,
                           width: `${((u.barTo - u.barFrom + 1) * 100) / (to - from + 1)}%`,
@@ -248,7 +248,7 @@ export function TakeManager({
           <span className="h-2.5 w-4 rounded-[2px] bg-ink-3/40" /> covers
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="h-2.5 w-4 rounded-[2px] bg-signal/90" /> in the edit
+          <span className="h-2.5 w-4 rounded-[2px] bg-ink/90" /> in the edit
         </span>
         {auditioning && (
           <span className="ml-auto text-ink-2">

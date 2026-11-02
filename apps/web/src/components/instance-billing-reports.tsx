@@ -2,6 +2,7 @@ import { formatMoney, type MonthKey, monthKeyOf, monthsBack } from "@hekate/shar
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Icon } from "~/components/icons";
+import { Failed, Loading } from "~/components/ui/states";
 import { formatDates } from "~/lib/locale";
 import { instanceReportsQuery } from "~/lib/queries";
 import { TileGrid } from "./billing";
@@ -32,10 +33,10 @@ function periods(now = new Date()) {
 }
 
 export function Reports() {
-  const { data, error } = useQuery(instanceReportsQuery);
+  const { data, error, refetch } = useQuery(instanceReportsQuery);
   const [period, setPeriod] = useState<"twelve" | "year" | "last">("twelve");
-  if (error) return <p className="m-0 text-[13px] text-signal">{error.message}</p>;
-  if (!data) return null;
+  if (error) return <Failed what="The reports" error={error} retry={refetch} size="panel" />;
+  if (!data) return <Loading size="panel" />;
   const money = (amount: number) => formatMoney(amount, data.currency);
   const chosen = periods()[period];
   const exportUrl = (kind: "invoices" | "recognition") =>

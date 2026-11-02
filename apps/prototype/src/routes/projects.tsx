@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Icon } from "~/components/icons";
+import { Count } from "~/components/label";
 import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import {
@@ -207,12 +208,10 @@ export function ProjectsPage({ create = false }: { create?: boolean }) {
               )}
             >
               {label}
+              {filter === id && <Count>{shown.length}</Count>}
             </button>
           ))}
-          <span className="tabular ml-auto hidden pr-2 text-[13px] text-ink-3 @3xl/app:inline">
-            {shown.length} {shown.length === 1 ? "project" : "projects"}
-          </span>
-          <span className="ml-auto @3xl/app:ml-0">
+          <span className="ml-auto">
             <Dropdown
               align="right"
               value={sortLabels[sort]}
@@ -223,7 +222,8 @@ export function ProjectsPage({ create = false }: { create?: boolean }) {
               }))}
             />
           </span>
-          <fieldset className="m-0 hidden items-center border-0 p-0 @3xl/app:flex">
+          {/* How the list is shown is a segmented control; what it holds, the pill tabs (#608). */}
+          <fieldset className="m-0 hidden h-8 items-center rounded-control border border-line bg-raised/40 p-0.5 @3xl/app:flex">
             <legend className="sr-only">View</legend>
             {(
               [
@@ -231,17 +231,20 @@ export function ProjectsPage({ create = false }: { create?: boolean }) {
                 ["list", "list", "List"],
               ] as const
             ).map(([id, icon, label]) => (
-              <Button
+              <button
                 key={id}
-                variant="ghost"
-                size="icon"
+                type="button"
                 aria-label={label}
+                title={label}
                 aria-pressed={view === id}
                 onClick={() => setView(id)}
-                className={cn(view === id && "bg-raised text-ink")}
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-[5px] transition-colors",
+                  view === id ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
+                )}
               >
-                <Icon name={icon} size={16} />
-              </Button>
+                <Icon name={icon} size={15} />
+              </button>
             ))}
           </fieldset>
         </div>

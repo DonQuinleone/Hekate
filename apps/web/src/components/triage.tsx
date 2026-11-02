@@ -1,6 +1,8 @@
 import { type Anchor, type TriageInput, triageQueue } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Count } from "~/components/ui/chip";
+import { Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { ago, passageLoop, type Thread, threadsOf } from "~/lib/comments";
 import { type Loop, MIN_LOOP } from "~/lib/loop";
@@ -14,7 +16,7 @@ import {
   useCommentMutations,
 } from "~/lib/queries";
 import { useShortcuts } from "~/lib/shortcuts";
-import { Avatar } from "./avatar";
+import { Avatar, personKey } from "./avatar";
 import { AssignDialog, anchorLabel } from "./comments";
 import { DeferDialog } from "./defer-dialog";
 import { Empty } from "./empty";
@@ -186,8 +188,7 @@ export function TriageView({
     active,
   );
 
-  if (!comments || !categories || !queue)
-    return <p className="px-4 py-8 text-ink-3 @3xl/app:px-6">Loading</p>;
+  if (!comments || !categories || !queue) return <Loading className="@3xl/app:px-6" />;
 
   const stages = [
     ...new Set([
@@ -253,7 +254,9 @@ export function TriageView({
         className="flex w-full shrink-0 flex-col border-b border-line @3xl/app:w-[300px] @3xl/app:border-r @3xl/app:border-b-0"
       >
         <div className="flex h-11 shrink-0 items-center gap-2 px-3">
-          <span className="label">Queue · {list.length}</span>
+          <span className="label">
+            Queue<Count>{list.length}</Count>
+          </span>
           {selected.size > 0 && (
             <span className="ml-auto text-[12px] text-signal">{selected.size} ticked</span>
           )}
@@ -312,7 +315,15 @@ export function TriageView({
         {here && (
           <>
             <div className="flex items-center gap-3">
-              <Avatar id={here.authorId ?? here.id} name={here.authorName ?? "?"} size={28} />
+              <Avatar
+                person={personKey({
+                  userId: here.authorId,
+                  guestId: here.authorGuestId,
+                  name: here.authorName,
+                })}
+                name={here.authorName ?? "?"}
+                size={28}
+              />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[14px] font-medium text-ink">
                   {here.authorName ?? "Former member"}
@@ -345,7 +356,11 @@ export function TriageView({
             {current.replies.map((r) => (
               <p key={r.id} className="m-0 flex gap-2 text-[14px] text-ink-2">
                 <Avatar
-                  id={r.authorId ?? r.id}
+                  person={personKey({
+                    userId: r.authorId,
+                    guestId: r.authorGuestId,
+                    name: r.authorName,
+                  })}
                   name={r.authorName ?? "?"}
                   size={18}
                   className="mt-0.5"
@@ -528,7 +543,7 @@ function TriageSummary({
           <ul className="m-0 flex list-none flex-col border-t border-hairline p-0">
             {[...assigned].map(([id, { name, count }]) => (
               <li key={id} className="flex items-center gap-3 border-b border-hairline py-2">
-                <Avatar id={id} name={name} size={22} />
+                <Avatar person={id} name={name} size={22} />
                 <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
                   {name}
                   <span className="tabular ml-2 text-ink-3">

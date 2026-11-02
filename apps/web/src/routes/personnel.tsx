@@ -15,11 +15,12 @@ import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
 import { Choice } from "~/components/ui/choice";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { personnelQuery, usePersonnel, useProjectCan } from "~/lib/queries";
 import { ProjectFrame } from "./project";
@@ -38,7 +39,7 @@ const kindWords: Record<PersonnelKind, { heading: string; one: string }> = {
  */
 export function PersonnelPage({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
-  const { data, error } = useQuery({
+  const { data, error, refetch } = useQuery({
     ...personnelQuery(projectId),
     enabled: can("view_production"),
   });
@@ -47,14 +48,14 @@ export function PersonnelPage({ projectId }: { projectId: string }) {
       {(project) => (
         <ProductionBody projectId={projectId} current="personnel" can={can}>
           {!can("view_production") ? (
-            <Empty
+            <Refused
               title="Not among what your role shows"
               text="Personnel is shown to the roles the project's access gives the production tools."
             />
           ) : error ? (
-            <p className="m-0 text-signal">{error.message}</p>
+            <Failed what="Personnel" error={error} retry={refetch} />
           ) : !data ? (
-            <p className="m-0 text-ink-3">Loading</p>
+            <Loading />
           ) : (
             <PersonnelList
               projectId={projectId}
@@ -132,12 +133,13 @@ function PersonnelList({
   canEdit: boolean;
 }) {
   const { remove } = usePersonnel(projectId);
+  const [confirm, confirmation] = useConfirm();
   const [editing, setEditing] = useState<"new" | Personnel | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const addButton = (
     <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
       <Icon name="plus" size={14} />
-      Person
+      Add person
     </Button>
   );
   const groups = personnelKinds
@@ -177,7 +179,7 @@ function PersonnelList({
                     <div className="group flex items-center gap-3 rounded-panel px-2 py-2 transition-colors hover:bg-raised/60">
                       {p.link ? (
                         <Avatar
-                          id={p.link.kind === "member" ? p.link.userId : p.link.guestId}
+                          person={p.link.kind === "member" ? p.link.userId : p.link.guestId}
                           name={p.link.name}
                           size={28}
                         />
@@ -219,9 +221,20 @@ function PersonnelList({
                         <ActionMenu
                           label={p.name}
                           actions={[
-                            { label: "Edit", onSelect: () => setEditing(p) },
+                            { label: "Edit…", onSelect: () => setEditing(p) },
                             "divider",
-                            { label: "Remove", danger: true, onSelect: () => remove.mutate(p.id) },
+                            {
+                              label: "Remove…",
+                              danger: true,
+                              onSelect: () =>
+                                confirm({
+                                  title: `Remove ${p.name}?`,
+                                  description:
+                                    "They go from the personnel list with their sections; where the stage plan places them stays, unnamed.",
+                                  action: "Remove",
+                                  onConfirm: () => remove.mutateAsync(p.id),
+                                }),
+                            },
                           ]}
                         />
                       )}
@@ -242,6 +255,7 @@ function PersonnelList({
           onClose={() => setEditing(null)}
         />
       )}
+      {confirmation}
     </>
   );
 }
@@ -577,7 +591,7 @@ function EntryDialog({
                   onClick={() => setSections((all) => [...all, sectionOf()])}
                 >
                   <Icon name="plus" size={12} />
-                  Section
+                  Add section
                 </Button>
               </div>
             </div>

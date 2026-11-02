@@ -1,10 +1,11 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Icon } from "~/components/icons";
 import { Page } from "~/components/page";
 import { cn } from "~/lib/cn";
 import { Label } from "./label";
 import { Button } from "./ui/button";
+import { Dropdown, type MenuItem } from "./ui/menu";
 import { Switch } from "./ui/toggle";
 
 export interface NavSection {
@@ -19,7 +20,10 @@ export function SideNav({
   current,
   link,
   label = "Sections",
+  phoneLabel = "Section",
 }: {
+  /** What the phone's control says before the current section: "Section", or "Production". */
+  phoneLabel?: string;
   sections: NavSection[];
   current: string;
   /** Where each section lives. */
@@ -31,39 +35,69 @@ export function SideNav({
   label?: string;
 }) {
   const groups = [...new Set(sections.map((s) => s.group ?? ""))];
+  const navigate = useNavigate();
+  const here = sections.find((s) => s.id === current);
   return (
-    <nav
-      aria-label={label}
-      className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto @3xl/app:sticky @3xl/app:top-8 @3xl/app:w-[200px] @3xl/app:flex-col @3xl/app:self-start @3xl/app:overflow-visible"
-    >
-      {groups.map((g) => (
-        <div key={g} className="flex shrink-0 gap-1 @3xl/app:mb-4 @3xl/app:flex-col">
-          {g && <span className="eyebrow hidden px-2 pb-1 @3xl/app:block">{g}</span>}
-          {sections
-            .filter((s) => (s.group ?? "") === g)
-            .map((s) => {
-              const l = link(s.id);
-              return (
-                <Link
-                  key={s.id}
-                  to={l.to}
-                  params={l.params}
-                  search={l.search}
-                  aria-current={s.id === current ? "page" : undefined}
-                  className={cn(
-                    "flex h-8 shrink-0 items-center rounded-control px-2.5 text-[14px] whitespace-nowrap transition-colors",
-                    s.id === current
-                      ? "bg-raised text-ink shadow-1"
-                      : "text-ink-2 hover:bg-raised/60 hover:text-ink",
-                  )}
-                >
-                  {s.label}
-                </Link>
-              );
-            })}
-        </div>
-      ))}
-    </nav>
+    <>
+      {/* On a phone, one control naming where you are, as Stripe's settings do (#542). */}
+      <div className="@3xl/app:hidden">
+        <Dropdown
+          variant="field"
+          label={label}
+          value={
+            <span className="min-w-0 truncate">
+              <span className="text-ink-3">{phoneLabel}: </span>
+              {here?.label}
+            </span>
+          }
+          actions={groups.flatMap((g): MenuItem[] => [
+            ...(g ? [{ heading: g }] : []),
+            ...sections
+              .filter((s) => (s.group ?? "") === g)
+              .map((s) => ({
+                label: s.label,
+                checked: s.id === current,
+                onSelect: () => {
+                  const l = link(s.id);
+                  void navigate({ to: l.to, params: l.params, search: l.search });
+                },
+              })),
+          ])}
+        />
+      </div>
+      <nav
+        aria-label={label}
+        className="hidden shrink-0 gap-1 @3xl/app:sticky @3xl/app:top-8 @3xl/app:flex @3xl/app:w-[200px] @3xl/app:flex-col @3xl/app:self-start"
+      >
+        {groups.map((g) => (
+          <div key={g} className="flex shrink-0 gap-1 @3xl/app:mb-4 @3xl/app:flex-col">
+            {g && <span className="eyebrow hidden px-2 pb-1 @3xl/app:block">{g}</span>}
+            {sections
+              .filter((s) => (s.group ?? "") === g)
+              .map((s) => {
+                const l = link(s.id);
+                return (
+                  <Link
+                    key={s.id}
+                    to={l.to}
+                    params={l.params}
+                    search={l.search}
+                    aria-current={s.id === current ? "page" : undefined}
+                    className={cn(
+                      "flex h-8 shrink-0 items-center rounded-control px-2.5 text-[14px] whitespace-nowrap transition-colors",
+                      s.id === current
+                        ? "bg-raised text-ink shadow-1"
+                        : "text-ink-2 hover:bg-raised/60 hover:text-ink",
+                    )}
+                  >
+                    {s.label}
+                  </Link>
+                );
+              })}
+          </div>
+        ))}
+      </nav>
+    </>
   );
 }
 
@@ -141,6 +175,7 @@ export function SettingsLayout({
   );
 }
 
+/** A part of a settings page; a page with one names it in its own heading alone (#609). */
 export function Section({
   title,
   intro,
@@ -148,7 +183,7 @@ export function Section({
   action,
   panelId,
 }: {
-  title: string;
+  title?: string;
   intro?: string;
   /** Its rows; a section without them is its heading alone, as a folded one is. */
   children?: ReactNode;
@@ -157,13 +192,15 @@ export function Section({
 }) {
   return (
     <section className="flex flex-col gap-3">
-      <div className="flex items-end gap-3">
-        <div className="min-w-0 flex-1">
-          <h2 className="text-[16px] font-medium text-ink">{title}</h2>
-          {intro && <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">{intro}</p>}
+      {(title || intro || action) && (
+        <div className="flex items-end gap-3">
+          <div className="min-w-0 flex-1">
+            {title && <h2 className="text-[16px] font-medium text-ink">{title}</h2>}
+            {intro && <p className="mt-0.5 max-w-[620px] text-[13px] text-ink-3">{intro}</p>}
+          </div>
+          {action}
         </div>
-        {action}
-      </div>
+      )}
       {children ? (
         <div
           id={panelId}
@@ -258,7 +295,14 @@ export function Row({
         {hint && <div className="mt-0.5 text-[13px] text-ink-3">{hint}</div>}
       </div>
       {children && (
-        <div className={cn("flex shrink-0 items-center gap-2", stacked && "w-full")}>
+        <div
+          className={cn(
+            "flex shrink-0 items-center gap-2",
+            // Every select in a row is one width, whatever its words, so a page's controls line up.
+            "[&>[data-control=select]]:w-full",
+            stacked ? "w-full" : "@3xl/app:[&>[data-control=select]]:w-72",
+          )}
+        >
           {children}
         </div>
       )}

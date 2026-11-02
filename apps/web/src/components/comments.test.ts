@@ -10,6 +10,7 @@ const comment = (id: string, anchor: Anchor | null, extra: Partial<Comment> = {}
   anchor,
   body: id,
   authorId: null,
+  authorGuestId: null,
   authorName: null,
   authorGuest: false,
   mine: false,

@@ -4,6 +4,7 @@ import { Icon } from "~/components/icons";
 import { IncidentUpdates, incidentLine, incidentSpan, StateDot } from "~/components/incidents";
 import { Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
+import { DateTimeField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import {
@@ -205,7 +206,7 @@ function PostIncidentDialog({ onClose }: { onClose: () => void }) {
         </label>
         <label className="flex flex-col gap-1.5 text-[13px] text-ink-2 @md/app:w-1/2">
           Began
-          <Input type="datetime-local" />
+          <DateTimeField />
           <span className="text-[12px] text-ink-3">
             Leave empty for now; set it for one posted after the fact.
           </span>

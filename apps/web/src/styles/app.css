@@ -109,6 +109,12 @@
     outline: none;
     box-shadow: var(--hk-focus-ring);
   }
+  /* Clicked with a pointer, a control keeps no ring (lib/modality.ts); a field keeps its border. */
+  :root[data-input="pointer"]
+    :is(button, a, summary, [role="tab"], [role="menuitem"], [role="option"]):focus-visible {
+    box-shadow: none;
+    outline: none;
+  }
   ::selection {
     background: color-mix(in oklab, var(--hk-signal) 35%, transparent);
   }

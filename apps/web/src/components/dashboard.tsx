@@ -61,7 +61,7 @@ export function ActivityRow({ a }: { a: HomeActivity }) {
   const body = (
     <>
       {a.who ? (
-        <Avatar id={a.who.id} name={a.who.name} size={24} />
+        <Avatar person={a.who.id} name={a.who.name} size={24} />
       ) : (
         <span className="flex size-6 shrink-0 items-center justify-center text-ink-3">
           <Icon name="review" size={14} />

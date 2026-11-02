@@ -9,11 +9,15 @@ export const buttonVariants = cva(
     variants: {
       variant: {
         primary:
-          "border-transparent bg-signal text-ground shadow-2 hover:bg-[var(--hk-signal-hover)] hover:shadow-[0_0_0_1px_rgb(0_0_0/0.4),0_6px_18px_-6px_var(--hk-signal-line)]",
+          "border-transparent bg-signal text-ground hover:bg-[var(--hk-signal-hover)] hover:shadow-[0_0_0_1px_rgb(0_0_0/0.4),0_6px_18px_-6px_var(--hk-signal-line)]",
         secondary:
           "border-line-strong bg-raised/60 text-ink shadow-1 hover:bg-raised hover:border-edge",
         ghost: "border-transparent bg-transparent text-ink-2 hover:bg-raised hover:text-ink",
         quiet: "border-transparent bg-transparent text-ink-3 hover:text-ink",
+        // What cannot be taken back: the signal as a word on a quiet ground, never filled, so it
+        // never reads as the thing to do. The signal holds 4.5:1 on every surface in each theme.
+        danger:
+          "border-signal/45 bg-raised/60 text-signal shadow-1 hover:border-signal hover:bg-raised",
       },
       size: {
         sm: "h-7 px-2.5 text-[13px]",
