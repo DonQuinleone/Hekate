@@ -1,6 +1,9 @@
 import { useState } from "react";
+import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
+import { Seg } from "~/components/player/transport";
 import { Button } from "~/components/ui/button";
+import { DateTimeField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
 import { personById, type Tool } from "~/data";
@@ -34,12 +37,13 @@ export function Chip({
       aria-pressed={active}
       onClick={onClick}
       className={cn(
-        "h-7 rounded-chip border px-2.5 text-[13px] transition-colors",
+        "inline-flex h-7 items-center gap-1 rounded-chip border px-2.5 text-[13px] transition-colors",
         active
-          ? "border-edge bg-raised text-ink shadow-1"
-          : "border-transparent text-ink-3 hover:text-ink",
+          ? "border-edge-strong bg-raised pl-1.5 text-ink"
+          : "border-line text-ink-3 hover:border-edge hover:text-ink",
       )}
     >
+      {active && <Icon name="check" size={13} className="shrink-0" />}
       {children}
     </button>
   );
@@ -70,16 +74,18 @@ export function Permissions({ guest, compact = false }: { guest: boolean; compac
     >
       <div className="flex flex-col gap-1.5">
         <Label>Comments they see</Label>
-        <div className="flex flex-wrap gap-1">
-          <Chip active={scope === "all"} onClick={() => setScope("all")}>
-            Everyone's
-          </Chip>
-          <Chip active={scope === "own_and_replies"} onClick={() => setScope("own_and_replies")}>
-            Theirs and replies
-          </Chip>
-          <Chip active={scope === "own"} onClick={() => setScope("own")}>
-            Only theirs
-          </Chip>
+        <div className="flex">
+          <Seg
+            size="md"
+            label="Comments they see"
+            value={scope}
+            onChange={setScope}
+            options={[
+              { id: "all", label: "Everyone's" },
+              { id: "own_and_replies", label: "Theirs and replies" },
+              { id: "own", label: "Only theirs" },
+            ]}
+          />
         </div>
       </div>
       <div className="flex flex-col gap-1.5">
@@ -128,17 +134,17 @@ export function Permissions({ guest, compact = false }: { guest: boolean; compac
           <label className="flex items-center gap-1.5">
             <input type="checkbox" defaultChecked={!guest} /> Earlier versions
           </label>
-          <span className="flex items-center gap-1">
-            <Chip active={download === "none"} onClick={() => setDownload("none")}>
-              No download
-            </Chip>
-            <Chip active={download === "proxy"} onClick={() => setDownload("proxy")}>
-              Proxy
-            </Chip>
-            <Chip active={download === "original"} onClick={() => setDownload("original")}>
-              Original
-            </Chip>
-          </span>
+          <Seg
+            size="md"
+            label="Download"
+            value={download}
+            onChange={setDownload}
+            options={[
+              { id: "none", label: "No download" },
+              { id: "proxy", label: "Proxy" },
+              { id: "original", label: "Original" },
+            ]}
+          />
         </div>
         {download !== "none" && (
           <span className="text-[13px] text-ink-3">Watermarked per recipient and logged.</span>
@@ -148,15 +154,10 @@ export function Permissions({ guest, compact = false }: { guest: boolean; compac
         <Label>Access window</Label>
         <div className="flex flex-wrap items-center gap-3 text-ink-2">
           <label className="flex items-center gap-2">
-            From <Input type="datetime-local" className="h-8 w-44" />
+            From <DateTimeField className="w-72" />
           </label>
           <label className="flex items-center gap-2">
-            Until{" "}
-            <Input
-              type="datetime-local"
-              defaultValue={guest ? "2026-10-31T23:59" : ""}
-              className="h-8 w-44"
-            />
+            Until <DateTimeField defaultValue={guest ? "2026-10-31T23:59" : ""} className="w-72" />
           </label>
           <label className="flex items-center gap-2">
             At most <Input type="number" placeholder="∞" className="h-8 w-16" /> plays

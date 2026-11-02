@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Button } from "~/components/ui/button";
+import { failureText, Loading } from "~/components/ui/states";
 import { api } from "~/lib/api";
 import { meQuery, quoting, signUpInfoQuery } from "~/lib/queries";
 import { ErrorLine, Field, Frame, PasswordMeter } from "./auth-pages";
@@ -39,11 +40,11 @@ export function SignUpPage() {
   const [pending, setPending] = useState(false);
   if (loadError)
     return (
-      <Frame title="Sign-up did not load" intro={loadError.message}>
+      <Frame title="Sign-up did not load" intro={failureText(loadError)}>
         <ToSignIn />
       </Frame>
     );
-  if (!info) return null;
+  if (!info) return <Loading />;
   if (info.mode !== "open")
     return (
       <Frame

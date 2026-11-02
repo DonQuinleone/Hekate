@@ -102,6 +102,7 @@ import { ShareDialog } from "./share";
 import { TagInput } from "./tag-input";
 import { TakeImportDialog } from "./take-import";
 import { Button } from "./ui/button";
+import { Count } from "./ui/chip";
 import { Checkbox } from "./ui/choice";
 import { Floating, type Point, withinOrFloatingFrom } from "./ui/floating";
 import { FileInput, Input } from "./ui/input";
@@ -1221,11 +1222,11 @@ export function FileBrowser({
             ? `Delete ${item.folder.name}? What is in it moves to ${parentOf(item.folder)}.`
             : `Delete ${itemName(item, versionLabel)}? This cannot be undone.`}
         </span>
-        <Button size="sm" variant="primary" disabled={pending} onClick={() => remove(item)}>
-          Delete
+        <Button size="sm" variant="secondary" onClick={() => setEditing(null)}>
+          Cancel
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
-          Keep
+        <Button size="sm" variant="danger" disabled={pending} onClick={() => remove(item)}>
+          Delete
         </Button>
       </span>
     );
@@ -1394,7 +1395,7 @@ export function FileBrowser({
         case "people":
           return f.uploadedBy && f.uploadedById ? (
             <span title={f.uploadedBy}>
-              <Avatar id={f.uploadedById} name={f.uploadedBy} size={22} />
+              <Avatar person={f.uploadedById} name={f.uploadedBy} size={22} />
             </span>
           ) : (
             "—"
@@ -1706,9 +1707,7 @@ export function FileBrowser({
               <span className="text-edge">/</span>
               <span className="font-medium text-ink">Filtered</span>
             </>
-          ) : path.length === 0 ? (
-            <span className="font-medium text-ink">All files</span>
-          ) : (
+          ) : path.length === 0 ? null : (
             <button
               type="button"
               className={cn(
@@ -1741,8 +1740,14 @@ export function FileBrowser({
               )}
             </span>
           ))}
-          <span className="tabular ml-2 shrink-0 text-[13px] text-ink-3">
-            {items.length} {items.length === 1 ? "item" : "items"}
+          {/* The page is named in the trail; at its top only how many it holds (#609). */}
+          <span
+            className={cn(
+              "shrink-0 text-[13px] text-ink-2",
+              path.length > 0 || filtered ? "ml-2" : "",
+            )}
+          >
+            Items<Count>{items.length}</Count>
           </span>
         </nav>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
@@ -2168,11 +2173,11 @@ function SelectionBar({
             Delete {count === 1 ? "this" : `these ${count}`}? What is in a folder moves up; files
             cannot be brought back.
           </span>
-          <Button size="sm" variant="primary" disabled={busy} onClick={remove}>
-            Delete
+          <Button size="sm" variant="secondary" onClick={() => onMode(null)}>
+            Cancel
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => onMode(null)}>
-            Keep
+          <Button size="sm" variant="danger" disabled={busy} onClick={remove}>
+            Delete
           </Button>
         </div>
       )}

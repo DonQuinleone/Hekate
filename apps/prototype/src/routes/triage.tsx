@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Avatar } from "~/components/avatar";
 import { DeferDialog } from "~/components/comments/defer-dialog";
 import { Icon } from "~/components/icons";
-import { Kbd, Label } from "~/components/label";
+import { Count, Kbd, Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
 import { usePlayback } from "~/components/player/playback";
 import { Waveform } from "~/components/player/waveform";
@@ -184,7 +184,9 @@ export function TriagePage({ file }: { file: File }) {
     <div className="fade-in flex h-full min-h-0 flex-col @3xl/app:flex-row">
       <aside className="scroll-quiet flex w-full shrink-0 flex-col overflow-auto border-b border-line @3xl/app:w-[300px] @3xl/app:border-r @3xl/app:border-b-0">
         <div className="flex h-11 shrink-0 items-center gap-2 px-3">
-          <Label>Queue · {queue.length}</Label>
+          <Label>
+            Queue<Count>{queue.length}</Count>
+          </Label>
           {selected.size > 0 && (
             <span className="ml-auto text-[12px] text-signal">{selected.size} selected</span>
           )}

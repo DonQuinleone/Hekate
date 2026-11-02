@@ -8,13 +8,13 @@ import {
   useGroupMutations,
   useProjectCan,
 } from "~/lib/queries";
-import { AvatarRow } from "./avatar";
+import { AvatarRow, personKey } from "./avatar";
 import { GuestFields } from "./guest-fields";
 import { Icon } from "./icons";
 import { Card, SectionHead } from "./page";
 import { Button } from "./ui/button";
 import { Choice } from "./ui/choice";
-import { Dialog } from "./ui/dialog";
+import { Dialog, useConfirm } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
 
@@ -132,6 +132,7 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
   const { remove } = useGroupMutations(projectId);
   const [editing, setEditing] = useState<ProjectGroup | "new" | null>(null);
+  const [confirm, confirmation] = useConfirm();
   const manage = can("manage_reviewers");
   const close = () => setEditing(null);
   return (
@@ -172,7 +173,7 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
                 </span>
                 <span className="hidden @3xl/app:inline-flex">
                   <AvatarRow
-                    people={group.members.map((m) => ({ id: m.userId ?? m.email, name: m.name }))}
+                    people={group.members.map((m) => ({ id: personKey(m), name: m.name }))}
                     max={3}
                   />
                 </span>
@@ -183,7 +184,18 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
                     actions={[
                       { label: "Edit…", onSelect: () => setEditing(group) },
                       "divider",
-                      { label: "Delete", danger: true, onSelect: () => remove.mutate(group.id) },
+                      {
+                        label: "Delete…",
+                        danger: true,
+                        onSelect: () =>
+                          confirm({
+                            title: `Delete the group ${group.name}?`,
+                            description:
+                              "Everyone asked through it stays on their reviews; the tool exceptions it holds go with it.",
+                            action: "Delete group",
+                            onConfirm: () => remove.mutateAsync(group.id),
+                          }),
+                      },
                     ]}
                   />
                 )}
@@ -206,6 +218,7 @@ export function ReviewerGroups({ projectId }: { projectId: string }) {
           />
         </Dialog>
       )}
+      {confirmation}
     </section>
   );
 }

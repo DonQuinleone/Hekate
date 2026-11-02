@@ -71,11 +71,12 @@ import { SsoSection } from "~/components/sso";
 import { type AskedFrom, SupportSection } from "~/components/support";
 import { Button } from "~/components/ui/button";
 import { ToggleChip } from "~/components/ui/chip";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu, type MenuAction, usePopover } from "~/components/ui/menu";
+import { Failed, Loading } from "~/components/ui/states";
 import { StorageUsageRow, UsageRows } from "~/components/usage";
 import { DeleteWorkspace, WorkspaceExports } from "~/components/workspace-lifecycle";
 import { WhereFilesGo } from "~/components/workspace-storage";
@@ -172,7 +173,7 @@ const allSections: SectionSpec[] = [
     group: "Workspace",
     from: "admin",
     intro:
-      "The labels a comment can carry, such as Noise or Balance, and where triage sends each kind. Every new project starts with these.",
+      "The labels a comment can carry, such as Noise or Balance, and where triage sends each kind. Every new project starts with these, and may add its own.",
   },
   {
     id: "delivery",
@@ -475,7 +476,7 @@ function WorkspaceRows() {
           value={settings.dateFormat ?? ""}
           onChange={(e) => change({ dateFormat: (e.target.value || null) as DateFormat | null })}
         >
-          <option value="">Instance default ({dateFormatLabels[instance.dateFormat]})</option>
+          <option value="">As the instance ({dateFormatLabels[instance.dateFormat]})</option>
           {dateFormatChoices.map((c) => (
             <option key={c.value} value={c.value}>
               {c.label}
@@ -491,7 +492,7 @@ function WorkspaceRows() {
           value={settings.timeFormat ?? ""}
           onChange={(e) => change({ timeFormat: (e.target.value || null) as TimeFormat | null })}
         >
-          <option value="">Instance default ({timeFormatLabels[instance.timeFormat]})</option>
+          <option value="">As the instance ({timeFormatLabels[instance.timeFormat]})</option>
           {timeFormatChoices.map((c) => (
             <option key={c.value} value={c.value}>
               {c.label}
@@ -646,16 +647,14 @@ function WorkspaceCategories() {
   return (
     <>
       <Section
-        title="Comment categories"
-        intro="The set every new project starts with. A project may add its own."
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
             <Icon name="plus" size={14} />
-            Category
+            New category
           </Button>
         }
       >
-        {!categories && <Row name="Loading" />}
+        {!categories && <Loading size="panel" />}
         {categories?.length === 0 && (
           <Row
             name="No categories"
@@ -700,11 +699,11 @@ function WorkspaceCategories() {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={() => setDeleting(null)}>
+              <Button variant="secondary" size="md" onClick={() => setDeleting(null)}>
                 Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={remove.isPending}
                 onClick={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
@@ -759,16 +758,23 @@ function DeliveryProfiles() {
       </Section>
       {error}
       {remove.error && <p className="-mt-6 text-[13px] text-signal">{remove.error.message}</p>}
+      {/* The workspace's own first, then the built-in ones under their own head (#609). */}
       <Section
-        title="Profiles"
-        intro="The built-in ones cannot be changed; add your own."
+        title="Yours"
+        count={customs.length || undefined}
         action={
           <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
             <Icon name="plus" size={14} />
-            Profile
+            New profile
           </Button>
         }
       >
+        {customs.length === 0 && (
+          <Row
+            name="None yet"
+            hint="A profile of your own sets the loudness, peaks and formats a delivery must meet."
+          />
+        )}
         {customs.map((p) => (
           <Row key={p.id} name={p.label} hint={deliveryHint(p)} inline>
             <ActionMenu
@@ -782,15 +788,14 @@ function DeliveryProfiles() {
             />
           </Row>
         ))}
+      </Section>
+      <Section title="Built in" intro="These cannot be changed.">
         {deliveryProfileIds.map((id) => (
           <Row
             key={id}
             name={deliveryProfiles[id].label}
             hint={deliveryHint(deliveryProfiles[id])}
-            inline
-          >
-            <span className="text-[12px] text-ink-3">Built in</span>
-          </Row>
+          />
         ))}
       </Section>
       {editing && (
@@ -807,11 +812,11 @@ function DeliveryProfiles() {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={() => setDeleting(null)}>
+              <Button variant="secondary" size="md" onClick={() => setDeleting(null)}>
                 Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={remove.isPending}
                 onClick={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
@@ -1054,6 +1059,7 @@ function InviteDialog({ myRole, onClose }: { myRole: Role; onClose: () => void }
 
 function Members({ role: myRole }: { role: Role }) {
   const { data: me } = useQuery(meQuery);
+  const [confirm, confirmation] = useConfirm();
   const { data: members } = useQuery(membersQuery);
   const elevated = myRole === "owner" || myRole === "admin";
   const { data: invitations } = useQuery({ ...invitationsQuery, enabled: elevated });
@@ -1083,10 +1089,11 @@ function Members({ role: myRole }: { role: Role }) {
         />
       ) : (
         <Section
-          title={`Members${members ? ` · ${members.length}` : ""}`}
+          title="Joined"
+          count={members?.length}
           action={
             elevated && (
-              <Button variant="primary" onClick={() => setInviting(true)}>
+              <Button variant="secondary" onClick={() => setInviting(true)}>
                 <Icon name="plus" size={14} />
                 Invite
               </Button>
@@ -1106,7 +1113,7 @@ function Members({ role: myRole }: { role: Role }) {
                 key={m.id}
                 className="group flex items-center gap-3 px-4 py-2.5 transition-colors hover:bg-raised/30"
               >
-                <Avatar id={m.userId} name={m.name} size={28} />
+                <Avatar person={m.userId} name={m.name} size={28} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[14px] text-ink">
                     {m.name}
@@ -1146,9 +1153,26 @@ function Members({ role: myRole }: { role: Role }) {
                     label={m.name}
                     actions={[
                       {
-                        label: isSelf ? "Leave the workspace" : "Remove from the workspace",
+                        label: isSelf ? "Leave the workspace…" : "Remove from the workspace…",
                         danger: true,
-                        onSelect: () => remove.mutate(m.id),
+                        onSelect: () =>
+                          confirm(
+                            isSelf
+                              ? {
+                                  title: "Leave the workspace?",
+                                  description:
+                                    "You lose access to its projects. Someone in it has to invite you to come back.",
+                                  action: "Leave",
+                                  onConfirm: () => remove.mutateAsync(m.id),
+                                }
+                              : {
+                                  title: `Remove ${m.name} from the workspace?`,
+                                  description:
+                                    "They lose access to its projects. What they wrote and decided stays.",
+                                  action: "Remove",
+                                  onConfirm: () => remove.mutateAsync(m.id),
+                                },
+                          ),
                       },
                     ]}
                   />
@@ -1161,7 +1185,7 @@ function Members({ role: myRole }: { role: Role }) {
         </Section>
       )}
       {elevated && invitations && invitations.length > 0 && (
-        <Section title={`Invited · ${invitations.length}`}>
+        <Section title="Invited" count={invitations.length}>
           {invitations.map((i) => (
             <div key={i.id} className="group flex items-center gap-3 px-4 py-2.5">
               <Icon name="mail" className="text-ink-3" />
@@ -1171,13 +1195,26 @@ function Members({ role: myRole }: { role: Role }) {
               </span>
               <ActionMenu
                 label={i.email}
-                actions={[{ label: "Revoke", danger: true, onSelect: () => revoke.mutate(i.id) }]}
+                actions={[
+                  {
+                    label: "Revoke…",
+                    danger: true,
+                    onSelect: () =>
+                      confirm({
+                        title: `Revoke the invitation to ${i.email}?`,
+                        description: "Its link stops working. You can invite them again.",
+                        action: "Revoke invitation",
+                        onConfirm: () => revoke.mutateAsync(i.id),
+                      }),
+                  },
+                ]}
               />
             </div>
           ))}
         </Section>
       )}
       {elevated && <Guests />}
+      {confirmation}
     </>
   );
 }
@@ -1185,17 +1222,19 @@ function Members({ role: myRole }: { role: Role }) {
 /** People outside the workspace who review through links, and the way to cut them off. */
 function Guests() {
   const { data: guests } = useQuery(workspaceGuestsQuery);
+  const [confirm, confirmation] = useConfirm();
   const revoke = useRevokeGuest();
   if (!guests || guests.length === 0) return null;
   return (
     <Section
-      title={`Guests · ${guests.length}`}
+      title="Guests"
+      count={guests.length}
       intro="Guests are asked from a review and sign in with a link sent to them."
     >
       {revoke.error && <p className="px-4 py-2 text-[13px] text-signal">{revoke.error.message}</p>}
       {guests.map((g) => (
         <div key={g.id} className="group flex items-center gap-3 px-4 py-2.5">
-          <Avatar id={g.id} name={g.name} size={28} />
+          <Avatar person={g.id} name={g.name} size={28} />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[14px] text-ink">
               {g.name}
@@ -1214,7 +1253,18 @@ function Guests() {
             <ActionMenu
               label={g.name}
               actions={[
-                { label: "Revoke access", danger: true, onSelect: () => revoke.mutate(g.id) },
+                {
+                  label: "Revoke access…",
+                  danger: true,
+                  onSelect: () =>
+                    confirm({
+                      title: `Revoke ${g.name}'s access?`,
+                      description:
+                        "They are signed out everywhere and their links stop working, until someone sends them a new one.",
+                      action: "Revoke access",
+                      onConfirm: () => revoke.mutateAsync(g.id),
+                    }),
+                },
               ]}
             />
           ) : (
@@ -1222,6 +1272,7 @@ function Guests() {
           )}
         </div>
       ))}
+      {confirmation}
     </Section>
   );
 }
@@ -1233,12 +1284,12 @@ function Guests() {
  * operators', under Instance, Operations.
  */
 function Operations({ role }: { role: Role }) {
-  const { data, error } = useQuery(workspaceOperationsQuery);
+  const { data, error, refetch } = useQuery(workspaceOperationsQuery);
   const { data: usage } = useQuery(storageUsageQuery);
   const { data: me } = useQuery(meQuery);
   const workspace = me?.organisations.find((o) => o.id === me.activeOrganisationId);
-  if (error) return <p className="m-0 text-signal">{error.message}</p>;
-  if (!data || !me || !workspace) return null;
+  if (error) return <Failed what="This page" error={error} retry={refetch} />;
+  if (!data || !me || !workspace) return <Loading />;
   return (
     <>
       <Section title="This workspace">
@@ -1742,7 +1793,9 @@ function AccessLog() {
         </ul>
       )}
       {log.isPending ? (
-        <p className="px-4 py-3 text-[13px] text-ink-3">Loading</p>
+        <Loading size="panel" />
+      ) : log.isError ? (
+        <Failed what="The log" error={log.error} retry={log.refetch} size="panel" />
       ) : events.length === 0 ? (
         <div className="p-4">
           {filtered(filters) ? (

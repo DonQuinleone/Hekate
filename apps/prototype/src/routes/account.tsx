@@ -241,7 +241,7 @@ export function AccountPage({ section }: { section: string }) {
                 disabled={state === "failed"}
               >
                 <Icon name="plus" size={14} />
-                Add
+                Add passkey
               </Button>
             }
           >
@@ -348,9 +348,9 @@ export function AccountPage({ section }: { section: string }) {
             title="API tokens"
             intro="For scripts and tools of your own, against the public API. A token can do no more than you can, and only what its scopes allow; it is shown once."
             action={
-              <Button variant="primary" size="md" onClick={() => setTokenOpen(true)}>
+              <Button variant="secondary" size="md" onClick={() => setTokenOpen(true)}>
                 <Icon name="plus" size={14} />
-                Token
+                New token
               </Button>
             }
           >
@@ -460,10 +460,7 @@ export function AccountPage({ section }: { section: string }) {
       )}
       {sec === "apps" && (
         <>
-          <Section
-            title="Connected apps"
-            intro="Applications you have let into this workspace through OAuth. Each sees only what you granted, and only what you can see."
-          >
+          <Section intro="Each sees only what you granted, and only what you can see.">
             {connected.map((a) => (
               <Row
                 key={a.name}
@@ -488,14 +485,9 @@ export function AccountPage({ section }: { section: string }) {
               description="It acts as you, in this workspace alone, and can do no more than you can."
               onClose={() => setReading(null)}
               footer={
-                <>
-                  <Button variant="ghost" onClick={() => setReading(null)}>
-                    Disconnect
-                  </Button>
-                  <Button variant="primary" onClick={() => setReading(null)}>
-                    Done
-                  </Button>
-                </>
+                <Button variant="danger" onClick={() => setReading(null)}>
+                  Disconnect…
+                </Button>
               }
             >
               <ul className="flex flex-col gap-2 text-[13px]">

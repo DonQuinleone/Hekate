@@ -114,7 +114,7 @@ export function EmailSection() {
           ))}
         </fieldset>
         {view === "text" ? (
-          <pre className="m-0 bg-ground/60 px-5 py-5 font-mono text-[12.5px] leading-[19px] whitespace-pre-wrap text-ink-2">
+          <pre className="m-0 bg-ground/60 px-5 py-5 font-sans text-[13px] leading-[20px] whitespace-pre-wrap text-ink-2">
             {[
               `Subject: ${t.subject}`,
               "",

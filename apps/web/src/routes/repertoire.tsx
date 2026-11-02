@@ -6,10 +6,12 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Count } from "~/components/ui/chip";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { repertoireQuery, useProjectCan, useRepertoire } from "~/lib/queries";
 import { ProjectFrame } from "./project";
 
@@ -31,20 +33,20 @@ function Frame({
   }) => ReactNode;
 }) {
   const can = useProjectCan(projectId);
-  const { data, error } = useRepertoireData(projectId, can("view_production"));
+  const { data, error, refetch } = useRepertoireData(projectId, can("view_production"));
   return (
     <ProjectFrame projectId={projectId} title={title}>
       {(project) => (
         <ProductionBody projectId={projectId} current={current} can={can}>
           {!can("view_production") ? (
-            <Empty
+            <Refused
               title="Not among what your role shows"
               text="The repertoire and venues are shown to the roles the project's access gives the production tools."
             />
           ) : error ? (
-            <p className="m-0 text-signal">{error.message}</p>
+            <Failed what="The repertoire" error={error} retry={refetch} />
           ) : !data ? (
-            <p className="m-0 text-ink-3">Loading</p>
+            <Loading />
           ) : (
             children({
               canEdit: can("edit_production") && !project.archivedAt,
@@ -97,6 +99,7 @@ function Works({
   const [numberError, setNumberError] = useState<{ workId: string; message: string } | null>(null);
   const [order, setOrder] = useState<RepertoireOrder>("schedule");
   const [editing, setEditing] = useState<"new" | Work | null>(null);
+  const [confirm, confirmation] = useConfirm();
   const shown = order === "alphabetical" ? alphabetical(works) : works;
   return (
     <>
@@ -115,7 +118,9 @@ function Works({
       ) : (
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-2">
-            <span className="label">Works · {works.length}</span>
+            <span className="label">
+              Works<Count>{works.length}</Count>
+            </span>
             <span className="ml-auto flex items-center gap-1">
               <Dropdown
                 value={order === "alphabetical" ? "Alphabetical" : "Schedule order"}
@@ -135,9 +140,9 @@ function Works({
                 ]}
               />
               {canEdit && (
-                <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
+                <Button variant="primary" size="md" onClick={() => setEditing("new")}>
                   <Icon name="plus" size={14} />
-                  Work
+                  New work
                 </Button>
               )}
             </span>
@@ -170,15 +175,26 @@ function Works({
                       always
                       label={w.title}
                       actions={[
-                        { label: "Edit", onSelect: () => setEditing(w) },
+                        { label: "Edit…", onSelect: () => setEditing(w) },
                         {
                           label: w.scoreFileId
-                            ? "Swap the score, keeping marks"
-                            : "Choose the score",
+                            ? "Swap the score, keeping marks…"
+                            : "Choose the score…",
                           onSelect: () => setEditing(w),
                         },
                         "divider",
-                        { label: "Delete", danger: true, onSelect: () => removeWork.mutate(w.id) },
+                        {
+                          label: "Delete…",
+                          danger: true,
+                          onSelect: () =>
+                            confirm({
+                              title: `Delete ${w.title}?`,
+                              description:
+                                "The work goes from the repertoire and from the schedule's slots. Its tracks, their files and the score stay in the project.",
+                              action: "Delete work",
+                              onConfirm: () => removeWork.mutateAsync(w.id),
+                            }),
+                        },
                       ]}
                     />
                   )}
@@ -275,6 +291,7 @@ function Works({
           onClose={() => setEditing(null)}
         />
       )}
+      {confirmation}
     </>
   );
 }
@@ -573,6 +590,7 @@ function Venues({
 }) {
   const { removeVenue } = useRepertoire(projectId);
   const [editing, setEditing] = useState<"new" | Venue | null>(null);
+  const [confirm, confirmation] = useConfirm();
   return (
     <>
       {venues.length === 0 ? (
@@ -590,16 +608,18 @@ function Venues({
       ) : (
         <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2">
-            <span className="label">Venues · {venues.length}</span>
+            <span className="label">
+              Venues<Count>{venues.length}</Count>
+            </span>
             {canEdit && (
               <Button
-                variant="secondary"
+                variant="primary"
                 size="md"
                 className="ml-auto"
                 onClick={() => setEditing("new")}
               >
                 <Icon name="plus" size={14} />
-                Venue
+                New venue
               </Button>
             )}
           </div>
@@ -625,9 +645,20 @@ function Venues({
                   <ActionMenu
                     label={v.name}
                     actions={[
-                      { label: "Edit", onSelect: () => setEditing(v) },
+                      { label: "Edit…", onSelect: () => setEditing(v) },
                       "divider",
-                      { label: "Delete", danger: true, onSelect: () => removeVenue.mutate(v.id) },
+                      {
+                        label: "Delete…",
+                        danger: true,
+                        onSelect: () =>
+                          confirm({
+                            title: `Delete ${v.name}?`,
+                            description:
+                              "The venue goes from the list; days held there keep their place in the schedule, without a venue.",
+                            action: "Delete venue",
+                            onConfirm: () => removeVenue.mutateAsync(v.id),
+                          }),
+                      },
                     ]}
                   />
                 )}
@@ -643,6 +674,7 @@ function Venues({
           onClose={() => setEditing(null)}
         />
       )}
+      {confirmation}
     </>
   );
 }

@@ -599,7 +599,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
             action={
               <Button variant="secondary" size="md">
                 <Icon name="plus" size={14} />
-                Category
+                New category
               </Button>
             }
           >
@@ -798,7 +798,7 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
                 </label>
                 <Button variant="secondary" size="md" onClick={() => setRuleOpen(true)}>
                   <Icon name="plus" size={14} />
-                  Rule
+                  New rule
                 </Button>
               </span>
             }
@@ -953,10 +953,10 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
           width="sm"
           footer={
             <>
-              <Button variant="ghost" onClick={() => setConfirm(null)}>
-                Keep it here
+              <Button variant="secondary" onClick={() => setConfirm(null)}>
+                Cancel
               </Button>
-              <Button variant="secondary" className="text-signal" onClick={() => setConfirm(null)}>
+              <Button variant="danger" onClick={() => setConfirm(null)}>
                 Ask to move
               </Button>
             </>
@@ -983,10 +983,13 @@ export function ProjectSettingsPage({ project, section }: { project: Project; se
           width="sm"
           footer={
             <>
-              <Button variant="ghost" onClick={() => setConfirm(null)}>
-                Keep it
+              <Button variant="secondary" onClick={() => setConfirm(null)}>
+                Cancel
               </Button>
-              <Button variant="primary" onClick={() => setConfirm(null)}>
+              <Button
+                variant={confirm === "archive" ? "primary" : "danger"}
+                onClick={() => setConfirm(null)}
+              >
                 {confirm === "archive" ? "Archive" : "Delete"}
               </Button>
             </>

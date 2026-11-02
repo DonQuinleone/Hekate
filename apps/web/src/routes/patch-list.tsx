@@ -5,10 +5,12 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Count } from "~/components/ui/chip";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { patchQuery, usePatchList, useProjectCan } from "~/lib/queries";
 import { ProjectFrame } from "./project";
 
@@ -24,7 +26,11 @@ const directionWords: Record<PatchDirection, { heading: string; one: string }> =
  */
 export function PatchListPage({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
-  const { data: boxes, error } = useQuery({
+  const {
+    data: boxes,
+    error,
+    refetch,
+  } = useQuery({
     ...patchQuery(projectId),
     enabled: can("view_production"),
   });
@@ -33,14 +39,14 @@ export function PatchListPage({ projectId }: { projectId: string }) {
       {(project) => (
         <ProductionBody projectId={projectId} current="patch" can={can}>
           {!can("view_production") ? (
-            <Empty
+            <Refused
               title="Not among what your role shows"
               text="The patch list is shown to the roles the project's access gives the production tools."
             />
           ) : error ? (
-            <p className="m-0 text-signal">{error.message}</p>
+            <Failed what="The patch list" error={error} retry={refetch} />
           ) : !boxes ? (
-            <p className="m-0 text-ink-3">Loading</p>
+            <Loading />
           ) : (
             <PatchList
               projectId={projectId}
@@ -68,6 +74,7 @@ function PatchList({
   canEdit: boolean;
 }) {
   const { removeBox, removeRow } = usePatchList(projectId);
+  const [confirm, confirmation] = useConfirm();
   const [editing, setEditing] = useState<Editing | null>(null);
   const addBox = (
     <Button variant="primary" onClick={() => setEditing({ kind: "box" })}>
@@ -85,7 +92,9 @@ function PatchList({
       ) : (
         <div className="flex flex-col gap-6">
           <div className="flex items-center gap-2">
-            <span className="label">Stage boxes · {boxes.length}</span>
+            <span className="label">
+              Stage boxes<Count>{boxes.length}</Count>
+            </span>
             <span className="ml-auto flex items-center gap-1">
               {/* As the engineer prints it, and as a workbook: made on the server, for this person. */}
               <Dropdown
@@ -100,7 +109,7 @@ function PatchList({
               {canEdit && (
                 <Button variant="secondary" size="md" onClick={() => setEditing({ kind: "box" })}>
                   <Icon name="plus" size={14} />
-                  Stage box
+                  Add stage box
                 </Button>
               )}
             </span>
@@ -114,9 +123,20 @@ function PatchList({
                     always
                     label={box.name}
                     actions={[
-                      { label: "Rename", onSelect: () => setEditing({ kind: "box", box }) },
+                      { label: "Rename…", onSelect: () => setEditing({ kind: "box", box }) },
                       "divider",
-                      { label: "Remove", danger: true, onSelect: () => removeBox.mutate(box.id) },
+                      {
+                        label: "Remove…",
+                        danger: true,
+                        onSelect: () =>
+                          confirm({
+                            title: `Remove ${box.name}?`,
+                            description:
+                              "The box goes with its inputs and outputs. Microphones on the stage plan stay, without their channel.",
+                            action: "Remove box",
+                            onConfirm: () => removeBox.mutateAsync(box.id),
+                          }),
+                      },
                     ]}
                   />
                 )}
@@ -168,15 +188,23 @@ function PatchList({
                                   label={`${words.one} ${r.channel}`}
                                   actions={[
                                     {
-                                      label: "Edit",
+                                      label: "Edit…",
                                       onSelect: () =>
                                         setEditing({ kind: "row", box, direction, row: r }),
                                     },
                                     "divider",
                                     {
-                                      label: "Remove",
+                                      label: "Remove…",
                                       danger: true,
-                                      onSelect: () => removeRow.mutate(r.id),
+                                      onSelect: () =>
+                                        confirm({
+                                          title: `Remove ${words.one} ${r.channel}?`,
+                                          description: r.source
+                                            ? `${r.source} goes from the patch list.`
+                                            : "It goes from the patch list.",
+                                          action: "Remove",
+                                          onConfirm: () => removeRow.mutateAsync(r.id),
+                                        }),
                                     },
                                   ]}
                                 />
@@ -224,6 +252,7 @@ function PatchList({
           onClose={() => setEditing(null)}
         />
       )}
+      {confirmation}
     </>
   );
 }

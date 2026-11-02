@@ -10,7 +10,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { PeoplePicker, type Person } from "~/components/people-picker";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { DateField } from "~/components/ui/date-field";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
 import { Segmented } from "~/components/ui/segmented";
@@ -47,6 +48,7 @@ export function EntryDialog({
   onClose: () => void;
 }) {
   const can = useProjectCan(projectId);
+  const [confirm, confirmation] = useConfirm();
   const { words } = useItemWords(projectId);
   const { create, change, remove } = useCalendarEntries(projectId);
   const { data: members = [] } = useQuery(projectMembersQuery(projectId));
@@ -101,19 +103,26 @@ export function EntryDialog({
         <>
           {entry && (
             <Button
-              variant="ghost"
-              className="mr-auto text-signal hover:text-signal"
+              variant="danger"
+              className="mr-auto"
               disabled={pending}
-              onClick={() => remove.mutate(entry.id, { onSuccess: onClose })}
+              onClick={() =>
+                confirm({
+                  title: `Remove ${entry.title}?`,
+                  description: "It goes from the calendar and the timeline for everyone.",
+                  action: "Remove entry",
+                  onConfirm: () => remove.mutateAsync(entry.id).then(onClose),
+                })
+              }
             >
-              Remove
+              Remove…
             </Button>
           )}
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
           <Button variant="primary" disabled={!ready || pending} onClick={save}>
-            {entry ? "Save" : "Add entry"}
+            {entry ? "Save" : "Create entry"}
           </Button>
         </>
       }
@@ -153,19 +162,14 @@ export function EntryDialog({
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Starts">
-            <Input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
+            <DateField value={startsOn} onChange={setStartsOn} />
           </Field>
           <Field
             label="Ends"
             hint="Leave empty for one day"
             error={backwards ? "On or after the day it starts" : undefined}
           >
-            <Input
-              type="date"
-              value={endsOn}
-              min={startsOn || undefined}
-              onChange={(e) => setEndsOn(e.target.value)}
-            />
+            <DateField value={endsOn} min={startsOn || undefined} onChange={setEndsOn} />
           </Field>
         </div>
         <Field label="About" hint={`A ${words.track} or a review it concerns, if any`}>
@@ -207,6 +211,7 @@ export function EntryDialog({
           </p>
         )}
       </form>
+      {confirmation}
     </Dialog>
   );
 }

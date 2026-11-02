@@ -13,6 +13,7 @@ import { Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { ActionMenu } from "~/components/ui/menu";
+import { Failed, failureText, Loading } from "~/components/ui/states";
 import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { api } from "~/lib/api";
 import { cn } from "~/lib/cn";
@@ -119,10 +120,10 @@ export function Queues() {
   if (error)
     return (
       <Section title="Queues">
-        <Row name="The queue could not be read" hint={error.message} />
+        <Row name="The queue could not be read" hint={failureText(error)} />
       </Section>
     );
-  if (!data) return null;
+  if (!data) return <Loading />;
   const failed = data.queues.reduce((n, q) => n + q.failed, 0);
   const allPaused = data.queues.every((q) => q.paused);
   return (
@@ -298,7 +299,7 @@ function DrainQueue({ queue, onClose }: { queue: QueueRow; onClose: () => void }
 
 /** One job in full: when it moved, its attempts, its data and its last error. */
 function JobDetails({ job, onClose }: { job: QueueJobRow; onClose: () => void }) {
-  const { data: d, error } = useQuery(instanceQueueJobQuery(job.queue, job.id));
+  const { data: d, error, refetch } = useQuery(instanceQueueJobQuery(job.queue, job.id));
   return (
     <Dialog
       title={job.what ?? job.queue}
@@ -311,7 +312,10 @@ function JobDetails({ job, onClose }: { job: QueueJobRow; onClose: () => void })
         </Button>
       }
     >
-      {error && <p className="m-0 text-[13px] text-signal">{error.message}</p>}
+      {error && (
+        <Failed what="The job" error={error} retry={refetch} size="panel" className="px-0" />
+      )}
+      {!d && !error && <Loading size="panel" className="px-0" />}
       {d && (
         <div className="flex flex-col gap-3">
           <Facts>

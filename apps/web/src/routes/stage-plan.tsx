@@ -37,11 +37,13 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Count } from "~/components/ui/chip";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Slider } from "~/components/ui/slider";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { Switch } from "~/components/ui/toggle";
 import {
   projectFilesQuery,
@@ -88,7 +90,7 @@ const alignments: { how: Alignment; label: string }[] = [
  */
 export function StagePlanPage({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
-  const { data, error } = useQuery({
+  const { data, error, refetch } = useQuery({
     ...stagePlansQuery(projectId),
     enabled: can("view_production"),
   });
@@ -102,14 +104,14 @@ export function StagePlanPage({ projectId }: { projectId: string }) {
         return (
           <ProductionBody projectId={projectId} current="stage" can={can}>
             {!can("view_production") ? (
-              <Empty
+              <Refused
                 title="Not among what your role shows"
                 text="Stage plans are shown to the roles the project's access gives the production tools."
               />
             ) : error ? (
-              <p className="m-0 text-signal">{error.message}</p>
+              <Failed what="The stage plans" error={error} retry={refetch} />
             ) : !data ? (
-              <p className="m-0 text-ink-3">Loading</p>
+              <Loading />
             ) : !plan ? (
               <Empty
                 title="No stage plan yet"
@@ -187,6 +189,7 @@ function Editor({
   onEdit: (editing: "new" | StagePlan) => void;
 }) {
   const { sendStep, reload, removePlan } = useStagePlans(projectId);
+  const [confirm, confirmation] = useConfirm();
   // What the editor shows: the server's items with this person's steps on top.
   const [items, setItems] = useState(plan.items);
   const [selected, setSelected] = useState<string[]>([]);
@@ -462,13 +465,20 @@ function Editor({
               ...(canEdit
                 ? [
                     "divider" as const,
-                    { label: "New stage plan", onSelect: () => onEdit("new") },
-                    { label: "Size and grid", onSelect: () => onEdit(plan) },
-                    { label: "Floor plan", onSelect: () => setLaying(true) },
+                    { label: "New stage plan…", onSelect: () => onEdit("new") },
+                    { label: "Size and grid…", onSelect: () => onEdit(plan) },
+                    { label: "Floor plan…", onSelect: () => setLaying(true) },
                     {
-                      label: "Remove this plan",
+                      label: "Remove this plan…",
                       danger: true,
-                      onSelect: () => removePlan.mutate(plan.id),
+                      onSelect: () =>
+                        confirm({
+                          title: `Remove ${plan.name}?`,
+                          description:
+                            "The plan and everything placed on it go. The patch list's inputs stay.",
+                          action: "Remove plan",
+                          onConfirm: () => removePlan.mutateAsync(plan.id),
+                        }),
                     },
                   ]
                 : []),
@@ -724,7 +734,9 @@ function Editor({
             aria-label="On the stage"
             className="rounded-panel-lg border border-line bg-raised/25 p-3"
           >
-            <span className="label">On the stage · {items.length}</span>
+            <span className="label">
+              On the stage<Count>{items.length}</Count>
+            </span>
             <ul className="scroll-quiet m-0 mt-2 flex max-h-[240px] list-none flex-col overflow-auto p-0">
               {[...items].reverse().map((i) => (
                 <li key={i.id}>
@@ -783,6 +795,7 @@ function Editor({
       {laying && (
         <UnderlayDialog projectId={projectId} plan={plan} onClose={() => setLaying(false)} />
       )}
+      {confirmation}
     </div>
   );
 }

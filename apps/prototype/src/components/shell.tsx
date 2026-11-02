@@ -32,6 +32,7 @@ import { needsYou, reviewOutcome } from "~/lib/reviews";
 import { instanceSectionsFor } from "~/routes/instance";
 import { useViewer } from "~/viewer/context";
 import { useScreenState } from "~/viewer/state-gate";
+import { SubNav } from "./ui/sub-nav";
 
 function NavItem({
   to,
@@ -750,9 +751,9 @@ export function Shell({ children }: { children: ReactNode }) {
             <NotificationsMenu waiting={waiting} />
           </TopBar>
           {current && (
-            <nav
-              aria-label={current.name}
-              className="scroll-quiet flex shrink-0 gap-1 overflow-x-auto border-b border-line px-3 py-1.5 @3xl/app:hidden"
+            <SubNav
+              label={current.name}
+              className="shrink-0 gap-1 border-b border-line px-3 py-1.5 @3xl/app:hidden"
             >
               {currentNav.map((item) => (
                 <Link
@@ -768,7 +769,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   {item.label}
                 </Link>
               ))}
-            </nav>
+            </SubNav>
           )}
           {/* On a phone there is no sidebar foot, so losing the API says so above the page. */}
           {viewer.settings.state === "offline" && (

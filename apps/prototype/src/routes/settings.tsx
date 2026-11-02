@@ -4,6 +4,7 @@ import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { usePageHeader } from "~/components/page-header";
+import { Chip } from "~/components/permissions";
 import { Danger, Matrix, Row, Section, SettingsLayout, SwitchRow } from "~/components/settings";
 import { Dot } from "~/components/status";
 import { StatusRows } from "~/components/status-desk";
@@ -465,7 +466,7 @@ export function SettingsPage({
             intro="What this workspace has asked the people who run the instance, and their answers."
             action={
               <Button
-                variant="primary"
+                variant="secondary"
                 size="md"
                 onClick={() =>
                   navigate({
@@ -666,9 +667,9 @@ export function SettingsPage({
             title="OAuth clients"
             intro="Applications registered here can ask people for access with OAuth 2.1 and PKCE. Each gets a client id; confidential clients get a secret shown once."
             action={
-              <Button variant="primary" size="md" onClick={() => setAdding(true)}>
+              <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
                 <Icon name="plus" size={14} />
-                Client
+                New client
               </Button>
             }
           >
@@ -955,7 +956,7 @@ export function SettingsPage({
             {/* #481: dates read in ISO 8601 unless the instance or the workspace chose otherwise. */}
             <Row name="Dates" hint="How dates read here, in lists, comments, mail and exports.">
               <Select defaultValue="" className="w-56">
-                <option value="">Instance default (ISO 8601)</option>
+                <option value="">As the instance (ISO 8601)</option>
                 <option value="iso">ISO 8601 (2026-10-29)</option>
                 <option value="day-month-year">Day, month, year (29 Oct 2026)</option>
                 <option value="month-day-year">Month, day, year (Oct 29, 2026)</option>
@@ -963,7 +964,7 @@ export function SettingsPage({
             </Row>
             <Row name="Times" hint="The clock beside them.">
               <Select defaultValue="" className="w-56">
-                <option value="">Instance default (24-hour)</option>
+                <option value="">As the instance (24-hour)</option>
                 <option value="24h">24-hour (14:05)</option>
                 <option value="12h">12-hour (2:05 pm)</option>
               </Select>
@@ -1051,12 +1052,10 @@ export function SettingsPage({
       )}
       {sec === "categories" && (
         <Section
-          title="Comment categories"
-          intro="The set every new project starts with. A project may add its own."
           action={
             <Button variant="secondary" size="md">
               <Icon name="plus" size={14} />
-              Category
+              New category
             </Button>
           }
         >
@@ -1109,7 +1108,7 @@ export function SettingsPage({
             action={
               <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
                 <Icon name="plus" size={14} />
-                Profile
+                New profile
               </Button>
             }
           >
@@ -1153,12 +1152,9 @@ export function SettingsPage({
             >
               <span className="flex flex-wrap gap-1.5">
                 {["Password", "Passkey", "Single sign-on", "Directory (LDAP)"].map((m) => (
-                  <span
-                    key={m}
-                    className="rounded-chip bg-raised px-2 text-[12px] leading-6 text-ink-2"
-                  >
+                  <Chip key={m} active={m !== "Directory (LDAP)"}>
                     {m}
-                  </span>
+                  </Chip>
                 ))}
               </span>
             </Row>
@@ -1224,7 +1220,7 @@ export function SettingsPage({
               <Input
                 readOnly
                 defaultValue="https://review.endlesshall.example/api/auth/sso/callback/workspace-endless-hall"
-                className="w-full font-mono text-[12px] @3xl/app:w-96"
+                className="tabular w-full text-[13px] @3xl/app:w-96"
               />
             </Row>
             <Row name="Groups" hint="The claim that lists a person's groups.">
@@ -1344,7 +1340,7 @@ export function SettingsPage({
             action={
               <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
                 <Icon name="plus" size={14} />
-                Channel
+                New channel
               </Button>
             }
           >
@@ -1643,7 +1639,7 @@ export function SettingsPage({
               name="Its address"
               hint="Someone moving a project here from a workspace you are not in gives it."
             >
-              <code className="tabular text-[14px] text-ink">endless-hall</code>
+              <span className="tabular text-[14px] tracking-wide text-ink">endless-hall</span>
             </Row>
           </Section>
           <Section title="Waiting">

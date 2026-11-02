@@ -51,6 +51,7 @@ import { TriageView } from "~/components/triage";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
+import { failureText, Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { threadsOf } from "~/lib/comments";
 import { compareSources, previousCut } from "~/lib/compare";
@@ -80,6 +81,7 @@ import {
 } from "~/lib/queries";
 import { fileKindWords } from "~/lib/shares";
 import { useViewer } from "~/lib/viewer";
+import { PageFailed } from "~/routes/problem";
 
 const dateFormat = formatDates({
   day: "numeric",
@@ -270,7 +272,7 @@ function Playback({
   if (file.streamStatus === "pending") return waiting("Preparing for playback.");
   if (file.streamStatus !== "ready")
     return waiting("This file is not ready for playback yet. Come back in a moment.");
-  if (error) return waiting(error.message);
+  if (error) return waiting(failureText(error));
   if (!data) return waiting("Loading the player.");
   return (
     <Player
@@ -405,7 +407,7 @@ export function FilePage({
   loop?: Loop | null;
   onLoop?: (loop: Loop | null) => void;
 }) {
-  const { data: file, error } = useQuery(fileQuery(fileId));
+  const { data: file, error, refetch } = useQuery(fileQuery(fileId));
   // Whether this person may download it at all, and so whether to offer it (#136).
   const { data: downloads } = useQuery(downloadsQuery(fileId));
   const [downloading, setDownloading] = useState(false);
@@ -485,8 +487,8 @@ export function FilePage({
     ...projectQuery(file?.projectId ?? ""),
     enabled: Boolean(file) && !guest,
   });
-  if (error) return <p className="p-8 text-signal">{error.message}</p>;
-  if (!file) return <p className="p-8 text-ink-3">Loading</p>;
+  if (error) return <PageFailed what="This file" error={error} retry={refetch} />;
+  if (!file) return <Loading />;
   // A guest's review decides which tools they have; members have them all.
   // A guest's tools come with their review, a member's with their role (#240).
   const tools: readonly string[] | null = file.grant?.tools ?? file.tools ?? null;
@@ -596,7 +598,6 @@ export function FilePage({
   const crumbs: Crumb[] = guest
     ? [{ key: "reviews", link: <Link to="/g">Your reviews</Link> }]
     : [
-        { key: "projects", link: <Link to="/projects">Projects</Link> },
         {
           key: "project",
           link: (

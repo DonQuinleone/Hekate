@@ -55,7 +55,8 @@ export function StatusChipView({
   // One step waiting: each outcome stands alone. Several: the step names each.
   const steps = new Set(moves.map((m) => m.step));
   const actions: MenuAction[] = moves.map((m) => ({
-    label: steps.size > 1 ? `${m.step}: ${m.label}` : m.label,
+    // Each asks before it moves, so each ends in an ellipsis.
+    label: steps.size > 1 ? `${m.step}: ${m.label}…` : `${m.label}…`,
     onSelect: () => setMoving(m),
   }));
   return (

@@ -2,6 +2,7 @@ import { createContext, type ReactNode, useContext, useEffect, useState } from "
 import { createPortal } from "react-dom";
 import { Icon } from "~/components/icons";
 import { cn } from "~/lib/cn";
+import { Button } from "./button";
 
 const DialogHost = createContext<HTMLElement | null>(null);
 
@@ -85,4 +86,49 @@ export function Dialog({
   );
   // Outside a pane (sign-in, say), where it is declared.
   return host ? createPortal(sheet, host) : sheet;
+}
+
+/**
+ * Asks before something that cannot be taken back: the thing named in the title, what will
+ * happen beneath it, Cancel and the danger action at the right of the foot.
+ */
+export function ConfirmDialog({
+  title,
+  description,
+  action,
+  onConfirm,
+  onClose,
+  children,
+}: {
+  /** A question naming the thing: "Delete the group Strings?" */
+  title: string;
+  /** What will happen, and what will not come back. */
+  description: string;
+  /** The danger button's words, a verb and its object: "Delete group". */
+  action: string;
+  onConfirm: () => void;
+  onClose: () => void;
+  /** Anything more to say or choose, between the description and the buttons. */
+  children?: ReactNode;
+}) {
+  return (
+    <Dialog
+      title={title}
+      description={description}
+      onClose={onClose}
+      width="sm"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={onConfirm}>
+            {action}
+          </Button>
+        </>
+      }
+    >
+      {children}
+    </Dialog>
+  );
 }

@@ -79,13 +79,14 @@ export function formatDuration(seconds: number): string {
   return `${m}:${pad(s)}`;
 }
 
-const dateFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
-const dateYearFmt = new Intl.DateTimeFormat("en-GB", {
-  day: "numeric",
-  month: "long",
-  year: "numeric",
-});
-const timeFmt = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+/**
+ * Dates as the workspace writes them (#481, #541): the prototype's keeps the default, ISO 8601
+ * and the 24-hour clock, as the product's does until a workspace chooses otherwise.
+ */
+const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const dateFmt = { format: iso };
+const dateYearFmt = { format: iso };
+const timeFmt = { format: (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}` };
 
 /** 2h, yesterday, 12 Oct: how long ago, as a list reads it. */
 export function ago(iso: string, now: Date = NOW): string {
@@ -102,7 +103,7 @@ export const formatDate = (iso: string) => dateFmt.format(new Date(iso));
 export const formatLongDate = (iso: string) => dateYearFmt.format(new Date(iso));
 export const formatTime = (iso: string) => timeFmt.format(new Date(iso));
 export const formatDateTime = (iso: string) =>
-  `${dateFmt.format(new Date(iso))}, ${timeFmt.format(new Date(iso))}`;
+  `${dateFmt.format(new Date(iso))} ${timeFmt.format(new Date(iso))}`;
 
 /** Days until a due date, or how long past. */
 export function dueIn(iso: string, now: Date = NOW): { days: number; label: string } {

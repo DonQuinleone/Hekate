@@ -54,7 +54,7 @@ export function WorkflowHistory({ trackId }: { trackId: string }) {
                   <span className="flex min-w-0 items-center gap-2 justify-self-end text-ink-3 @3xl/app:justify-self-start">
                     {t.by && t.byId ? (
                       <>
-                        <Avatar id={t.byId} name={t.by} size={18} />
+                        <Avatar person={t.byId} name={t.by} size={18} />
                         <span className="truncate">{t.by}</span>
                       </>
                     ) : (

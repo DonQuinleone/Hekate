@@ -8,6 +8,7 @@ import { usePageHeader } from "~/components/page-header";
 import { Chip, PermissionsDialog } from "~/components/permissions";
 import { PeopleField, type Person } from "~/components/share";
 import { Button } from "~/components/ui/button";
+import { DateField } from "~/components/ui/date-field";
 import { Input, Textarea } from "~/components/ui/input";
 import { Dropdown } from "~/components/ui/menu";
 import { Switch } from "~/components/ui/toggle";
@@ -792,12 +793,7 @@ export function RequestReviewPage({
           <Section n={4} title="When and why">
             <div className="flex flex-wrap items-center gap-2">
               <Label>Due</Label>
-              <Input
-                type="date"
-                value={due}
-                onChange={(e) => setDue(e.target.value)}
-                className="h-8 w-40"
-              />
+              <DateField value={due} onChange={setDue} aria-label="Due" className="w-44" />
               {(
                 [
                   ["2026-10-17", "In 3 days"],
@@ -856,14 +852,7 @@ export function RequestReviewPage({
                         ],
                       ]
                     : []),
-                  [
-                    "Due",
-                    due
-                      ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long" }).format(
-                          new Date(`${due}T12:00:00Z`),
-                        )
-                      : "no date",
-                  ],
+                  ["Due", due || "no date"],
                 ] as [string, string][]
               ).map(([k, v]) => (
                 <div key={k} className="flex gap-3">

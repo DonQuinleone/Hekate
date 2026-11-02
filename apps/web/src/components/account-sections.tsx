@@ -2,6 +2,7 @@ import { type Density, locales, preRolls, skipSteps, type Theme } from "@hekate/
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { Loading } from "~/components/ui/states";
 import { shortAgent } from "~/lib/agent";
 import { authClient } from "~/lib/auth";
 import { ago } from "~/lib/comments";
@@ -23,7 +24,7 @@ import { CodeAppSetup, RecoveryCodes } from "./second-factor";
 import { Danger, Row, Section, SwitchRow } from "./settings";
 import { Button } from "./ui/button";
 import { Choice } from "./ui/choice";
-import { Dialog } from "./ui/dialog";
+import { Dialog, useConfirm } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
 import { StatusDot } from "./ui/status";
 
@@ -104,7 +105,7 @@ function EmailField({ email }: { email: string }) {
     return (
       <span className="flex flex-wrap items-center gap-2">
         <span className="text-[13px] text-ink">{email}</span>
-        <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>
+        <Button size="sm" variant="secondary" onClick={() => setEditing(true)}>
           Change…
         </Button>
         {sent && <Note>{`Check ${sent} for a link. The address changes once you follow it.`}</Note>}
@@ -145,7 +146,7 @@ export function ProfileSection() {
     <>
       <Section title="You">
         <Row name="Picture" hint="Made from your name and its colour.">
-          <Avatar id={user.id} name={user.name} size={36} />
+          <Avatar person={user.id} name={user.name} size={36} />
         </Row>
         <Row name="Name">
           <NameField key={user.name} name={user.name} />
@@ -248,13 +249,13 @@ function DeleteAccount({ email }: { email: string }) {
         name="Delete your account"
         hint="Your comments and decisions stay, attributed to a former member."
       >
-        <Button size="sm" variant="secondary" className="text-signal" onClick={() => setOpen(true)}>
+        <Button size="sm" variant="danger" onClick={() => setOpen(true)}>
           Delete…
         </Button>
       </Row>
       {open && (
         <Dialog
-          title="Delete your account"
+          title="Delete your account?"
           description="You are signed out everywhere and cannot sign in again. Your name and address leave every workspace; what you wrote and decided stays, as a former member's. This cannot be undone."
           onClose={close}
           width="sm"
@@ -275,13 +276,12 @@ function DeleteAccount({ email }: { email: string }) {
             {identity.fields}
             {remove.error && <Note error>{remove.error.message}</Note>}
             <span className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={close}>
+              <Button variant="secondary" onClick={close}>
                 Cancel
               </Button>
               <Button
                 type="submit"
-                variant="secondary"
-                className="text-signal"
+                variant="danger"
                 disabled={!matches || !identity.ready || remove.isPending}
               >
                 {remove.isPending ? "Deleting" : "Delete my account"}
@@ -576,7 +576,7 @@ export function SessionsSection() {
   const others = sessions.filter((s) => !s.current);
   return (
     <Section title="Signed in">
-      {isPending && <Row name="Loading" />}
+      {isPending && <Loading size="panel" />}
       {sessions.map((s) => (
         <Row
           key={s.id}
@@ -633,6 +633,7 @@ export function SessionsSection() {
  */
 export function AppearanceSection() {
   const preferences = usePreferences();
+  const [confirm, confirmation] = useConfirm();
   const save = useSavePreferences();
   const choose = (theme: Theme) => {
     applyTheme(theme);
@@ -641,7 +642,11 @@ export function AppearanceSection() {
   return (
     <>
       <Section title="Theme">
-        <Row name="Theme" hint="The brand in dark and light, and a few others people know." stacked>
+        <Row
+          name="Palette"
+          hint="The brand in dark and light, and a few others people know."
+          stacked
+        >
           <div className="grid w-full grid-cols-1 gap-2 @xl/app:grid-cols-2 @3xl/app:grid-cols-3">
             <ThemeTile
               name="Follow the system"
@@ -728,12 +733,18 @@ export function AppearanceSection() {
                     variant="ghost"
                     aria-label={`Remove the preset ${preset.name}`}
                     onClick={() =>
-                      save.mutate({
-                        viewPresets: preferences.viewPresets.filter((p) => p !== preset),
+                      confirm({
+                        title: `Remove the preset ${preset.name}?`,
+                        description: "The player no longer offers it. The view you have now stays.",
+                        action: "Remove preset",
+                        onConfirm: () =>
+                          save.mutateAsync({
+                            viewPresets: preferences.viewPresets.filter((p) => p !== preset),
+                          }),
                       })
                     }
                   >
-                    Remove
+                    Remove…
                   </Button>
                 </li>
               ))}
@@ -778,6 +789,7 @@ export function AppearanceSection() {
           </div>
         )}
       </Section>
+      {confirmation}
     </>
   );
 }

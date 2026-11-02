@@ -1,12 +1,14 @@
 import { type BillingRules, type DunningRule, dunningRule } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { Failed, Loading } from "~/components/ui/states";
 import { ago } from "~/lib/comments";
 import {
   instanceGatewayQuery,
   instanceOwnSettingsQuery,
   useSaveInstanceSettings,
 } from "~/lib/queries";
+import { CopyButton } from "./copy-button";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
 import { Dialog } from "./ui/dialog";
@@ -25,12 +27,12 @@ const currencies = ["GBP", "EUR", "USD", "CHF", "SEK", "NOK", "DKK", "CAD", "AUD
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export function Gateways() {
-  const { data: status, error } = useQuery(instanceGatewayQuery);
+  const { data: status, error, refetch } = useQuery(instanceGatewayQuery);
   const { data: own } = useQuery(instanceOwnSettingsQuery);
   const save = useSaveInstanceSettings();
   const [editing, setEditing] = useState<"dunning" | "trials" | null>(null);
-  if (error) return <p className="m-0 text-[13px] text-signal">{error.message}</p>;
-  if (!status || !own) return null;
+  if (error) return <Failed what="The gateways" error={error} retry={refetch} size="panel" />;
+  if (!status || !own) return <Loading size="panel" />;
   const rules = own.settings.billing;
   const saveRules = (billing: BillingRules, onSuccess?: () => void) =>
     save.mutate({ ...own.settings, billing }, { onSuccess });
@@ -93,7 +95,10 @@ export function Gateways() {
             name="Webhook"
             hint="Where Stripe sends its events, with the signing secret in STRIPE_WEBHOOK_SECRET."
           >
-            <code className="tabular truncate text-[12px] text-ink-2">{stripe.webhookUrl}</code>
+            <span className="flex min-w-0 items-center gap-1">
+              <span className="tabular truncate text-[13px] text-ink-2">{stripe.webhookUrl}</span>
+              <CopyButton value={stripe.webhookUrl} label="Copy the webhook address" />
+            </span>
           </Row>
         )}
         <Row

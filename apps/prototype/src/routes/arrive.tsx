@@ -9,7 +9,8 @@ import { organisation } from "~/data";
 import { cn } from "~/lib/cn";
 import { useViewer } from "~/viewer/context";
 
-function Frame({
+/** The standalone frame: sign-in, invitations and the pages for those signed out. */
+export function Frame({
   title,
   intro,
   children,
@@ -199,7 +200,11 @@ export function SignInPage({ view: initial }: { view?: string }) {
         >
           <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
             Recovery code
-            <Input placeholder="xxxxx-xxxxx" className="h-10 font-mono" spellCheck={false} />
+            <Input
+              placeholder="xxxxx-xxxxx"
+              className="tabular h-10 tracking-wide"
+              spellCheck={false}
+            />
           </label>
           {refused && (
             <p className="text-[14px] text-signal">
@@ -243,7 +248,7 @@ export function SignInPage({ view: initial }: { view?: string }) {
             <QrSample />
             <p className="m-0 text-[13px] leading-normal text-ink-3">
               No camera? Type this key into the app instead:
-              <span className="mt-1.5 block font-mono text-[14px] break-all text-ink">
+              <span className="tabular mt-1.5 block text-[14px] tracking-wide break-all text-ink">
                 JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP
               </span>
             </p>

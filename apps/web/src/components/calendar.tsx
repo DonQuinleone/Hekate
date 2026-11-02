@@ -14,6 +14,7 @@ import { Icon, type IconName } from "~/components/icons";
 import { Card } from "~/components/page";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
+import { Failed } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { dayHere, formatDates } from "~/lib/locale";
 import { projectCalendarQuery, useCalendarFeed, useProjectCan } from "~/lib/queries";
@@ -120,7 +121,7 @@ function SubscribeDialog({
             <div className="flex flex-wrap gap-2">
               <Button variant="primary" onClick={() => create.mutate()} disabled={create.isPending}>
                 <Icon name="calendar" size={14} />
-                {feed ? "Make a new link" : "Make my link"}
+                {feed ? "Create a new link" : "Create link"}
               </Button>
               {feed && (
                 <Button variant="ghost" onClick={() => remove.mutate()} disabled={remove.isPending}>
@@ -157,7 +158,7 @@ export function ProjectCalendar({
   month: string;
   onMonth: (month: string) => void;
 }) {
-  const { data, error } = useQuery(projectCalendarQuery(projectId, { month }));
+  const { data, error, refetch } = useQuery(projectCalendarQuery(projectId, { month }));
   const can = useProjectCan(projectId);
   const editing = can("edit_production");
   const [subscribing, setSubscribing] = useState(false);
@@ -238,7 +239,7 @@ export function ProjectCalendar({
           )}
         </span>
       </div>
-      {error && <p className="m-0 text-signal">{error.message}</p>}
+      {error && <Failed what="The calendar" error={error} retry={refetch} size="panel" />}
       <Card className="overflow-hidden">
         <div className="grid grid-cols-7 border-b border-line" aria-hidden="true">
           {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (

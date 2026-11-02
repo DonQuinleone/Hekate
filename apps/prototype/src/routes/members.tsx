@@ -1,6 +1,6 @@
 import { Avatar } from "~/components/avatar";
 import { Icon } from "~/components/icons";
-import { Label } from "~/components/label";
+import { Count, Label } from "~/components/label";
 import { Button } from "~/components/ui/button";
 import { ActionMenu } from "~/components/ui/menu";
 import { guests, invitations, members, personById } from "~/data";
@@ -28,7 +28,9 @@ export function MembersSection() {
       >
         <section className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <Label>Members · {members.length}</Label>
+            <Label>
+              Members<Count>{members.length}</Count>
+            </Label>
             {elevated && (
               <Button variant="primary" size="sm">
                 <Icon name="plus" size={14} />
@@ -98,7 +100,9 @@ export function MembersSection() {
         </section>
         {elevated && (
           <section className="flex flex-col gap-2">
-            <Label>Invited · {invitations.length}</Label>
+            <Label>
+              Invited<Count>{invitations.length}</Count>
+            </Label>
             <ul className="flex list-none flex-col rounded-panel-lg border border-line bg-raised/40 p-0 shadow-1">
               {invitations.map((i) => (
                 <li
@@ -123,7 +127,9 @@ export function MembersSection() {
           </section>
         )}
         <section className="flex flex-col gap-2">
-          <Label>Guests · {guests.length}</Label>
+          <Label>
+            Guests<Count>{guests.length}</Count>
+          </Label>
           <ul className="flex list-none flex-col rounded-panel-lg border border-line bg-raised/40 p-0 shadow-1">
             {guests.map((g) => {
               const p = personById(g.personId);

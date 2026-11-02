@@ -33,7 +33,7 @@ import {
 import { swappedSummary } from "~/lib/score-swap";
 import { type UploadedFile, uploadFile } from "~/lib/upload";
 import { primaryOf } from "~/lib/versions";
-import { Avatar } from "./avatar";
+import { Avatar, personKey } from "./avatar";
 import { Empty } from "./empty";
 import { kindIcon, mediaSummary } from "./files";
 import { Icon } from "./icons";
@@ -695,7 +695,11 @@ function VersionRow({
         )}
         <span className="ml-auto flex min-w-0 items-center gap-2 text-[13px] text-ink-3">
           {version.createdByName && (
-            <Avatar id={version.createdByName} name={version.createdByName} size={18} />
+            <Avatar
+              person={personKey({ userId: version.createdBy, name: version.createdByName })}
+              name={version.createdByName}
+              size={18}
+            />
           )}
           <span className="truncate">
             {version.createdByName ??

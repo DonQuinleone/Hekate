@@ -703,15 +703,15 @@ function DeleteOrganisation({ name, onClose }: { name: string; onClose: () => vo
   const [typed, setTyped] = useState("");
   return (
     <Dialog
-      title={`Delete ${name}`}
+      title={`Delete ${name}?`}
       description="In 30 days its members, projects, files, reviews, keys and access log are deleted, and its stored files with them. Until then it stays suspended, and keeping it changes nothing."
       onClose={onClose}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" disabled={typed !== name} onClick={onClose}>
+          <Button variant="danger" disabled={typed !== name} onClick={onClose}>
             Delete in 30 days
           </Button>
         </>
@@ -769,7 +769,7 @@ export function InstancePage({ section }: { section: string }) {
       sec === "workspaces" && operator ? (
         <Button variant="primary" size="sm" onClick={() => setCreating(true)}>
           <Icon name="plus" size={14} />
-          Workspace
+          New workspace
         </Button>
       ) : sec === "debug" ? (
         <Button variant="secondary" size="sm">
@@ -1396,12 +1396,11 @@ export function InstancePage({ section }: { section: string }) {
           )}
           {billingTab === "plans" && (
             <Section
-              title="Plans"
               intro="What workspaces can be on. Prices, limits and which support severities each unlocks are the instance's to set."
               action={
-                <Button variant="primary" size="md">
+                <Button variant="secondary" size="md">
                   <Icon name="plus" size={14} />
-                  Plan
+                  New plan
                 </Button>
               }
             >
@@ -1460,12 +1459,11 @@ export function InstancePage({ section }: { section: string }) {
           )}
           {billingTab === "promos" && (
             <Section
-              title="Promo codes"
               intro="A percentage or an amount off, for a number of months, for the first so many who use it, until a date."
               action={
-                <Button variant="primary" size="md">
+                <Button variant="secondary" size="md">
                   <Icon name="plus" size={14} />
-                  Code
+                  New code
                 </Button>
               }
             >
@@ -1530,9 +1528,9 @@ export function InstancePage({ section }: { section: string }) {
                   name="Webhook"
                   hint="Where Stripe sends its events, with the signing secret in STRIPE_WEBHOOK_SECRET."
                 >
-                  <code className="tabular truncate text-[12px] text-ink-2">
+                  <span className="tabular truncate text-[13px] text-ink-2">
                     https://review.endlesshall.example/api/hooks/billing/stripe
-                  </code>
+                  </span>
                 </Row>
                 <Row
                   name="Paddle"
@@ -1749,12 +1747,11 @@ export function InstancePage({ section }: { section: string }) {
       {sec === "operators" && (
         <>
           <Section
-            title="Operators"
-            intro="Accounts that may open this side of the application. A hardware security key is required; everything they do is in the audit log under their name."
+            intro="A hardware security key is required; everything they do is in the audit log under their name."
             action={
-              <Button variant="primary" size="md">
+              <Button variant="secondary" size="md">
                 <Icon name="plus" size={14} />
-                Operator
+                Add operator
               </Button>
             }
           >

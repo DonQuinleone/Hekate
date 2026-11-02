@@ -7,6 +7,7 @@ import { Button } from "~/components/ui/button";
 import { Chip } from "~/components/ui/chip";
 import { Choice } from "~/components/ui/choice";
 import { Dialog } from "~/components/ui/dialog";
+import { Failed, Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { type CommentCategory, fileStagesQuery, useProjectCan } from "~/lib/queries";
 
@@ -32,7 +33,7 @@ export function DeferDialog({
   onDefer: (stage: string) => void;
   onClose: () => void;
 }) {
-  const { data: stages, isPending, error } = useQuery(fileStagesQuery(fileId));
+  const { data: stages, isPending, error, refetch } = useQuery(fileStagesQuery(fileId));
   const can = useProjectCan(projectId);
   const groups = deferChoices(stages, categories, current ?? null);
   const [chosen, setChosen] = useState<string | null>(current ?? null);
@@ -71,9 +72,9 @@ export function DeferDialog({
       }
     >
       {isPending ? (
-        <p className="m-0 text-[13px] text-ink-3">Loading</p>
+        <Loading size="panel" className="px-0" />
       ) : error ? (
-        <p className="m-0 text-[13px] text-signal">{error.message}</p>
+        <Failed what="The stages" error={error} retry={refetch} size="panel" className="px-0" />
       ) : groups.length === 0 ? (
         <p className="m-0 text-[13px] text-ink-2">
           No workflow is switched on for this {stages?.trackId ? "track" : "project"}, and no

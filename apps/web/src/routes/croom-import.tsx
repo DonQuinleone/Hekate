@@ -16,6 +16,7 @@ import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
 import { FileInput, Select } from "~/components/ui/input";
+import { Refused } from "~/components/ui/states";
 import { StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { json, useProjectCan } from "~/lib/queries";
@@ -33,7 +34,7 @@ export function CroomImportPage({ projectId }: { projectId: string }) {
       {(project) => (
         <ProductionBody projectId={projectId} current="import" can={can}>
           {!can("edit_project") ? (
-            <Empty
+            <Refused
               title="Not among what your role allows"
               text="Importing a ControlRoom project needs the permission to edit the project. Ask whoever runs it."
             />

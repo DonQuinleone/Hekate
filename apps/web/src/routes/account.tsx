@@ -16,6 +16,7 @@ import { type NavSection, Row, Section, SettingsLayout } from "~/components/sett
 import { Button } from "~/components/ui/button";
 import { Select } from "~/components/ui/input";
 import { Segmented } from "~/components/ui/segmented";
+import { Failed, Loading } from "~/components/ui/states";
 import {
   followsQuery,
   notificationPreferencesQuery,
@@ -59,11 +60,12 @@ const sections: (NavSection & { intro: string })[] = [
 ];
 
 function Notifications() {
-  const { data: prefs } = useQuery(notificationPreferencesQuery);
+  const { data: prefs, error, refetch } = useQuery(notificationPreferencesQuery);
   const { data: follows } = useQuery(followsQuery);
   const save = useSaveNotificationPreferences();
   const unfollow = useUnfollow();
-  if (!prefs) return <p className="m-0 text-ink-3">Loading</p>;
+  if (error) return <Failed what="Your notifications" error={error} retry={refetch} />;
+  if (!prefs) return <Loading />;
   const change = (next: Partial<NotificationPreferences>) => save.mutate({ ...prefs, ...next });
   return (
     <>

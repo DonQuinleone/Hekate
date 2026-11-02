@@ -9,6 +9,7 @@ import { Link } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { Icon } from "~/components/icons";
 import { Button } from "~/components/ui/button";
+import { DateField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
@@ -242,7 +243,7 @@ export function UploadRequestDialog({
               form="upload-request"
               disabled={!name.trim() || limitWrong || passwordWrong || create.isPending}
             >
-              Create the link
+              Create link
             </Button>
           </>
         )
@@ -314,12 +315,11 @@ export function UploadRequestDialog({
                 />
               </Field>
               <Field label="Expires">
-                <Input
-                  type="date"
+                <DateField
                   value={expires}
                   min={dayFromNow(0)}
                   max={dayFromNow(UPLOAD_REQUEST_MAX_DAYS - 1)}
-                  onChange={(e) => setExpires(e.target.value)}
+                  onChange={setExpires}
                 />
               </Field>
             </div>

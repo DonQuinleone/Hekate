@@ -17,9 +17,11 @@ import { Row, Section } from "~/components/settings";
 import { IncidentUpdates, incidentLine, incidentSpan, StateDot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Choice } from "~/components/ui/choice";
+import { DateTimeField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
+import { Failed, Loading } from "~/components/ui/states";
 import { ago } from "~/lib/comments";
 import {
   incidentsQuery,
@@ -34,7 +36,7 @@ const RECENT = 5;
 
 const hostOf = (url: string) => url.replace(/^https?:\/\//, "").replace(/\/$/, "");
 
-/** A local date and time for a `datetime-local` field, and back to an instant. */
+/** A local date and time as a date and time field holds it, and back to an instant. */
 const localValue = (d: Date) =>
   new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 const instantOf = (value: string) => (value ? new Date(value).toISOString() : undefined);
@@ -45,7 +47,7 @@ const instantOf = (value: string) => (value ? new Date(value).toISOString() : un
  * are answered in the app.
  */
 export function StatusSection() {
-  const { data, error } = useQuery(incidentsQuery);
+  const { data, error, refetch } = useQuery(incidentsQuery);
   const { data: desk } = useQuery(supportDeskQuery);
   const [posting, setPosting] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -67,7 +69,8 @@ export function StatusSection() {
         </Button>
       }
     >
-      {error && <p className="m-0 px-4 py-3 text-[13px] text-signal">{error.message}</p>}
+      {error && <Failed what="Incidents" error={error} retry={refetch} size="panel" />}
+      {!data && !error && <Loading size="panel" />}
       {data && incidents.length === 0 && (
         <Row
           name="Nothing posted yet"
@@ -284,21 +287,11 @@ function PostIncidentDialog({ onClose }: { onClose: () => void }) {
         </Field>
         <div className="grid gap-4 @md/app:grid-cols-2">
           <Field label="Began" hint="Leave empty for now; set it for one posted after the fact.">
-            <Input
-              type="datetime-local"
-              value={began}
-              max={localValue(new Date())}
-              onChange={(e) => setBegan(e.target.value)}
-            />
+            <DateTimeField value={began} max={localValue(new Date())} onChange={setBegan} />
           </Field>
           {state === "resolved" && (
             <Field label="Ended" hint="Leave empty for now.">
-              <Input
-                type="datetime-local"
-                value={ended}
-                max={localValue(new Date())}
-                onChange={(e) => setEnded(e.target.value)}
-              />
+              <DateTimeField value={ended} max={localValue(new Date())} onChange={setEnded} />
             </Field>
           )}
         </div>
@@ -348,11 +341,11 @@ function IncidentDialog({ incident, onClose }: { incident: Incident; onClose: ()
             <span className="flex-1 text-[13px] text-ink-2">
               Take it off the status page, with its updates?
             </span>
-            <Button variant="ghost" onClick={() => setRemoving(false)}>
-              Keep it
+            <Button variant="secondary" onClick={() => setRemoving(false)}>
+              Cancel
             </Button>
             <Button
-              variant="primary"
+              variant="danger"
               disabled={remove.isPending}
               onClick={() => remove.mutate(incident.id, { onSuccess: onClose })}
             >

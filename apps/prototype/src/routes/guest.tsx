@@ -3,7 +3,7 @@ import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { Dot, reviewDot } from "~/components/status";
 import { organisation } from "~/data";
-import { ago, dueIn } from "~/lib/format";
+import { ago, dueIn, formatDate } from "~/lib/format";
 import { reviewOutcome } from "~/lib/reviews";
 import { useViewer } from "~/viewer/context";
 import { Empty, StateGate } from "~/viewer/state-gate";
@@ -58,7 +58,7 @@ export function GuestHomePage() {
                     {r.dueAt && ` · due in ${dueIn(r.dueAt).label}`}
                     {me?.submittedAt && ` · you responded ${ago(me.submittedAt)}`}
                     {me?.permissions.expiresAt &&
-                      ` · open until ${new Date(me.permissions.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`}
+                      ` · open until ${formatDate(me.permissions.expiresAt)}`}
                   </div>
                 </div>
               </li>

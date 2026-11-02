@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } from "react";
+import { Failed, Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import {
   clampPage,
@@ -65,7 +66,7 @@ export function DocumentViewer({
   fill?: boolean;
 }) {
   const client = useQueryClient();
-  const { data, error } = useQuery(viewQuery(fileId));
+  const { data, error, refetch } = useQuery(viewQuery(fileId));
   /** A multiple of the width that fits: 1 is the whole page across the viewer. */
   const [zoom, setZoom] = useState(1);
   /** Where a drag began on the page, while one is under way. */
@@ -125,8 +126,8 @@ export function DocumentViewer({
     Boolean(data && !error),
   );
 
-  if (error) return <p className="m-0 text-sm text-signal">{error.message}</p>;
-  if (!data) return <p className="m-0 text-sm text-ink-3">Loading the pages</p>;
+  if (error) return <Failed what="The pages" error={error} retry={refetch} />;
+  if (!data) return <Loading label="Loading the pages" />;
 
   // Links lapse after a few hours: when one fails, ask for fresh ones.
   const refresh = () => void client.invalidateQueries({ queryKey: viewQuery(fileId).queryKey });

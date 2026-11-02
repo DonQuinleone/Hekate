@@ -71,10 +71,11 @@ import {
   SwitchRow,
 } from "~/components/settings";
 import { Button } from "~/components/ui/button";
-import { Dialog } from "~/components/ui/dialog";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select } from "~/components/ui/input";
 import { ActionMenu } from "~/components/ui/menu";
+import { Loading } from "~/components/ui/states";
 import { formatDates } from "~/lib/locale";
 import {
   type CommentCategory,
@@ -147,7 +148,8 @@ const sections = [
     id: "delivery",
     label: "Delivery profile",
     group: "Quality assurance",
-    intro: "The numbers the checks measure against: loudness, peaks and formats.",
+    intro:
+      "What QA measures every recording against: loudness, peaks and formats. Anything in the project can have its own; without any, each file is measured against the profile its channels suggest.",
   },
   {
     id: "qa",
@@ -259,6 +261,7 @@ function SavedInput({
  */
 function Templates({ project, canSave }: { project: Project; canSave: boolean }) {
   const { data: templates = [] } = useQuery(templatesQuery);
+  const [confirm, confirmation] = useConfirm();
   const { save, remove } = useTemplateMutations();
   const [naming, setNaming] = useState(false);
   const [name, setName] = useState(project.name);
@@ -311,7 +314,18 @@ function Templates({ project, canSave }: { project: Project; canSave: boolean })
               label={t.name}
               always
               actions={[
-                { label: "Remove template", danger: true, onSelect: () => remove.mutate(t.id) },
+                {
+                  label: "Remove template…",
+                  danger: true,
+                  onSelect: () =>
+                    confirm({
+                      title: `Remove the template ${t.name}?`,
+                      description:
+                        "New projects can no longer start from it. Projects made from it keep what they took.",
+                      action: "Remove template",
+                      onConfirm: () => remove.mutateAsync(t.id),
+                    }),
+                },
               ]}
             />
           )}
@@ -351,6 +365,7 @@ function Templates({ project, canSave }: { project: Project; canSave: boolean })
           </form>
         </Dialog>
       )}
+      {confirmation}
     </Section>
   );
 }
@@ -363,7 +378,7 @@ function General({ project }: { project: Project }) {
   const edit = can("edit_project");
   return (
     <>
-      <Section title="Project">
+      <Section title="Details">
         <Row name="Name">
           <SavedInput
             key={project.name}
@@ -522,12 +537,7 @@ function DeleteProject({ project }: { project: Project }) {
             </Button>
           )}
           {deletion.mayConfirm && (
-            <Button
-              variant="secondary"
-              size="md"
-              className="text-signal"
-              onClick={() => setDialog("confirm")}
-            >
+            <Button variant="danger" size="md" onClick={() => setDialog("confirm")}>
               Delete…
             </Button>
           )}
@@ -540,12 +550,7 @@ function DeleteProject({ project }: { project: Project }) {
         name="Delete this project"
         hint="Files, comments and reviews go with it. Needs the delete permission and a second owner's confirmation."
       >
-        <Button
-          variant="secondary"
-          size="md"
-          className="text-signal"
-          onClick={() => setDialog("ask")}
-        >
+        <Button variant="danger" size="md" onClick={() => setDialog("ask")}>
           Delete…
         </Button>
       </Row>
@@ -563,11 +568,11 @@ function DeleteProject({ project }: { project: Project }) {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={close}>
-                Keep it
+              <Button variant="secondary" size="md" onClick={close}>
+                Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={request.isPending}
                 onClick={() => request.mutate(undefined, { onSuccess: close })}
@@ -588,11 +593,11 @@ function DeleteProject({ project }: { project: Project }) {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={close}>
-                Keep it
+              <Button variant="secondary" size="md" onClick={close}>
+                Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={confirm.isPending || typed.trim() !== project.name}
                 onClick={() => confirm.mutate(undefined, { onSuccess: close })}
@@ -983,7 +988,6 @@ function Comments({ project }: { project: Project }) {
               }
             >
               <Select
-                size="sm"
                 value={t.commentReferences ? (referenceSetOf(t.commentReferences) ?? "") : ""}
                 aria-label={`References of ${t.name}`}
                 disabled={!can("edit_project")}
@@ -1015,12 +1019,12 @@ function Comments({ project }: { project: Project }) {
           shape ? (
             <Button variant="secondary" size="md" onClick={() => setEditing("new")}>
               <Icon name="plus" size={14} />
-              Category
+              New category
             </Button>
           ) : undefined
         }
       >
-        {!categories && <Row name="Loading" />}
+        {!categories && <Loading size="panel" />}
         {categories?.length === 0 && (
           <Row name="No categories" hint="Comments can still be triaged without one." />
         )}
@@ -1098,7 +1102,6 @@ function Comments({ project }: { project: Project }) {
               }
             >
               <Select
-                size="sm"
                 value={t.normalisation ?? ""}
                 aria-label={`Normalised playback of ${t.name}`}
                 disabled={!can("edit_project") || playsTrack.isPending}
@@ -1139,11 +1142,11 @@ function Comments({ project }: { project: Project }) {
           width="sm"
           footer={
             <>
-              <Button variant="ghost" size="md" onClick={() => setDeleting(null)}>
+              <Button variant="secondary" size="md" onClick={() => setDeleting(null)}>
                 Cancel
               </Button>
               <Button
-                variant="primary"
+                variant="danger"
                 size="md"
                 disabled={remove.isPending}
                 onClick={() => remove.mutate(deleting.id, { onSuccess: () => setDeleting(null) })}
@@ -1258,7 +1261,6 @@ function Workflow({ project }: { project: Project }) {
             projectId={project.id}
             value={project.commentAssignment ?? { assign: null }}
             disabled={!edit || update.isPending}
-            size="sm"
             aria-label="Assign new comments to"
             className="w-full @3xl/app:w-56"
             onChange={(rule) => update.mutate({ commentAssignment: rule })}
@@ -1286,7 +1288,6 @@ function Workflow({ project }: { project: Project }) {
                 value={t.commentAssignment}
                 inherits="Project default"
                 disabled={!edit}
-                size="sm"
                 aria-label={`Assign new comments on ${t.name} to`}
                 className="w-full @3xl/app:w-56"
                 onChange={(assignment) => onTrack.mutate({ trackId: t.id, assignment })}
@@ -1341,10 +1342,7 @@ function Delivery({ project }: { project: Project }) {
   const error = update.error ?? onTrack.error;
   return (
     <>
-      <Section
-        title="Delivery profile"
-        intro={`What QA measures every recording against. A ${words.track} or a file can have its own; without any, each file is measured against the profile its channels suggest.`}
-      >
+      <Section>
         <Row name="Project default" hint={shown ? deliveryHint(shown) : undefined}>
           <Select
             value={project.deliveryProfile ?? ""}
@@ -1373,7 +1371,7 @@ function Delivery({ project }: { project: Project }) {
           title="Overrides"
           intro={`${capital(words.tracks)} that measure against a different profile.`}
         >
-          {!tracks && <Row name="Loading" />}
+          {!tracks && <Loading size="panel" />}
           {tracks?.length === 0 && (
             <Row
               name={`No ${words.tracks} yet`}
@@ -1394,7 +1392,6 @@ function Delivery({ project }: { project: Project }) {
               }
             >
               <Select
-                size="sm"
                 value={t.deliveryProfile ?? ""}
                 aria-label={`Delivery profile of ${t.name}`}
                 disabled={!edit}

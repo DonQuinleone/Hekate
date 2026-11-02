@@ -8,6 +8,7 @@ import {
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import {
   type ProjectRole,
@@ -38,7 +39,7 @@ import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
 import { ToggleChip } from "./ui/chip";
 import { Checkbox } from "./ui/choice";
-import { Dialog } from "./ui/dialog";
+import { Dialog, useConfirm } from "./ui/dialog";
 import { Input, Select } from "./ui/input";
 import { ActionMenu, MenuList, usePopover } from "./ui/menu";
 import { Switch } from "./ui/toggle";
@@ -164,7 +165,7 @@ function ExceptionDialog({
   };
   return (
     <Dialog
-      title="Add an exception"
+      title="Add exception"
       description="Their tools in this project, in place of their role's. A guest keeps no tool their review leaves out."
       onClose={onClose}
       width="sm"
@@ -397,13 +398,14 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
   const { createRole, updateRole, deleteRole } = useProjectAccessMutations(projectId);
   const { data: exceptions = [] } = useQuery(projectToolExceptionsQuery(projectId));
   const excepting = useToolExceptionMutations(projectId);
+  const [confirm, confirmation] = useConfirm();
   const [dialog, setDialog] = useState<"new" | "rename" | "copy" | "compare" | "exception" | null>(
     null,
   );
   const [shown, setShown] = useState<string | null>(null);
   // The exceptions on a phone: one column at a time.
   const [exceptionShown, setExceptionShown] = useState<string | null>(null);
-  if (!roles) return <p className="m-0 text-[13px] text-ink-3">Loading</p>;
+  if (!roles) return <Loading size="panel" className="px-0" />;
   const role = roles.find((r) => r.id === shown) ?? roles[0];
   if (!role) return <p className="m-0 text-[13px] text-ink-3">This project has no roles.</p>;
   const error = updateRole.error ?? deleteRole.error ?? createRole.error;
@@ -430,10 +432,15 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
         always
         actions={[
           {
-            label: "Remove exception",
-            hint: "They have their role's tools again",
+            label: "Remove exception…",
             danger: true,
-            onSelect: () => excepting.remove.mutate(e.id),
+            onSelect: () =>
+              confirm({
+                title: `Remove ${e.name}'s exception?`,
+                description: "They have their role's tools in this project again.",
+                action: "Remove exception",
+                onConfirm: () => excepting.remove.mutateAsync(e.id),
+              }),
           },
         ]}
       />
@@ -504,15 +511,23 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
                   "divider",
                   role.members > 0
                     ? {
-                        label: "In use: cannot delete",
-                        hint: "Give its people another role first",
+                        label: "Delete…",
+                        hint: "In use: give its people another role first",
+                        disabled: true,
                         onSelect: () => {},
                       }
                     : {
-                        label: "Delete",
+                        label: "Delete…",
                         danger: true,
                         onSelect: () =>
-                          deleteRole.mutate(role.id, { onSuccess: () => setShown(null) }),
+                          confirm({
+                            title: `Delete the role ${role.name}?`,
+                            description:
+                              "Nobody holds it, so nobody loses access; it goes from the project's roles.",
+                            action: "Delete role",
+                            onConfirm: () =>
+                              deleteRole.mutateAsync(role.id).then(() => setShown(null)),
+                          }),
                       },
                 ]}
               />
@@ -636,7 +651,8 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
           )}
           {manage && (
             <Button variant="secondary" size="md" onClick={() => setDialog("exception")}>
-              Add an exception
+              <Icon name="plus" size={14} />
+              Add exception
             </Button>
           )}
         </div>
@@ -694,6 +710,7 @@ function Roles({ projectId, manage }: { projectId: string; manage: boolean }) {
           onClose={close}
         />
       )}
+      {confirmation}
     </>
   );
 }

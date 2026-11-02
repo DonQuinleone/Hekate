@@ -1150,7 +1150,7 @@ export function WorkflowPage({ project }: { project: Project }) {
                   }}
                 >
                   <Icon name="plus" size={13} />
-                  Node
+                  Add node
                 </Button>
               </div>
             </div>

@@ -64,13 +64,15 @@ A theme overrides tokens and nothing else. Every text colour (`ink`, `ink-2`, `i
 ## Type
 
 - **Schibsted Grotesk** for the interface and display. Weights 400 and 500 only. Display from 36 px at minus 0.025em; UI text at 13 and 14 px with no tracking.
-- One typeface throughout. Data (timecodes, bar numbers, frame numbers, counts) is set in Schibsted Grotesk with tabular figures; there is no monospace face. Labels over a group or a column are 13 px, weight 500, sentence case, in the tertiary ink.
+- One typeface throughout. Data (timecodes, bar numbers, frame numbers, counts) and identifiers (keys, addresses, recovery codes, checksums) are set in Schibsted Grotesk with tabular figures, a code letter-spaced a little so its characters can be read one by one. A value people copy (a key, an address, a URI) has a Copy button beside it. Labels over a group or a column are 13 px, weight 500, sentence case, in the tertiary ink.
+- One exception: code that people read or edit as code is set in the system monospace stack. That is the workflow's YAML, Debug's JSON and stack traces, shell commands, and a file's text shown as a programme will read it (an export's preview, a certificate in PEM). Nothing else is monospace.
 
 Anchors are always written the same way: `BAR 112.1`, `BARS 118–124`, `04:31.250`, `00:01:12:08`, `F 1736`.
 
 ## Shape and space
 
-- Radius 6 px for controls, 8 px for panels, 4 px for chips. Full round only for status pills, avatars and markers.
+- Radius 4 px for chips, 6 px for controls, 8 px for panels and menus, 10 px for dialogs and large panels. Full round only for status pills, avatars and markers.
+- Avatars are a person's initials on a ramp of their own hue. The hue comes from who they are (a member's user id, a guest's id), never from a name or a row, so one person has one colour on every screen and in every review. The ramp's lightness and the initials' ink are the theme's (`--hk-avatar-*`), holding 4.5:1 in every theme. In a row, each face tucks under the one before by a tenth of its size, ringed 2 px in the ground colour, so every face's initials stay whole.
 - 4 px spacing scale. Rows are 34 px; toolbars 40 px; the top bar 52 px.
 - Hit targets at least 28 px in dense tool bars and 44 px elsewhere.
 - Shadows only for what floats: menus, popovers, dialogs and the paper of a score, at a soft, layered weight. Everything that sits on the page is elevated by a step up the surface scale plus a hairline, never a shadow.
@@ -85,7 +87,15 @@ Hekate draws no icons of its own. They are [Lucide](https://lucide.dev)'s (ISC l
 
 ## Components
 
-One set, in `apps/web/src/components/ui`, restyled on the tokens and never stock: button, field and its label, input (with small, inline and bare forms), select, textarea, checkbox, radio, choice card, switch, slider, segmented, menu and dropdown, dialog, tabs, chip and count, status dot and pill. Screens build from it and nothing else; a test fails on a form control made anywhere else. Settings rows, cards, section heads and empty states sit beside it in `components/`.
+One set, in `apps/web/src/components/ui`, restyled on the tokens and never stock: button (primary, secondary, ghost, quiet and danger), confirmation, field and its label, input (with small, inline and bare forms), date, time and date-and-time fields (written the workspace's way, never the browser's), select, textarea, checkbox, radio, choice card, switch, slider, segmented, menu and dropdown, dialog, tabs, chip and count, status dot and pill. Screens build from it and nothing else; a test fails on a form control made anywhere else. Settings rows, cards, section heads and empty states sit beside it in `components/`.
+
+A place that is not showing its content is in one of three states, from `components/ui/states` as the prototype draws them (#545): **Loading** is the content's shape in quiet blocks, never the word or a spinner; **Failed** says what could not be loaded, why in plain words, the reference to quote (with Copy) and Try again; **Refused** says what cannot be opened and why, never whether it exists, with a way on. Each comes in a page size and a one-row panel size for lists and sections. A test fails on a bare "Loading" or a query's raw error message anywhere else. An action that fails says so beside the action, in its own words.
+
+**Sub-navigation on a phone (#542).** A strip of sections (a project's tabs, the instance's) is a `SubNav`: it scrolls its current item into view as it opens and fades the edge that has more, so it is plain where you are and that there is more. Settings (workspace, project, account) and Production are one control on a phone instead, naming where you are ("Section: Members", "Production: Schedule"), as Stripe's settings are.
+
+**Filters and views (#608).** A control says whether it narrows a list or changes how it is shown. What a list holds is filtered with a row of pill tabs (`FilterTabs`: borderless, the chosen one raised, its count after its name): Inbox, Projects, Tasks, the instance's workspaces. How it is shown is a `Segmented` control, with icons where they read: cards or rows, board, timeline or calendar, days or coverage.
+
+**Actions (#548).** One primary per view, in the primary style, and it is the thing the view is for. Inside a project it sits at the right of the content's toolbar (Upload on Files, Request a review on Reviews, New session on Sessions, New work on Repertoire); elsewhere in the top bar's actions slot (New project, New workspace). Secondary actions sit beside it as secondary buttons or in a menu. A list's add action inside a settings page is a secondary button at the right of its section's header; the signal fill is for the page's single primary alone. Create actions are a verb and a noun, never a bare "+ noun": "New …" for things (New work, New day, New venue, New category, New rule, New token, New workspace), "Add …" for rows in a list (Add row, Add node, Add exception, Add operator, Add person). A dialog's confirm button names its result: Create session, Create link, Create task, Create entry; Save when changing something that exists.
 
 Every piece, in each of its states, is on the reference page at `/reference`. It exists in `pnpm dev` and in the build the visual suite captures, never in a release: it is a reference for whoever builds screens, not part of the product.
 
@@ -99,6 +109,8 @@ The words are part of the design, and read as one person wrote them.
 - Never "seamlessly", "powerful", "simply", "easily", "effortlessly", "robust" or "leverage". No marketing register anywhere, and no exclamation marks.
 - British English (colour, organisation in code, licence as a noun, behaviour). Sentence case. No em-dashes: commas, colons, semicolons or parentheses.
 - Errors say what went wrong and what to do; empty states say what will appear here and how to make it so.
+- A menu item or button that opens a dialog ends in an ellipsis ("Rename…"); one that acts at once does not. "Cancel" is the one word for backing out of a dialog.
+- Nothing is deleted by one click. A destructive action asks first, in a confirmation that names the thing and says what will happen, with the danger button (the signal as a word, never filled) at the right; or it offers Undo.
 
 ## A workspace's own branding
 

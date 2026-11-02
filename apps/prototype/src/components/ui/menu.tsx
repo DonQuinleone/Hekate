@@ -44,6 +44,8 @@ export interface MenuAction {
   hint?: string;
   danger?: boolean;
   checked?: boolean;
+  /** Shown but not chosen, its hint saying why (a role still in use cannot be deleted). */
+  disabled?: boolean;
   onSelect: () => void;
 }
 
@@ -59,7 +61,9 @@ export type MenuItem = MenuAction | MenuHeading | "divider";
 function menuKeys(event: ReactKeyboardEvent<HTMLElement>) {
   const { key } = event;
   if (key !== "ArrowDown" && key !== "ArrowUp" && key !== "Home" && key !== "End") return;
-  const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[role^=menuitem]"));
+  const items = Array.from(
+    event.currentTarget.querySelectorAll<HTMLElement>("[role^=menuitem]:not(:disabled)"),
+  );
   if (items.length === 0) return;
   event.preventDefault();
   const at = items.indexOf(document.activeElement as HTMLElement);
@@ -112,7 +116,7 @@ export function MenuList({
     const frame = requestAnimationFrame(() => first.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, [autoFocus]);
-  const firstItem = actions.findIndex((a) => a !== "divider" && !("heading" in a));
+  const firstItem = actions.findIndex((a) => a !== "divider" && !("heading" in a) && !a.disabled);
   const items = actions.map((a, i) =>
     a === "divider" ? (
       <div key={`d-${String(i)}`} className="mx-2 my-1 h-px bg-line" />
@@ -132,13 +136,14 @@ export function MenuList({
         {...(a.checked === undefined
           ? { role: "menuitem" }
           : { role: "menuitemradio", "aria-checked": a.checked })}
+        disabled={a.disabled}
         onClick={() => {
           onClose();
           a.onSelect();
         }}
         className={cn(
-          "flex cursor-pointer items-center gap-3 whitespace-nowrap rounded-control border-0 bg-transparent px-2.5 py-1.5 text-left text-[13px] transition-colors hover:bg-raised",
-          a.danger ? "text-signal" : "text-ink",
+          "flex cursor-pointer items-center gap-3 whitespace-nowrap rounded-control border-0 bg-transparent px-2.5 py-1.5 text-left text-[13px] transition-colors enabled:hover:bg-raised disabled:cursor-not-allowed",
+          a.disabled ? "text-ink-3" : a.danger ? "text-signal" : "text-ink",
         )}
       >
         {a.icon && (

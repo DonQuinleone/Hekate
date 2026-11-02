@@ -16,11 +16,13 @@ import { Icon, type IconName } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
-import { Dialog } from "~/components/ui/dialog";
+import { DateField, TimeField } from "~/components/ui/date-field";
+import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { formatDates } from "~/lib/locale";
 import { scheduleQuery, useProjectCan, useSchedule } from "~/lib/queries";
@@ -63,20 +65,20 @@ const useScheduleData = (projectId: string, enabled: boolean) =>
  */
 export function SchedulePage({ projectId }: { projectId: string }) {
   const can = useProjectCan(projectId);
-  const { data, error } = useScheduleData(projectId, can("view_production"));
+  const { data, error, refetch } = useScheduleData(projectId, can("view_production"));
   return (
     <ProjectFrame projectId={projectId} title="Schedule">
       {(project) => (
         <ProductionBody projectId={projectId} current="schedule" can={can}>
           {!can("view_production") ? (
-            <Empty
+            <Refused
               title="Not among what your role shows"
               text="The schedule is shown to the roles the project's access gives the production tools."
             />
           ) : error ? (
-            <p className="m-0 text-signal">{error.message}</p>
+            <Failed what="The schedule" error={error} retry={refetch} />
           ) : !data ? (
-            <p className="m-0 text-ink-3">Loading</p>
+            <Loading />
           ) : (
             <Schedule
               projectId={projectId}
@@ -150,9 +152,9 @@ function Schedule({
                 ]}
               />
               {canEdit && (
-                <Button variant="secondary" size="md" onClick={() => setEditing({ what: "day" })}>
+                <Button variant="primary" size="md" onClick={() => setEditing({ what: "day" })}>
                   <Icon name="plus" size={14} />
-                  Day
+                  New day
                 </Button>
               )}
             </span>
@@ -208,6 +210,7 @@ function Day({
   onEdit: (editing: Editing) => void;
 }) {
   const { removeDay, tick, moveRow, removeRow } = useSchedule(projectId);
+  const [confirm, confirmation] = useConfirm();
   const times = timesOf(day);
   const live = day.date === today();
   const venue = data.venues.find((v) => v.id === day.venueId);
@@ -234,15 +237,28 @@ function Day({
               onClick={() => onEdit({ what: "row", dayId: day.id })}
             >
               <Icon name="plus" size={13} />
-              Row
+              Add row
             </Button>
             <ActionMenu
               always
               label={day.label}
               actions={[
-                { label: "Edit", onSelect: () => onEdit({ what: "day", day }) },
+                { label: "Edit…", onSelect: () => onEdit({ what: "day", day }) },
                 "divider",
-                { label: "Delete", danger: true, onSelect: () => removeDay.mutate(day.id) },
+                {
+                  label: "Delete…",
+                  danger: true,
+                  onSelect: () =>
+                    confirm({
+                      title: `Delete ${day.label}?`,
+                      description:
+                        day.rows.length === 0
+                          ? "The day goes from the schedule."
+                          : `The day and its ${day.rows.length === 1 ? "row" : `${day.rows.length} rows`} go from the schedule.`,
+                      action: "Delete day",
+                      onConfirm: () => removeDay.mutateAsync(day.id),
+                    }),
+                },
               ]}
             />
           </span>
@@ -318,11 +334,11 @@ function Day({
                     label={words}
                     actions={[
                       {
-                        label: "Edit",
+                        label: "Edit…",
                         onSelect: () => onEdit({ what: "row", dayId: day.id, row: r }),
                       },
                       {
-                        label: "Insert a break after",
+                        label: "Insert a break after…",
                         onSelect: () =>
                           onEdit({ what: "row", dayId: day.id, after: r.id, kind: "break" }),
                       },
@@ -343,7 +359,17 @@ function Day({
                           ]
                         : []),
                       "divider",
-                      { label: "Remove", danger: true, onSelect: () => removeRow.mutate(r.id) },
+                      {
+                        label: "Remove…",
+                        danger: true,
+                        onSelect: () =>
+                          confirm({
+                            title: `Remove ${words}?`,
+                            description: "The rows after it start earlier by its length.",
+                            action: "Remove row",
+                            onConfirm: () => removeRow.mutateAsync(r.id),
+                          }),
+                      },
                     ]}
                   />
                 )}
@@ -352,6 +378,7 @@ function Day({
           })}
         </ul>
       )}
+      {confirmation}
     </section>
   );
 }
@@ -484,7 +511,7 @@ function DayDialog({
           />
         </Field>
         <Field label="Date">
-          <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          <DateField value={date} onChange={setDate} />
         </Field>
         <Field label="Venue" hint={venues.length === 0 ? "Add venues under Venues" : undefined}>
           <Dropdown
@@ -502,7 +529,7 @@ function DayDialog({
           />
         </Field>
         <Field label="Starts" hint="When the first row starts, unless it sets its own">
-          <Input type="time" value={start} onChange={(e) => setStart(e.target.value)} />
+          <TimeField value={start} onChange={setStart} />
         </Field>
       </form>
     </Dialog>
@@ -604,7 +631,7 @@ function RowDialog({
           <Input value={label} maxLength={120} onChange={(e) => setLabel(e.target.value)} />
         </Field>
         <Field label="Starts" hint="Blank to follow the row before">
-          <Input type="time" value={start} onChange={(e) => setStart(e.target.value)} />
+          <TimeField value={start} onChange={setStart} />
         </Field>
         <Field label="Minutes" error={valid ? undefined : "Whole minutes, up to a day"}>
           <Input inputMode="numeric" value={minutes} onChange={(e) => setMinutes(e.target.value)} />

@@ -7,7 +7,7 @@ import { Icon } from "./icons";
 import type { SetupStep } from "./second-factor";
 import { Row, Section } from "./settings";
 import { Button } from "./ui/button";
-import { Dialog } from "./ui/dialog";
+import { Dialog, useConfirm } from "./ui/dialog";
 import { Input } from "./ui/input";
 import { ActionMenu } from "./ui/menu";
 
@@ -139,6 +139,7 @@ const kindOf = (deviceType: string) =>
 /** The account's keys: each named, when last used, renamed or revoked; up to the limit. */
 export function PasskeysSection() {
   const client = useQueryClient();
+  const [confirm, confirmation] = useConfirm();
   const { data } = useQuery(passkeysQuery);
   const [adding, setAdding] = useState(false);
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
@@ -153,7 +154,7 @@ export function PasskeysSection() {
       action={
         <Button size="sm" variant="secondary" disabled={full} onClick={() => setAdding(true)}>
           <Icon name="plus" size={14} />
-          Add
+          Add passkey
         </Button>
       }
     >
@@ -174,18 +175,27 @@ export function PasskeysSection() {
             label={key.name || kindOf(key.deviceType)}
             actions={[
               {
-                label: "Rename",
+                label: "Rename…",
                 onSelect: () => setRenaming({ id: key.id, name: key.name ?? "" }),
               },
               "divider",
               {
-                label: "Revoke",
+                label: "Revoke…",
                 danger: true,
-                onSelect: async () => {
-                  const result = await authClient.passkey.deletePasskey({ id: key.id });
-                  setError(result?.error ? keyProblem(result.error) : null);
-                  await refresh();
-                },
+                onSelect: () =>
+                  confirm({
+                    title: `Revoke ${key.name || kindOf(key.deviceType)}?`,
+                    description:
+                      "It no longer signs you in. To use the device again, add it as a new key.",
+                    action: "Revoke key",
+                    onConfirm: async () => {
+                      const result = await authClient.passkey.deletePasskey({ id: key.id });
+                      if (result?.error)
+                        throw new Error(keyProblem(result.error) ?? "The key was not revoked.");
+                      setError(null);
+                      await refresh();
+                    },
+                  }),
               },
             ]}
           />
@@ -241,6 +251,7 @@ export function PasskeysSection() {
           </form>
         </Dialog>
       )}
+      {confirmation}
     </Section>
   );
 }

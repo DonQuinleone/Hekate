@@ -1,6 +1,7 @@
 import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { followInputModality } from "~/lib/modality";
 import { router } from "~/router";
 import css from "~/styles/app.css?inline";
 
@@ -19,6 +20,7 @@ shadow.append(style);
 const mount = document.createElement("div");
 mount.className = "hk";
 shadow.append(mount);
+followInputModality(mount);
 
 createRoot(mount).render(
   <StrictMode>

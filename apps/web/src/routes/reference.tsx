@@ -8,25 +8,31 @@ import { LinkedFiles } from "~/components/file-picker";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { Card, Page, SectionHead } from "~/components/page";
+import { PageHeader } from "~/components/page-header";
 import { Crop, Gauge, Verdict } from "~/components/qa-report";
 import { FoldingSection, Row, Section, SwitchRow } from "~/components/settings";
 import { StatusChipView } from "~/components/status-chip";
 import { Button } from "~/components/ui/button";
 import { Chip, Count, ToggleChip } from "~/components/ui/chip";
 import { Checkbox, Choice, ChoiceCard, Radio } from "~/components/ui/choice";
-import { Dialog } from "~/components/ui/dialog";
+import { DateField, DateTimeField, TimeField } from "~/components/ui/date-field";
+import { ConfirmDialog, Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
+import { FilterTabs } from "~/components/ui/filter-tabs";
 import { ColourInput, InlineInput, Input, Select, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown, MenuList } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { Slider } from "~/components/ui/slider";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import {
   ReviewerDot,
   type ReviewerDotState,
   type ReviewState,
+  reviewStateLabels,
   StatusDot,
   StatusPill,
 } from "~/components/ui/status";
+import { SubNav } from "~/components/ui/sub-nav";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "~/components/ui/tabs";
 import { Switch } from "~/components/ui/toggle";
 import {
@@ -39,6 +45,8 @@ import { FrameGuides, GoToTimecode } from "~/components/video-frame";
 import { GroupLegend, KindLegend } from "~/components/workflow-kinds";
 import { cn } from "~/lib/cn";
 import { categoryTones } from "~/lib/comments";
+import { ApiError } from "~/lib/queries";
+import { InShell, ProblemPage } from "~/routes/problem";
 
 /*
  * The design system as a reference for whoever builds screens: the brand, the tokens, and
@@ -117,7 +125,7 @@ const spacing: [string, string][] = [
   ["Row", "16 px sides, 12 px top and bottom; the hint 2 px under the name"],
   ["Controls", "8 px between a row's controls; 6 px between chips"],
   ["Heights", "Buttons 32 px (small 28, large 36); fields 36 px (small 28); nav items 32 px"],
-  ["Radii", "Chips 4 px, controls 6 px, panels 8 px, large panels 12 px"],
+  ["Radii", "Chips 4 px, controls 6 px, panels and menus 8 px, dialogs and large panels 10 px"],
   ["Width", "Pages run to 1360 px; narrow pages to 860 px; dialogs 420, 560, 760 or 960 px"],
 ];
 
@@ -195,6 +203,12 @@ const pretendToSend = (file: File, onProgress: (share: number) => void, signal: 
     });
   });
 
+/** A state's key in sentence case, as screens write it: "changes_requested" is "Changes requested". */
+const sentence = (key: string) => {
+  const words = key.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
 /** One component: its name and rule at the left, the component in its states at the right. */
 function Spec({ name, rule, children }: { name: string; rule: string; children: ReactNode }) {
   return (
@@ -268,7 +282,7 @@ function Brand() {
                     <span className="block text-[13px] text-ink">{c.token}</span>
                     <span className="block truncate text-[12px] text-ink-3">{c.use}</span>
                   </span>
-                  <code className="tabular hidden text-[12px] text-ink-3 @3xl/app:block">
+                  <code className="tabular hidden font-sans text-[12px] text-ink-3 @3xl/app:block">
                     --hk-{c.token}
                   </code>
                 </div>
@@ -279,7 +293,7 @@ function Brand() {
       </Section>
       <Section
         title="Type"
-        intro="One face, Schibsted Grotesk, at one scale. No monospace outside code and timecodes."
+        intro="One face, Schibsted Grotesk, at one scale. Data and identifiers (timecodes, counts, keys, addresses) take its tabular figures. The system monospace is for code people read or edit as code only: the workflow's YAML, Debug's JSON and stack traces, shell commands."
       >
         {type.map((t) => (
           <div
@@ -330,12 +344,18 @@ function Components() {
   const [on, setOn] = useState(true);
   const [folded, setFolded] = useState(true);
   const [colour, setColour] = useState("#4fb3a9");
+  const [filter, setFilter] = useState<"all" | "mine" | "archived">("all");
   const [view, setView] = useState<"list" | "grid">("list");
   const [mode, setMode] = useState<"light" | "dark" | "text">("light");
   const [level, setLevel] = useState(60);
   const [profile, setProfile] = useState("music");
   const [dialog, setDialog] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [chips, setChips] = useState({ loops: true, score: false });
+  const [confirming, setConfirming] = useState(false);
+  const [day, setDay] = useState("2026-10-12");
+  const [time, setTime] = useState("13:05");
+  const [moment, setMoment] = useState("2026-10-31T23:59");
   const noop = () => {};
   return (
     <>
@@ -355,6 +375,18 @@ function Components() {
           </Button>
         </Spec>
         <Spec
+          name="Danger"
+          rule="What cannot be taken back: the signal as a word, never filled, so it never reads as the thing to do. It opens a confirmation, or is the action inside one."
+        >
+          <Button variant="danger">Delete…</Button>
+          <Button variant="danger" size="sm">
+            Remove…
+          </Button>
+          <Button variant="danger" disabled>
+            Delete…
+          </Button>
+        </Spec>
+        <Spec
           name="Sizes"
           rule="Small in dense rows, medium by default, large where a page has room."
         >
@@ -366,6 +398,23 @@ function Components() {
             With an icon
           </Button>
         </Spec>
+        <Spec
+          name="Create actions"
+          rule="A verb and a noun, never a bare + noun: New for things, Add for rows in a list. The view's one primary at the right of its toolbar (or the top bar outside a project); a settings list's add is secondary, at the right of its section's head."
+        >
+          <Button variant="primary">
+            <Icon name="plus" size={14} />
+            New work
+          </Button>
+          <Button>
+            <Icon name="plus" size={14} />
+            New category
+          </Button>
+          <Button variant="ghost" size="sm">
+            <Icon name="plus" size={13} />
+            Add row
+          </Button>
+        </Spec>
         <Spec name="Disabled" rule="Dimmed and inert; say nearby why, when it is not obvious.">
           <Button variant="primary" disabled>
             Request a review
@@ -374,15 +423,29 @@ function Components() {
         </Spec>
         <Spec
           name="Menu"
-          rule="Row actions live in a three-dot menu, never repeated links. Destructive items last, after a divider, in signal."
+          rule="Row actions live in a three-dot menu, never repeated links. An item that opens a dialog ends in an ellipsis; one that acts at once does not. Destructive items last, after a divider, in signal, and ask first; one that cannot be chosen now is dimmed, its hint saying why."
         >
           <Dropdown
             value="Album review"
             actions={[
-              { label: "Rename", onSelect: noop },
+              { label: "Rename…", onSelect: noop },
               { label: "Duplicate", onSelect: noop },
               "divider",
-              { label: "Delete", danger: true, onSelect: noop },
+              { label: "Delete…", danger: true, onSelect: noop },
+            ]}
+          />
+          <MenuList
+            label="Producer"
+            onClose={noop}
+            actions={[
+              { label: "Rename…", onSelect: noop },
+              "divider",
+              {
+                label: "Delete…",
+                hint: "In use: give its people another role first",
+                disabled: true,
+                onSelect: noop,
+              },
             ]}
           />
           <ActionMenu always label="this file" actions={[{ label: "Details", onSelect: noop }]} />
@@ -472,11 +535,42 @@ function Components() {
             <option value="linear">Linear</option>
           </Select>
         </Spec>
-        <Spec name="Select" rule="For one of a known list; a menu when the choices are actions.">
+        <Spec
+          name="Select"
+          rule="For one of a known list; a menu when the choices are actions. The brand's chevron, as on a dropdown. In a settings row every select is one width; a longer choice ends in an ellipsis, the whole of it on hover."
+        >
           <Select defaultValue="Producer" className="w-40" aria-label="Role">
             <option>Producer</option>
             <option>Engineer</option>
           </Select>
+          <Select defaultValue="dmy" className="w-44" aria-label="Dates, cut short">
+            <option value="dmy">Day, month, year (29 Oct 2026)</option>
+            <option value="iso">ISO 8601 (2026-10-29)</option>
+          </Select>
+          <Select disabled defaultValue="Engineer" className="w-40" aria-label="Fixed role">
+            <option>Engineer</option>
+          </Select>
+        </Spec>
+        <Spec
+          name="Date and time"
+          rule="Typed or picked, and written the workspace's way (ISO 8601 unless it chose otherwise), never the browser's own: the same format lists use. ISO 8601 and month names are read in every format; what does not read is marked, the value kept."
+        >
+          <DateField aria-label="Due" value={day} onChange={setDay} className="w-44" />
+          <TimeField aria-label="Starts" value={time} onChange={setTime} className="w-24" />
+          <DateTimeField
+            aria-label="Access from"
+            value={moment}
+            onChange={setMoment}
+            className="w-72"
+          />
+          <DateField aria-label="Empty" value="" onChange={noop} className="w-44" />
+          <DateField
+            aria-label="Fixed"
+            value="2026-10-12"
+            disabled
+            onChange={noop}
+            className="w-44"
+          />
         </Spec>
         <Spec name="Long text" rule="Grows with its content up to a point, then scrolls.">
           <Textarea
@@ -503,7 +597,10 @@ function Components() {
           <ColourInput label="Unfinished" value="#4fb" invalid onChange={noop} />
           <ColourInput label="Fixed" value="#4fb3a9" disabled onChange={noop} />
         </Spec>
-        <Spec name="Switch" rule="A setting that takes effect at once.">
+        <Spec
+          name="Switch"
+          rule="A setting that takes effect at once. Ink when on, never the signal, so a page of switches leaves the signal for its one action."
+        >
           <Switch label="On" checked={on} onChange={setOn} />
           <Switch label="Off" checked={false} onChange={noop} />
           <Switch label="Fixed" checked disabled onChange={noop} />
@@ -560,7 +657,7 @@ function Components() {
         </Spec>
         <Spec
           name="Segmented"
-          rule="Two to four views of the same thing. Tabs are for a third level of navigation only."
+          rule="How a list is shown: two to four views of the same thing, with icons where they read. Never a filter; tabs are for a third level of navigation only."
         >
           <Segmented
             label="View"
@@ -580,6 +677,66 @@ function Components() {
               { value: "text", label: "Plain text" },
             ]}
             onChange={setMode}
+          />
+        </Spec>
+        <Spec
+          name="Sub-navigation on a phone"
+          rule="A strip of sections scrolls its current item into view and fades the edge that has more. Settings and Production are one control instead, naming where you are."
+        >
+          <div className="flex w-full max-w-[300px] flex-col gap-2">
+            <SubNav
+              label="Joplin Rags"
+              className="gap-1 rounded-panel border border-line px-2 py-1.5"
+            >
+              {[
+                "Overview",
+                "Files",
+                "Reviews",
+                "Board",
+                "Tasks",
+                "People",
+                "Production",
+                "Settings",
+              ].map((name) => (
+                <a
+                  key={name}
+                  href={`#${name.toLowerCase()}`}
+                  aria-current={name === "Production" ? "page" : undefined}
+                  className="h-7 shrink-0 rounded-control px-2.5 text-[13px] leading-7 whitespace-nowrap text-ink-3 aria-[current=page]:bg-raised aria-[current=page]:text-ink"
+                >
+                  {name}
+                </a>
+              ))}
+            </SubNav>
+            <Dropdown
+              variant="field"
+              label="Production"
+              value={
+                <span className="min-w-0 truncate">
+                  <span className="text-ink-3">Production: </span>Schedule
+                </span>
+              }
+              actions={[
+                { label: "Repertoire", onSelect: () => {} },
+                { label: "Schedule", checked: true, onSelect: () => {} },
+                { label: "Sessions", onSelect: () => {} },
+              ]}
+            />
+          </div>
+        </Spec>
+        <Spec
+          name="Filter tabs"
+          rule="What a list holds: a row of pill tabs, one chosen, its count after its name. A filter never looks like a view switch."
+        >
+          <FilterTabs
+            label="Show"
+            value={filter}
+            options={[
+              { value: "all", label: "All", count: 12 },
+              { value: "mine", label: "Yours" },
+              { value: "archived", label: "Archived" },
+            ]}
+            onChange={setFilter}
           />
         </Spec>
         <Spec name="Slider" rule="A value along a range; the number beside it when it matters.">
@@ -641,7 +798,10 @@ function Components() {
             </FoldingSection>
           </div>
         </Spec>
-        <Spec name="Tabs" rule="A third level of navigation, with the panel they control.">
+        <Spec
+          name="Tabs"
+          rule="A third level of navigation, with the panel they control. The chosen tab is underlined in ink; the focus ring shows when it is reached with the keyboard, never after a click."
+        >
           <Tabs defaultValue="review" className="w-full max-w-[460px]">
             <TabsList>
               <TabsTrigger value="review">Review</TabsTrigger>
@@ -654,6 +814,23 @@ function Components() {
               What was measured.
             </TabsContent>
           </Tabs>
+        </Spec>
+        <Spec
+          name="Confirmation"
+          rule="Before anything that cannot be taken back: a question naming the thing, what will happen, then Cancel and the danger action at the right. Cancel is the one word for backing out of any dialog."
+        >
+          <Button variant="danger" onClick={() => setConfirming(true)}>
+            Delete…
+          </Button>
+          {confirming && (
+            <ConfirmDialog
+              title="Delete the group Soloists?"
+              description="Everyone asked through it stays on their reviews; the tool exceptions it holds go with it."
+              action="Delete group"
+              onConfirm={() => setConfirming(false)}
+              onClose={() => setConfirming(false)}
+            />
+          )}
         </Spec>
         <Spec name="Dialog" rule="One task, a title that says it, the primary action at the foot.">
           <Button onClick={() => setDialog(true)}>Open a dialog</Button>
@@ -726,11 +903,20 @@ function Components() {
       >
         <Spec
           name="Avatar"
-          rule="Initials on a hue of their own; a row overlaps and stops at four."
+          rule="Initials on the person's own hue, taken from who they are (a member's or guest's id), so one person is one colour everywhere. The ramp and the ink are the theme's, 4.5:1 in every theme. A row tucks each face under a ring of the ground, never over the initials, and stops at four."
         >
-          <Avatar id="alex" name="Alex Rivera" size={28} />
-          <Avatar id="mira" name="Mira Solberg" size={20} />
+          <Avatar person="alex" name="Alex Rivera" size={28} />
+          <Avatar person="mira" name="Mira Solberg" size={20} />
           <AvatarRow
+            size={20}
+            people={[
+              { id: "alex", name: "Alex Rivera" },
+              { id: "tomas", name: "Tomas Varga" },
+              { id: "ines", name: "Ines Arlow" },
+            ]}
+          />
+          <AvatarRow
+            total={7}
             people={[
               { id: "alex", name: "Alex Rivera" },
               { id: "tomas", name: "Tomas Varga" },
@@ -747,7 +933,7 @@ function Components() {
             {states.map((s) => (
               <span key={s} className="flex items-center gap-1.5">
                 <StatusDot state={s} />
-                {s.replace("_", " ")}
+                {reviewStateLabels[s]}
               </span>
             ))}
           </span>
@@ -783,7 +969,7 @@ function Components() {
             ).map((s) => (
               <span key={s} className="flex items-center gap-1.5">
                 <ReviewerDot state={s} />
-                {s.replace("_", " ")}
+                {sentence(s)}
               </span>
             ))}
           </span>
@@ -823,14 +1009,17 @@ function Components() {
         </Spec>
         <Spec
           name="Chip and count"
-          rule="A chip for a tag or a filter; a count in signal only when it needs someone."
+          rule="A chip for a tag or a filter. A count follows its label as a quiet number, written one way (Works 1); in signal only when it needs someone."
         >
           <Chip>delivery</Chip>
           <Chip>
             <Icon name="tag" size={11} />
             mix
           </Chip>
-          <Count>2</Count>
+          <span className="text-[14px] text-ink">
+            Works<Count>12</Count>
+          </span>
+          <Count tone="signal">2</Count>
         </Spec>
         <Spec
           name="Linked file"
@@ -859,12 +1048,26 @@ function Components() {
         </Spec>
         <Spec
           name="Toggle chip"
-          rule="A quick pick beside a field, pressed or not: a due date in a week, the rule an approval settles by."
+          rule="Several things each on or off, such as a guest's tools: on is raised, in ink, with a tick; off is a hairline. One choice among a few is a segmented control instead."
         >
-          <ToggleChip pressed>everyone</ToggleChip>
-          <ToggleChip pressed={false}>any one</ToggleChip>
+          <ToggleChip
+            pressed={chips.loops}
+            onClick={() => setChips({ ...chips, loops: !chips.loops })}
+          >
+            Loops
+          </ToggleChip>
+          <ToggleChip
+            pressed={chips.score}
+            onClick={() => setChips({ ...chips, score: !chips.score })}
+          >
+            Score
+          </ToggleChip>
+          <ToggleChip pressed={false}>Meters</ToggleChip>
+          <ToggleChip pressed disabled>
+            Compare
+          </ToggleChip>
           <ToggleChip pressed={false} disabled>
-            a share
+            QA
           </ToggleChip>
         </Spec>
         <Spec name="Eyebrow" rule="Heads a group; a count follows in small tabular figures.">
@@ -1067,6 +1270,103 @@ function Components() {
               <Icon name="close" size={13} />
             </Button>
           </span>
+        </Spec>
+        <Spec
+          name="Loading"
+          rule="The content's shape in quiet blocks while it comes: never a word or a spinner, and nothing moves when it arrives. A page or pane, a list's rows, or one value in a line."
+        >
+          <div className="flex w-full flex-col gap-2">
+            <Card className="w-full">
+              <Loading rows={3} />
+            </Card>
+            <Card className="w-full">
+              <Loading size="panel" />
+            </Card>
+            <span className="text-[13px] text-ink-2">
+              Uploaded by <Loading size="line" />
+            </span>
+          </div>
+        </Spec>
+        <Spec
+          name="Failed"
+          rule="What could not be loaded, why in plain words, the reference to quote with Copy, and Try again. In a list or a section it is one row."
+        >
+          <div className="flex w-full flex-col gap-2">
+            <Card className="w-full">
+              <Failed
+                what="The board"
+                error={new ApiError("Something went wrong", "internal", "HK-7F3A-2C")}
+                retry={() => undefined}
+              />
+            </Card>
+            <Card className="w-full">
+              <Failed
+                what="The takes"
+                error={new TypeError("Failed to fetch")}
+                retry={() => undefined}
+                size="panel"
+              />
+            </Card>
+          </div>
+        </Spec>
+        <Spec
+          name="Refused"
+          rule="What cannot be opened and why, never whether it exists, with a way on. A refusal from the server is shown this way by Failed itself."
+        >
+          <div className="flex w-full flex-col gap-2">
+            <Card className="w-full">
+              <Refused
+                title="Not among what your role shows"
+                text="The schedule is shown to the roles the project's access gives the production tools."
+              />
+            </Card>
+            <Card className="w-full">
+              <Refused size="panel" />
+            </Card>
+          </div>
+        </Spec>
+        <Spec
+          name="Breadcrumb"
+          rule="Starts at the project (the sidebar has Projects) and ends in the page's own name. Every crumb is whole: when they do not fit, the middle folds into one … menu, the first stays, and the page's name is cut only as a last resort. On a phone, the step above as the way back, or its arrow alone."
+        >
+          <div className="flex w-full flex-col gap-2">
+            {[640, 380].map((width) => (
+              <div key={width} style={{ maxWidth: width }}>
+                <Card>
+                  <PageHeader
+                    crumbs={[
+                      { key: "project", link: <a href="#joplin">Joplin Rags</a> },
+                      { key: "track", link: <a href="#maple">Maple Leaf Rag</a> },
+                      { key: "folder", link: <a href="#recordings">Recordings</a> },
+                    ]}
+                    title="Maple Leaf Rag - Dry.wav"
+                  />
+                </Card>
+              </div>
+            ))}
+          </div>
+        </Spec>
+        <Spec
+          name="Not found, refused, error"
+          rule="When a whole page cannot be shown: what happened and a way on. In the shell's pane when signed in, on the sign-in frame when not. A refusal names the account signed in; an error gives its reference when the server recorded one."
+        >
+          <InShell.Provider value="member">
+            <div className="grid w-full gap-2 @5xl/app:grid-cols-3">
+              <Card>
+                <ProblemPage kind="not-found" />
+              </Card>
+              <Card>
+                <ProblemPage kind="refused" />
+              </Card>
+              <Card>
+                <ProblemPage
+                  kind="error"
+                  error={new ApiError("Something went wrong", "internal", "HK-7F3A-2C")}
+                  reset={() => undefined}
+                />
+              </Card>
+            </div>
+          </InShell.Provider>
         </Spec>
         <Spec name="Problem" rule="Inline, next to what is wrong, with the fix in the sentence.">
           <span className="rounded-panel border border-signal/40 bg-signal/10 px-3 py-2 text-[12px] text-ink">
