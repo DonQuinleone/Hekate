@@ -1344,7 +1344,7 @@ export function FileBrowser({
             </span>
           )}
           {/* Open threads beside the name, a mark of their own rather than in a date's column. */}
-          {item.kind === "track" ? (
+          {compact ? null : item.kind === "track" ? (
             <Comments n={trackComments(item.track)} />
           ) : item.kind === "file" ? (
             <Comments n={item.file.openComments ?? 0} />
@@ -1519,14 +1519,19 @@ export function FileBrowser({
         <button
           type="button"
           data-tags
-          aria-label={names.length ? `Tags: ${names.join(", ")}. Edit` : "Add a tag"}
+          // Named by what it shows, so the visible tags are its name too (WCAG 2.5.3).
+          aria-label={names.length ? undefined : "Add a tag"}
           onClick={(event) =>
             setEditing({ id: f.id, mode: "tags", at: { current: event.currentTarget } })
           }
           className="-mx-1.5 flex h-7 min-w-0 max-w-full items-center rounded-control px-1.5 text-left transition-colors hover:bg-raised"
         >
           {names.length ? (
-            pills
+            <>
+              <span className="sr-only">Tags: </span>
+              {pills}
+              <span className="sr-only">, edit</span>
+            </>
           ) : (
             <span className="text-[12px] text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
               Add a tag
@@ -1980,6 +1985,7 @@ export function FileBrowser({
             files={allFiles}
             menu={(item) => menu(item, true)}
             editor={editor}
+            workflowStatus={workflowStatus}
           />
         ) : view !== "grid" ? (
           <Card>
@@ -2402,6 +2408,7 @@ function ColumnBrowser({
   files,
   menu,
   editor,
+  workflowStatus,
 }: {
   root: Item[];
   path: Item[];
@@ -2412,6 +2419,8 @@ function ColumnBrowser({
   files: ProjectFile[];
   menu: (item: Item) => ReactNode;
   editor: (item: Item) => ReactNode;
+  /** Each track's workflow status, as the list's Status column shows it. */
+  workflowStatus: Map<string, string | null>;
 }) {
   const { words, versionLabel, video } = useItemWords(tracks[0]?.projectId);
   // The path holds what was chosen; after a rename, move, delete or refresh, it follows the
@@ -2473,7 +2482,11 @@ function ColumnBrowser({
                     key={item.id}
                     {...common}
                     name={item.track.name}
-                    hint={`${trackStateLabel(state, video ? "video" : undefined)}${latest ? ` · ${versionLabel(latest.number)}` : ""}`}
+                    hint={
+                      latest
+                        ? `${workflowStatus.get(item.track.id) ?? trackStateLabel(state, video ? "video" : undefined)} · ${versionLabel(latest.number)}`
+                        : trackStateLabel("no_version", video ? "video" : undefined)
+                    }
                     container={item.track.versions.length > 0}
                   />
                 );
