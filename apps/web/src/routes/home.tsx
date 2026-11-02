@@ -4,28 +4,29 @@ import { type ReactNode, useState } from "react";
 import { ActivityRow, Section, Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
+import { NeedsYouDot } from "~/components/needs-you";
 import { Card, Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
-import { NewProjectTile, ProjectCard } from "~/components/project-card";
-import { reviewState } from "~/components/reviews";
+import { ProjectCard } from "~/components/project-card";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
 import { Failed } from "~/components/ui/states";
-import { StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { type Attention, attentionFor, deadlinesOf, dueIn, figures, greeting } from "~/lib/home";
-import { formatDates } from "~/lib/locale";
+import { dateFormats, formatDates } from "~/lib/locale";
 import { homeQuery, type MyReview, meQuery, myReviewsQuery } from "~/lib/queries";
 import { NewProject } from "~/routes/projects";
 
 /** Shown on the page at most; the rest wait in the reviews list. */
 const ATTENTION_SHOWN = 6;
 
-const dayFormat = formatDates({
-  weekday: "long",
-  day: "numeric",
-  month: "long",
-});
+/** Today: the weekday and the date, or the ISO date alone, which a weekday reads oddly before. */
+const today = (now: number) =>
+  formatDates(
+    dateFormats().dateFormat === "iso"
+      ? { day: "numeric", month: "long", year: "numeric" }
+      : { weekday: "long", day: "numeric", month: "long" },
+  ).format(now);
 const monthFormat = formatDates({ month: "short" });
 
 const rowClass =
@@ -38,16 +39,31 @@ function AttentionRow({ item }: { item: Attention }) {
         {item.kind === "failed" ? (
           <Icon name="warning" size={15} className="text-signal" />
         ) : (
-          item.review && <StatusDot state={reviewState(item.review)} />
+          // Every review here is the viewer's turn: the mark of what needs a person.
+          <NeedsYouDot />
         )}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[14px] font-medium text-ink">{item.title}</span>
         <span className="block truncate text-[13px] text-ink-3">{item.why}</span>
+        {/* On a phone the due date goes under the title, so neither line loses its words. */}
+        {item.when && (
+          <span
+            className={cn(
+              "tabular block truncate text-[13px] @3xl/app:hidden",
+              item.urgent ? "text-signal" : "text-ink-3",
+            )}
+          >
+            {item.when}
+          </span>
+        )}
       </span>
       {item.when && (
         <span
-          className={cn("tabular shrink-0 text-[13px]", item.urgent ? "text-signal" : "text-ink-3")}
+          className={cn(
+            "tabular hidden shrink-0 text-[13px] @3xl/app:block",
+            item.urgent ? "text-signal" : "text-ink-3",
+          )}
         >
           {item.when}
         </span>
@@ -186,8 +202,8 @@ export function HomePage() {
   } else if (home.data.projects.length === 0 && mine.data.length === 0) {
     content = (
       <Empty
-        title="Nothing here yet"
-        text="Start a project, or wait to be added to one. Reviews asked of you gather here."
+        title="No projects yet"
+        text="Use New project to start one, or wait to be added to one. Reviews asked of you gather here."
         action={
           <Button variant="primary" onClick={() => setCreating(true)}>
             <Icon name="plus" size={14} />
@@ -240,16 +256,12 @@ export function HomePage() {
         </Section>
 
         <div className="grid grid-cols-2 gap-3 @3xl/app:grid-cols-4">
+          <Stat label="In review" value={f.inReview} hint="you take part in" />
           <Stat
-            label="In review"
-            value={f.inReview}
-            hint={f.yourTurn ? `${f.yourTurn} waiting on you` : "none waiting on you"}
-          />
-          <Stat
-            label="Due this week"
-            value={f.dueThisWeek}
-            hint={f.overdue ? `${f.overdue} overdue` : "nothing overdue"}
-            flag={f.overdue > 0}
+            label="Due in 7 days"
+            value={f.dueSoon}
+            // Overdue reviews are already in Needs you, in the signal; the figure stays quiet.
+            hint={f.overdue ? `and ${f.overdue} overdue` : "nothing overdue"}
           />
           <Stat label="Open comments" value={f.openComments} hint="across your projects" />
           <Stat label="New versions" value={f.newVersions} hint="in the last seven days" />
@@ -259,16 +271,21 @@ export function HomePage() {
           title="Projects"
           hint={String(home.data.projects.length)}
           action={
-            <Button variant="ghost" size="sm" asChild>
-              <Link to="/projects">All projects</Link>
-            </Button>
+            <span className="flex items-center gap-1">
+              <Button variant="ghost" size="sm" onClick={() => setCreating(true)}>
+                <Icon name="plus" size={14} />
+                New project
+              </Button>
+              <Button variant="ghost" size="sm" asChild>
+                <Link to="/projects">All projects</Link>
+              </Button>
+            </span>
           }
         >
           <div className="grid gap-4 @3xl/app:grid-cols-2 @6xl/app:grid-cols-3">
-            {home.data.projects.slice(0, 5).map((p) => (
+            {home.data.projects.slice(0, 6).map((p) => (
               <ProjectCard key={p.id} project={p} waiting={waitingBy.get(p.id) ?? 0} />
             ))}
-            <NewProjectTile onClick={() => setCreating(true)} />
           </div>
         </Section>
 
@@ -300,7 +317,7 @@ export function HomePage() {
       <PageHeader title="Home" />
       <Page>
         <div className="flex flex-col gap-1">
-          <span className="eyebrow">{dayFormat.format(now)}</span>
+          <span className="eyebrow">{today(now)}</span>
           <p className="title m-0">
             {greeting(new Date(now).getHours())}
             {first ? `, ${first}` : ""}

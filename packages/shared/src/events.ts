@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { itemWords } from "./item-words.ts";
+import { projectProfile } from "./profile.ts";
 
 /**
  * What happens in a workspace that its channels can carry (#161): Slack, Discord, Microsoft
@@ -40,9 +42,12 @@ const reviewRef = z.object({
   kind: z.enum(["approval", "feedback", "share"]),
 });
 
+/** The project, and its profile where it is known: a video project says cut for version. */
+const projectRef = named.extend({ profile: projectProfile.optional() });
+
 /** What every event says: where, who, and the page it leads to. */
 const common = {
-  project: named.nullable(),
+  project: projectRef.nullable(),
   /** Who did it, by name; null when Hekate itself did, such as a failed job. */
   actor: z.object({ name: z.string(), guest: z.boolean() }).nullable(),
   /** The page in the app, from the instance's address: `/reviews/…`. */
@@ -111,6 +116,7 @@ export function eventSummary(kind: EventKind, data: EventData): string {
   const review = d.review as z.infer<typeof reviewRef> | undefined;
   const file = d.file as { name: string } | undefined;
   const track = d.track as { name: string } | undefined;
+  const words = itemWords(data.project?.profile);
   switch (kind) {
     case "review.requested":
       return `${who} asked for ${review?.kind === "share" ? "a share" : "a review"}, ${quoted(review?.title ?? "")}${where}`;
@@ -119,9 +125,9 @@ export function eventSummary(kind: EventKind, data: EventData): string {
     case "feedback.submitted":
       return `${who} gave feedback on ${quoted(review?.title ?? "")}${where}`;
     case "version.arrived":
-      return `${who} added version ${String(d.version)} of ${track?.name ?? "a track"}${where}`;
+      return `${who} added ${words.version} ${String(d.version)} of ${track?.name ?? `a ${words.track}`}${where}`;
     case "stage.started":
-      return `${String(d.stage)} started on ${track?.name ?? "a track"}${where}`;
+      return `${String(d.stage)} started on ${track?.name ?? `a ${words.track}`}${where}`;
     case "comment.mentioned":
       return `${who} mentioned ${d.mentioned === 1 ? "someone" : `${String(d.mentioned)} people`} on ${file?.name ?? "a file"}${where}`;
     case "guest.signed_in":

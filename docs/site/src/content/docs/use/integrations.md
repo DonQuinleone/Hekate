@@ -67,11 +67,11 @@ The signing secret is shown once, when the webhook is made. *Edit…* and *New s
 | `review.requested` | A review or a share is asked for. |
 | `decision.recorded` | A reviewer approves or requests changes. |
 | `feedback.submitted` | A reviewer submits feedback. |
-| `version.arrived` | A track has a new version. |
+| `version.arrived` | A track has a new version (a deliverable, a new cut). |
 | `stage.started` | A workflow stage starts on a track. |
 | `comment.mentioned` | A comment mentions someone. |
 | `guest.signed_in` | A guest signs in with their link. |
 | `file.downloaded` | Someone downloads a file, its original or its listening copy. |
 | `processing.failed` | A file cannot be processed. |
 
-Each event's `data` always has `project`, `actor` and `path`, and what its kind is about: `review`, `track`, `file`, `decision`, `version` or `stage`. The schemas are in `packages/shared/src/events.ts`.
+Each event's `data` always has `project`, `actor` and `path`, and what its kind is about: `review`, `track`, `file`, `decision`, `version` or `stage`. The `project` carries its `profile` (`music`, `video` or `general`), so a receiver can call a video project's tracks deliverables and its versions cuts, as the summary does. The schemas are in `packages/shared/src/events.ts`.

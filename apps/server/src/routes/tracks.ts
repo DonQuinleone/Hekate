@@ -7,6 +7,7 @@ import {
   effectiveProfile,
   type GivenEdl,
   isPdf,
+  itemWords,
   type ProjectPermission,
   parseCmx3600,
   replaceVariantInput,
@@ -241,6 +242,8 @@ export async function versionChecksOf(
       deliveryProfile: projects.deliveryProfile,
       checkTruePeak: projects.checkTruePeak,
       requireEdl: projects.requireEdl,
+      // What the project calls a version, for the words that tell of a new one.
+      profile: projects.profile,
     })
     .from(projects)
     .where(inOrg(projects, organisationId, eq(projects.id, track.projectId)));
@@ -691,7 +694,8 @@ export const trackRoutes = (
           actor: { userId: c.var.userId },
           projectId: track.projectId,
           trackId: id,
-          text: `added version ${made} of ${track.name}`,
+          // In the project's words: a video project's versions are cuts.
+          text: `added ${itemWords(project?.profile).version} ${made} of ${track.name}`,
           detail: input.notes || null,
           link: `/tracks/${id}`,
         },

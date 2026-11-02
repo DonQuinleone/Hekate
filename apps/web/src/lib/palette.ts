@@ -20,7 +20,7 @@ export interface Hit {
   /** Where it lives, or what it does. */
   hint?: string | null;
   icon: IconName;
-  /** A key the action also answers to, such as "G H". */
+  /** A binding the action also answers to, as in lib/keys: "g h", shown as G then H. */
   shortcut?: string;
   /** A path in the app; or `run` for an action that is not a place. */
   link?: string;

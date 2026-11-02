@@ -2,10 +2,11 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { AvatarRow } from "~/components/avatar";
 import { Icon, type IconName } from "~/components/icons";
+import { NeedsYou } from "~/components/needs-you";
 import { ProjectCover } from "~/components/project-cover";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
-import { progress } from "~/lib/home";
+import { progress, progressLine } from "~/lib/home";
 import type { Project, ProjectFigures } from "~/lib/queries";
 
 /** What a card needs: the project, its figures, and when it last moved. */
@@ -46,19 +47,11 @@ export function ProjectCard({
               </span>
             )}
           </span>
-          {waiting > 0 && (
-            <span className="tabular shrink-0 rounded-full bg-signal px-2 text-[12px] leading-[20px] font-medium text-ground">
-              {waiting} on you
-            </span>
-          )}
+          {waiting > 0 && <NeedsYou count={waiting} />}
         </span>
         <span className="flex flex-col gap-1.5">
           <span className="flex items-center justify-between gap-3 text-[12px] text-ink-3">
-            <span className="truncate">
-              {pct === null
-                ? `${project.files} file${project.files === 1 ? "" : "s"}`
-                : `${project.approvedTracks} of ${project.versionedTracks} tracks approved`}
-            </span>
+            <span className="truncate">{progressLine(project, project.profile)}</span>
             {pct !== null && <span className="tabular">{pct}%</span>}
           </span>
           <span className={cn("h-1 overflow-hidden rounded-full", pct !== null && "bg-raised")}>
@@ -96,21 +89,5 @@ export function ProjectCard({
         {menu}
       </div>
     </div>
-  );
-}
-
-/** The dashed tile that starts a project. */
-export function NewProjectTile({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex min-h-[200px] flex-col items-center justify-center gap-2 rounded-panel-lg border border-dashed border-line-strong text-ink-3 transition-colors hover:border-edge-strong hover:text-ink"
-    >
-      <span className="flex size-9 items-center justify-center rounded-full border border-line-strong">
-        <Icon name="plus" size={16} />
-      </span>
-      <span className="text-[13px]">New project</span>
-    </button>
   );
 }

@@ -65,7 +65,8 @@ export function replay(events: readonly CroomEvent[]): ReplayResult {
   for (const event of events) {
     if (event.payloadError || !isRecord(event.payload)) {
       report.problem(
-        `Event ${event.seq} (${event.type}): ${event.payloadError ?? "its payload is not a set of fields"}, so it was skipped, as ControlRoom skips it`,
+        "A change in the file could not be read, so it was skipped, as ControlRoom skips it.",
+        `Event ${event.seq} (${event.type}): ${event.payloadError ?? "its payload is not a set of fields"}`,
       );
       continue;
     }
@@ -73,13 +74,15 @@ export function replay(events: readonly CroomEvent[]): ReplayResult {
     const written = event.payload.type;
     if (typeof written !== "string") {
       report.problem(
-        `Event ${event.seq} (${event.type}): its payload names no type, so it was skipped, as ControlRoom skips it`,
+        "A change in the file does not say what it changes, so it was skipped, as ControlRoom skips it.",
+        `Event ${event.seq} (${event.type}): its payload names no type`,
       );
       continue;
     }
     if (written !== event.type)
       report.problem(
-        `Event ${event.seq} is ${event.type} in the events table and ${written} in its payload: it was read as ControlRoom reads it, as ${written}`,
+        "A change in the file is named one way in its list and another in its contents; it was read as ControlRoom reads it, by its contents.",
+        `Event ${event.seq} is ${event.type} in the events table and ${written} in its payload`,
       );
     const handler = handlers.get(written);
     if (!handler) {
@@ -91,7 +94,8 @@ export function replay(events: readonly CroomEvent[]): ReplayResult {
       // An unknown event that makes something may have drawn an id in the ControlRoom that
       // wrote it; this one does not know it, so every id after it may be one out.
       report.problem(
-        `The file was written by a newer ControlRoom (it has ${unknownMaker}): what comes after it may be linked to the wrong entries, so look it over before importing`,
+        "The file was written by a newer ControlRoom: what comes after a change this import does not know may be linked to the wrong entries, so look it over before importing.",
+        `Newer ControlRoom: ${unknownMaker} may have drawn an id`,
       );
       unknownMaker = null;
     }

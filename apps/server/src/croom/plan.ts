@@ -465,7 +465,7 @@ export function planImport(
   ) => {
     if (fileKeys.has(key)) return true;
     if (!blobId || !blobs.blobs.has(blobId)) {
-      report.problem(`"${name}" has no bytes in the file, so it was left out`);
+      report.problem(`“${name}” has no bytes in the file, so it was left out`);
       return false;
     }
     const contentType = purpose === "score" ? "application/pdf" : contentTypeOf(name);
@@ -523,7 +523,7 @@ export function planImport(
         if (t.movement >= 1 && t.movement <= piece.movements.length)
           return `p${piece.id}:${t.movement}`;
         report.problem(
-          `Takes of "${piece.title || piece.id}" name none of its movements, so they are on its first`,
+          `Takes of “${piece.title || piece.id}” name none of its tracks, so they are on its first`,
         );
         return `p${piece.id}:1`;
       }
@@ -567,7 +567,7 @@ export function planImport(
     const whole = covering.find((s) => s.from === null);
     if (whole) return whole.key;
     report.problem(
-      "Marks lie on pages of a score that no movement covers, so they are on the nearest movement",
+      "Marks lie on pages of a score that no track covers, so they are on the nearest track",
     );
     const nearest = [...covering].sort(
       (x, y) => Math.abs((x.from ?? page) - page) - Math.abs((y.from ?? page) - page),
@@ -726,15 +726,15 @@ export function planImport(
 
   for (const source of sources) {
     const checked = workInput.safeParse({
-      title: cut(source.title, 160, `The work "${source.title.slice(0, 40)}"`),
-      composer: cut(source.composer, 120, `The composer of "${source.title.slice(0, 40)}"`),
-      forces: cut(source.forces, 160, `The forces of "${source.title.slice(0, 40)}"`),
+      title: cut(source.title, 160, `The work “${source.title.slice(0, 40)}”`),
+      composer: cut(source.composer, 120, `The composer of “${source.title.slice(0, 40)}”`),
+      forces: cut(source.forces, 160, `The forces of “${source.title.slice(0, 40)}”`),
       abbreviation: cut(
         source.abbreviation,
         16,
-        `The abbreviation of "${source.title.slice(0, 40)}"`,
+        `The abbreviation of “${source.title.slice(0, 40)}”`,
       ),
-      notes: cut(source.notes, 2000, `The notes on "${source.title.slice(0, 40)}"`),
+      notes: cut(source.notes, 2000, `The notes on “${source.title.slice(0, 40)}”`),
       pageOffset: within(
         source.pdfId ? (model.pdfs.get(source.pdfId)?.pageOffset ?? 0) : 0,
         -999,
@@ -743,7 +743,7 @@ export function planImport(
     });
     if (!checked.success) {
       report.problem(
-        `The work "${source.title}": ${refusal(checked.error)}, so it and its takes were left out`,
+        `The work “${source.title}”: ${refusal(checked.error)}, so it and its takes were left out`,
       );
       continue;
     }
@@ -757,7 +757,7 @@ export function planImport(
       const name = trackName.safeParse(part.name.slice(0, 200));
       if (!name.success) {
         report.problem(
-          `A movement of "${checked.data.title}" has no name Hekate can use, so it was left out`,
+          `A track of the work “${checked.data.title}” has no name Hekate can use, so it was left out`,
         );
         continue;
       }
@@ -804,12 +804,12 @@ export function planImport(
   const venueNames = existing.venues.map((v) => v.name);
   for (const venue of model.venues.values()) {
     const checked = venueInput.safeParse({
-      name: cut(venue.name, 120, `The venue "${venue.name.slice(0, 40)}"`),
-      address: cut(venue.address, 600, `The address of "${venue.name.slice(0, 40)}"`),
+      name: cut(venue.name, 120, `The venue “${venue.name.slice(0, 40)}”`),
+      address: cut(venue.address, 600, `The address of “${venue.name.slice(0, 40)}”`),
     });
     if (!checked.success) {
       report.problem(
-        `The venue "${venue.name || venue.id}": ${refusal(checked.error)}, so it was left out`,
+        `The venue “${venue.name || venue.id}”: ${refusal(checked.error)}, so it was left out`,
       );
       continue;
     }
@@ -850,7 +850,8 @@ export function planImport(
   const personnel: PlannedPerson[] = [];
   const kinds = new Map<string, PersonnelKind>();
   for (const person of people) {
-    const what = `"${person.name.slice(0, 40)}" on the personnel`;
+    // "Mira Solberg, on the personnel": the person first, as people name them.
+    const what = `${person.name.slice(0, 40)}, on the personnel,`;
     if (person.sections.some((s) => s.members.some((m) => m.divisi.trim())))
       notBrought(
         "update_personnel sections.members.div",
@@ -880,7 +881,7 @@ export function planImport(
         : [];
     if (person.kind !== "ensemble" && person.sections.length > 0)
       report.problem(
-        `${what} has sections but is not an ensemble, so their sections were left out`,
+        `${person.name.slice(0, 40)}, on the personnel, has sections but is not an ensemble, so the sections were left out`,
       );
     const checked = personnelInput.safeParse({
       name: cut(person.name, 120, what),
@@ -893,7 +894,7 @@ export function planImport(
     });
     if (!checked.success) {
       report.problem(
-        `${person.name ? what : "Someone on the personnel"}: ${refusal(checked.error)}, so they were left out`,
+        `${person.name ? `${person.name.slice(0, 40)}, on the personnel` : "Someone on the personnel"}: ${refusal(checked.error)}, so they were left out`,
       );
       continue;
     }
@@ -931,18 +932,18 @@ export function planImport(
     };
     const number = take.number;
     if (number < 1) {
-      report.problem(`A take of "${trackNameOf(trackKey)}" has no number, so it was left out`);
+      report.problem(`A take of “${trackNameOf(trackKey)}” has no number, so it was left out`);
       continue;
     }
     if (taken.there.has(number)) {
       report.problem(
-        `Take ${number} of "${trackNameOf(trackKey)}" is there already, so the file's was left out`,
+        `Take ${number} of “${trackNameOf(trackKey)}” is already in this project, so the file's own take ${number} was not imported`,
       );
       continue;
     }
     if (taken.file.has(number)) {
       report.problem(
-        `The file has take ${number} of "${trackNameOf(trackKey)}" more than once, so only the first was brought over`,
+        `The file has take ${number} of “${trackNameOf(trackKey)}” more than once, so only the first was brought over`,
       );
       continue;
     }
@@ -951,7 +952,7 @@ export function planImport(
     if (take.createdAt !== null) days.add(new Date(take.createdAt).toISOString().slice(0, 10));
     if (take.lifecycle === "armed" || take.lifecycle === "recording")
       report.problem(
-        `Take ${number} of "${trackNameOf(trackKey)}" was still ${take.lifecycle === "armed" ? "armed" : "rolling"} in ControlRoom, so it is brought over as recorded`,
+        `Take ${number} of “${trackNameOf(trackKey)}” was still ${take.lifecycle === "armed" ? "armed" : "rolling"} in ControlRoom, so it is brought over as recorded`,
       );
     const timecode = (tc: typeof take.timecodeIn) => {
       if (!tc) return null;
@@ -1071,13 +1072,13 @@ export function planImport(
         "ControlRoom's keys for placing a mark (Q W E A S D); Hekate's are 1 to 9, so the categories come without one",
       );
     const checked = scoreMarkCategoryInput.safeParse({
-      name: cut(category.label, 40, `The category "${category.label.slice(0, 40)}"`),
+      name: cut(category.label, 40, `The category “${category.label.slice(0, 40)}”`),
       colour: colourOf(category.colour),
       key: shortcut,
     });
     if (!checked.success) {
       report.problem(
-        `The category "${category.label || category.id}": ${refusal(checked.error)}, so its marks have none`,
+        `The category “${category.label || category.id}”: ${refusal(checked.error)}, so its marks have none`,
       );
       for (const m of marks) if (m.categoryKey === category.id) m.categoryKey = null;
       continue;
@@ -1103,14 +1104,14 @@ export function planImport(
       const date = /^\d{4}-\d{2}-\d{2}$/.test(item.date.trim()) ? item.date.trim() : null;
       if (item.date.trim() && !date)
         report.problem(
-          `The day "${item.label || item.date}" has a date Hekate cannot read, so it has none`,
+          `The day “${item.label || item.date}” has a date Hekate cannot read, so it has none`,
         );
       let venueId = item.venueId;
       if (!venueId && item.legacy.venue.trim()) {
         venueId = venueByName(item.legacy.venue);
         if (!venueId)
           report.problem(
-            `The day "${item.label || item.date}" is at "${item.legacy.venue.slice(0, 40)}", which is not among the venues, so it has none`,
+            `The day “${item.label || item.date}” is at “${item.legacy.venue.slice(0, 40)}”, which is not among the venues, so it has none`,
           );
       }
       if (item.notes.trim())
@@ -1121,7 +1122,7 @@ export function planImport(
       });
       if (!checked.success) {
         report.problem(
-          `The day "${item.label}": ${refusal(checked.error)}, so its rows are on the day before`,
+          `The day “${item.label}”: ${refusal(checked.error)}, so its rows are on the day before`,
         );
         continue;
       }
@@ -1164,7 +1165,7 @@ export function planImport(
         : null;
     if (item.start.trim() && !start)
       report.problem(
-        `A schedule row starts at "${item.start.slice(0, 10)}", which is not a time, so it follows the row before`,
+        `A schedule row starts at “${item.start.slice(0, 10)}”, which is not a time, so it follows the row before`,
       );
     let kind: ScheduleRowKind = "slot";
     let label = item.title;
@@ -1204,7 +1205,7 @@ export function planImport(
       notes: cut(item.notes, 1000, "A schedule row's notes"),
     });
     if (!checked.success) {
-      report.problem(`A schedule row "${label}": ${refusal(checked.error)}, so it was left out`);
+      report.problem(`A schedule row “${label}”: ${refusal(checked.error)}, so it was left out`);
       continue;
     }
     // A day starts when its first timed row does; a row before that has no time to follow.
@@ -1325,7 +1326,7 @@ export function planImport(
     const depth = metres(within(plan.depth, 1, 200));
     if (width !== metres(plan.width) || depth !== metres(plan.depth))
       report.problem(
-        `The stage plan "${plan.name}" is a size Hekate cannot draw, so it was held to 1 to 200 metres`,
+        `The stage plan “${plan.name}” is a size Hekate cannot draw, so it was held to 1 to 200 metres`,
       );
     const checked = stagePlanInput.safeParse({
       name: cut(plan.name, 80, "A stage plan's name") || venue?.name.slice(0, 80) || "Stage",
@@ -1334,7 +1335,7 @@ export function planImport(
     });
     if (!checked.success) {
       report.problem(
-        `The stage plan "${plan.name || plan.id}": ${refusal(checked.error)}, so it was left out`,
+        `The stage plan “${plan.name || plan.id}”: ${refusal(checked.error)}, so it was left out`,
       );
       continue;
     }
@@ -1343,7 +1344,7 @@ export function planImport(
     planNames.push(name);
     if (there && plan.elements.length > 0)
       report.problem(
-        `The stage plan "${name}" is there already, so what stands on the file's was left out`,
+        `The stage plan “${name}” is already in this project, so what stands on the file's own plan was not imported`,
       );
     const items: PlannedItem[] = [];
     for (const e of there ? [] : plan.elements) {
@@ -1371,7 +1372,7 @@ export function planImport(
         });
         if (!checkedItem.success) {
           report.problem(
-            `A ${item.kind} on "${name}": ${refusal(checkedItem.error)}, so it was left out`,
+            `A ${item.kind} on “${name}”: ${refusal(checkedItem.error)}, so it was left out`,
           );
           continue;
         }
@@ -1513,7 +1514,7 @@ export function marksOf(a: CrAnnotation, report: ReportCollector): MarkInput[] {
       const to = a.takesAffected[0] ?? a.tedit.takes[0];
       if (to !== undefined && to >= 1) return [{ ...base, kind, to, text }];
       const words = takeless[a.kind] ?? "Mark";
-      report.problem(`${words} marks name no take, so they are sticky notes saying "${words}"`);
+      report.problem(`${words} marks name no take, so they are sticky notes saying “${words}”`);
       return [{ ...base, kind: "note", text: text ? `${words}: ${text}`.slice(0, 500) : words }];
     }
   }
@@ -1623,7 +1624,7 @@ function underlayOf(
     if (pixels) across = pixels.width * plan.underlayScale;
     else
       report.problem(
-        `The underlay of "${plan.name}" is not a picture whose size the import can read, so it spans the stage's width: set its scale again`,
+        `The underlay of “${plan.name}” is not a picture whose size the import can read, so it spans the stage's width: set its scale again`,
       );
   }
   return {

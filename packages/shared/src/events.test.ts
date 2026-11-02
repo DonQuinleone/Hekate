@@ -42,6 +42,16 @@ describe("events (#161)", () => {
         version: 3,
       }),
     ).toBe("Mira Solberg added version 3 of Bethena in Joplin Rags");
+    // A video project's versions are cuts, as its pages call them.
+    expect(
+      eventSummary("version.arrived", {
+        project: { id: project.id, name: "Opening titles", profile: "video" },
+        actor: mira,
+        path: "/tracks/t",
+        track: { id: project.id, name: "Title sequence" },
+        version: 2,
+      }),
+    ).toBe("Mira Solberg added cut 2 of Title sequence in Opening titles");
     expect(
       eventSummary("processing.failed", {
         project,

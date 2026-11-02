@@ -1407,7 +1407,9 @@ test("croom-import", async ({ page }) => {
     buffer: croomFixtureBytes(),
   });
   await settle(page, "main >> text=Already in this project");
-  await page.getByText(/^Not brought over/).click();
+  await page.getByRole("button", { name: "Show not brought over" }).click();
+  await page.getByRole("button", { name: "Details for support" }).click();
+  // The file's own ids only here, for whoever helps (#551).
   await expect(page.getByText("Unknown event frobnicate_widget")).toBeVisible();
   await saveScreen(page, "croom-import-preview");
   await checkScreen(page);
@@ -1491,7 +1493,13 @@ test("take-log-offline", async ({ page, context }, info) => {
   await settle(page, "main ul[aria-label=Takes] >> text=T3");
   await context.setOffline(true);
   await page.keyboard.press("Space");
-  await expect(page.getByText("Offline: written here, synced when back")).toBeVisible();
+  await expect(
+    page.getByText("Can't reach the server: written here, sent once it is back"),
+  ).toBeVisible();
+  // The shell's foot says the same, from the same failed writes (#616).
+  await expect(page.getByRole("navigation", { name: "Main" }).first()).toContainText(
+    "Can't reach the server",
+  );
   await expect(page.locator("main ul[aria-label=Takes]")).toContainText("T5");
   await page.keyboard.press("Space");
   await expect(page.getByText("2 waiting to send")).toBeVisible();
@@ -5106,12 +5114,12 @@ test("review-reviewer-permissions", async ({ page }) => {
   await checkScreen(page);
 });
 
-// The shell's foot (#4): with the server's health check unanswered, "API unreachable", in the
+// The shell's foot (#4): with the server's health check unanswered, "Can't reach the server", in the
 // sidebar's foot and, on a phone, above the page.
 test("shell-offline", async ({ page }) => {
   await page.route("**/api/health", (route) => route.abort());
   await page.goto("/");
-  await settle(page, "text=API unreachable >> visible=true");
+  await settle(page, "text=Can't reach the server >> visible=true");
   await saveScreen(page, "shell-offline");
   await checkScreen(page);
 });
@@ -5249,5 +5257,32 @@ test("loading", async ({ page }) => {
   await page.goto(`/projects/${projectId}/board`);
   await expect(page.locator("main output[aria-label='Loading']").first()).toBeVisible();
   await saveScreen(page, "loading");
+  await checkScreen(page);
+});
+
+// Uploads keep going, and stay in view, after leaving the Files page (#552): a file started on
+// a project's Files, its upload held open, still in the shell's tray on Home, and leaving the
+// tab while it goes still asks first.
+test("upload-tray", async ({ page }) => {
+  await page.route("**/api/uploads**", () => undefined);
+  await page.goto(`/projects/${seeded().videoProjectId}/files`);
+  await settle(page, "main >> text=Upload");
+  await page.locator("input[type=file][aria-label='Files to upload']").setInputFiles({
+    name: "Title sequence, cut 4.mov",
+    mimeType: "video/quicktime",
+    buffer: Buffer.alloc(4096),
+  });
+  await expect(page.getByRole("region", { name: "Uploads" })).toContainText("Uploading 1 file");
+  // Away by the sidebar (the bottom bar on a phone), not by loading the page again.
+  await page
+    .getByRole("link", { name: "Home", exact: true })
+    .filter({ visible: true })
+    .first()
+    .click();
+  await settle(page, "main section[aria-label=Activity] li a");
+  await expect(page.getByRole("region", { name: "Uploads" })).toContainText(
+    "Title sequence, cut 4.mov",
+  );
+  await saveScreen(page, "upload-tray");
   await checkScreen(page);
 });

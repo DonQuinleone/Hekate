@@ -1,3 +1,4 @@
+import { croomChangeWords } from "@hekate/shared";
 import type { ReportCollector } from "./model.ts";
 
 /**
@@ -59,7 +60,10 @@ export function fieldsOf(payload: unknown, type: string, report: ReportCollector
     return name in record ? { found: true, value: record[name] } : { found: false, value: null };
   };
   const wrong = (name: string, expected: string) =>
-    report.problem(`${type}: ${name} is not ${expected}, so it was left out`);
+    report.problem(
+      `${croomChangeWords(type)} holds a detail that is not ${expected}, so the detail was left out.`,
+      `${type}: ${name} is not ${expected}`,
+    );
 
   const fields: Fields = {
     has: (name) => name in record,
@@ -165,7 +169,11 @@ export function eachOf<T>(
   read: (f: Fields, index: number) => T,
 ): T[] {
   return (values ?? []).map((value, index) => {
-    if (!isRecord(value)) report.problem(`${type}: an entry is not a set of fields`);
+    if (!isRecord(value))
+      report.problem(
+        `${croomChangeWords(type)} holds an entry Hekate cannot read, so it was left out.`,
+        `${type}: an entry is not a set of fields`,
+      );
     const f = fieldsOf(value, type, report);
     const out = read(f, index);
     f.done();

@@ -228,6 +228,8 @@ const icons = {
   moon: Moon,
   settings: Settings,
   webhook: Webhook,
+  // The instance side, named for what it is: the server Hekate runs on (#611).
+  instance: Server,
 } as const satisfies Record<string, LucideIcon>;
 
 /**

@@ -36,7 +36,8 @@ export const session: Family = {
         if ((frameRates as readonly string[]).includes(value)) meta.frameRate = value as FrameRate;
         else
           ctx.report.problem(
-            `set_meta: "${value.slice(0, 12)}" is not a frame rate, so it changes nothing (as in ControlRoom)`,
+            `The project's frame rate, “${value.slice(0, 12)}”, is not one Hekate knows, so it changed nothing, as in ControlRoom.`,
+            `set_meta frame_rate: "${value.slice(0, 12)}" is not a frame rate`,
           );
       } else if (field === "lifecycle_enabled") meta.lifecycleEnabled = yes(value);
       else if (field === "per_score_takes") meta.perScoreTakes = yes(value);

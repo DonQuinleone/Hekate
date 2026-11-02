@@ -1,3 +1,4 @@
+import { croomChangeWords } from "@hekate/shared";
 import type { Fields } from "./fields.ts";
 import type { CroomModel, FrameRate, ReportCollector } from "./model.ts";
 
@@ -36,7 +37,8 @@ export interface Family {
 /** Said where an event names an entry the project does not hold: ControlRoom ignores it too. */
 export function absent(ctx: ReplayContext, what: string) {
   ctx.report.problem(
-    `${ctx.type}: names ${what} that is not in the project, so it changes nothing (as in ControlRoom)`,
+    `${croomChangeWords(ctx.type)} names ${what} that is not in the project, so it changed nothing, as in ControlRoom.`,
+    `${ctx.type}: names ${what} that is not in the project`,
   );
 }
 

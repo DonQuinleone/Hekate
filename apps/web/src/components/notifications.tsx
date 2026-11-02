@@ -1,10 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import type { MouseEvent } from "react";
 import { Avatar } from "~/components/avatar";
 import { Mark } from "~/components/brand";
 import { Icon } from "~/components/icons";
-import { Button } from "~/components/ui/button";
 import { Floating } from "~/components/ui/floating";
 import { usePopover } from "~/components/ui/menu";
 import { cn } from "~/lib/cn";
@@ -12,7 +11,10 @@ import { ago } from "~/lib/comments";
 import { notificationIcon } from "~/lib/notifications";
 import { type AppNotification, notificationsQuery, useNotificationActions } from "~/lib/queries";
 
-/** Who it came from, with a small mark for what kind of thing happened. */
+/**
+ * Who it came from, with a small mark for what kind of thing happened: off the avatar's
+ * circle, in the corner of its box, so it never covers the initials (#614).
+ */
 function Face({ n, size }: { n: AppNotification; size: number }) {
   const id = n.actorUserId ?? n.actorGuestId;
   return (
@@ -27,8 +29,8 @@ function Face({ n, size }: { n: AppNotification; size: number }) {
           <Mark size={Math.round(size * 0.5)} />
         </span>
       )}
-      <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full bg-overlay text-ink-2 shadow-2">
-        <Icon name={notificationIcon[n.kind]} size={9} />
+      <span className="absolute -right-1.5 -bottom-1.5 flex size-3.5 items-center justify-center rounded-full bg-overlay text-ink-2 shadow-2 ring-2 ring-overlay">
+        <Icon name={notificationIcon[n.kind]} size={8} />
       </span>
     </span>
   );
@@ -88,18 +90,18 @@ export function NotificationItem({
   );
 }
 
-/** The bell: the latest notifications in a panel, and the way to all of them and the inbox. */
+/**
+ * The bell: the latest notifications in a panel, ending in a quiet way to all of them, as
+ * Linear's and GitHub's do. Opened on the notifications page, it leaves marking them all read
+ * to the page.
+ */
 export function NotificationsMenu() {
-  const navigate = useNavigate();
   const [open, setOpen, box] = usePopover();
+  const onPage = useLocation().pathname === "/notifications";
   const { data } = useQuery(notificationsQuery);
   const { readAll } = useNotificationActions();
   const unread = data?.unread ?? 0;
   const list = data?.notifications ?? [];
-  const go = (to: "/inbox" | "/notifications") => {
-    setOpen(false);
-    void navigate({ to });
-  };
   return (
     // On a phone the panel spans the top bar; on a wide screen it hangs from the bell.
     <div ref={box} className="@3xl/app:relative">
@@ -137,7 +139,7 @@ export function NotificationsMenu() {
           <div className="flex h-11 items-center gap-2 border-b border-line px-4">
             <span className="text-[14px] font-medium text-ink">Notifications</span>
             {unread > 0 && <span className="tabular text-[12px] text-ink-2">{unread} unread</span>}
-            {unread > 0 && (
+            {unread > 0 && !onPage && (
               <button
                 type="button"
                 onClick={() => readAll.mutate()}
@@ -149,7 +151,8 @@ export function NotificationsMenu() {
           </div>
           {list.length === 0 ? (
             <p className="m-0 px-4 py-8 text-center text-[13px] text-ink-2">
-              Nothing yet. Decisions, replies, mentions and new versions arrive here.
+              No notifications. You are told here when someone asks for your review, decides,
+              replies, mentions you or adds a version.
             </p>
           ) : (
             <ul className="scroll-quiet m-0 max-h-[380px] list-none overflow-auto p-0 py-1">
@@ -160,15 +163,15 @@ export function NotificationsMenu() {
               ))}
             </ul>
           )}
-          <div className="flex items-center gap-2 border-t border-line px-3 py-2.5">
-            <Button variant="primary" onClick={() => go("/inbox")}>
-              <Icon name="inbox" size={14} />
-              View inbox
-            </Button>
-            <Button variant="ghost" onClick={() => go("/notifications")}>
-              All notifications
-            </Button>
-          </div>
+          {!onPage && (
+            <Link
+              to="/notifications"
+              onClick={() => setOpen(false)}
+              className="flex h-10 items-center justify-center border-t border-line text-[13px] text-ink-2 transition-colors hover:bg-raised/60 hover:text-ink"
+            >
+              View all notifications
+            </Link>
+          )}
         </Floating>
       )}
     </div>

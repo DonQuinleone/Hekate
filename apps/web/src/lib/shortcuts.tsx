@@ -109,6 +109,8 @@ export function ShortcutsProvider({ children }: { children: ReactNode }) {
         for (const shortcut of group.shortcuts) {
           if (!shortcut.run || (held && !shortcut.anywhere)) continue;
           for (const binding of shortcut.keys) {
+            // Only a binding with a modifier works while typing: "/" beside Mod+K types a slash.
+            if (held && !binding.includes("+")) continue;
             const match = matchBinding(binding, event, pending, mac);
             if (match === "match") {
               event.preventDefault();

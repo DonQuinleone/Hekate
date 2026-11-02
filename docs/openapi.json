@@ -832,6 +832,7 @@
                         "beat": true
                       },
                       "mine": true,
+                      "owned": true,
                       "mayArchive": true
                     }
                   ]

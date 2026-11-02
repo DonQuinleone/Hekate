@@ -3,7 +3,9 @@ import {
   formatUptime,
   type Incident,
   incidentImpactNames,
+  incidentImpacts,
   incidentStateNames,
+  notMeasuredName,
   overallLine,
   type ServiceState,
   type StatusDay,
@@ -45,7 +47,9 @@ export function StateDot({ state, className }: { state: ServiceState; className?
         "inline-block size-[9px] shrink-0 rounded-full",
         state === "operational" && "bg-ink",
         state === "degraded" && "border-[1.5px] border-signal",
-        state === "partial" && "bg-signal/55",
+        // Half filled: told from a ring and a full dot by shape, not by shade alone.
+        state === "partial" &&
+          "border-[1.5px] border-signal bg-[linear-gradient(90deg,var(--hk-signal)_50%,transparent_50%)]",
         state === "major" && "bg-signal",
         className,
       )}
@@ -56,8 +60,10 @@ export function StateDot({ state, className }: { state: ServiceState; className?
 const barClass: Record<StatusDay["state"], string> = {
   none: "bg-hairline",
   operational: "bg-ink-3/45",
-  degraded: "bg-signal/35",
-  partial: "bg-signal/65",
+  // By shape as well as colour, so the legend reads in greyscale (#617): slow is an outline,
+  // a partial outage half filled from the foot, a major outage filled.
+  degraded: "border border-signal",
+  partial: "border border-signal bg-[linear-gradient(to_top,var(--hk-signal)_50%,transparent_50%)]",
   major: "bg-signal",
 };
 
@@ -113,17 +119,17 @@ export function ServiceUptime({ service }: { service: StatusServiceRow }) {
 /** The bars' key, under the services. */
 export function UptimeKey() {
   const items: [StatusDay["state"], string][] = [
-    ["operational", "Running"],
-    ["degraded", "Slow"],
-    ["partial", "Partial outage"],
-    ["major", "Outage"],
-    ["none", "Not measured"],
+    ...(["operational", ...incidentImpacts] as const).map((state): [StatusDay["state"], string] => [
+      state,
+      serviceStateNames[state],
+    ]),
+    ["none", notMeasuredName],
   ];
   return (
     <ul className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-[12px] text-ink-3">
       {items.map(([state, label]) => (
         <li key={state} className="flex items-center gap-1.5">
-          <span aria-hidden="true" className={cn("h-3 w-1.5 rounded-[1px]", barClass[state])} />
+          <span aria-hidden="true" className={cn("h-3 w-2 rounded-[1px]", barClass[state])} />
           {label}
         </li>
       ))}

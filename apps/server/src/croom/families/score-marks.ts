@@ -22,7 +22,8 @@ function pairsOf(values: unknown[] | undefined, ctx: ReplayContext): [number, nu
       points.push([v[0], v[1]]);
     else
       ctx.report.problem(
-        `${ctx.type}: ink holds a point that is not two numbers, so it was left out`,
+        "An ink stroke on the score holds a point Hekate cannot read, so the point was left out.",
+        `${ctx.type}: ink holds a point that is not two numbers`,
       );
   }
   return points;
@@ -74,7 +75,8 @@ export const scoreMarks: Family = {
         mark.kind = kind as CrAnnotationKind;
       else
         ctx.report.problem(
-          `${ctx.type}: "${kind.slice(0, 30)}" is not a kind of mark ControlRoom knows, so it is an issue (as in ControlRoom)`,
+          `A score mark is of a kind ControlRoom does not know, “${kind.slice(0, 30)}”, so it is an issue, as in ControlRoom.`,
+          `${ctx.type}: "${kind.slice(0, 30)}" is not a kind of mark`,
         );
       const loc = f.object("loc");
       if (loc) {

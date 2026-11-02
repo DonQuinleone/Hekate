@@ -12,6 +12,7 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   type FormEvent,
   type MouseEvent,
+  type ReactNode,
   useDeferredValue,
   useEffect,
   useRef,
@@ -29,6 +30,7 @@ import { Floating } from "~/components/ui/floating";
 import { Input, Select } from "~/components/ui/input";
 import { usePopover } from "~/components/ui/menu";
 import { Failed } from "~/components/ui/states";
+import { useNarrow } from "~/lib/narrow";
 import {
   membersQuery,
   projectsQuery,
@@ -46,6 +48,7 @@ import {
   type FieldKey,
   fieldChips,
   fieldsOf,
+  filtersSet,
   fromKindChoice,
   kindChoice,
   kindChoices,
@@ -95,6 +98,7 @@ export function SearchPage({ search }: { search: SearchRequest }) {
     void navigate({ to: "/search", search: compact({ ...search, ...next }), replace: true });
   const words = text.trim();
   const filtered = narrowed(filters);
+  const [measure, narrow] = useNarrow(768);
   const looking = words.length > 0 || filtered;
   const results = looking ? (found.data ?? []) : [];
 
@@ -133,108 +137,118 @@ export function SearchPage({ search }: { search: SearchRequest }) {
             </span>
           )}
         </div>
-        <div className="grid grid-cols-2 items-center gap-2 @3xl/app:flex @3xl/app:flex-wrap">
-          <Select
-            aria-label="Kind"
-            value={kindChoice(search)}
-            onChange={(e) => go(fromKindChoice(e.target.value))}
-            className="@3xl/app:w-36"
-          >
-            {kindChoices.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.indent ? ` ${c.label}` : c.label}
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label="Project"
-            value={search.projectId ?? ""}
-            onChange={(e) => go({ projectId: e.target.value || undefined })}
-            className="@3xl/app:w-36"
-          >
-            <option value="">Any project</option>
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label="Person"
-            value={search.personId ?? ""}
-            onChange={(e) => go({ personId: e.target.value || undefined })}
-            className="@3xl/app:w-36"
-          >
-            <option value="">Anyone</option>
-            {members.map((m) => (
-              <option key={m.userId} value={m.userId}>
-                {m.name}
-              </option>
-            ))}
-          </Select>
-          <Select
-            aria-label="When"
-            value={search.since ?? ""}
-            onChange={(e) => go({ since: (e.target.value || undefined) as SearchSince })}
-            className="@3xl/app:w-32"
-          >
-            <option value="">Any time</option>
-            {searchSince.map((s) => (
-              <option key={s} value={s}>
-                {sinceLabels[s]}
-              </option>
-            ))}
-          </Select>
-          {/* Only files carry tags, so a tag narrows to files. */}
-          {(tags.length > 0 || search.tagId) && (
-            <Select
-              aria-label="Tag"
-              value={search.tagId ?? ""}
-              onChange={(e) => go({ tagId: e.target.value || undefined })}
-              className="@3xl/app:w-32"
-            >
-              <option value="">Any tag</option>
-              {tags.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </Select>
-          )}
-          <FieldsMenu search={search} onApply={(fields) => go(fields)} />
-          {filtered && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="justify-self-start"
-              onClick={() =>
-                go({
-                  kind: undefined,
-                  fileKind: undefined,
-                  projectId: undefined,
-                  personId: undefined,
-                  tagId: undefined,
-                  since: undefined,
-                  ...noFields,
-                })
-              }
-            >
-              Clear
-            </Button>
-          )}
-          {/* Beside the filters it keeps, not in the header, so a phone keeps one header row. */}
-          {looking && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="col-start-2 justify-self-end @3xl/app:ml-auto"
-              onClick={() => setSaving(true)}
-            >
-              <Icon name="star" size={14} />
-              Save search
-            </Button>
-          )}
-        </div>
+        {(() => {
+          const selects = (
+            <>
+              <Select
+                aria-label="Kind"
+                value={kindChoice(search)}
+                onChange={(e) => go(fromKindChoice(e.target.value))}
+                className="@3xl/app:w-36"
+              >
+                {kindChoices.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.indent ? ` ${c.label}` : c.label}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                aria-label="Project"
+                value={search.projectId ?? ""}
+                onChange={(e) => go({ projectId: e.target.value || undefined })}
+                className="@3xl/app:w-36"
+              >
+                <option value="">Any project</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                aria-label="Person"
+                value={search.personId ?? ""}
+                onChange={(e) => go({ personId: e.target.value || undefined })}
+                className="@3xl/app:w-36"
+              >
+                <option value="">Any person</option>
+                {members.map((m) => (
+                  <option key={m.userId} value={m.userId}>
+                    {m.name}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                aria-label="When"
+                value={search.since ?? ""}
+                onChange={(e) => go({ since: (e.target.value || undefined) as SearchSince })}
+                className="@3xl/app:w-32"
+              >
+                <option value="">Any time</option>
+                {searchSince.map((s) => (
+                  <option key={s} value={s}>
+                    {sinceLabels[s]}
+                  </option>
+                ))}
+              </Select>
+              {/* Only files carry tags, so a tag narrows to files. */}
+              {(tags.length > 0 || search.tagId) && (
+                <Select
+                  aria-label="Tag"
+                  value={search.tagId ?? ""}
+                  onChange={(e) => go({ tagId: e.target.value || undefined })}
+                  className="@3xl/app:w-32"
+                >
+                  <option value="">Any tag</option>
+                  {tags.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </>
+          );
+          return (
+            <div ref={measure} className="flex flex-wrap items-center gap-2">
+              {/* On a phone the filters wait behind one button, so the results come first (#620). */}
+              {narrow ? <FiltersMenu count={filtersSet(search)}>{selects}</FiltersMenu> : selects}
+              <FieldsMenu search={search} onApply={(fields) => go(fields)} />
+              {filtered && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    go({
+                      kind: undefined,
+                      fileKind: undefined,
+                      projectId: undefined,
+                      personId: undefined,
+                      tagId: undefined,
+                      since: undefined,
+                      ...noFields,
+                    })
+                  }
+                >
+                  Clear
+                </Button>
+              )}
+              {/* Beside the filters it keeps, not in the header, so a phone keeps one header row. */}
+              {looking && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto"
+                  onClick={() => setSaving(true)}
+                >
+                  <Icon name="star" size={14} />
+                  {/* On a phone the star alone, so the row keeps to one line. */}
+                  <span className={narrow ? "sr-only" : undefined}>Save search</span>
+                </Button>
+              )}
+            </div>
+          );
+        })()}
         {fieldChips(search).length > 0 && (
           <FieldChips
             search={search}
@@ -299,6 +313,48 @@ const noFields: Pick<SearchRequest, FieldKey> = {
   frameRate: undefined,
   commentText: undefined,
 };
+
+/**
+ * The kind, project, person, time and tag on a phone: behind one button that says how many are
+ * set, each choice taking the panel's width, as Linear's filters do on a small screen.
+ */
+function FiltersMenu({ count, children }: { count: number; children: ReactNode }) {
+  const [open, setOpen, box] = usePopover();
+  return (
+    <div ref={box} className="relative">
+      <Button
+        variant="ghost"
+        size="sm"
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        onClick={() => setOpen(!open)}
+        className={count ? "text-ink" : "text-ink-3"}
+      >
+        <Icon name="filter" size={14} />
+        Filters
+        {count > 0 && (
+          <span className="tabular rounded-full bg-raised px-1.5 text-[11px] text-ink-2">
+            {count}
+          </span>
+        )}
+      </Button>
+      {open && (
+        <Floating
+          anchor={box}
+          align="start"
+          side="bottom"
+          onClose={() => setOpen(false)}
+          role="dialog"
+          aria-label="Filters"
+          data-e2e-overlap
+          className="rise-in flex w-72 max-w-[calc(100vw-32px)] flex-col gap-2 rounded-panel-lg bg-overlay p-3 shadow-4"
+        >
+          {children}
+        </Floating>
+      )}
+    </div>
+  );
+}
 
 /**
  * Advanced search by field (decision 263): a file's duration and size as ranges, its frame
@@ -399,7 +455,7 @@ function FieldsMenu({
                 ))}
               </Select>
             </Field>
-            <Field label="Comments say">
+            <Field label="Comment contains">
               <Input
                 value={draft.commentText}
                 onChange={edit("commentText")}
@@ -417,7 +473,7 @@ function FieldsMenu({
                   setOpen(false);
                 }}
               >
-                Clear fields
+                Clear
               </Button>
               <Button type="submit" variant="primary" size="sm">
                 Apply

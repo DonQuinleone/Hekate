@@ -1,3 +1,4 @@
+import { itemWords, type ProjectProfile } from "@hekate/shared";
 import type { HomeActivity, MyReview } from "./queries";
 
 const DAY_MS = 86_400_000;
@@ -86,7 +87,10 @@ export const deadlinesOf = (reviews: MyReview[]): Deadline[] =>
     .map((r) => ({ id: r.id, at: r.dueAt, title: r.title, project: r.projectName }))
     .sort((a, b) => a.at.localeCompare(b.at));
 
-/** The home page's four figures, from your reviews and the workspace's summary. */
+/**
+ * The home page's four figures, from your reviews and the workspace's summary. What is due
+ * counts the next seven days only; anything already late is overdue, counted apart.
+ */
 export function figures(
   reviews: MyReview[],
   summary: { openComments: number; newVersions: number },
@@ -97,7 +101,10 @@ export function figures(
   return {
     inReview: open.length,
     yourTurn: open.filter((r) => r.yourTurn).length,
-    dueThisWeek: deadlines.filter((d) => new Date(d.at).getTime() <= now + 7 * DAY_MS).length,
+    dueSoon: deadlines.filter((d) => {
+      const due = dueIn(d.at, now).days;
+      return due >= 0 && due <= 7;
+    }).length,
     overdue: deadlines.filter((d) => dueIn(d.at, now).days < 0).length,
     openComments: summary.openComments,
     newVersions: summary.newVersions,
@@ -110,15 +117,21 @@ const outcomeCopy: Record<string, string> = {
   submitted: "has all its feedback",
 };
 
-/** One line of activity, after the person's name where there is one. */
-export function activityText(a: HomeActivity): string {
+/** A count and its noun, singular for one: "1 track", "4 files". */
+export const counted = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * One line of activity, after the person's name where there is one, in the words of its
+ * project: a video project's versions are cuts.
+ */
+export function activityText(a: HomeActivity, profile?: ProjectProfile | null): string {
   switch (a.kind) {
     case "comment":
       return a.count > 1
         ? `left ${a.count} comments on ${a.fileName}`
         : `commented on ${a.fileName}`;
     case "version":
-      return `added version ${a.number} of ${a.trackName}`;
+      return `added ${itemWords(profile).version} ${a.number} of ${a.trackName}`;
     case "review":
       return `asked for a review: ${a.title}`;
     case "review_completed":
@@ -129,3 +142,17 @@ export function activityText(a: HomeActivity): string {
 /** Approved tracks as a whole percentage of those with a version; nothing to show without one. */
 export const progress = (approved: number, versioned: number): number | null =>
   versioned > 0 ? Math.round((approved / versioned) * 100) : null;
+
+/**
+ * A project's progress in a line, in its own words and number: "0 of 1 deliverable approved",
+ * "3 of 8 tracks approved"; its files until anything has a version ("1 file").
+ */
+export function progressLine(
+  figures: { approvedTracks: number; versionedTracks: number; files: number },
+  profile: ProjectProfile | null | undefined,
+): string {
+  const words = itemWords(profile);
+  if (figures.versionedTracks === 0) return counted(figures.files, "file", "files");
+  const noun = figures.versionedTracks === 1 ? words.track : words.tracks;
+  return `${figures.approvedTracks} of ${figures.versionedTracks} ${noun} approved`;
+}

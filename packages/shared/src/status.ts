@@ -31,8 +31,13 @@ export const statusServiceHints: Record<StatusService, string> = {
 export const incidentImpacts = ["degraded", "partial", "major"] as const;
 export type IncidentImpact = (typeof incidentImpacts)[number];
 
+/**
+ * Each impact's one name, the same in the help menu, on the status page, in its legend and on
+ * the operators' desk (#617): a state is never "Degraded performance" in one place and "Slow"
+ * in another.
+ */
 export const incidentImpactNames: Record<IncidentImpact, string> = {
-  degraded: "Degraded performance",
+  degraded: "Slow",
   partial: "Partial outage",
   major: "Major outage",
 };
@@ -53,9 +58,12 @@ export type ServiceState = "operational" | IncidentImpact;
 const order: ServiceState[] = ["operational", ...incidentImpacts];
 
 export const serviceStateNames: Record<ServiceState, string> = {
-  operational: "Operational",
+  operational: "Running",
   ...incidentImpactNames,
 };
+
+/** A day no one measured, in the uptime's legend beside the states. */
+export const notMeasuredName = "Not measured";
 
 /** The worse of some states; operational for none. */
 export const worstState = (states: ServiceState[]): ServiceState =>
@@ -64,12 +72,12 @@ export const worstState = (states: ServiceState[]): ServiceState =>
     "operational",
   );
 
-/** What the page says at its top, from the worst service. */
+/** What the page and the help menu say of the whole, from the worst service, in the states' words. */
 export const overallLine: Record<ServiceState, string> = {
   operational: "Every service is running",
   degraded: "Some services are slow",
-  partial: "Some services are failing",
-  major: "Services are down",
+  partial: "Some services have a partial outage",
+  major: "Some services have a major outage",
 };
 
 /** A check as the page reads it: failing is down; a worker that finished nothing is slow. */

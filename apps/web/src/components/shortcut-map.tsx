@@ -1,13 +1,17 @@
 import { Fragment, useEffect, useState } from "react";
 import { isMac, keyCaps } from "~/lib/keys";
 import { usePreferences } from "~/lib/queries";
-import { type Shortcut, useShortcutGroups, useShortcuts } from "~/lib/shortcuts";
+import { useShortcutGroups, useShortcuts } from "~/lib/shortcuts";
 import { Dialog } from "./ui/dialog";
 
-function Keys({ shortcut, mac }: { shortcut: Shortcut; mac: boolean }) {
+/**
+ * A binding as key caps, written one way wherever a key is shown (#699): the strokes of a
+ * sequence joined by "then" ("G then H"), the bindings of one shortcut by "or".
+ */
+export function KeyStrokes({ bindings, mac = isMac() }: { bindings: string[]; mac?: boolean }) {
   return (
     <span className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-      {shortcut.keys.map((binding, i) => (
+      {bindings.map((binding, i) => (
         <Fragment key={binding}>
           {i > 0 && <span className="text-[12px] text-ink-2">or</span>}
           {keyCaps(binding, mac).map((stroke, s) => (
@@ -55,7 +59,7 @@ export function ShortcutMap({ onClose }: { onClose: () => void }) {
                     {s.label}
                     {s.where && <span className="block text-[12px] text-ink-2">{s.where}</span>}
                   </span>
-                  <Keys shortcut={s} mac={mac} />
+                  <KeyStrokes bindings={s.keys} mac={mac} />
                 </li>
               ))}
             </ul>

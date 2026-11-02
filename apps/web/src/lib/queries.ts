@@ -529,6 +529,8 @@ export interface ProjectFigures {
 
 export interface ProjectWithFigures extends Project {
   mine: boolean;
+  /** Whether they are one of its owners. */
+  owned: boolean;
   mayArchive: boolean;
   figures: ProjectFigures & { lastActiveAt: string };
 }

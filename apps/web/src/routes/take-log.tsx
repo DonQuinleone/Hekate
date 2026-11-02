@@ -24,6 +24,7 @@ import { Segmented } from "~/components/ui/segmented";
 import { Failed, Loading } from "~/components/ui/states";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
+import { connectionWords, useReach } from "~/lib/connection";
 import { formatDates } from "~/lib/locale";
 import {
   meQuery,
@@ -107,7 +108,8 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
   // Written here first (#51): the server's session, with what this browser has yet to send.
   const outbox = useTakeOutbox(sessionId);
   const session = served ? withPending(served, outbox.pending) : undefined;
-  const offline = isError || outbox.waiting;
+  // The shell's connection, which this page's own failed writes and reads feed (#616).
+  const offline = useReach() === "lost" || isError || outbox.waiting;
   const { data: project } = useQuery({
     ...projectQuery(session?.projectId ?? ""),
     enabled: Boolean(session),
@@ -338,7 +340,7 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
               )}
             />
             {offline
-              ? "Offline: written here, synced when back"
+              ? `${connectionWords.unreachable}: written here, sent once it is back`
               : outbox.pending.length > 0
                 ? "Syncing"
                 : "Live for everyone in the room"}

@@ -86,7 +86,10 @@ export interface CroomReport {
   unknownEvents: { type: string; count: number }[];
   unknownFields: { type: string; field: string; count: number }[];
   ignored: { type: string; count: number; reason: string }[];
+  /** Each a sentence about the thing, for people: no event or field ids (#551). */
   problems: string[];
+  /** The same problems as the file names them, with its ids, for "Details for support". */
+  support: string[];
 }
 
 export interface CroomPreview {
@@ -109,6 +112,65 @@ export function croomCountLine(count: CroomCount): string {
   const total = count.create + count.merge;
   const [one, many] = croomKindWords[count.kind];
   return `${total} ${total === 1 ? one : many}`;
+}
+
+/** What each kind of entry a ControlRoom event changes is, in words: "a take's rating". */
+const croomSubjects: Record<string, string> = {
+  annotation: "a score mark",
+  annotation_note: "a score mark's note",
+  annotation_status: "a score mark's state",
+  annotation_takes: "the takes a score mark names",
+  attachment: "an attached file",
+  category: "an issue category",
+  movement: "a track",
+  pdf: "a score PDF",
+  pdf_page_offset: "a score PDF's page numbers",
+  personnel: "a person on the personnel",
+  piece: "a work",
+  work: "a work",
+  schedule_item: "a schedule row",
+  stage_plan: "a stage plan",
+  stagebox: "a stage box",
+  stage_element: "an element of a stage plan",
+  stage_elements: "elements of a stage plan",
+  take: "a take",
+  take_rating: "a take's rating",
+  take_notes: "a take's notes",
+  take_timecode: "a take's timecode",
+  take_lifecycle: "a take's place in the log",
+  false_start: "a take's false start",
+  todo: "a to-do",
+  todos: "the to-dos",
+  venue: "a venue",
+  view: "a window layout of the desktop app",
+  active_view: "the desktop app's window layout",
+  view_layout: "a window layout of the desktop app",
+  session: "the session",
+  meta: "the project's details",
+  notes: "the session's notes",
+};
+const croomVerbs =
+  /^(add|update|delete|set|upsert|move|remove|replace|toggle|reorder|rename|adjust|create)_/;
+
+/**
+ * A ControlRoom event as people would name what it changes, to start a sentence: "A change to a
+ * take's rating" for `set_take_rating`, "A change Hekate does not know" for anything else. A
+ * nested field's event (`update_venue.address`) is its event's.
+ */
+export function croomChangeWords(type: string): string {
+  const subject = croomSubject(type);
+  return subject ? `A change to ${subject}` : "A change Hekate does not know";
+}
+
+/** What an event changes, in words ("a venue" for `update_venue.address`), or null if unknown. */
+export function croomSubject(type: string): string | null {
+  return croomSubjects[(type.split(/[. ]/)[0] ?? "").replace(croomVerbs, "")] ?? null;
+}
+
+/** Something already in the project, as a sentence names it: the work “Rags”, Mira Solberg on the personnel. */
+export function croomConflictWords(conflict: CroomConflict): string {
+  if (conflict.kind === "personnel") return `${conflict.name} on the personnel`;
+  return `the ${croomKindWords[conflict.kind][0].toLowerCase()} “${conflict.name}”`;
 }
 
 /** Whether a report holds anything worth showing. */

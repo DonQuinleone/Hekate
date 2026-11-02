@@ -70,14 +70,53 @@ const focusable = (root: HTMLElement) =>
 interface FloatingProps extends HTMLAttributes<HTMLDivElement> {
   /** The element it hangs from, or a point in the window (where a context menu opens). */
   anchor: RefObject<HTMLElement | null> | Point;
-  /** Below the anchor or above it; it flips when the preferred side has no room. */
-  side?: "bottom" | "top";
-  /** Its left edge on the anchor's left edge, its right edge on the anchor's right, or as wide as the anchor. */
+  /**
+   * Below the anchor or above it, or beside it to the right or the left (a menu from a
+   * collapsed sidebar's rail); it flips to the other side when the preferred one has no room.
+   */
+  side?: "bottom" | "top" | "right" | "left";
+  /**
+   * Above or below: its left edge on the anchor's left edge, its right edge on the anchor's
+   * right, or as wide as the anchor. Beside: its top on the anchor's top, or its foot on the
+   * anchor's foot.
+   */
   align?: "start" | "end" | "stretch";
   gap?: number;
   /** Called when focus leaves it for somewhere other than its anchor. */
   onClose?: () => void;
   children: ReactNode;
+}
+
+/** Where a box goes beside its anchor, inside the layer `H`: flipped, and kept in the window. */
+export function besidePlace(
+  A: Pick<DOMRect, "left" | "right" | "top" | "bottom">,
+  H: Pick<DOMRect, "left" | "top" | "width" | "height">,
+  box: {
+    w: number;
+    h: number;
+    side: "right" | "left";
+    align: "start" | "end" | "stretch";
+    gap: number;
+  },
+): { left: number; top: number; maxHeight?: number; maxWidth: number } {
+  const { w, h, side, align, gap } = box;
+  const right = A.right - H.left + gap;
+  const leftOf = A.left - H.left - gap - w;
+  const fitsRight = right + w <= H.width - MARGIN;
+  const fitsLeft = leftOf >= MARGIN;
+  let left: number;
+  if (side === "right") left = fitsRight || !fitsLeft ? right : leftOf;
+  else left = fitsLeft || !fitsRight ? leftOf : right;
+  left = Math.max(MARGIN, Math.min(left, H.width - w - MARGIN));
+  const room = H.height - 2 * MARGIN;
+  let top = align === "end" ? A.bottom - H.top - h : A.top - H.top;
+  top = Math.max(MARGIN, Math.min(top, H.height - Math.min(h, room) - MARGIN));
+  return {
+    left,
+    top,
+    ...(h > room ? { maxHeight: room } : {}),
+    maxWidth: H.width - 2 * MARGIN,
+  };
 }
 
 /**
@@ -121,10 +160,20 @@ export function Floating({
     const place = () => {
       const H = host.getBoundingClientRect();
       const A = a ? a.getBoundingClientRect() : new DOMRect(point?.x ?? 0, point?.y ?? 0, 0, 0);
-      const w = align === "stretch" ? A.width : f.offsetWidth;
+      const beside = side === "right" || side === "left";
+      const w = align === "stretch" && !beside ? A.width : f.offsetWidth;
       // Its height unconstrained: once capped, it scrolls, and measuring the cap would say it
       // fits, lift the cap, and measure again, without end.
       const h = f.scrollHeight + (f.offsetHeight - f.clientHeight);
+      if (beside) {
+        const next = besidePlace(A, H, { w, h, side, align, gap });
+        const key = JSON.stringify(next);
+        if (key !== last) {
+          last = key;
+          setStyle({ ...next, position: "absolute", visibility: "visible" });
+        }
+        return;
+      }
       let left = align === "end" ? A.right - H.left - w : A.left - H.left;
       left = Math.max(MARGIN, Math.min(left, H.width - w - MARGIN));
       const below = A.bottom - H.top + gap;
@@ -192,9 +241,23 @@ export function Floating({
         data-floating
         className={cn(
           point ? "fixed z-30" : "absolute z-30",
-          !point && (side === "top" ? "bottom-full mb-1" : "top-full mt-1"),
-          !point && (align === "end" ? "right-0" : "left-0"),
-          !point && align === "stretch" && "right-0",
+          !point &&
+            (side === "top"
+              ? "bottom-full mb-1"
+              : side === "right"
+                ? "left-full ml-1"
+                : side === "left"
+                  ? "right-full mr-1"
+                  : "top-full mt-1"),
+          !point &&
+            (side === "right" || side === "left"
+              ? align === "end"
+                ? "bottom-0"
+                : "top-0"
+              : align === "end"
+                ? "right-0"
+                : "left-0"),
+          !point && align === "stretch" && side !== "right" && side !== "left" && "right-0",
           className,
         )}
         style={point ? { ...given, left: point.x, top: point.y } : given}

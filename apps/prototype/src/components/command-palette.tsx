@@ -64,12 +64,19 @@ export function CommandPalette({
             ]
           : []),
         { id: "go-account", label: "Your account", icon: "user" as const, to: "/account" },
+        // Somewhere to go, so among the places (#699).
+        {
+          id: "go-notifications",
+          label: "All notifications",
+          icon: "bell" as const,
+          to: "/notifications",
+        },
         ...(owner
           ? [
               {
                 id: "go-instance",
                 label: "Instance management",
-                icon: "fingerprint" as const,
+                icon: "instance" as const,
                 to: "/instance",
               },
             ]
@@ -151,13 +158,6 @@ export function CommandPalette({
       icon: "sidebar",
       shortcut: "[",
       run: onToggleSidebar,
-    });
-    out.push({
-      id: "act-notifications",
-      group: "Actions",
-      label: "All notifications",
-      icon: "bell",
-      destination: { to: "/notifications" },
     });
     out.push({
       id: "act-search",
@@ -311,7 +311,6 @@ export function CommandPalette({
           <span className="hidden items-center gap-1.5 @3xl/app:flex">
             <Kbd>{">"}</Kbd> commands only
           </span>
-          <span className="ml-auto hidden @3xl/app:inline">Only what you may see</span>
         </div>
       </div>
     </div>
@@ -366,8 +365,12 @@ export function ResultRow({
       )}
       {hit.shortcut && (
         <span className="hidden shrink-0 items-center gap-1 @3xl/app:flex">
-          {hit.shortcut.split(" ").map((k) => (
-            <Kbd key={k}>{k}</Kbd>
+          {/* A sequence written one way, as the shortcut map writes it: G then H. */}
+          {hit.shortcut.split(" ").map((k, i) => (
+            <span key={k} className="flex items-center gap-1">
+              {i > 0 && <span className="text-[12px] text-ink-3">then</span>}
+              <Kbd>{k}</Kbd>
+            </span>
           ))}
         </span>
       )}

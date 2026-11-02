@@ -9,7 +9,7 @@ import { ListeningPill } from "~/components/listen-together";
 import { NotificationsMenu } from "~/components/notifications";
 import { Trail, useCurrentHeader } from "~/components/page-header";
 import { ProjectCover } from "~/components/project-card";
-import { Dot, reviewDot } from "~/components/status";
+import { Dot } from "~/components/status";
 import { DialogLayer } from "~/components/ui/dialog";
 import { Floating } from "~/components/ui/floating";
 import { MenuList, usePopover } from "~/components/ui/menu";
@@ -20,6 +20,7 @@ import {
   impactNames,
   openIncident,
   organisation,
+  overallLine,
   type Project,
   personById,
   projectById,
@@ -28,7 +29,7 @@ import {
 import { cn } from "~/lib/cn";
 import { inField } from "~/lib/dom";
 import { projectNav, useCurrentProject } from "~/lib/project-nav";
-import { needsYou, reviewOutcome } from "~/lib/reviews";
+import { needsYou } from "~/lib/reviews";
 import { instanceSectionsFor } from "~/routes/instance";
 import { useViewer } from "~/viewer/context";
 import { useScreenState } from "~/viewer/state-gate";
@@ -132,8 +133,11 @@ function WorkspaceMenu({ collapsed }: { collapsed: boolean }) {
       {open && (
         <Floating
           anchor={box}
-          align="start"
-          side="top"
+          align={collapsed ? "end" : "start"}
+          // Beside the rail when the sidebar is collapsed, over the pane (#615).
+          side={collapsed ? "right" : "top"}
+          // Clear of the rail, over the pane.
+          gap={collapsed ? 12 : 4}
           onClose={() => setOpen(false)}
           className="rise-in w-64 rounded-panel-lg bg-overlay p-1 shadow-4"
         >
@@ -215,7 +219,11 @@ function ProjectSwitcher({ project, collapsed }: { project: Project; collapsed: 
   const viewer = useViewer();
   const navigate = useNavigate();
   const [open, setOpen, box] = usePopover();
-  const mine = viewer.projects();
+  // The open project first, then by name: the same order each time it opens (#615).
+  const mine = [...viewer.projects()].sort(
+    (a, b) =>
+      Number(b.id === project.id) - Number(a.id === project.id) || a.name.localeCompare(b.name),
+  );
   return (
     <div ref={box} className="relative">
       <button
@@ -246,7 +254,9 @@ function ProjectSwitcher({ project, collapsed }: { project: Project; collapsed: 
         <Floating
           anchor={box}
           align="start"
-          side="bottom"
+          side={collapsed ? "right" : "bottom"}
+          // Clear of the rail, over the pane.
+          gap={collapsed ? 12 : 4}
           onClose={() => setOpen(false)}
           className="rise-in w-64 rounded-panel-lg bg-overlay p-1 shadow-4"
         >
@@ -303,8 +313,12 @@ function HelpMenu() {
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={incident ? "Help: an incident is open" : "Help"}
-        title="Help"
+        aria-label={
+          incident ? `Help. An incident is open: ${impactNames[openIncident.impact]}` : "Help"
+        }
+        title={
+          incident ? `Help · An incident is open: ${impactNames[openIncident.impact]}` : "Help"
+        }
         onClick={() => setOpen(!open)}
         className={cn(
           "relative flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink",
@@ -332,8 +346,9 @@ function HelpMenu() {
             // The status page (#183), whatever the support module says; an open incident says so.
             {
               label: "Status",
-              icon: <StateDot state={incident ? openIncident.impact : "operational"} />,
-              hint: incident ? impactNames[openIncident.impact] : "Every service running",
+              // In the status page's words, its dot after them so every label lines up.
+              hint: incident ? impactNames[openIncident.impact] : overallLine.operational,
+              trail: <StateDot state={incident ? openIncident.impact : "operational"} />,
               onSelect: () => navigate({ to: "/status" }),
             },
             ...(env.support === "off"
@@ -450,15 +465,16 @@ function SideLink({
 }
 
 /**
- * The sidebar's foot: whether the app reaches the API, and Hekate's version. Losing the API
- * turns the line to the signal colour and says so; it reads again on its own.
+ * The sidebar's foot: whether the app reaches its server, and Hekate's version. Losing the
+ * server turns the line to the signal colour and says so in plain words, with "Trying again"
+ * where the version was; it reads again on its own.
  */
 function Connection({ collapsed, offline }: { collapsed: boolean; offline: boolean }) {
-  const words = offline ? "API unreachable" : "Connected";
+  const words = offline ? "Can't reach the server" : "Connected";
   return (
     <output
       aria-live="polite"
-      title={`${words} · Hekate 0.2.0`}
+      title={offline ? `${words}. Trying again.` : `${words} · Hekate 0.2.0`}
       className={cn(
         "flex h-6 items-center gap-2 px-2.5 text-[11px]",
         offline ? "text-signal" : "text-ink-3",
@@ -477,7 +493,11 @@ function Connection({ collapsed, offline }: { collapsed: boolean; offline: boole
       ) : (
         <>
           <span className="truncate">{words}</span>
-          <span className="tabular ml-auto text-ink-3">0.2.0</span>
+          {offline ? (
+            <span className="ml-auto shrink-0 text-ink-3">Trying again</span>
+          ) : (
+            <span className="tabular ml-auto text-ink-3">0.2.0</span>
+          )}
         </>
       )}
     </output>
@@ -533,11 +553,14 @@ export function Shell({ children }: { children: ReactNode }) {
     if (head !== "projects") return "";
     return view || "overview";
   })();
-  const waitingHere = atInstance
-    ? []
-    : current
-      ? waitingReviews.filter((r) => r.projectId === current.id)
-      : waitingReviews;
+  // Home and the inbox list what waits on you themselves; the sidebar would repeat it (#613).
+  const listsItself = pathname === "/" || pathname === "/inbox";
+  const waitingHere =
+    atInstance || listsItself
+      ? []
+      : current
+        ? waitingReviews.filter((r) => r.projectId === current.id)
+        : waitingReviews;
   const recent = [
     { kind: "file", id: "file-maple-v2-dry", label: "Maple Leaf Rag · V2 Dry" },
     { kind: "review", id: "rev-masters", label: "Album masters" },
@@ -584,7 +607,14 @@ export function Shell({ children }: { children: ReactNode }) {
           <div className={cn("flex flex-col gap-0.5", collapsed && "items-stretch")}>
             <NavItem to="/" icon="dashboard" label="Home" collapsed={collapsed} exact />
             <NavItem to="/inbox" icon="inbox" label="Inbox" collapsed={collapsed} count={waiting} />
-            <NavItem to="/projects" icon="folder" label="Projects" collapsed={collapsed} />
+            {/* With a project open, only its section is current (#612). */}
+            <NavItem
+              to="/projects"
+              icon="folder"
+              label="Projects"
+              collapsed={collapsed}
+              exact={Boolean(current)}
+            />
             {current ? (
               <>
                 <div className="mt-4 mb-1">
@@ -622,7 +652,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   )}
                 >
                   <span className="flex size-6 items-center justify-center rounded-[6px] bg-raised text-ink-2">
-                    <Icon name="fingerprint" size={14} />
+                    <Icon name="instance" size={14} />
                   </span>
                   {!collapsed && (
                     <span className="min-w-0 flex-1">
@@ -656,13 +686,19 @@ export function Shell({ children }: { children: ReactNode }) {
             ) : null}
           </div>
           {waitingHere.length > 0 && (
-            <SideSection title="Waiting on you" count={waitingHere.length} collapsed={collapsed}>
+            <SideSection title="Needs you" count={waitingHere.length} collapsed={collapsed}>
               {waitingHere.slice(0, 4).map((r) => (
                 <SideLink
                   key={r.id}
                   to="/reviews/$reviewId"
                   params={{ reviewId: r.id }}
-                  lead={<Dot state={reviewDot(r.status, reviewOutcome(r))} />}
+                  // Your turn: the signal, as for whatever needs a person.
+                  lead={
+                    <span
+                      aria-hidden="true"
+                      className="inline-block size-[7px] shrink-0 rounded-full bg-signal ring-[3px] ring-signal/25"
+                    />
+                  }
                   label={r.title}
                   hint={current ? undefined : projectById(r.projectId)?.name.split(" ")[0]}
                 />
@@ -726,29 +762,33 @@ export function Shell({ children }: { children: ReactNode }) {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col @3xl/app:py-2.5 @3xl/app:pr-2.5">
         <Pane>
           <TopBar>
-            <button
-              type="button"
-              aria-label="Search and commands"
-              onClick={() => setPalette(true)}
-              className="flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink @3xl/app:hidden"
-            >
-              <Icon name="search" size={18} />
-            </button>
+            {/* The search page has its own field; a second way in would repeat it. */}
+            {pathname !== "/search" && (
+              <button
+                type="button"
+                aria-label="Search and commands"
+                onClick={() => setPalette(true)}
+                className="flex size-8 items-center justify-center rounded-control text-ink-3 transition-colors hover:bg-raised/60 hover:text-ink @3xl/app:hidden"
+              >
+                <Icon name="search" size={18} />
+              </button>
+            )}
             <HelpMenu />
             {(viewer.isInstance || viewer.persona.organisationRole === "owner") && (
               <Link
                 to="/instance"
-                aria-label="Instance management"
-                title="Instance management"
+                aria-label="Instance"
+                title="Instance"
                 className={cn(
-                  "flex size-8 items-center justify-center rounded-control transition-colors hover:bg-raised/60 hover:text-ink",
+                  // A phone keeps its slots for the page; the account menu leads there.
+                  "hidden size-8 items-center justify-center rounded-control transition-colors hover:bg-raised/60 hover:text-ink @3xl/app:flex",
                   atInstance ? "bg-signal/15 text-signal" : "text-ink-3",
                 )}
               >
-                <Icon name="fingerprint" size={18} className="sparkle" />
+                <Icon name="instance" size={18} />
               </Link>
             )}
-            <NotificationsMenu waiting={waiting} />
+            <NotificationsMenu />
           </TopBar>
           {current && (
             <SubNav
@@ -778,7 +818,7 @@ export function Shell({ children }: { children: ReactNode }) {
               className="m-0 flex shrink-0 items-center gap-2 border-b border-line px-4 py-2 text-[13px] text-ink-2 @3xl/app:hidden"
             >
               <Dot state="changes_requested" />
-              API unreachable. Trying again.
+              Can't reach the server. Trying again.
             </p>
           )}
           <main className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-auto">{children}</main>
