@@ -8,6 +8,7 @@ import {
   showDay,
   showTime,
   splitDayTime,
+  tabStop,
 } from "./date-field";
 
 describe("a date field", () => {
@@ -99,5 +100,18 @@ describe("a month's calendar", () => {
     ]);
     expect(weeks[4]?.at(-1)).toBeNull();
     expect(weeks.flat().filter(Boolean)).toHaveLength(31);
+  });
+
+  it("lets Tab into the grid on a day that may be picked", () => {
+    const weeks = monthGrid(2026, 10);
+    const any = () => true;
+    expect(tabStop(weeks, "2026-10-20", "2026-10-14", any)).toBe("2026-10-20");
+    expect(tabStop(weeks, "", "2026-10-14", any)).toBe("2026-10-14");
+    // Today is before the first allowed day (an end after a later start): the first allowed day.
+    const fromThe22nd = (d: string) => d >= "2026-10-22";
+    expect(tabStop(weeks, "", "2026-10-14", fromThe22nd)).toBe("2026-10-22");
+    expect(tabStop(weeks, "2026-10-20", "2026-10-14", fromThe22nd)).toBe("2026-10-22");
+    // Another month shown: its first day.
+    expect(tabStop(monthGrid(2026, 11), "2026-10-20", "2026-10-14", any)).toBe("2026-11-01");
   });
 });

@@ -10,6 +10,7 @@ import {
   showDay,
   showTime,
   splitDayTime,
+  tabStop,
   timePlaceholder,
 } from "~/lib/date-field";
 import { dateFormats, dayHere, formatDates } from "~/lib/locale";
@@ -110,8 +111,8 @@ export function DateField({
         onFocus={() => typed.setFocused(true)}
         onBlur={() => {
           typed.setFocused(false);
-          if (onLeave) commit(typed.text);
-          else if (!typed.wrong) typed.setText(typed.shown);
+          // A short year ("12 Oct 26") is held back while typing, so it is set as the field is left.
+          if (onLeave || !typed.wrong) commit(typed.text);
         }}
         onChange={(e) => {
           typed.setText(e.target.value);
@@ -220,10 +221,7 @@ export function Calendar({
     focusDay(e.currentTarget, next.toISOString().slice(0, 10));
   };
   const weeks = monthGrid(shown.year, shown.month);
-  const focusable =
-    value && value.slice(0, 7) === `${shown.year}-${String(shown.month).padStart(2, "0")}`
-      ? value
-      : (weeks.flat().find((d) => d === today) ?? weeks.flat().find(Boolean));
+  const focusable = tabStop(weeks, value, today, allowed);
   return (
     <div className="flex w-[244px] flex-col gap-2">
       <div className="flex items-center justify-between">

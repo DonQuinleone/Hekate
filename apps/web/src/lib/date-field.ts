@@ -127,6 +127,24 @@ export const dayPlaceholder = (format: DateFormat) =>
   format === "iso" ? "YYYY-MM-DD" : format === "day-month-year" ? "12 Oct 2026" : "Oct 12, 2026";
 export const timePlaceholder = (format: TimeFormat) => (format === "24h" ? "HH:MM" : "1:05 pm");
 
+/**
+ * The one day of a shown month that Tab reaches, so the arrows can move from it: the chosen day,
+ * else today, else the first day that may be picked. A day that may not be picked is never it,
+ * or the keyboard could not get into the grid at all.
+ */
+export function tabStop(
+  weeks: (string | null)[][],
+  value: string,
+  today: string,
+  allowed: (day: string) => boolean,
+): string | undefined {
+  const days = weeks.flat().filter((d): d is string => d !== null);
+  const usable = (d: string) => days.includes(d) && allowed(d);
+  if (value && usable(value)) return value;
+  if (usable(today)) return today;
+  return days.find(allowed) ?? days[0];
+}
+
 /** The days of the month a calendar shows, Monday first, padded with nulls to whole weeks. */
 export function monthGrid(year: number, month: number): (string | null)[][] {
   const first = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
