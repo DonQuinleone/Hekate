@@ -23,13 +23,18 @@ export const serviceTokensQuery = queryOptions({
     (await json<{ tokens: ApiTokenRow[] }>(await api.organisation.tokens.$get())).tokens,
 });
 
-/** The latest calls the workspace's tokens made, for its owners and admins. */
+/**
+ * The latest calls the workspace's tokens made, for its owners and admins: the last week by the
+ * viewer's clock, as every log's range counts (#598).
+ */
 export const workspaceApiLogQuery = queryOptions({
   queryKey: ["organisation", "tokens", "log"],
   queryFn: async () =>
     (
       await json<{ rows: ApiLogRow[] }>(
-        await api.organisation.tokens.log.$get({ query: { range: "7d", limit: "20" } }),
+        await api.organisation.tokens.log.$get({
+          query: { range: "7d", limit: "20", now: new Date().toISOString() },
+        }),
       )
     ).rows,
 });
