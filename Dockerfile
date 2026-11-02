@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
 # One image: the Hono server, the built web app, ffmpeg, Poppler (PDF pages), fonts for
 # watermarks and for the PDFs Hekate writes (decision 238), and the EBU ADM Renderer for an ADM
 # master's objects (decision 140). Alpine throughout, holding only what Hekate runs (decision 244).
