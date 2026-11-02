@@ -120,14 +120,14 @@ function Node({
 }) {
   return (
     // Top to bottom on a phone, as Linear's and GitHub's timelines run; left to right beside.
-    <li className="flex shrink-0 flex-col items-start @3xl/app:flex-row @3xl/app:items-center">
+    <li className="flex shrink-0 flex-col items-start @2xl/steps:flex-row @2xl/steps:items-center">
       {!first && (
         <span
           aria-hidden="true"
           className={cn(
-            "ml-6 h-4 w-px @3xl/app:ml-0 @3xl/app:h-px @3xl/app:w-7",
+            "ml-6 h-4 w-px @2xl/steps:ml-0 @2xl/steps:h-px @2xl/steps:w-7",
             state === "ahead"
-              ? "border-l border-dashed border-edge-strong @3xl/app:border-t @3xl/app:border-l-0"
+              ? "border-l border-dashed border-edge-strong @2xl/steps:border-t @2xl/steps:border-l-0"
               : "bg-ink-3",
           )}
         />
@@ -182,7 +182,7 @@ function Steps({ review }: { review: ReviewDetail }) {
   return (
     <ol
       aria-label="Steps"
-      className="m-0 flex list-none flex-col p-0 py-1 @3xl/app:flex-row @3xl/app:flex-wrap @3xl/app:items-center @3xl/app:gap-y-2"
+      className="m-0 flex list-none flex-col p-0 py-1 @2xl/steps:flex-row @2xl/steps:flex-wrap @2xl/steps:items-center @2xl/steps:gap-y-2"
     >
       <Node
         icon="send"
@@ -627,7 +627,7 @@ function InvitePopover({
                   value={typed.label}
                   maxLength={60}
                   autoComplete="off"
-                  placeholder="For example Violin (optional)"
+                  placeholder="For example Violin"
                   onChange={(e) => set("label", e.target.value)}
                 />
               </Field>
@@ -1296,7 +1296,8 @@ export function ReviewBody({
           <YourTurn review={review} />
           {sharing && mine && review.status === "open" && <ShareNote me={mine} />}
           {!guest && !sharing && (
-            <section className="flex flex-col gap-3">
+            // The steps run across only where the review itself is wide enough (#577).
+            <section className="@container/steps flex flex-col gap-3">
               <SectionHead title="Steps" />
               <Steps review={review} />
             </section>

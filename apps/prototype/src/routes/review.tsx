@@ -125,14 +125,14 @@ function Node({
   first?: boolean;
 }) {
   return (
-    <li className="flex shrink-0 flex-col items-start @3xl/app:flex-row @3xl/app:items-center">
+    <li className="flex shrink-0 flex-col items-start @2xl/steps:flex-row @2xl/steps:items-center">
       {!first && (
         <span
           aria-hidden="true"
           className={cn(
-            "ml-6 h-4 w-px @3xl/app:ml-0 @3xl/app:h-px @3xl/app:w-7",
+            "ml-6 h-4 w-px @2xl/steps:ml-0 @2xl/steps:h-px @2xl/steps:w-7",
             state === "ahead"
-              ? "border-l border-dashed border-edge-strong @3xl/app:border-t @3xl/app:border-l-0"
+              ? "border-l border-dashed border-edge-strong @2xl/steps:border-t @2xl/steps:border-l-0"
               : "bg-ink-3",
           )}
         />
@@ -204,7 +204,7 @@ function Steps({ review }: { review: Review }) {
       : rows.map((r) => personById(r.personId).name.split(" ")[0]).join(", ");
   };
   return (
-    <ol className="flex flex-col py-1 @3xl/app:flex-row @3xl/app:flex-wrap @3xl/app:items-center @3xl/app:gap-y-2">
+    <ol className="flex flex-col py-1 @2xl/steps:flex-row @2xl/steps:flex-wrap @2xl/steps:items-center @2xl/steps:gap-y-2">
       <Node
         icon="send"
         title="Requested"
@@ -984,7 +984,7 @@ export function ReviewBody({
           </p>
         )}
         {review.kind !== "share" && !viewer.isGuest && (
-          <section className="flex flex-col gap-3">
+          <section className="@container/steps flex flex-col gap-3">
             <SectionHead title="Steps" />
             <Steps review={review} />
           </section>
