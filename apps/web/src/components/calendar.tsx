@@ -5,6 +5,7 @@ import {
   daysOf,
   monthGrid,
   shiftMonth,
+  weekBars,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -36,6 +37,9 @@ export const entryIcon: Record<CalendarEntry["kind"], IconName> = {
 };
 export const iconOf = (e: CalendarEvent): IconName =>
   e.entry ? entryIcon[e.entry.kind] : kindIcon[e.kind];
+
+/** How many lines of a week show what falls on it; the rest are counted under their days. */
+const LANES = 3;
 
 /** What is being opened: a new entry on a day, or an entry to change. */
 type Opening = { day?: string; entry?: CalendarEntry } | null;
@@ -164,9 +168,12 @@ export function ProjectCalendar({
   const [subscribing, setSubscribing] = useState(false);
   const [opening, setOpening] = useState<Opening>(null);
   const { days } = monthGrid(month);
+  const weeks = Array.from({ length: days.length / 7 }, (_, w) => days.slice(w * 7, w * 7 + 7));
   const today = dayHere();
+  /** Late by the reader's own day as well as the server's, so a chip and its day agree. */
+  const late = (e: CalendarEvent) => e.overdue && e.date < today;
   const byDay = new Map<string, CalendarEvent[]>();
-  // An entry over several days is on each of them.
+  // An entry over several days is on each of them (for a phone's marks under each day).
   for (const e of data?.events ?? [])
     for (const day of daysOf(e.date, e.end)) byDay.set(day, [...(byDay.get(day) ?? []), e]);
   const monthEvents = (data?.events ?? []).filter(
@@ -249,77 +256,108 @@ export function ProjectCalendar({
           ))}
         </div>
         {/* A double-click on a day is a shortcut to New entry above, which the keyboard reaches. */}
-        <ol className="m-0 grid list-none grid-cols-7 p-0" onDoubleClick={onDayDoubleClick}>
-          {days.map((day, i) => {
-            const list = byDay.get(day) ?? [];
-            const inMonth = day.startsWith(month);
+        <div className="flex flex-col">
+          {weeks.map((week) => {
+            const { bars, more } = weekBars(week, data?.events ?? [], LANES);
             return (
-              <li
-                key={day}
-                aria-label={day}
-                data-day={day}
-                className={cn(
-                  "flex min-h-[64px] min-w-0 flex-col gap-1 border-b border-line p-1.5 @3xl/app:min-h-[104px]",
-                  i % 7 !== 6 && "border-r",
-                  !inMonth && "bg-sunken/40",
-                )}
-              >
-                <span
-                  className={cn(
-                    "tabular flex size-6 items-center justify-center rounded-full text-[12px]",
-                    day === today
-                      ? "bg-signal font-medium text-ground"
-                      : inMonth
-                        ? "text-ink-2"
-                        : "text-ink-3",
-                  )}
+              <div key={week[0]} className="relative border-b border-line last:border-b-0">
+                <ol
+                  className="absolute inset-0 m-0 grid list-none grid-cols-7 p-0"
+                  onDoubleClick={onDayDoubleClick}
                 >
-                  {Number(day.slice(8))}
-                </span>
-                {/* On a phone a day has room for a mark only; the list below names them. */}
-                {list.length > 0 && (
-                  <span className="flex flex-wrap gap-0.5 px-1 @3xl/app:hidden" aria-hidden="true">
-                    {list.slice(0, 3).map((e) => (
-                      <span
-                        key={e.id}
+                  {week.map((day, i) => {
+                    const list = byDay.get(day) ?? [];
+                    const inMonth = day.startsWith(month);
+                    return (
+                      <li
+                        key={day}
+                        aria-label={day}
+                        data-day={day}
                         className={cn(
-                          "size-1.5 rounded-full",
-                          e.overdue ? "bg-signal" : "bg-ink-3",
+                          "flex min-w-0 flex-col gap-1 p-1.5",
+                          i !== 6 && "border-r border-line",
+                          !inMonth && "bg-sunken",
                         )}
-                      />
-                    ))}
-                  </span>
-                )}
-                {list.slice(0, 3).map((e) => (
-                  <span key={e.id} className="hidden min-w-0 @3xl/app:flex" title={e.title}>
-                    {item(
-                      e,
-                      cn(
-                        "flex min-w-0 flex-1 items-center gap-1 rounded-chip border px-1.5 py-0.5 text-[11px] leading-[15px] transition-colors hover:border-edge",
-                        e.overdue
-                          ? "border-signal/40 bg-signal/10 text-ink"
-                          : e.kind === "review" || e.kind === "track"
-                            ? "border-line bg-raised/60 text-ink"
-                            : e.kind === "entry"
-                              ? "border-line-strong bg-raised/30 text-ink"
-                              : "border-line text-ink-2",
-                      ),
-                      <>
-                        <Icon name={iconOf(e)} size={10} className="shrink-0 text-ink-3" />
-                        <span className="truncate">{e.title}</span>
-                      </>,
-                    )}
-                  </span>
-                ))}
-                {list.length > 3 && (
-                  <span className="hidden px-1 text-[11px] text-ink-3 @3xl/app:inline">
-                    and {list.length - 3} more
-                  </span>
-                )}
-              </li>
+                      >
+                        <span
+                          className={cn(
+                            "tabular flex size-6 items-center justify-center rounded-full text-[12px]",
+                            day === today
+                              ? "bg-signal font-medium text-ground"
+                              : inMonth
+                                ? "text-ink-2"
+                                : "text-ink-3",
+                          )}
+                        >
+                          {Number(day.slice(8))}
+                        </span>
+                        {/* On a phone a day has room for a mark only; the list below names them. */}
+                        {list.length > 0 && (
+                          <span
+                            className="flex flex-wrap gap-0.5 px-1 @3xl/app:hidden"
+                            aria-hidden="true"
+                          >
+                            {list.slice(0, 3).map((e) => (
+                              <span
+                                key={e.id}
+                                className={cn(
+                                  "size-1.5 rounded-full",
+                                  late(e) ? "bg-signal" : "bg-ink-3",
+                                )}
+                              />
+                            ))}
+                          </span>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+                {/* What falls on the week, over the days: one bar across the days it covers. */}
+                <div className="pointer-events-none relative grid min-h-[64px] grid-cols-7 content-start gap-y-1 pt-8 pb-1.5 @3xl/app:min-h-[104px]">
+                  {bars.map(({ item: e, column, span, lane, before, after }) => (
+                    <span
+                      key={e.id}
+                      title={e.title}
+                      className={cn(
+                        "pointer-events-auto hidden min-w-0 @3xl/app:flex",
+                        before ? "pl-0" : "pl-1.5",
+                        after ? "pr-0" : "pr-1.5",
+                      )}
+                      style={{ gridColumn: `${column + 1} / span ${span}`, gridRow: lane + 1 }}
+                    >
+                      {item(
+                        e,
+                        cn(
+                          "flex min-w-0 flex-1 items-center gap-1 rounded-chip border px-1.5 py-0.5 text-[11px] leading-[15px] text-ink transition-colors hover:border-edge",
+                          // The signal is for what is late, and nothing else (docs/brand.md).
+                          late(e) ? "border-signal/40 bg-signal/10" : "border-line bg-raised",
+                          before && "rounded-l-none border-l-0",
+                          after && "rounded-r-none border-r-0",
+                        ),
+                        <>
+                          <Icon name={iconOf(e)} size={10} className="shrink-0 text-ink-3" />
+                          <span className="truncate">{e.title}</span>
+                        </>,
+                      )}
+                    </span>
+                  ))}
+                  {more.map((n, i) =>
+                    n > 0 ? (
+                      <span
+                        // biome-ignore lint/suspicious/noArrayIndexKey: one per day of the week, in order.
+                        key={i}
+                        className="hidden px-2.5 text-[11px] text-ink-3 @3xl/app:block"
+                        style={{ gridColumn: i + 1, gridRow: LANES + 1 }}
+                      >
+                        and {n} more
+                      </span>
+                    ) : null,
+                  )}
+                </div>
+              </div>
             );
           })}
-        </ol>
+        </div>
       </Card>
       <ol className="m-0 flex list-none flex-col p-0 @3xl/app:hidden">
         {monthEvents.map((e) => (
@@ -331,7 +369,7 @@ export function ProjectCalendar({
                 <span
                   className={cn(
                     "tabular w-14 shrink-0 text-[13px]",
-                    e.overdue ? "text-signal" : "text-ink-3",
+                    late(e) ? "text-signal" : "text-ink-3",
                   )}
                 >
                   {dayFormat.format(new Date(`${e.date}T12:00:00Z`))}
@@ -346,7 +384,7 @@ export function ProjectCalendar({
                     </span>
                   )}
                 </span>
-                {e.overdue && <span className="shrink-0 text-[12px] text-signal">Late</span>}
+                {late(e) && <span className="shrink-0 text-[12px] text-signal">Late</span>}
               </>,
             )}
           </li>

@@ -832,6 +832,7 @@
                         "beat": true
                       },
                       "mine": true,
+                      "owned": true,
                       "mayArchive": true
                     }
                   ]
@@ -1268,6 +1269,9 @@
                               ]
                             },
                             "on": {
+                              "type": "boolean"
+                            },
+                            "onUpload": {
                               "type": "boolean"
                             }
                           },

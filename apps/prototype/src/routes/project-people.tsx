@@ -55,7 +55,10 @@ export function People({ project }: { project: Project }) {
   return (
     <div className="flex flex-col gap-8">
       <section className="flex flex-col gap-3">
-        <SectionHead title="Owners" hint="everything in this project, whatever their role" />
+        <SectionHead title="Owners" />
+        <p className="text-[13px] text-ink-3">
+          Owners can do everything in this project, whatever their role.
+        </p>
         <Card>
           <ul className="list-none p-0">
             {ownerRows.map((m) => {
@@ -143,7 +146,7 @@ export function People({ project }: { project: Project }) {
                 ...(manage
                   ? [
                       {
-                        label: "Review permissions…",
+                        label: "Permissions in reviews…",
                         onSelect: () => setPermissionsFor({ id: m.personId, guest: false }),
                       },
                     ]
@@ -201,7 +204,6 @@ export function People({ project }: { project: Project }) {
       <section className="flex flex-col gap-3">
         <SectionHead
           title="Reviewers"
-          hint="guests, who reach a review by link"
           action={
             manageReviewers && (
               <Button variant="secondary" size="md" onClick={() => setDialog("reviewer")}>
@@ -211,6 +213,9 @@ export function People({ project }: { project: Project }) {
             )
           }
         />
+        <p className="text-[13px] text-ink-3">
+          Guests reach a review through a link, without an account.
+        </p>
         <Card>
           <ul className="list-none p-0">
             {projectGuests.map((g) => {
@@ -233,7 +238,6 @@ export function People({ project }: { project: Project }) {
                     <span className="block truncate text-[13px] text-ink-3">{p.email}</span>
                   </span>
                   <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
-                    <Dot state={g.linkSentAt ? "approved" : "cancelled"} />
                     {g.linkSentAt ? `Link sent ${formatDate(g.linkSentAt)}` : "Revoked"}
                   </span>
                   <span className="hidden text-[13px] text-ink-3 @3xl/app:block">
@@ -246,7 +250,7 @@ export function People({ project }: { project: Project }) {
                         label={p.name}
                         actions={[
                           {
-                            label: "Review permissions…",
+                            label: "Permissions in reviews…",
                             onSelect: () => setPermissionsFor({ id: g.personId, guest: true }),
                           },
                           { label: "Send a new link", onSelect: () => {} },
@@ -296,7 +300,7 @@ export function People({ project }: { project: Project }) {
                       always
                       label={g.name}
                       actions={[
-                        { label: "Review permissions…", onSelect: () => {} },
+                        { label: "Permissions in reviews…", onSelect: () => {} },
                         { label: "Change label…", onSelect: () => {} },
                         "divider",
                         { label: "Remove from the project", danger: true, onSelect: () => {} },
@@ -322,7 +326,6 @@ export function People({ project }: { project: Project }) {
       <section className="flex flex-col gap-3">
         <SectionHead
           title="Groups"
-          hint="people a review or a tool exception can name as one"
           action={
             manageReviewers && (
               <Button
@@ -339,6 +342,9 @@ export function People({ project }: { project: Project }) {
             )
           }
         />
+        <p className="text-[13px] text-ink-3">
+          A group is a set of people a review or a tool exception can name at once.
+        </p>
         <div className="grid gap-3 @3xl/app:grid-cols-2 @6xl/app:grid-cols-3">
           {projectGroups.map((g) => (
             <Card key={g.id} className="flex items-center gap-3 px-4 py-3">
@@ -481,11 +487,11 @@ export function People({ project }: { project: Project }) {
               </label>
             </div>
             <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              Role, as shown beside their name
+              Shown as
               <Input
                 value={invite.label}
                 onChange={(e) => setInvite({ ...invite, label: e.target.value })}
-                placeholder="Conductor, Composer, Label (optional)"
+                placeholder="Beside their name, for example Conductor, Composer or Violin (optional)"
                 autoComplete="off"
               />
             </label>

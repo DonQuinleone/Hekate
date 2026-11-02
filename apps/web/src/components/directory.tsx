@@ -2,6 +2,7 @@ import { type DirectorySettings, notEntitledMessage } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { directoryQuery, useSaveDirectory, useTestDirectory } from "~/lib/queries";
+import { FormFooter } from "./form-footer";
 import { Row, Section, SwitchRow } from "./settings";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -84,7 +85,7 @@ function DirectoryForm({
     <form onSubmit={submit} className="contents">
       <Section
         title="Directory (LDAP)"
-        intro={`Members choose "Sign in with your workspace's directory" and enter ${workspace || "the workspace's short name"}. Their first sign-in makes their account.`}
+        intro={`Members choose "Sign in with your workspace's directory" and enter the workspace's address${workspace ? `, ${workspace}` : ""}, shown in General. Their first sign-in makes their account.`}
       >
         <SwitchRow
           name="Sign in with the directory"
@@ -97,99 +98,115 @@ function DirectoryForm({
           disabled={!entitled && !form.enabled}
           onChange={(enabled) => set("enabled", enabled)}
         />
-        <Row name="Server" hint="ldaps:// with its port; ldap:// only on a network you trust.">
-          {field("url", "Server", "w-full @3xl/app:w-96")}
-        </Row>
-        <SwitchRow
-          name="Verify the certificate"
-          checked={form.verifyCertificate}
-          onChange={(verifyCertificate) => set("verifyCertificate", verifyCertificate)}
-        />
-        <Row
-          name="Service account"
-          hint="Searches for people. Left empty, the search is anonymous. The password is never shown again."
-        >
-          <span className="flex flex-wrap gap-2">
-            <Input
-              aria-label="Service account DN"
-              placeholder="cn=hekate,ou=services,dc=example"
-              className="w-64"
-              value={form.bindDn}
-              onChange={(e) => set("bindDn", e.target.value)}
+        {/* The directory's fields only while it is on (#682). */}
+        {form.enabled && (
+          <>
+            <Row name="Server" hint="ldaps:// with its port; ldap:// only on a network you trust.">
+              {field("url", "Server", "w-full @3xl/app:w-96")}
+            </Row>
+            <SwitchRow
+              name="Verify the certificate"
+              checked={form.verifyCertificate}
+              onChange={(verifyCertificate) => set("verifyCertificate", verifyCertificate)}
             />
-            <Input
-              type="password"
-              aria-label="Service account password"
-              autoComplete="new-password"
-              placeholder={hasBindPassword ? "Kept" : "None"}
-              className="w-32"
-              value={bindPassword ?? ""}
-              onChange={(e) => setBindPassword(e.target.value)}
-            />
-          </span>
-        </Row>
-        <Row name="People" hint="Where they are, and the filter that finds one by username.">
-          <span className="flex flex-wrap gap-2">
-            {field("userBase", "People base DN", "w-64")}
-            {field("userFilter", "People filter", "w-40")}
-          </span>
-        </Row>
-        <Row name="Attributes" hint="Which hold the email address and the name.">
-          <span className="flex flex-wrap gap-2">
-            {field("emailAttribute", "Email attribute", "w-32")}
-            {field("nameAttribute", "Name attribute", "w-32")}
-          </span>
-        </Row>
-        <Row name="Groups" hint="Where groups are, and the filter that finds a person's groups.">
-          <span className="flex flex-wrap gap-2">
-            <Input
-              aria-label="Groups base DN"
-              placeholder="None: everyone is a member"
-              className="w-64"
-              value={form.groupBase}
-              onChange={(e) => set("groupBase", e.target.value)}
-            />
-            <Input
-              aria-label="Groups filter"
-              className="w-40"
-              value={form.groupFilter}
-              onChange={(e) => set("groupFilter", e.target.value)}
-            />
-          </span>
-        </Row>
-        <Row
-          name="Admins"
-          hint="Groups whose people are admins here, by name or DN, separated by commas. Everyone else is a member; owners stay owners."
-        >
-          <Input
-            aria-label="Admin groups"
-            className="w-full @3xl/app:w-96"
-            placeholder="producers, cn=engineers,ou=groups,dc=example"
-            value={admins}
-            onChange={(e) => setAdmins(e.target.value)}
-          />
-        </Row>
-        <Row name="Test" hint={outcome ?? "Connects with the saved settings."}>
-          <span className="flex gap-2">
-            <Button
-              variant="secondary"
-              disabled={test.isPending}
-              onClick={() => {
-                save.reset();
-                test.mutate();
-              }}
+            <Row
+              name="Service account"
+              hint="Searches for people. Left empty, the search is anonymous. The password is never shown again."
             >
-              {test.isPending ? "Testing" : "Test connection"}
-            </Button>
-            <Button variant="primary" type="submit" disabled={save.isPending}>
+              <span className="flex flex-wrap gap-2">
+                <Input
+                  aria-label="Service account DN"
+                  placeholder="cn=hekate,ou=services,dc=example"
+                  className="w-64"
+                  value={form.bindDn}
+                  onChange={(e) => set("bindDn", e.target.value)}
+                />
+                <Input
+                  type="password"
+                  aria-label="Service account password"
+                  autoComplete="new-password"
+                  placeholder={hasBindPassword ? "Kept" : "None"}
+                  className="w-32"
+                  value={bindPassword ?? ""}
+                  onChange={(e) => setBindPassword(e.target.value)}
+                />
+              </span>
+            </Row>
+            <Row name="People" hint="Where they are, and the filter that finds one by username.">
+              <span className="flex flex-wrap gap-2">
+                {field("userBase", "People base DN", "w-64")}
+                {field("userFilter", "People filter", "w-40")}
+              </span>
+            </Row>
+            <Row name="Attributes" hint="Which hold the email address and the name.">
+              <span className="flex flex-wrap gap-2">
+                {field("emailAttribute", "Email attribute", "w-32")}
+                {field("nameAttribute", "Name attribute", "w-32")}
+              </span>
+            </Row>
+            <Row
+              name="Groups"
+              hint="Where groups are, and the filter that finds a person's groups."
+            >
+              <span className="flex flex-wrap gap-2">
+                <Input
+                  aria-label="Groups base DN"
+                  placeholder="None: everyone is a member"
+                  className="w-64"
+                  value={form.groupBase}
+                  onChange={(e) => set("groupBase", e.target.value)}
+                />
+                <Input
+                  aria-label="Groups filter"
+                  className="w-40"
+                  value={form.groupFilter}
+                  onChange={(e) => set("groupFilter", e.target.value)}
+                />
+              </span>
+            </Row>
+            <Row
+              name="Admins"
+              hint="Groups whose people are admins here, by name or DN, separated by commas. Everyone else is a member; owners stay owners."
+            >
+              <Input
+                aria-label="Admin groups"
+                className="w-full @3xl/app:w-96"
+                placeholder="producers, cn=engineers,ou=groups,dc=example"
+                value={admins}
+                onChange={(e) => setAdmins(e.target.value)}
+              />
+            </Row>
+          </>
+        )}
+        {/* One footer for the form (#682): Test and Save, with what the test found. */}
+        {(form.enabled || saved.enabled) && (
+          <FormFooter
+            note={
+              save.error ? (
+                <span role="alert" className="text-signal">
+                  {save.error.message}
+                </span>
+              ) : (
+                <span role="status">{outcome ?? "Test connects with the saved settings."}</span>
+              )
+            }
+          >
+            {form.enabled && (
+              <Button
+                variant="ghost"
+                disabled={test.isPending}
+                onClick={() => {
+                  save.reset();
+                  test.mutate();
+                }}
+              >
+                {test.isPending ? "Testing" : "Test connection"}
+              </Button>
+            )}
+            <Button variant="secondary" type="submit" disabled={save.isPending}>
               {save.isPending ? "Saving" : "Save"}
             </Button>
-          </span>
-        </Row>
-        {save.error && (
-          <p role="alert" className="px-4 py-2 text-[13px] text-signal">
-            {save.error.message}
-          </p>
+          </FormFooter>
         )}
       </Section>
     </form>

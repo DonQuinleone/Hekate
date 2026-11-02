@@ -1,8 +1,7 @@
-import type { AuthorizeParams } from "@hekate/shared";
+import { type ApiScope, type AuthorizeParams, apiScopeLabels } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
-import { ScopeList } from "~/components/oauth";
 import { Button } from "~/components/ui/button";
 import { authClient } from "~/lib/auth";
 import { authorizeQuery, useAuthorize } from "~/lib/oauth";
@@ -108,7 +107,7 @@ export function ConsentPage({ params }: { params: AuthorizeParams }) {
       <div className="flex flex-col gap-3">
         <span className="text-[13px] text-ink-2">It asks to</span>
         <div data-consent-scopes className="rounded-panel border border-line bg-raised/25 p-3">
-          <ScopeList scopes={view.scopes} />
+          <ConsentScopes scopes={view.scopes} />
         </div>
         <p className="m-0 text-[13px] text-ink-3">
           Your answer goes back to <span className="tabular text-ink-2">{view.returnsTo}</span>. You
@@ -147,5 +146,22 @@ export function ConsentPage({ params }: { params: AuthorizeParams }) {
         </p>
       )}
     </Frame>
+  );
+}
+
+/**
+ * What the application asks for, as GitHub's and Google's consent screens put it (#709): the
+ * sentence first, the scope's identifier after it, quieter, for whoever checks it.
+ */
+function ConsentScopes({ scopes }: { scopes: readonly ApiScope[] }) {
+  return (
+    <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
+      {scopes.map((s) => (
+        <li key={s} className="flex min-w-0 flex-col">
+          <span className="text-[13px] text-ink">{apiScopeLabels[s]}</span>
+          <span className="tabular text-[12px] text-ink-3">{s}</span>
+        </li>
+      ))}
+    </ul>
   );
 }

@@ -186,7 +186,7 @@ export const apiOperations: Record<string, ApiOperation> = {
     summary: "List projects",
     description:
       "The projects the token's member may see: those in use, or with `archived=1` those archived. With `figures=1`, each carries what its card shows.",
-    response: { projects: [{ ...answers.project, mine: true, mayArchive: true }] },
+    response: { projects: [{ ...answers.project, mine: true, owned: true, mayArchive: true }] },
   },
   "POST /projects": {
     summary: "Make a project",

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Folder, ProjectFile, Track } from "./queries";
 import {
   endOfDay,
+  fileShareTargets,
   guestFromEmail,
   linkEnd,
   linkLifeWords,
@@ -54,9 +55,9 @@ describe("a share's people (#138)", () => {
 describe("sharing one item (#489)", () => {
   const now = new Date("2026-10-20T10:00:00Z");
 
-  it("names the link's life in words, and ends it from now", () => {
-    expect(linkLifeWords(7)).toBe("Link works for 7 days");
-    expect(linkLifeWords(null)).toBe("Link works until withdrawn");
+  it("names when access ends in words, and ends it from now", () => {
+    expect(linkLifeWords(7)).toBe("In 7 days");
+    expect(linkLifeWords(null)).toBe("When withdrawn");
     expect(linkEnd(7, now)).toBe("2026-10-27T10:00:00.000Z");
     expect(linkEnd(null, now)).toBeNull();
   });
@@ -84,7 +85,7 @@ describe("sharing one item (#489)", () => {
     });
   });
 
-  it("viewing is a share; commenting and downloading are a feedback review", () => {
+  it("viewing is a share; commenting is a feedback review; downloading is chosen apart (#578)", () => {
     const base = { life: 7 as const, items: [{ fileId: "f1" }], reviewers: ["u1"], now };
     expect(shareRequest({ ...base, access: "view" })).toEqual({
       kind: "share",
@@ -97,11 +98,30 @@ describe("sharing one item (#489)", () => {
       comment: true,
       download: "none",
     });
-    expect(shareRequest({ ...base, access: "download", life: null }).permissions).toEqual({
-      comment: true,
-      download: "original",
-      expiresAt: null,
+    expect(
+      shareRequest({ ...base, access: "comment", download: "original", life: null }).permissions,
+    ).toEqual({ comment: true, download: "original", expiresAt: null });
+    // A share may hand over the review copy and still ask nothing.
+    expect(shareRequest({ ...base, access: "view", download: "proxy" })).toMatchObject({
+      kind: "share",
+      permissions: { download: "proxy" },
     });
+  });
+
+  it("shares a track's file as its version, with the file alone as the other choice (#578)", () => {
+    const variant = {
+      versionId: "v2",
+      versionNumber: 2,
+      trackId: "t1",
+      trackName: "Maple Leaf Rag",
+    };
+    expect(fileShareTargets({ id: "f1", name: "Dry v2.wav", profile: "music", variant })).toEqual({
+      item: { kind: "version", id: "v2", trackId: "t1", name: "Maple Leaf Rag V2" },
+      alternative: { kind: "file", id: "f1", name: "Dry v2.wav" },
+    });
+    expect(
+      fileShareTargets({ id: "f1", name: "Trailer.mov", profile: "video", variant: null }),
+    ).toEqual({ item: { kind: "file", id: "f1", name: "Trailer.mov" }, alternative: null });
   });
 
   it("shares a folder as everything in it, at every depth, leaving out tracks without a version", () => {

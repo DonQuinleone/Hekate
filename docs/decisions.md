@@ -317,6 +317,7 @@ Deleting a project (#240) is asked for by someone whose role may delete it, and 
 ## 078. A project may keep its new files on a backend of its own
 
 A project may choose the storage backend for its new files (#240), over the workspace's choice (decision 017) and the instance default, under Protection, Storage, as the prototype shows. As with the workspace's choice, admins see it and only owners change it, and existing files stay where they are: everything made from a file afterwards (renditions, pages, peaks, loudness and spectrograms), comment attachments and new uploads go to the project's backend. A project's usage is the same count the workspace's storage page gives it. The choice is not copied by templates or into projects started from another, since it is the workspace's arrangement rather than the project's set-up.
+
 ## 079. A project chooses whom its visible watermark marks, where and how strongly
 
 The visible watermark (#31, docs/security.md) is a project setting under Protection, Asset security: whom it marks (off, guests only, or everyone), where (tiled, the bottom right corner, or the centre) and how strongly (an opacity from 10 to 80 per cent), with a preview in the viewer's own name. Until a project chooses, it marks guests only, tiled and faint, as before. Pages and pictures carry the mark burned in on the server for whoever it marks; a video carries it as a layer the player draws over the picture, worded by the server: the person's name and email, the workspace and the day. A layer in the browser deters casual capture and makes a capture say whose it was, but it is no defence against someone who removes it; forensic marking (#32) is that defence. Downloads are always marked for the person who asked, whatever the project chooses (decision 056). The choice goes into templates and projects started from another, and is the project's edit level's to change.
@@ -581,7 +582,6 @@ A project's board (#141) shows every track as a card in a column, as Linear's bo
 - **Fresh within seconds.** The board asks again every fifteen seconds, so a transition made elsewhere shows without reloading.
 - **Not yet.** Moving a card by dragging it is left out: the prototype has none, and a track's status is the workflow's to set. The calendar, its subscription and the timeline follow in parts of their own.
 
-
 ## 126. A project's calendar, and a feed of it that only its owner's access opens
 
 The board's Calendar view (#141) shows a month of the project: reviews due (not cancelled), tasks due, and, for those who may see takes, the days sessions were recorded. Each opens where it is; one past its date and not finished is marked late. At phone width the days carry dots and the month's events are listed under the grid, as Apple Calendar does.
@@ -704,7 +704,6 @@ A browser plays at most eight channels from one stream, so a 7.1.4 or wider reco
 - **Not sample-locked.** The parts stay within a frame or two of each other, which is enough for review listening. Measurements (levels, phase, loudness) come from the server's own decode of the whole file, not from the browser, so they are exact.
 - **Earlier files.** A file prepared before this change has one stream of eight; the player says its channels cannot be heard apart rather than playing a partial layout.
 
-
 ## 140. An ADM master's objects are heard through the EBU ADM Renderer
 
 An ADM master (BS.2076, as Atmos and other object-based mixes are delivered) holds a bed of channels and objects whose place moves with the music. Until now only the bed was heard (#74). The owner chose the EBU ADM Renderer (`ear`, BSD-3-Clause, the reference renderer of ITU-R BS.2127) over writing one.
@@ -732,7 +731,6 @@ The rest of #55: what the prototype's People page and workspace Defaults show.
 - **One family per viewer.** A player picks one encoding before the stream starts and drops the other's renditions, so the picture never changes codec mid-stream. It takes AV1 where H.264 cannot be played, or where the browser says it decodes AV1 smoothly and power-efficiently; otherwise H.264, which every device decodes in hardware. The browser is asked at the video's own frame rate, as a decoder smooth at 30 frames a second may not be at 60. Choosing a rendition by hand offers the chosen family's rungs, named "720p · AV1". Downloads still make their proxy from the H.264 encoding, which is quicker to decode.
 - **The ladder is the instance's.** `VIDEO_LADDER` lists the rungs as height and bitrate, highest first (1080p at 6 Mbit/s, 720p at 3, 480p at 1.2 by default). A video gets the highest rungs at or below its own height, up to `VIDEO_RUNGS` (two). The AV1 or VP9 rung gets two thirds of the H.264 rate. A video rendition advertises its measured peak (RFC 8216's peak segment bit rate) wherever a busy scene took it over its planned rate, so a player never picks a picture its connection cannot keep up with.
 - **A GPU where there is one.** `VIDEO_HARDWARE` names a VAAPI render node (Intel or AMD); H.264 is then encoded on it. A rendition the GPU cannot encode (no device, a busy one, a picture it refuses) is encoded again in software, and the worker logs why. AV1 stays in software: few GPUs encode it.
-
 
 ## 143. Cuts compared in the player, their comments and findings on the comparison page
 
@@ -1240,7 +1238,6 @@ CI runs the API suite through PgBouncer in transaction mode at its defaults (the
 - **Rolling updates without a gap.** `api` starts each new replica, healthy, before stopping an old one, and rolls back by itself when a new one fails; workers stop first, their jobs finishing or going back to the queue. Every app task has 40 seconds to stop (decision 193).
 - **One PostgreSQL** on a labelled machine, for a start; the docs point to a managed service or Patroni for more (decision 190). Caddy on a manager, through Swarm's virtual address for `api`, retrying for up to five seconds when a replica stops as a request arrives.
 - **CI checks the stack reads** (`docker stack config`) on every pull request; it is not deployed there, as it needs S3 and a swarm.
-
 
 ## 195. Load testing
 
@@ -2097,6 +2094,7 @@ Routes: `GET /api/files/:id/metadata` (the format, the fields that may be correc
 Every pull request waited for every job, about half an hour, whatever it changed. Now `scripts/ci-changes.sh` reads the diff against the base and each job in `ci.yml` runs only when files it covers changed: lint and typecheck for any code, the server suites (with their directory, identity provider and S3 server) for the server and the packages, the web and prototype suites for the web, the visual suite for anything the browser could see, the image for what goes into it, the chart for the chart, the docs site for the docs. A change to the workflow itself, the lockfile or a root manifest runs everything, as do a push to `master`, a nightly run and a run by hand, so nothing the filters miss stays missed for long.
 
 The one required status is `ci`, a last job that fails if any job that ran failed and passes over the ones skipped, since a skipped required check would block merging. The visual suite is split four ways across runners, each shard seeding its own instance and the first running the restore drill; their captures are merged into the one `screens` artefact. The old `check` job is split in three (`check`, `server`, `web`) so a web change never waits for LDAP and Keycloak to start.
+
 ## 266. One seed for the visual suite and the demo, driven through the API
 
 `deploy/compose.laptop.yml` brought up an empty Hekate: trying anything meant making projects, tracks, reviews and settings by hand, while the visual suite already seeded a rich instance, as a Playwright test. The seed is now one module the server ships (`apps/server/src/demo/seed.ts`), and `deploy/compose.demo.yml`, in place of the laptop file, brings up an instance that seeds itself: one command, no `.env`.
@@ -2273,7 +2271,6 @@ The calendar showed what the board and the schedule already knew and offered not
 
 **Expanding only:** one nullable column and two new tables; an older release reads none of them (decision 198). The prototype's board, timeline and calendar show the same.
 
-
 ## 284. Roles are edited one at a time, copied from one another, and set an area at a time
 
 Roles and access was a table with a column per role: beyond five or six roles it scrolled sideways, and every role added a column. The owner decided to edit one role at a time, as XenForo edits its user groups (#506).
@@ -2411,3 +2408,337 @@ Some organisations must keep their material in storage they own, and a workspace
 - **A break within version 1, on purpose.** The public API only grows within a version (decision 224), but these calls and fields were deprecated in the release they appeared beside, and no release has carried them to anyone. `api:reference` refused the document as a break (the removed calls, and `variants` now required), and it was written with `--breaking`, the script's word that the break is meant. The commit says so in a `BREAKING CHANGE:` footer, for the upgrade notes.
 - **The access log keeps what it holds.** The log is append-only, and Postgres cannot drop a value from an enum without rebuilding the type and every row that holds it. So `variation.replace` stays in `audit_action`, and an entry written under it stays as written. The app reads such an entry as `variant.replace` (`formerAuditActions`, `currentAuditAction` and `storedAuditActions` in `packages/shared`, tested): "File replaced" in words, as before; filtering on File replaced finds the old entries with the new (the server's test proves it, another workspace's excluded); and the filter offers the action once, under its current name. Nothing writes the old value.
 - **Words.** `AGENTS.md` and `README.md` say variants, as `docs/domain.md` does. The documentation site's API reference already had its *Versions and variants* page, written from the document at build time, so there was no page to rename. Old migrations and the decisions above keep the word, as history.
+
+## 310. The projects list filters by ownership, earns its columns, and has one New project
+
+#549, #550 and #619. The projects page drew New project three times (the header, a dashed tile at the end of the grid, and the empty state's own), Home a fourth as a tile that wrapped onto a row of its own, and the list's filters, *Active* and *Yours*, gave most members the same list twice.
+
+- **One New project per page.** The header holds it, as Linear and Vercel keep a single create button. The dashed tile is gone from the grid and from Home (`NewProjectTile` is removed in both apps). An empty list offers it in its empty state, and the header leaves its own out while that shows. Home puts it as a quiet action beside *All projects* in its section's head.
+- **Filters that give different lists.** *All* (every project in use that the member can see), *Owned by you* and *Archived*. Ownership is decision 285's: the list's answer now says `owned` beside `mine` (a member's or an owner's), so a member finds a project they were added to under *All* and only those they started, or were made an owner of, under *Owned by you*. The address says `show=owned`; an old `show=mine` reads as *All*.
+- **Columns that earn their place.** No *Profile* column (the cover already says it); *Last activity*, never the filter's word *Active*; *Open* with the open reviews and comments, as the card shows them; and *Progress* only for a music or video project, empty for a general one, which has no tracks to approve. The row carries the card's *Needs you* badge. The view toggle (cards or list) shows on a phone too, so a list chosen on a desktop is never stuck.
+- **In each profile's words.** A card says "0 of 1 deliverable approved" for a video project and "3 of 8 tracks approved" for music, singular for one (`progressLine`); Home's and the overview's activity says "added cut 2 of Title sequence" (`activityText` with the project's profile), as do the follower's notification, the version sent in through an upload request and a channel's summary. An event's `project` now carries its `profile`, additively, so a receiver can say the same.
+
+## 311. The sidebar marks one place, lists what needs you once, and remembers what you opened
+
+#611, #612, #613, #615 and #618, against the prototype's sidebar and top bar.
+
+- **One current item.** With a project open, Projects is matched exactly, so only the project's section lights up, as Linear's fixed links never do beside a child. Which section holds a page is one pure function (`sectionAt` in `apps/web/src/lib/sidebar.ts`, tested): the project's own address, Files for a file or a track, Reviews for a review and the request form, Production for a session, a take, import and the other production tools, Settings for the workflow builder. A take's page keeps the project's section, as a session's does.
+- **Needs you, once and under one name.** The reviews waiting on you are called *Needs you* everywhere (the sidebar's section, Home's list, the inbox's tab, a project card's badge), drawn with the signal dot and a halo of it (`NeedsYouDot`, on the reference page), never the hollow ring of *In review*. The sidebar leaves its section out on Home and the inbox, which list them; Home's *In review* figure no longer repeats the count.
+- **Recent and the counts, as the prototype has them.** *Recent* lists the last five files, tracks and reviews this person opened in this workspace, by their names as they are now; one no longer open to them drops out instead of leading to a refusal. They are remembered in this browser for each person and workspace (`apps/web/src/lib/recent.ts`), as Linear keeps recent views, and nothing breaks where storage refuses. The project's *Reviews* counts the reviews in it waiting on you, *Tasks* your open tasks; the prototype counts the same.
+- **Menus beside a collapsed rail.** `Floating` takes `side: "right"` and `"left"`, flipping when there is no room and kept inside the window (`besidePlace`, tested); the project switcher and the account menu use it when the sidebar is collapsed, so they open over the pane, not over the rail. The switcher lists the open project first, then the most recently opened, then the rest by name, the same each time.
+- **The top bar in the prototype's order:** help, the instance, the bell. The instance is drawn as a server (`instance`, Lucide's `server`) and named *Instance*, no longer a fingerprint; a phone leaves it out, the account menu leading there. The help button carries its dot only while the status is not normal, saying why when pointed at, and the help menu's status dot follows its words (`trail` on a menu item), so every label starts at one edge.
+
+## 312. The connection says what happened in plain words, and hears of it from every request
+
+#616. The sidebar's foot and the phone's banner said "API unreachable" and "Database unreachable", and learnt of a lost server only from the health check every thirty seconds, so the take log could say it was offline beside a foot that said *Connected*.
+
+- **Words.** *Can't reach the server* when nothing answers, *Running slowly* when the server answers without its database, each with *Trying again* (in the foot where the version was, and after the banner's sentence). The prototype says the same.
+- **Every request feeds it.** The API client's `fetch` is `watchedFetch` (`apps/web/src/lib/connection.ts`): a request that gets no answer, or a proxy's 502 or 504, loses the server at once; any answer finds it again; a cancelled request says nothing (`reachOf`, tested). Losing it asks the health check again, so a passing failure clears as soon as the server answers. The take log reads the same state, and its line says *Can't reach the server: written here, sent once it is back*, in the moment the foot does.
+
+## 313. A service's state has one name, and its marks are told apart by shape
+
+#617. The help menu said "Every service running", the status page "Every service is running", "Operational" and a legend with "Running"; slowness was "Some services are slow", "Degraded performance" and "Slow"; and the legend's three warm swatches could not be told apart in greyscale.
+
+- **One set of words,** in `packages/shared/src/status.ts`: *Running*, *Slow*, *Partial outage*, *Major outage* (`serviceStateNames`, the impacts' names among them) and *Not measured*; the line for the whole is `overallLine` ("Every service is running", "Some services are slow", "Some services have a partial outage", "Some services have a major outage"). The help menu, the status page, its legend and the operators' desk take every label from there, in both apps.
+- **By shape and fill as well as colour,** as `docs/brand.md` asks of status: running is a quiet filled bar or dot; slow an outline of the signal; a partial outage half filled (a dot from its left, a day's bar from its foot); a major outage filled with the signal.
+
+## 314. Each command is named once, and a key sequence is written one way
+
+#699. The palette and the shortcut map named one command twice ("/" as *Search*, Ctrl K as *Search and commands*), wrote "G H" where the map wrote "G then H", kept *All notifications* among the actions though it is a place, and closed on the fragment "Only what you may see".
+
+- **One row.** *Search and commands* answers Ctrl K (⌘ K) or "/". A shortcut that works while typing (`anywhere`) does so only for its bindings with a modifier, so "/" still types a slash in a field.
+- **One way of writing keys,** `KeyStrokes` in `apps/web/src/components/shortcut-map.tsx`: the strokes of a sequence joined by *then*, a shortcut's bindings by *or*, in the palette and the map alike. The palette's shortcuts are bindings as `lib/keys` writes them ("g h").
+- **Names.** *Advanced search* for the search page, *All notifications* under *Jump to*, and no closing fragment: the footer keeps to its keys (a sentence there wrapped its hints onto two lines). The prototype's palette follows.
+
+## 315. The ControlRoom import's report is written for people, its ids kept for support
+
+#551. The import preview (decision 242) showed what the reader found in its own terms: "upsert_stage_element: names a stage plan…", "Unknown event frobnicate_widget", "Unread field update_venue.postcode", "so the file's was left out", "A movement of …", and every line in the signal colour.
+
+- **Sentences about the thing.** Each problem is a sentence about what it concerns, in Hekate's words: "Take 1 of “Maple Leaf Rag” is already in this project, so the file's own take 1 was not imported." An event is named by what it changes (`croomChangeWords` and `croomSubject` in `packages/shared`, tested): "A change to a take's rating holds a detail that is not a number". A work's parts are tracks, never movements. Something already in the project reads "the work “Rags”" or "Mira Solberg on the personnel" (`croomConflictWords`). Titles are quoted with curly quotes.
+- **Ids only for support.** The report carries, beside each problem written for people, the line in the file's own ids (`support`, additive), and the preview keeps those, with the unknown events, the unread fields and what was set aside by their types, under *Details for support*. Everywhere else the preview says what they are (`reportLines` in `apps/web/src/lib/croom.ts`, tested).
+- **One quiet colour, the signal once.** The lines to look over are in ink with a warning mark; the signal is only the count beside *To look over*. *Not brought over* is the shared folding section, not the browser's disclosure triangle.
+- The prototype's import preview, in `apps/prototype/src/routes/production.tsx`, belongs to the production batch and follows there.
+
+## 316. Uploads belong to the shell: they keep going, and stay in view, on any page
+
+#552. The Files page held its uploads: following any link mid-upload unmounted them, their progress went, and the guard that asks before closing the tab went with it while transfers might still be running.
+
+- **One queue, in the shell.** `UploadQueueProvider` (`apps/web/src/components/upload-queue.tsx`) holds every upload started from a project's Files (a drop anywhere on the page, the Upload button, the context menu's Upload) and its `beforeunload` guard, for as long as the member is in the app. The Files page only starts uploads; where it listed them it lists nothing (`UploadList` draws nothing until its place goes).
+- **The tray.** At the pane's foot on the right, as Frame.io, Dropbox and Google Drive keep theirs: each file's name, its progress and size, Cancel, and Retry once it has failed; folded to one line with the count and how far along by bytes (`traySummary`, tested); a file that arrives is marked done a moment and leaves, and the tray closes once nothing is left. On a phone it sits above the bottom bar.
+- **What follows.** The other upload dialogs (a new version, a variant, the audio dialog, take import) still send their own files while open, since each goes on to make something of them; they can hand their files to the queue (`useUploadQueue().send`) as their pages change. The prototype's files page shows its uploads in place and follows with them.
+
+## 320. Status means where a track stands in its workflow, on every page
+
+#558. Files and Overview headed a track's review state "Status" ("In review"), while the board and the timeline showed the status its workflow gave it ("Mastered"): one word for two facts, and the same track read two ways.
+
+- **Status is the workflow's,** as `docs/domain.md` defines it, wherever a column or a line says so: Files, Overview, the board and the timeline. How its review stands is the dot beside it, and its words on hover and for screen readers, never a second status. The web reads each track's status from the board's own query, which those pages share, so nothing new crosses the API.
+- **One wording for nothing yet.** A track with no version has a dash under Status and reads "No version yet" (a deliverable "No cut yet") wherever that is said: Versions, the board's first column (its id stays "No version", which people's hidden columns hold), the overview. A folder has a dash under Versions; it holds versions but has none.
+- **A column only where it can be filled.** Where no row in view can have a status (a general project's files, none being prepared), Status leaves the list and the Columns menu; the member's chosen columns are kept as they are, for the projects where it applies.
+
+## 321. Files that name the same track are proposed as its versions
+
+#631. Uploading "Pine Apple Rag - V1 mix.wav" and "Pine Apple Rag - V2 mix.wav" made two tracks, named with their suffixes.
+
+- **A track's name leaves out what says which version or mix a file is** (`trackNameFrom` in `apps/web/src/lib/upload-plan.ts`): a version mark (V1, ver 2, version 3) cuts the name where it stands; treatment words ("mix", "final", "dry mix", "master") and a plain trailing number come off the end; a catalogue or part number ("No 5", "Op 10", "Reel 2") is the piece's own and stays.
+- **Grouped by the name they give.** Several files that all name one track are proposed as that track with a version each; where some share a name and others do not, as a track for each name; otherwise a track each, as before. Versions are numbered in the order the names give where each gives a different one, else in name order. The choice is the person's: *A track each*, *A track for each name* and *One track* stay on offer. All of it is pure and tested.
+
+## 330. The status menu offers what a person decides, named by where it leads
+
+#566. A track's status menu offered every outcome of the step it waited at, by its raw name: "Done" beside "Due date passed". The second is an event the clock raises; choosing it by hand faked a deadline, and neither said where the track would go next.
+
+- **Some outcomes are an event's alone.** `choosableOutcome` in `packages/shared` (tested) says whether a person may end a step of its kind by an outcome: a due date passing (a feedback round's or a task's `overdue`) is the clock's, and what the QA check found is the measurement's. A wait may still be ended early ("Stop waiting"): that fakes nothing. Events and steps Hekate does at once are never ended by hand, as before.
+- **The server refuses them.** `POST /api/workflow-runs/:id/steps` answers 409 for an outcome only an event raises, with the run locked, so nothing ends the step; an outcome the kind lacks is still 422, and a lesser role and another workspace are refused as before (the server's test proves each).
+- **Named by where it leads.** A track's runs say, for each step they wait on, the outcomes a person may choose and the step each leads to (`choices`, from `stepAfter`, which follows the outcome's connector past what is done at once, as `nextStep` does for the first). The menu reads "Done, to Mastering…", and its confirmation says which step ends and which begins. The field is added beside the old shape; a client that does not read it filters by `choosableOutcome` itself.
+
+## 331. QA counts checks, in one set of words, in one layout
+
+#564, #565, #634. The QA badge, the view and the report each counted something different (checks with a problem, checks per severity, findings), in two sets of words ("failed" and "to look at" against "Fails" and "Worth a look"), and a video's QA was laid out as cards while a recording's was hairlines.
+
+- **One count.** `severityCounts` counts checks, each at its worst finding, a project rule a check of its own; `qaAttention` is the checks that fail or are worth a look. The header's badge, the view's tally and the report's counts and headline all use them, so they agree on every file. Findings are listed under their check, the check named once.
+- **One set of words,** `qaSeverityNames`: Fails, Worth a look, Note, Passes, in the tally, the report and the rules' results.
+- **Each problem said once.** `findingLine` and `findingWords` (tested) drop a check's name where its summary already starts with it, in the list and in a comment begun from a finding. "New in this version" is a quiet label, and the comparison with the previous version is one line ("Since V1 · Dry: 4 new, nothing fixed") whose count narrows the list.
+- **One layout** (`QaLayout`): the figures in one hairline row (loudness and true peak from the checks, the length), the checks with the report in their heading row, then what the page adds (a video's frames to look at, the loudness), the format and the metadata. A video's delivery checks are among its checks rather than a list apart, so its badge and tally count the same. Where QA's row gives loudness and true peak, the meters' panel leaves them out.
+- **The report** heads its rules' columns Check, Asks for and Result, a signal check asking "None allowed"; prints the format and metadata once, in the appendix; lets the findings and appendix flow on from the summary rather than each starting a page; and says "Ceiling −1.0 dBTP: exceeded".
+
+## 332. A file's format is said once, in words people use
+
+#635. The same facts were said three ways on one page (the strip, the Details sheet, QA's list), in ffmpeg's ids and MIME types ("pcm_s16le", "audio/wav"), and the download dialog offered a "Proxy" of a PDF.
+
+- **One formatter.** `mediaFormat`, `soundLine`, `audioCodecName` and `containerName` in `packages/shared` (tested) say a file's format in words: "PCM 16-bit · 44.1 kHz · stereo", "WAV", "QuickTime". The Details sheet, QA's Format, the report's tables, a video's streams and the download choices use them; nothing shows a MIME type or a codec's id.
+- **Said once.** The detail list is the Details sheet's: the player's strip no longer repeats the rendition, and a file with no viewer no longer prints its details under it. A guest, who has no sheet, has them behind one "Details" disclosure, so on a phone the comments come straight under the transport. Storage, encryption and renditions, the instance's business more than a reviewer's, fold under "Storage and delivery".
+- **Downloads in plain words:** a Review copy and the Original, a video's "Original, re-encoded with your mark", each with its format and its size (an encode's, about, from its rate and length).
+
+## 333. The player's view is one row; playback's settings are the transport's
+
+#636, #637, #638. The player had its menus in the strip and its view toggles in a second row, two controls for the spectrogram, playback settings inside View, a Loop that was disabled at rest and renamed itself once on, and a loop editor that pushed the page down when it appeared.
+
+- **One row** at the media's edge holds every view control after what leads the strip: the score, the quality ("Quality Auto", its full name in the menu), the loop, the spectrogram, the meters, the player's menus (draw, frame, captions, channels, view) and the zoom. On a phone the spectrogram, the meters and the frame's guides go into one overflow, as Logic gathers its control bar's rest. Captions keeps its name, pressed with the track's as a quiet suffix, and a track's menu entry says its kind once.
+- **One control for each setting.** The row turns the spectrogram on and off; View says only where it sits (Below, Behind, Instead), its settings opening directly under a link that keeps its label, and keeps a preset from one field with one Save. Behind, the waveform is drawn see-through so the spectrogram reads, the brightness slider still setting how much. Normalised playback sits beside the volume it sets, and following the DAW in the transport's own menu.
+- **Loop is always there and moves nothing.** It keeps its label, pressed when on; with no passage it says, in place, how to make one. Its edges, step and rolls open in a panel from it, never a row of their own, and the composer offers the loop as one of the places a comment goes.
+
+## 334. Comments sit on the media as numbered markers, and the composer is one row
+
+#562, #563, #642. Each comment was a one-pixel tick on the scrub bar that could not be clicked, the findings louder than people's comments; the composer was always open across three or four rows; and a thread's row held a changing task chip, a link and two stacked menus.
+
+- **Markers.** Each open thread with a moment is a numbered marker along the top of the waveform or the filmstrip, as the prototype draws them and as Frame.io and Dropbox Replay show comments on the media, with a bar for a passage's reach; work to do carries the signal colour, a deferred one is dashed. A click plays from its moment and opens and marks its thread (the comments shown if they were put away); a hover previews its first line. Threads are numbered in the order they play (`threadNumbers`, tested), "#1" on the thread as on its marker. The checks' findings sit on a quieter lane of their own under the scrub bar.
+- **The composer** is the prototype's: one row of where the comment goes, the words and a send button, the rest (references, channel, category, Attach, Mention) coming in on focus. Where it goes is a menu whose items keep their names and whose face shows the place it will land, the playhead's moment following the playhead until writing begins.
+- **A thread's row** holds Reply, Resolve and one menu: a task is a quiet "Task" chip with a check, "Open the task" is in the menu, and a reply's menu and a posted file's remove appear on hover or focus. The count of open comments is the header's toggle's alone.
+
+## 335. A media position is written one way
+
+#645. The same kind of time was written five ways ("0:12.0", "0:21.400", "00:06.200", "00:12.005", "0:14–0:15"). `formatClock` writes every media position to the millisecond with no leading zero on the minutes ("0:12.000", "1:04:31.250"), and `formatSpan` every stretch, its ends joined by an en dash; `formatAnchor` writes an anchor in sentence case ("Bars 9–12", "p. 3 · bar 5") and no longer says REGION. QA, the comments, the marker import, the loop, the transport and the QA report use them. A machine-readable export (WebVTT, a DAW's markers) keeps its own format. The transport shows the bar beside the time where the version's edit decisions say which bars each stretch holds (`barAt`, `timeOfBar`), and a video's two values on its own timecode.
+
+## 336. The score sits beside the waveform, and triage plays only the passage
+
+#646, #632. Opened, the score stacked under the transport and squeezed the waveform to a strip; triage embedded the whole player, its view row, meters and loop editor, pushing its decisions out of view.
+
+- **The score beside the player** on a wide screen, the frame's full height, as wide as the viewer drags its edge (or moves it with the arrow keys), remembered per browser (`scoreWidth` in the panel layout); on a phone it follows the player. Its thumbnails show paper until they are drawn, and every page is drawn on the paper token.
+- **Triage's passage** is the prototype's: the media small with its loop, play, and the passage's times. The same media element plays on as the queue moves, so nothing restarts between threads.
+
+## 340. A guest's link is spent by their own click on Continue, never by opening it
+
+#573, #574 and #668. The page a guest's link opened exchanged it as it loaded. Corporate mail scanners that run a page's scripts (Safe Links and the like) load every link in a message before its reader does, so a client's first contact was "This link no longer works". The prototype's guest-link screen already greeted its person and waited for a button.
+
+- **Look, then spend.** The page asks `POST /api/guest/sessions/lookup` what the link opens: the workspace and its brand, the open reviews it reaches, when the link lapses, whether a code is asked for, and the guest's name. It spends nothing, sends nothing and sets no cookie; a link that no longer works gets the same `link_gone` as the exchange, whatever the reason (decision 260). It sits under the guest routes' rate limit, per address, like the exchange and the codes. The token goes in the body, never the path, so it stays out of request logs.
+- **Continue spends it.** "Continue as Mira Solberg" calls the exchange, which spends the link atomically as before: once, on one device. Where the workspace asks for a code, the button is "Email me a code", and the code goes out only then, so a scanner neither opens the review nor fills the guest's inbox. In that mode the lookup names no one: whoever holds a forwarded mail learns nothing the mail did not say. The server's test proves a looked-at link still works, a spent or unknown one gets `link_gone`, and a code-mode lookup sends no mail; the visual suite loads the page twice, checks the link is unspent, and only then presses Continue.
+- **Signing out.** It is in a menu on the guest's avatar, with a confirmation: "You will need a new link from whoever invited you to come back." The page they land on says "You are signed out. Ask whoever invited you for a new link.", never to open a link that is spent.
+- **One frame.** The arrival, the code, the spent link and the signed-out pages are all the standalone `Frame`, aligned alike. Each wears the workspace's logo and accent where the workspace is known (the greeting, the code, after signing out of a session); a spent link opened cold, which may be anyone's, keeps Hekate's lockup. The workspace a guest signed out of is held in memory only, so a fresh load of the signed-out page knows none.
+
+## 341. The share sheet says what each control does: how, download, when access ends, and a link for members
+
+#578, revising decision 271's sheet (#489). Its controls did more than they said: "Can comment" and "Can download" turned a share into a feedback review while the hint said no sign-off was asked; "Can download" handed over originals in one click; and the link's dropdown ("Link works for 7 days") set the recipients' access, though the copied address neither lapses nor opens for a guest.
+
+- **How** is *Can view* or *Can comment*. Viewing is a share; commenting is a feedback review, and the hint and the button say so before anything is sent: "They are asked for feedback, without sign-off.", and the button reads *Ask for feedback* (or *Share*). The confirmation repeats it.
+- **Download** is its own choice, apart from how: *No download* (the default), *Review copy*, then *Original*, each with what it costs ("watermarked for each of them. Every download is logged."). A share may hand over a download and still ask nothing, as `shareGrant` already allowed.
+- **Access ends** is the recipients' expiry, labelled for what it is: in 7, 14 or 30 days, or when withdrawn.
+- **Link for members with access** is the item's address in the app, with *Copy link*: it never expires and opens only in a member's session (docs/security.md); recipients get their own links by email.
+- **What is shared.** The subtitle that named the kind ("Audio", "Track") is gone; only a folder keeps a line, its count. From a track's file, Share shares the version, every variant of it, with *This file only* as the other choice (`fileShareTargets`), since a reviewer means the track or version rather than "Dry v2.wav".
+
+## 350. A track's and a session's name is their page's heading, and a track's header shares once
+
+#567, #649, #648. A track's trail read "Maple Leaf Rag: versions" over a heading "Maple Leaf Rag", and its header offered Share beside Request a review behind the same permission, five actions in a row that ran off a phone. A session's name was in the trail alone.
+
+- **The heading in the page.** `PageHeader` takes `heading: "page"`, as the prototype's header has: the trail ends at the step above, with no separator after it, and the page draws its own heading; on a phone, where the trail is only the way back, the bar still names the page. A track and a session use it; lists and tools keep the title as the trail's last step.
+- **One sharing action.** The track's header keeps Request a review, as the prototype's does; Share is in the "…" beside it (a version's own Share stays in its row). On a phone only the primary stays out (Add version, Add cut, Add takes), whole, and Follow, Compare, Share and Request a review are in the "…", as Linear and Vercel keep one primary on a phone.
+
+## 351. A take sits under its track; its session is said beside it
+
+#568. A take belongs to its track, never to the session it was recorded in (docs/domain.md), but its trail went through the session whenever it had one. The trail is now the project, the track, its Takes and the take, in the app and the prototype; the session and its day ("Day 2 · 13 Oct 2026") are in the take's line of facts, linked to the session, and the take detail carries the session's day for it. The switcher between takes is named for the track ("Takes of Maple Leaf Rag recorded in Day 2"), as it lists that track's takes from that session.
+
+## 352. Cuts are compared in the player; the comparison page is for tracks
+
+#569. A deliverable's Compare opened the page that lines up two versions by their audio, where a cut has no picture, while the player's own compare bar showed both cuts and worked.
+
+- **One place for cuts.** The header's Compare and a cut's "Compare with the previous cut" open the newer cut in the player with the cut before it beside it (`?cuts=side` on the file's address, read by the player as it opens). The comparison page, reached for cuts only from the player's "Comments and findings", shows a deliverable's comments and findings and a way to the pictures, never empty lanes, Blind A/B or the keys.
+- **One order.** The older cut is on the left in Wipe as in Side by side, labelled so; two cuts side by side start at the top of the stage with their lanes under them, as two pictures half as tall cannot fill it.
+- **Each fact once on the alignment page.** The keys 1 and 2 are on the lanes only; a level is labelled where it is turned down ("Level-matched −2.0 dB"); a findings section with nothing in it is not shown (one line says nothing was fixed or new); Open V2 is a button.
+
+## 353. The stage plan opens fitted, zooms as Figma does, and keeps labels off their neighbours
+
+#570. A 12 by 8 metre plan over a 16 metre floor plan was drawn at a scale that could not go below 40 pixels a metre, so it ran past the panel. The plan now fits its panel on load and as it resizes (down to 12 pixels a metre); a zoom of out, the scale ("Fit" or a percentage) and in sits beside its size, with Shift+1 to fit again and + and - on the plan, as in Figma. A microphone's label sits to the right of its mark unless it would run into another mark, then to its left, else under it (`labelSides`, a pure function with a test). The grey tab at the plan's left was the floor plan's own door, now drawn whole with the plan. Export offers A3 and A4 as equals, under one heading saying both carry rulers and a scale bar.
+
+## 354. Every production page is in Production's frame, with Take log in it
+
+#648. The session and take log pages skipped the frame, so the page jumped between them and the rest of Production. Both are now framed, a session with Sessions current and its take log with Take log, which joins the sections between Sessions and Score marking as the prototype has it. Production's Take log opens the day's session's log: today's, else the latest before today, else the soonest to come (`takeLogSession`, tested), or, without sessions, says where to make one. The sections are short, so their column is as wide as the longest (`SideNav`'s `fit`) rather than settings' 200 pixels. Venues have an icon of their own (`venue`), as `pin` means pinning a file.
+
+## 355. A slot shared by tracks is counted once in the schedule's coverage
+
+#651. An "All repertoire" slot was counted in full against every track, so the totals came to more than the time booked. Coverage now gives each track its own minutes and the shared minutes apart ("110 min + 120 min shared"), and under the list the minutes booked and how many of them are shared, so each track's own and the shared add up to what is booked (`coverageTotals`, tested). A track's slots are grouped by day, each day named once ("Day 1: 11:50, 14:00 · Day 2: 10:30").
+
+## 356. A session is made with one form, and its page lists takes under their tracks
+
+#652. A session made from the calendar's New entry had a form of its own. Choosing Session there now opens the one New session form (`SessionDialog`), with the title and day typed so far, and the session it makes is on the calendar on its day. A session's page lists the tracks it recorded, each a heading with its takes beneath (the Track column is gone), every column headed (Length last), the star's room kept so the numbers line up, and on a phone two lines a take instead of a table that scrolls sideways. Both timecodes of a take are written in full wherever they show, as "10:14:02:00 – 10:19:40:00", never with the out point's hours left off (#571).
+
+The Import section of Production imports a ControlRoom project, not takes, so it keeps its name; Import takes is the button that brings a day's recordings in.
+
+## 357. The take import ticks what it will import
+
+#657. The proposal's boxes selected takes for bulk changes, all unticked, while the button counted the takes to import. A box now says whether its take will be imported: ticked from the start, unticking leaves it out, a take waiting for its track or mix is ticked once it has them, one already imported cannot be. The number on the button is always the ticked takes. Takes without a track are placed together from the bar above ("Put the 3 without a track on"), where Undo now sits once there is something to undo; the footer holds Cancel and the primary. A new session's name field is labelled and empty, the name it would take as its placeholder.
+
+## 358. A patch row's source can be a stage plan's microphone
+
+#659. The patch list is linked to the microphones on the stage plan (docs/domain.md), but a row's source was free text. Its dialog names its fields as the table heads them (Input or Output, Source, Device, Cable, Notes); Source still takes any words, and offers the stage plans' microphones beside it: choosing one fills the source and, once the row is saved, links the microphone to it, so its label on the plan follows the list. A row a microphone is linked to is marked in the list. On a phone the notes go under the source rather than off the edge.
+
+## 360. Watermarks and downloads: named for what it holds, its visible watermark one section
+
+#580, #674. A project settings page was called Asset security, though `docs/domain.md` keeps *asset* out of the vocabulary (say file, track or version). It is now *Watermarks and downloads*, still under Protection, in both apps and the inventory; its section is `watermarks`, and a link that says `security` still opens it.
+
+- **One visible watermark, one section.** The mark covers video, pictures and documents alike (decision 287), yet it showed twice: set under one section and said again under the other ("the same mark, set under … above"), with its preview under Video alone. It is one section, *Visible watermark*, where the first of video or documents stands in the profile's order (`protectionLayout` in `packages/shared`, tested), open where the project has either kind and folded to its summary where it has neither.
+- **Labelled fields.** Its three controls were three unlabelled selects on one row, the hint standing in for their names. They are *Who it marks*, *Position* and *Strength* (10 to 80 per cent), each with its label, in a row with the preview beside them as a thumbnail in the viewer's own name at every setting, saying when nothing is marked, as Stripe lays out a branding setting.
+- **One screen, for the marks.** Decision 287 had the whole page fit one screen at desktop height. With the preview always shown it no longer quite does, so the rule is now that the marks (the audio mark and the visible watermark, with its preview) fit one screen, and who may download and delete may be a scroll below them; the visual suite checks that.
+
+## 361. A project's settings: each where people look for it, and per-track overrides only where a track differs
+
+#671, #672, #675, #706. Each page held settings that belonged to another, and every per-track list repeated every track with *Project default*, eighty rows of defaults for twenty tracks.
+
+- **Where each lives.** Normalised playback is a listening setting matched to the delivery profile's target, so it moves to *Delivery profile*, with its per-track list. *Assign new comments to* is a comments rule, so it moves to *Comments*. The checks on a new version move to *QA rules* (decision 362). *Workflow* keeps its workflows and who they tell.
+- **Overrides, as Vercel lists environment values.** Each per-track list shows only the tracks that have their own, under a heading that names the setting (*Tracks with their own references*, *Tracks whose new comments go to someone else*, *Tracks with their own profile*, *Tracks with their own normalisation*), with a count, *Override for a track…* to give another its own, and choosing *Project default* to put one back. With none, the heading says every track follows the project's choice. A video project says deliverables throughout (`itemWords`).
+- **Delivery profile names itself once.** Its page title was repeated as a section heading with a second intro; the page's own intro now leads its one untitled section, and *Custom…* is the select's last choice rather than a ghost button beside it.
+- **General lines up.** Name, Profile and Description share the settings row's width, Description two lines tall so it is read whole. Each comment category shows its colour as the 3 px bar a thread carries (brand.md).
+- **Words.** The Roles page's player tools are what a role sees *in the player*, not on "the recording page"; the workflow intros say steps and the profile's words.
+
+## 362. QA rules read whole, and a rule can be checked on upload
+
+#584, #672. The QA rules page cut every description short on a phone, lost the Delivery checks switch's label, offered *As measured* as though it were a severity, said *always* where others had a switch, put a *delivery* chip on ten rows, opened Immersive audio and Video in a solo-piano project and promised artwork rules to come.
+
+- **Read whole.** Names and descriptions wrap at every width; on a phone the severity, *On upload* and the switch take a second line. The page is *QA rules*, its section *Rules*, its button *New rule*. *Delivery checks* is the panel's first row, a labelled switch whose hint says what they follow, at every width. *Default (as found)* keeps the severity a built-in check reports. A plain error carries a fixed, checked switch whose tooltip says it always runs. Delivery checks and the project's own rules sit under their own subheadings in each category, not a chip per row. Categories the profile does not use, and immersive audio until a project asks for it, are folded to their heading (`openQaCategories`, tested). The roadmap sentence is gone.
+- **On upload, where it can be known as a version arrives.** The prototype has an *On upload* choice on every rule. A built-in check other than the true peak is measured by the analysis once a file has landed, so it cannot hold an upload back, and offering the choice there would be a promise the server does not keep. So it is offered where it is kept: on the true peak, and on the project's own rules, whose measures are known from the probe and the loudness summary. The true-peak check on upload is the old *True peak under the delivery profile's ceiling* (`checkTruePeak`), the one check shared between the two places, and it holds a version back only while its rule runs (`checkRuns`). A rule of the project's own carries `onUpload` (optional, so rules made before it are unchanged; nothing in the database changes shape): a new version whose files fail it is refused, saying why, as the true peak is, and someone who edits the workflow can let it through on the record (`uploadRuleRefusals` in `packages/shared`, tested; the server's test proves a marked rule refuses and an unmarked one does not). A file still being probed, or measured where the rule asks for loudness, is waited for. The requirement of an edit decision list sits beside them under *Checks on a new version*. The prototype offers the choice in the same places.
+
+## 363. The workflow builder: one switcher, one count, one state and one way to begin
+
+#582, #583, #587, #675. The builder said a workflow's steps, state and problems differently in each view and dialog, chose a workflow three ways, and let a template rewrite the open workflow behind one Apply.
+
+- **One switcher.** The canvas's chips, the code view's tabs and the basic view's stacked list are one control, the workflow switcher in each view's toolbar, as Figma's page list stays put across its modes: each workflow with its state, steps and problems, the chosen one kept across views.
+- **One count.** A workflow is counted in steps, the actions between its start and its finish as the basic view lists them (`stepsOf`, tested), in the settings, the views and the copy dialog, which counted every node. `docs/domain.md` defines a step.
+- **One state.** Active and draft are the status dot's shapes, an ink dot and a ring, never green. The basic view's switch is labelled *Active*.
+- **Problems by level.** "1 problem" or "2 warnings" (`problemsOf`), on the floating chip and the node's mark only; the heading's suffix and the tab's "!" are gone.
+- **The basic view.** The workflow's name is whole and is the link to its place on the canvas, replacing *Open in the advanced view* on every workflow; its state, steps, problems and switch are the line under it. A phone opens the builder in the basic view; the canvas is a tap away.
+- **Templates make new workflows.** *New workflow* in the header, labelled at every width, opens *Blank workflow*, the templates (offered by profile: *Conductor first* to music projects only, `templatesFor`) and *From another project…*; each makes a new workflow and leaves every other unchanged. The code view's import reads a file only, checked against the open workflow before anything is applied, and the basic view's foot no longer repeats the copy.
+
+## 364. The builder's inspector and panels offer only what applies, and its deletions can be undone
+
+#581, #677, #678, and the confirmations of #544 that batch 1 left to the builder.
+
+- **The inspector.** Its title is the node's name, edited where it is shown, as Figma and Linear do, so the separate Name field is gone; a start says what starts it below and has no subtitle. Its labels take the shared label style (13 px, sentence case), not a local 11 px capital eyebrow. *Sets status* is always a choice of the project's statuses. The comments hint is a sentence: "Comments opened while a track is at this step go to this person or role", in the profile's word.
+- **Then.** A start is never offered as a step to go on to.
+- **Statuses** are grouped by how each reads (to do, in progress, done) and moved between them from each one's menu; a line says *Set by 3 steps* only where more than one step sets it, and *Unused* where none does.
+- **Small details.** The hints under the canvas show until it is first panned or zoomed, then not again in this browser. The picker's way back comes before its title, and its descriptions wrap. The walk-through asks *Item* (Audio, Video, Document, Picture) and *Decided by*.
+- **Deleting acts at once, and offers Undo.** A node or a connector deleted from the canvas, its menu or the keyboard, and a status removed, go at once with *Undo* beside the canvas or the list (and Ctrl or Cmd Z), as Figma deletes, until the next change. A canvas edit is cheap to make and to take back, so a confirmation would only slow it.
+- **The code view keeps the reason beside the line.** A refused file's message is written at the end of its marked line in the editor, as an editor shows a problem, so choosing *Line 26* shows the reason with the line; *Apply* says why it cannot run, beside it and as its tooltip ("Fix 1 problem to apply").
+
+## 365. Roles: exceptions apart, and one line of role chrome
+
+#585, #673. Exceptions to the player tools sat under the role being edited, so they read as that role's, captioned *Exception* for a member beside *Guest* and *Group*, and grew a column per person, the sideways matrix decision on #506 removed for roles.
+
+- **Exceptions are their own section,** above the role picker: a row per person, guest or group, captioned *Member*, *Guest* or *Group*, their tools as chips, changed in the dialog that adds one (*Change tools…*) and removed from the row's menu.
+- **One line of role chrome.** Past six roles the chips give way to a choice of role, as Discord's role settings list them, so twelve roles take one line beside *New role* and *Compare*.
+- **Compare on a phone** keeps its role column still and fades its far edge while more lies beyond.
+
+## 366. Deleting a project asks what moving it asks
+
+#676. Confirming a deletion asked for the project's name; moving it asked for the name and the password. Confirming either is as grave, so both ask for the name and the person themself at the keyboard (`transferConfirmation`, `confirmIdentity`), checked by the server too, which now refuses a confirmation without them (the server's test proves a wrong name and a wrong password are refused). The dialog says what happens once you confirm, not that it has; its button is *Delete project*, and the row's *Confirm deletion…*, so asking and confirming no longer share a name. *Withdraw* and *Refuse* are secondary buttons beside the others.
+
+## 370. Workspace settings are grouped by subject, and General holds the address, the export and the danger zone
+
+#589. The settings sidebar's groups did not say what they held: *Operations* held a page also called Operations (encryption, the storage bar a third time, a row about the instance's operators, the export and deleting the workspace), *Access* held the channels and the API, *Plan and help* mixed billing with the instance's help desk, and Transfers, Leak tracing and the Access log sat under Operations. General's intro promised exporting and deleting, which were not there; the workspace's address sat under Transfers as "Its address", in the code face.
+
+- **Five groups, none named like a page.** *Workspace* (General, Members, Branding, Email), *Projects and reviews* (Defaults, Comment categories, Delivery profiles, Transfers), *Protection* (Security, Leak tracing, Access log), *Integrations* (the channels, the API) and *Plan* (Billing, Storage). The issue asked for a *Security* group holding a *Security* page; the group is *Protection* so that no group shares a page's name, which the issue's own test asks. The order is what a workspace sets up first, then what it runs on, as Vercel's and Linear's settings are.
+- **Support is the help menu's.** The "?" menu already opens the workspace's tickets and a new one; the sidebar no longer lists Support, and the page shows itself in the sidebar (under *Help*) only while it is open, so a phone's section control still names where you are.
+- **The Operations page is gone.** The export and the danger zone are at the foot of General, for owners, as Vercel, Linear and GitHub put them; the encryption, in words, is the first row of Storage's backends (still for owners, whose route it is); the storage bar was said on Billing and Storage already, and who runs the instance is the help menu's. An old link to `/settings/operations` opens General, and `/settings/notifications` opens the channels (`formerSections`), as mail from a paused channel and a deletion's notice still point there.
+- **The address is in General.** "Address", in the interface face, with Copy, beside the name; Transfers' Waiting and the directory's intro say where it is instead of repeating it.
+- **An expired export offers nothing.** A ready export past its week read "until 2026-10-27" and still offered Download, which the server refuses. `exportExpired` in `packages/shared` (tested) reads it as expired until the job that removes it runs, and the row says "Expired: removed after its week".
+- The prototype's settings went first, with the inventory's rows.
+
+## 371. Tokens are made on the API page alone, scopes read in words, and the API log names projects
+
+#590. Notifications and integrations had an "API and MCP" panel whose "API keys" row only navigated to the API page, where the same tokens were "Service tokens"; the API page listed eight read-only scope rows that every token and client dialog explained already; the API log cut paths mid-identifier; and `org:read` put the code's word in front of people.
+
+- **One place, one name.** The "API keys" row is gone. The page is *API*, under *Integrations*, and holds the OAuth clients, the service tokens (made there alone), the MCP endpoint in a section of its own beside the tokens it takes, and the API log.
+- **Scopes in words.** `apiScopeNames` in `packages/shared` names each scope as people read it ("Files: read", "Workspace: read"), with `scopeWords` for a token's or a client's list (tested). Every dialog that offers scopes, the consent page and what a connected app may do show the words, the identifier beside them in the code face (a script needs it), and what the scope allows beneath. A token's and a client's rows say their scopes in words.
+- **What each scope allows is the documentation's.** The read-only list became one row, *Scopes*, under the tokens, linking to the table in *Use, API tokens*.
+- **The log reads.** `readableCall` (shared, tested) folds every identifier in a path to "…", so nothing is cut mid-identifier, and the workspace's own log names the project a call reached beneath it, from the projects the reader can see. The instance's log, which spans workspaces, folds the identifiers alone.
+- The prototype went first.
+
+## 372. The workspace's mail is set up and explained on one Email page
+
+#591. The workspace's mail was a row among the chat channels on Notifications and integrations, under a banner telling everyone to set mail up under Instance, Settings while the row below offered "Use the workspace's own"; it never appeared in the events matrix; and Email templates said the sender was "set in Notifications and integrations", stating the log-only fact as a hint, above four "Rules" rows of design principles styled exactly like settings that do nothing.
+
+- **One page.** *Email* (it was Email templates) opens with *Sending*: the instance's mail or the workspace's own provider, its test, its bounced addresses and the way back to the instance's (`WorkspaceMailSection`, moved whole from the channels). The templates, their subjects and the test send follow. The "Sent from" row went: the sending row says it.
+- **The banner once, with the fix that is the workspace's.** Where the instance writes mail to its log and the workspace has none of its own, the Email page says so once and offers the workspace's own mail, set up just below; the operator's way (Instance, Settings) stays on the pages where nothing else can fix it, such as the account's Notifications. A workspace sending through its own provider is not told the instance's mail goes nowhere.
+- **The channels are chat and webhooks.** Mail is not a channel: members choose what reaches them by mail. The channels page lost the row and the banner; the prototype's channel dialog no longer offers mail providers as kinds of channel.
+- **No inert rows.** The Rules were how every template is made (one action, plain text, why you got it, both clients), not settings anyone can change; the templates keep them, and the page no longer lists them.
+- The prototype went first; the suite's mail screens moved to the Email page.
+
+## 373. Billing says the plan and usage once, lists invoices as a table, and Storage keeps the workspace's own choices
+
+#592. Billing showed the plan, the storage and the members in its tiles, named the plan again in the Plan section and restated the figures as "Usage this month: Within the plan". Storage repeated storage and members (a member count has nothing to do with storage), added guests and projects, and a "This month" row with no value. Invoices could not be opened and were all listed at once. Storage also showed the nightly reconciliation (unused bytes, missing files, Run now) and the raw backend name `local`, which are the operators' (decision 288, #510).
+
+- **Each figure once.** Billing's tiles are the one usage block: the plan, storage and members against the plan (storage counted at the month's peak, members with those invited), each tile in signal from 90% with "nearly at the limit" or "at the limit". The Plan section says what the plan includes and how it changes, not its name again, and holds the card and the billing details. Where billing is off, Storage shows the storage against the quota, and nothing else of usage.
+- **Invoices as a table,** as Stripe's customer portal lists them: number, date (beneath the number on a phone), amount, a status pill (the review dots' shapes: paid filled, due hollow, overdue in signal, void dashed) and Open. A gateway's invoice opens as its PDF or its page; one made by hand, which has neither, opens in a dialog with what it says. The latest five, then *Show older*. The two numbering series stay what they are: a gateway numbers its own invoices (`INV-`) and the instance numbers those made by hand (`HK-`), so the number is the one on the paper; a workspace that has both was on a plan by agreement before it paid by card.
+- **Storage keeps the workspace's own choices.** Where new files go, what each backend holds and each project's share. The instance's storage is "Instance storage" (`backendName`), with the operators' name for a backend only where there is more than one to choose. The reconciliation is the instance's pages' (Health, and each workspace's page there).
+- The prototype went first.
+
+## 374. The workspace's events page is Channels, names events as Notifications does, and shows one channel at a time on a phone
+
+#681. The workspace's "Notifications and integrations" (its channels and webhooks) and the account's "Notifications" (what reaches you) shared a word and did different jobs; the same events were named differently on the two ("A review is requested" there, "Review asked of me" here); and on a phone the Events matrix showed only its first channel's column, the others scrolled away with no sign of them.
+
+- **Channels, under Integrations.** Linear calls the place Integrations; here Integrations is the group (decision 370), so the page is *Channels*, which no group and no other page is called. Its first section takes no heading of its own, since the page's heading says it.
+- **One name per event.** `eventNames` in `packages/shared` names the events both pages hear of: *Review requested*, *Decision recorded*, *New version*, *Mention*, *Processing failed*. The matrix's rows (`eventLabels`) and the account's rows (`notificationCatalogue`) take them, and the others are names in the same form (*Feedback submitted*, *Stage started*, *Guest signed in*, *Download*); a test on each side holds the pairs to one name. The account's line under each name still says what it means for you.
+- **One column at a time on a phone,** chosen above the table ("Channel: #masters"), as Defaults' Tool access chooses a role; the desktop keeps every column.
+- The prototype went first.
+
+## 375. Workspace Security is a short page with one save per form, and watermarking is set there
+
+#682. The Security page showed two filled Save buttons, rows named "Save" and "Test", and the whole single sign-on and directory forms while both were off. The forensic marking's switches sat on Leak tracing, where Video and Pages were disabled "Not yet" switches, and Pages was a setting that lives in each project.
+
+- **Fields while on.** Single sign-on and the directory show their switch alone while off, as Vercel's and Linear's SAML settings do; turned on, their fields follow. A form saved on keeps its footer when switched off, so turning it off can be saved.
+- **One footer per form.** `FormFooter` (`apps/web/src/components/form-footer.tsx`, on the reference page) ends each form: what saving does, a test's outcome or what went wrong at the left, *Test connection* (the directory's) and *Save* at the right. Save is secondary, so the page has no filled button competing with another; the sign-in policy above saves as it changes.
+- **The Redirect URI** is a read-only value with Copy, as Hekate's entity ID and reply address are.
+- **Watermarking is on Security, for owners.** The audio mark's switch moved there under *Watermarking*, with a line saying the visible mark on pages, pictures and video is set in each project's Asset security; the "Not yet" switches are gone until they ship. Leak tracing is the trace alone.
+- The prototype went first.
+
+## 376. The access log reads at the level people act on: a playback is one row, its segments behind it
+
+#684. One playback writes a "Playback started" entry and then one "Segment served" for every few seconds it plays, so a single listen buried the key issues and downloads an owner looks for under dozens of rows.
+
+- **Only the view groups.** Every segment is still written, before it is sent, and stays in the log and in its export (`docs/security.md`). The page asks the log for `segments=grouped`: segment entries are left out of its pages, and each "Playback started" entry carries how many segments that playback served. Unset (the export, a file's own activity, Hekate's reads) or `every`, each segment is a row as before; filtering on *Segment served* lists them whatever the grouping.
+- **Which segments are a playback's.** A segment carries no playback of its own, so it belongs to the latest start before it of the same file by the same person: after the start, and before that person's next start of that file (`segmentCounts`, `sessionSegments` in `apps/server/src/audit.ts`). Ids are UUIDv7 and sort by time, so the bounds are ids. Always within the workspace (`inOrg`).
+- **Behind the row.** A playback's row says "38 segments" and opens them beneath it, in the order served, with the rendition (`GET /api/organisation/audit/sessions/:id/segments`, admins, the first 200); another workspace's playback, or an entry that is not one, is not found, and a member is refused. *Show every segment*, in the Filter control, lists each as its own row.
+- The prototype went first.
+
+## 380. The logs list and narrow by when things happened, counted from the viewer's clock
+
+#598. The instance's logs ordered and filtered by row id, on the ground that a UUIDv7 follows the time of the write. So it does, but a row is not always written when its event happened: an event recorded after the fact, a gateway's late delivery or an import lands where it was written, and a range by id lets it in or keeps it out by the wrong time.
+
+- **By time, then id.** Every log orders by its row's own time (`created_at`, `occurred_at`, `received_at`), then its id, newest first, and a page starts after the last row's time and id: `before` stays the last row's id, as the API has always taken it, and the server reads that row's time. The audit log, which joins the operators' events and the workspaces' access log, does the same over the two together.
+- **A range by time, narrowed by id first.** An id is never older than the moment it records, so `id >= the range's start` still holds for every row in the range and lets the primary key do the narrowing; the time itself then decides. No index is added, and nothing is migrated.
+- **The viewer's clock.** A range counts back from `now` when the page sends it, as Debug tools' errors count the last day by the viewer's clock (#159), and from the server's otherwise. It only moves the window's start: a row after it still shows. The visual suite, whose browser clock is fixed to the seed's day, so sees the seeded rows in the last 24 hours.
+- **Each export is named.** The record of an export says which log it was, all six of them, where it named only three.
+
+## 381. Single sign-on starts from the workspace's address until a workspace can verify its domain
+
+#686 asked that single sign-on start from a work email, finding the provider by the address's verified domain, as Linear, Slack and Vercel do. Hekate has no verified domains: a provider's `domain` column is unused, and taking a domain on a workspace's word would let any workspace's admin send everyone at that domain to an identity provider of their choosing.
+
+- **For now, the workspace's address.** Single sign-on and the work-account (directory) sign-in ask for "Workspace address": its short name, or the address it is opened at, as `endless-hall.review.example` or a link, from which the short name is read (`workspaceSlugOf`). No placeholder names a tenant. On a workspace's own host neither is asked.
+- **What follows.** Starting from an email needs domain verification first: a workspace adds a domain in its single sign-on settings, proves it with a DNS TXT record the server checks, and only a verified domain, claimed by one workspace, finds a provider; anything else falls back to the address. That is its own issue, with its settings in the workspace's Single sign-on page.
+- **A refusal leads to what works.** Refused because an account already holds the address, the page leads with *Sign in with password*, the identity provider second; the notice that repeated the intro is gone.

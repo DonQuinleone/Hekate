@@ -46,16 +46,21 @@ export function HeaderSlotsProvider({ slots, children }: { slots: Slots; childre
   return <SlotContext.Provider value={slots}>{children}</SlotContext.Provider>;
 }
 
-/** A crumb as the bar draws it: whole, never cut, with its separator after it. */
-function CrumbItem({ crumb }: { crumb: Crumb }) {
+/**
+ * A crumb as the bar draws it: whole, never cut, with its separator after it, unless it ends
+ * the trail of a page whose heading is in the page.
+ */
+function CrumbItem({ crumb, end = false }: { crumb: Crumb; end?: boolean }) {
   return (
     <span data-crumb="" className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
       <span className="rounded-chip px-1 py-0.5 text-ink-3 transition-colors hover:bg-raised [&_a]:text-ink-3 [&_a:hover]:text-ink">
         {crumb.link}
       </span>
-      <span aria-hidden="true" className="text-edge">
-        /
-      </span>
+      {!end && (
+        <span aria-hidden="true" className="text-edge">
+          /
+        </span>
+      )}
     </span>
   );
 }
@@ -121,7 +126,18 @@ const textOf = (node: ReactNode): string =>
       ? node.map(textOf).join("")
       : "the page above";
 
-function Trail({ crumbs, title, meta }: { crumbs: Crumb[]; title: ReactNode; meta?: ReactNode }) {
+function Trail({
+  crumbs,
+  title,
+  meta,
+  inBar = true,
+}: {
+  crumbs: Crumb[];
+  title: ReactNode;
+  meta?: ReactNode;
+  /** False where the page draws its own heading: the bar then shows the trail alone. */
+  inBar?: boolean;
+}) {
   const nav = useRef<HTMLElement>(null);
   const measure = useRef<HTMLDivElement>(null);
   const [plan, setPlan] = useState<TrailPlan>(() => trailPlans(crumbs.length)[0] as TrailPlan);
@@ -136,7 +152,9 @@ function Trail({ crumbs, title, meta }: { crumbs: Crumb[]; title: ReactNode; met
       const widths = {
         available: n.clientWidth,
         crumbs: [...m.querySelectorAll("[data-crumb]")].map(width),
-        title: width(m.querySelector("[data-title]")) + GAP + width(m.querySelector("[data-meta]")),
+        title: inBar
+          ? width(m.querySelector("[data-title]")) + GAP + width(m.querySelector("[data-meta]"))
+          : 0,
         more: width(m.querySelector("[data-more]")),
         gap: GAP,
       };
@@ -150,7 +168,7 @@ function Trail({ crumbs, title, meta }: { crumbs: Crumb[]; title: ReactNode; met
     watch.observe(m);
     return () => watch.disconnect();
     // The measure is redrawn as the crumbs change, and the observer sees it.
-  }, []);
+  }, [inBar]);
   const last = crumbs.at(-1);
   const back = last && isValidElement<LinkProps>(last.link) ? last.link : null;
   return (
@@ -217,7 +235,7 @@ function Trail({ crumbs, title, meta }: { crumbs: Crumb[]; title: ReactNode; met
         const c = crumbs[i];
         return c ? (
           <span key={c.key} className="hidden @3xl/app:flex">
-            <CrumbItem crumb={c} />
+            <CrumbItem crumb={c} end={!inBar && i === crumbs.length - 1} />
           </span>
         ) : null;
       })}
@@ -230,17 +248,23 @@ function Trail({ crumbs, title, meta }: { crumbs: Crumb[]; title: ReactNode; met
         const c = crumbs[i];
         return c ? (
           <span key={c.key} className="hidden @3xl/app:flex">
-            <CrumbItem crumb={c} />
+            <CrumbItem crumb={c} end={!inBar && i === crumbs.length - 1} />
           </span>
         ) : null;
       })}
-      <h1
-        className="m-0 min-w-0 truncate px-1 text-[13px] font-medium text-ink"
-        title={typeof title === "string" ? title : undefined}
-      >
-        {title}
-      </h1>
-      {meta && (
+      {inBar ? (
+        <h1
+          className="m-0 min-w-0 truncate px-1 text-[13px] font-medium text-ink"
+          title={typeof title === "string" ? title : undefined}
+        >
+          {title}
+        </h1>
+      ) : (
+        // The page's heading is in the page; on a phone, where the trail is only the way
+        // back, the bar still names where you are.
+        <span className="min-w-0 truncate px-1 text-[13px] text-ink @3xl/app:hidden">{title}</span>
+      )}
+      {inBar && meta && (
         <span className="tabular hidden shrink-0 text-[12px] text-ink-3 @3xl/app:inline">
           {meta}
         </span>
@@ -259,25 +283,35 @@ export function PageHeader({
   title,
   meta,
   actions,
+  heading = "bar",
 }: {
   crumbs?: Crumb[];
   title: ReactNode;
   /** A short fact beside the title, such as a file's format. */
   meta?: ReactNode;
   actions?: ReactNode;
+  /**
+   * Whether the title ends the trail ("bar", for lists and tools) or is the page's own heading
+   * ("page", for one thing such as a track or a session), as the prototype's headers are: the
+   * name is then said once, in the page (#649).
+   */
+  heading?: "bar" | "page";
 }) {
   const slots = useContext(SlotContext);
   if (slots?.trail) {
     return (
       <>
-        {createPortal(<Trail crumbs={crumbs} title={title} meta={meta} />, slots.trail)}
+        {createPortal(
+          <Trail crumbs={crumbs} title={title} meta={meta} inBar={heading === "bar"} />,
+          slots.trail,
+        )}
         {actions && slots.actions && createPortal(actions, slots.actions)}
       </>
     );
   }
   return (
     <header className="flex min-h-12 flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-3 py-2 @3xl/app:px-6">
-      <Trail crumbs={crumbs} title={title} meta={meta} />
+      <Trail crumbs={crumbs} title={title} meta={meta} inBar={heading === "bar"} />
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </header>
   );

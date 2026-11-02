@@ -158,6 +158,26 @@ export const nodeTypes: Record<NodeType, NodeTypeInfo> = {
 
 export const outcomesOf = (type: NodeType) => nodeTypes[type].outcomes;
 
+/**
+ * Outcomes only an event raises, never a person (#566): a due date passing and what the checks
+ * measured. Choosing one by hand would fake a deadline or a result. A wait may still be ended
+ * early by whoever runs the workflow: that fakes nothing, it only stops waiting.
+ */
+const raisedByEvent: Partial<Record<NodeType, readonly string[]>> = {
+  feedback: ["overdue"],
+  task: ["overdue"],
+  checks: ["passed", "warnings", "failed"],
+};
+
+/** Whether a person may end a step of this kind by this outcome, from its status menu (#566). */
+export function choosableOutcome(type: NodeType, outcome: string): boolean {
+  const info = nodeTypes[type];
+  if (info.kind !== "action" || info.immediate) return false;
+  return (
+    info.outcomes.some((o) => o.id === outcome) && !(raisedByEvent[type] ?? []).includes(outcome)
+  );
+}
+
 const ident = z
   .string()
   .min(1)
@@ -294,10 +314,24 @@ export function flowShape(flow: WorkflowDefinition): { order: string[]; loops: S
  * step that waits, or the finish. Null where nothing follows.
  */
 export function nextStep(flow: WorkflowDefinition, nodeId: string): WorkflowNode | null {
+  return stepAfter(flow, nodeId);
+}
+
+/**
+ * The step an item reaches when the one it waits at ends by `outcome` (#566): by that
+ * outcome's connector, then on past anything done at once, to the next step that waits, or the
+ * finish. Without an outcome, by the step's first. Null where nothing follows.
+ */
+export function stepAfter(
+  flow: WorkflowDefinition,
+  nodeId: string,
+  outcome?: string,
+): WorkflowNode | null {
   const byId = new Map(flow.nodes.map((n) => [n.id, n]));
   let at = byId.get(nodeId);
   for (let hops = 0; at && hops < flow.nodes.length; hops += 1) {
-    const way: string | undefined = outcomesOf(at.type)[0]?.id;
+    const way: string | undefined =
+      hops === 0 && outcome !== undefined ? outcome : outcomesOf(at.type)[0]?.id;
     const from: string = at.id;
     const leaving = flow.connectors.filter((c) => c.from === from);
     const go = leaving.find((c) => c.outcome === way) ?? leaving[0];
@@ -902,8 +936,16 @@ export interface WorkflowRunSummary {
   trackId: string;
   state: WorkflowRun["state"] | "cancelled";
   status: string | null;
-  /** The steps it waits on, by name. */
-  waiting: { nodeId: string; name: string; type: NodeType }[];
+  /**
+   * The steps it waits on, by name, with the outcomes a person may end each by and where each
+   * leads (#566): the next step's name, or null where nothing follows.
+   */
+  waiting: {
+    nodeId: string;
+    name: string;
+    type: NodeType;
+    choices?: { outcome: string; leadsTo: string | null }[];
+  }[];
   steps: {
     nodeId: string | null;
     /** The step's name as the run's workflow had it; null for the trigger that started it. */

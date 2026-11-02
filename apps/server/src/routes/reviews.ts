@@ -946,7 +946,7 @@ async function nameOf(db: Database, userId: string) {
 
 /** What to ask for, in a sentence: "approve" or "give feedback on" the review. */
 const ask = (review: { kind: string; title: string }, follow = false) =>
-  `${follow ? "follow" : review.kind === "approval" ? "approve" : "give feedback on"} "${review.title}"`;
+  `${follow ? "follow" : review.kind === "approval" ? "approve" : "give feedback on"} “${review.title}”`;
 
 /**
  * Whether someone told of an approval only follows it (#221): they may not decide, so they
@@ -1193,7 +1193,7 @@ async function notifyShare(
       actor: from ? { userId: from } : null,
       projectId: review.projectId,
       reviewId: review.id,
-      text: `shared "${review.title}" with you`,
+      text: `shared “${review.title}” with you`,
       // The share's own words, as a guest's mail has them: until when, how often, what to keep.
       detail: workspaceEmail("shared", { ...data, url: "" }, subjects, dateFormat).body.join(
         "\n\n",
@@ -1228,9 +1228,10 @@ async function notifyShare(
 const eventActor = (actor: Actor) =>
   actor.kind === "guest" ? { guestId: actor.guestId } : { userId: actor.userId };
 
+/** A title is quoted with curly quotes in notifications and mail, as the palette quotes it (#614). */
 const decisionText: Record<ReviewDecision, (title: string) => string> = {
-  approved: (title) => `approved "${title}"`,
-  changes_requested: (title) => `requested changes on "${title}"`,
+  approved: (title) => `approved “${title}”`,
+  changes_requested: (title) => `requested changes on “${title}”`,
 };
 
 /** Tell whoever asked for a review, and anyone following it, that a reviewer has acted. */
@@ -1248,7 +1249,7 @@ async function tellRequester(
     .where(inOrg(schema.projects, review.organisationId, eq(schema.projects.id, review.projectId)));
   const text =
     decision === "feedback"
-      ? `gave feedback on "${review.title}"`
+      ? `gave feedback on “${review.title}”`
       : decisionText[decision](review.title);
   await notifyNow(deps, {
     organisationId: review.organisationId,
@@ -2147,7 +2148,7 @@ export const reviewRoutes = (deps: ReviewDeps) =>
           actor: { guestId: actor.guestId },
           projectId: first.projectId,
           reviewId: first.id,
-          text: `opened "${first.title}"`,
+          text: `opened “${first.title}”`,
           link: `/reviews/${first.id}`,
         }).catch((error: unknown) =>
           console.warn(`Could not tell the requester a guest opened a review: ${String(error)}`),

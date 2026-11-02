@@ -7,12 +7,13 @@ import {
   takeLogCsv,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, Navigate } from "@tanstack/react-router";
 import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
 import { PageHeader } from "~/components/page-header";
+import { ProductionBody } from "~/components/production-nav";
 import { RecorderControl, useRecorderReadout } from "~/components/recorder";
 import { openShortcutMap } from "~/components/shortcut-map";
 import { TakeOverview } from "~/components/take-overview";
@@ -21,14 +22,16 @@ import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
 import { Input, Select, Textarea } from "~/components/ui/input";
 import { Segmented } from "~/components/ui/segmented";
-import { Failed, Loading } from "~/components/ui/states";
+import { Failed, Loading, Refused } from "~/components/ui/states";
 import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
+import { connectionWords, useReach } from "~/lib/connection";
 import { formatDates } from "~/lib/locale";
 import {
   meQuery,
   patchQuery,
   projectQuery,
+  projectSessionsQuery,
   sessionQuery,
   useProjectCan,
   useTakeOutbox,
@@ -46,8 +49,11 @@ import {
   nextTrack,
   rolled,
   slotStatus,
+  takeLogSession,
 } from "~/lib/take-log";
 import { withPending } from "~/lib/take-outbox";
+import { timecodeSpan } from "~/lib/take-page";
+import { ProjectFrame } from "~/routes/project";
 
 type View = "engineer" | "producer" | "logger";
 
@@ -88,6 +94,56 @@ const stateWords = (t: LoggedTake) =>
         ? "aborted"
         : "";
 
+/** Today, as a session's day is written: "2026-10-14", on this device's calendar. */
+const todayOf = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/**
+ * Production's Take log (#648): the day's session's take log, as the prototype opens it, or
+ * where the project has no sessions, the way to make one.
+ */
+export function ProjectTakeLogPage({ projectId }: { projectId: string }) {
+  const can = useProjectCan(projectId);
+  const {
+    data: sessions,
+    error,
+    refetch,
+  } = useQuery({ ...projectSessionsQuery(projectId), enabled: can("view_takes") });
+  const chosen = sessions ? takeLogSession(sessions, todayOf(new Date())) : null;
+  if (chosen)
+    return <Navigate to="/sessions/$sessionId/log" params={{ sessionId: chosen }} replace />;
+  return (
+    <ProjectFrame projectId={projectId} title="Take log">
+      {() => (
+        <ProductionBody projectId={projectId} current="takelog" can={can}>
+          {!can("view_takes") ? (
+            <Refused
+              title="Not among what your role shows"
+              text="Sessions and takes are shown to the roles the project's access gives them."
+            />
+          ) : error ? (
+            <Failed what="The sessions" error={error} retry={refetch} />
+          ) : !sessions ? (
+            <Loading />
+          ) : (
+            <Empty
+              title="No sessions yet"
+              text="The take log is kept per session. Make the day's session, then log its takes here."
+              action={
+                <Button variant="secondary" asChild>
+                  <Link to="/projects/$projectId/sessions" params={{ projectId }}>
+                    Go to Sessions
+                  </Link>
+                </Button>
+              }
+            />
+          )}
+        </ProductionBody>
+      )}
+    </ProjectFrame>
+  );
+}
+
 /**
  * The take log (#51): the control room's record of a session, keyboard first. Space starts the
  * next take and stops it; the take rolling, or the last, takes a rating, a star, a false start
@@ -107,7 +163,8 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
   // Written here first (#51): the server's session, with what this browser has yet to send.
   const outbox = useTakeOutbox(sessionId);
   const session = served ? withPending(served, outbox.pending) : undefined;
-  const offline = isError || outbox.waiting;
+  // The shell's connection, which this page's own failed writes and reads feed (#616).
+  const offline = useReach() === "lost" || isError || outbox.waiting;
   const { data: project } = useQuery({
     ...projectQuery(session?.projectId ?? ""),
     enabled: Boolean(session),
@@ -273,6 +330,8 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
       ? `${timeOfDay.format(new Date(session.slotStart))}–${timeOfDay.format(new Date(session.slotEnd))}`
       : null;
   const trackName = (id: string | null) => session.tracks.find((t) => t.id === id)?.name ?? "";
+  // The logger's wall clock column, only where a take has one (#653).
+  const walled = rows.some((t) => t.wallIn);
 
   return (
     <>
@@ -317,338 +376,363 @@ export function TakeLogPage({ sessionId }: { sessionId: string }) {
           </>
         }
       />
-      <div className="fade-in mx-auto flex w-full max-w-[1360px] flex-col gap-4 px-5 py-6 @3xl/app:px-10">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <Segmented label="View" value={view} options={views} onChange={setView} />
-          <span className="text-[12px] text-ink-3">
-            The same take log, a view per person in the room.
-          </span>
-          <span
-            role="status"
-            className={cn(
-              "ml-auto flex items-center gap-1.5 text-[12px]",
-              offline ? "text-signal" : "text-ink-3",
-            )}
-          >
+      {/* In Production's frame (#648), as every production page is. */}
+      <ProductionBody projectId={project.id} current="takelog" can={can}>
+        <div className="flex min-w-0 flex-col gap-4">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <Segmented label="View" value={view} options={views} onChange={setView} />
+            <span className="text-[12px] text-ink-3">
+              The same take log, a view per person in the room.
+            </span>
             <span
-              aria-hidden="true"
+              role="status"
               className={cn(
-                "size-[7px] rounded-full",
-                offline ? "border-[1.5px] border-signal" : "bg-ink-3",
+                "ml-auto flex items-center gap-1.5 text-[12px]",
+                offline ? "text-signal" : "text-ink-3",
               )}
-            />
-            {offline
-              ? "Offline: written here, synced when back"
-              : outbox.pending.length > 0
-                ? "Syncing"
-                : "Live for everyone in the room"}
-            {outbox.pending.length > 0 && (
-              <span className="tabular text-ink-3">
-                · {outbox.pending.length} waiting to send
-                {outbox.durable ? "" : "; keep this page open until they are"}
-              </span>
-            )}
-          </span>
-          <RecorderControl drive={drive} canLog={canLog} />
-        </div>
-
-        {session.tracks.length === 0 ? (
-          <Empty
-            title="No tracks for this session"
-            text="Give the session the tracks it records, then log their takes here."
-          />
-        ) : (
-          <div
-            className={cn(
-              "grid items-start gap-4",
-              view === "producer"
-                ? "lg:grid-cols-[minmax(0,1fr)_320px]"
-                : "lg:grid-cols-[minmax(0,1fr)_260px]",
-            )}
-          >
-            <div className="flex min-w-0 flex-col gap-4">
-              <section
-                aria-label="Transport"
+            >
+              <span
+                aria-hidden="true"
                 className={cn(
-                  "flex flex-wrap items-center gap-4 rounded-panel border p-4 transition-colors",
-                  recording ? "border-signal/50 bg-signal/[0.06]" : "border-hairline bg-surface",
+                  "size-[7px] rounded-full",
+                  offline ? "border-[1.5px] border-signal" : "bg-ink-3",
                 )}
-              >
-                <button
-                  type="button"
-                  onClick={toggle}
-                  disabled={!canLog}
-                  className={cn(
-                    "flex h-14 cursor-pointer items-center gap-3 rounded-full border-0 px-6 text-[16px] font-medium shadow-2 transition-colors disabled:cursor-default disabled:opacity-50",
-                    recording ? "bg-signal text-ground" : "bg-ink text-ground hover:bg-ink/90",
-                  )}
-                >
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      "size-3 rounded-full",
-                      recording ? "breathe bg-ground" : "bg-signal",
-                    )}
-                  />
-                  {recording
-                    ? `Stop take ${current?.number}`
-                    : armed
-                      ? `Roll take ${current?.number}`
-                      : (recorded ? recorderValue : next)
-                        ? `Start take ${recorded ? recorderValue : next}`
-                        : "Start the next take"}
-                  <Kbd>Space</Kbd>
-                </button>
-                <div className="flex min-w-0 flex-col">
-                  <span className="tabular text-[28px] leading-8 text-ink">
-                    {clock(current ? rolled(current, now) : 0)}
-                  </span>
-                  <span className="text-[12px] text-ink-3">
-                    {recording ? "recording" : armed ? "armed" : "idle"}
-                    {readout
-                      ? ` · timecode ${readout.timecode}`
-                      : current?.timecodeIn
-                        ? ` · timecode in ${current.timecodeIn}`
-                        : ""}
-                  </span>
-                </div>
-                <label className="flex min-w-0 flex-col gap-1 text-[12px] text-ink-3">
-                  Track
-                  <Select
-                    size="sm"
-                    value={trackId ?? ""}
-                    disabled={Boolean(current)}
-                    onChange={(e) => setChosen(e.target.value)}
-                    className="w-auto min-w-[180px]"
-                  >
-                    {session.tracks.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-                {recorded && !current && (
-                  <label className="flex flex-col gap-1 text-[12px] text-ink-3">
-                    Recorder's take
-                    <Input
-                      size="sm"
-                      type="number"
-                      min={1}
-                      inputMode="numeric"
-                      value={recorderNumber}
-                      placeholder={next ? String(next) : ""}
-                      onChange={(e) => setRecorderNumber(e.target.value)}
-                      className="w-24"
-                    />
-                  </label>
-                )}
-                <div className="ml-auto flex flex-col items-end">
-                  {slotNow && (
-                    <span
-                      className={cn(
-                        "tabular text-[22px] leading-7",
-                        slotNow.kind === "plenty" ? "text-ink" : "text-signal",
-                      )}
-                    >
-                      {slotNow.kind === "over"
-                        ? `${clock(slotNow.over)} over`
-                        : clock(slotNow.left)}
-                      <span className="text-[13px] text-ink-3">
-                        {slotNow.kind === "over" ? " the slot" : " to slot end"}
-                      </span>
-                    </span>
-                  )}
-                  <span className="text-[12px] text-ink-3">
-                    {[session.venue, slot, `wall clock ${timeOfDay.format(new Date(now))}`]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
-                </div>
-              </section>
-              {outbox.problem && (
-                <p role="alert" className="m-0 text-[13px] text-signal">
-                  {outbox.problem}
-                </p>
+              />
+              {offline
+                ? `${connectionWords.unreachable}: written here, sent once it is back`
+                : outbox.pending.length > 0
+                  ? "Syncing"
+                  : "Live for everyone in the room"}
+              {outbox.pending.length > 0 && (
+                <span className="tabular text-ink-3">
+                  · {outbox.pending.length} waiting to send
+                  {outbox.durable ? "" : "; keep this page open until they are"}
+                </span>
               )}
+            </span>
+            <RecorderControl drive={drive} canLog={canLog} />
+          </div>
 
-              {target && canLog && (
-                <div className="flex flex-wrap items-center gap-3">
-                  <label htmlFor="take-note" className="text-[13px] text-ink-2">
-                    Note on T{target.number}
-                  </label>
-                  <Input
-                    id="take-note"
-                    ref={noteField}
-                    value={note}
-                    onChange={(e) => {
-                      setNote(e.target.value);
-                      setNoteDirty(true);
-                    }}
-                    onBlur={saveNote}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        saveNote();
-                        e.currentTarget.blur();
-                      }
-                      if (e.key === "Escape") {
-                        setNoteDirty(false);
-                        setNote(target.notes ?? "");
-                        e.currentTarget.blur();
-                      }
-                    }}
-                    maxLength={4000}
-                    placeholder="Good opening; pick up bar 17"
-                    className="min-w-0 flex-1"
-                  />
-                </div>
+          {session.tracks.length === 0 ? (
+            <Empty
+              title="No tracks for this session"
+              text="Give the session the tracks it records, then log their takes here."
+            />
+          ) : (
+            <div
+              className={cn(
+                "grid items-start gap-4",
+                // The logger's table takes the width, with the tone and the notes beneath (#653).
+                view === "producer"
+                  ? "lg:grid-cols-[minmax(0,1fr)_320px]"
+                  : view === "engineer"
+                    ? "lg:grid-cols-[minmax(0,1fr)_260px]"
+                    : "",
               )}
-
-              {rows.length === 0 ? (
-                <Empty
-                  title="No takes logged yet"
-                  text={
-                    canLog
-                      ? "Press Space to start the first take, or A to arm it."
-                      : "Takes appear here as they are logged."
-                  }
-                />
-              ) : view === "logger" ? (
-                // A wide table scrolls on its own on a phone; the page does not.
+            >
+              <div className="flex min-w-0 flex-col gap-4">
                 <section
-                  aria-label="Takes"
-                  // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region needs focus.
-                  tabIndex={0}
-                  className="overflow-x-auto rounded-panel border border-hairline bg-surface focus-visible:border-edge focus-visible:outline-none"
+                  aria-label="Transport"
+                  className={cn(
+                    "flex flex-wrap items-center gap-4 rounded-panel border p-4 transition-colors",
+                    recording ? "border-signal/50 bg-signal/[0.06]" : "border-hairline bg-surface",
+                  )}
                 >
-                  <table className="w-full min-w-[760px] border-collapse text-[13px]">
-                    <thead>
-                      <tr className="text-left text-[12px] text-ink-3">
-                        {[
-                          "Take",
-                          "Track",
-                          "In",
-                          "Out",
-                          "Wall clock",
-                          "Rating",
-                          "False starts",
-                          "Notes",
-                          "Score",
-                        ].map((h) => (
-                          <th key={h} className="px-3 py-2 font-normal">
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((t) => (
-                        <tr
-                          key={t.id}
-                          className={cn(
-                            "border-t border-hairline",
-                            t.lifecycle === "recording" && "bg-signal/[0.06]",
-                            t.lifecycle === "aborted" && "opacity-50",
-                          )}
-                        >
-                          <td className="tabular px-3 py-1.5 font-medium text-ink">T{t.number}</td>
-                          <td className="px-3 py-1.5 text-ink-2">{t.track.name}</td>
-                          <td className="tabular px-3 py-1.5 text-ink-3">{t.timecodeIn}</td>
-                          <td className="tabular px-3 py-1.5 text-ink-3">
-                            {t.timecodeOut ?? (t.lifecycle === "recording" ? "…" : "")}
-                          </td>
-                          <td className="tabular px-3 py-1.5 text-ink-3">
-                            {t.wallIn ? timeOfDay.format(new Date(t.wallIn)) : ""}
-                          </td>
-                          <td className="px-3 py-1.5">
-                            <Rating value={t.rating} />
-                          </td>
-                          <td className="tabular px-3 py-1.5 text-ink-3">{t.falseStarts || ""}</td>
-                          <td className="max-w-[320px] truncate px-3 py-1.5 text-ink-2">
-                            {t.notes || stateWords(t)}
-                          </td>
-                          <td className="tabular px-3 py-1.5 text-ink-3">{scoreOf(t)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </section>
-              ) : (
-                <ul
-                  aria-label="Takes"
-                  className="m-0 flex list-none flex-col divide-y divide-hairline rounded-panel border border-hairline bg-surface p-0"
-                >
-                  {rows.map((t) => (
-                    <li
-                      key={t.id}
+                  <button
+                    type="button"
+                    onClick={toggle}
+                    disabled={!canLog}
+                    className={cn(
+                      "flex h-14 cursor-pointer items-center gap-3 rounded-full border-0 px-6 text-[16px] font-medium shadow-2 transition-colors disabled:cursor-default disabled:opacity-50",
+                      recording ? "bg-signal text-ground" : "bg-ink text-ground hover:bg-ink/90",
+                    )}
+                  >
+                    <span
+                      aria-hidden="true"
                       className={cn(
-                        "flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-[14px]",
-                        t.lifecycle === "recording" && "bg-signal/[0.06]",
-                        t.lifecycle === "aborted" && "opacity-50",
+                        "size-3 rounded-full",
+                        recording ? "breathe bg-ground" : "bg-signal",
                       )}
+                    />
+                    {recording
+                      ? `Stop take ${current?.number}`
+                      : armed
+                        ? `Roll take ${current?.number}`
+                        : (recorded ? recorderValue : next)
+                          ? `Start take ${recorded ? recorderValue : next}`
+                          : "Start the next take"}
+                    <span className="[@media(hover:none)]:hidden">
+                      <Kbd>Space</Kbd>
+                    </span>
+                  </button>
+                  <div className="flex min-w-0 flex-col">
+                    <span className="tabular text-[28px] leading-8 text-ink">
+                      {clock(current ? rolled(current, now) : 0)}
+                    </span>
+                    <span className="text-[12px] text-ink-3">
+                      {recording ? "recording" : armed ? "armed" : "idle"}
+                      {readout
+                        ? ` · timecode ${readout.timecode}`
+                        : current?.timecodeIn
+                          ? ` · timecode in ${current.timecodeIn}`
+                          : ""}
+                    </span>
+                  </div>
+                  <label className="flex min-w-0 flex-col gap-1 text-[12px] text-ink-3">
+                    Track
+                    <Select
+                      size="sm"
+                      value={trackId ?? ""}
+                      disabled={Boolean(current)}
+                      onChange={(e) => setChosen(e.target.value)}
+                      className="w-auto min-w-[180px]"
                     >
+                      {session.tracks.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </label>
+                  {recorded && !current && (
+                    <label className="flex flex-col gap-1 text-[12px] text-ink-3">
+                      Recorder's take
+                      <Input
+                        size="sm"
+                        type="number"
+                        min={1}
+                        inputMode="numeric"
+                        value={recorderNumber}
+                        placeholder={next ? String(next) : ""}
+                        onChange={(e) => setRecorderNumber(e.target.value)}
+                        className="w-24"
+                      />
+                    </label>
+                  )}
+                  <div className="ml-auto flex flex-col items-end">
+                    {slotNow && (
                       <span
                         className={cn(
-                          "tabular inline-flex w-12 items-center gap-1 font-medium",
-                          t.lifecycle === "recording" ? "text-signal" : "text-ink",
+                          "tabular text-[22px] leading-7",
+                          slotNow.kind === "plenty" ? "text-ink" : "text-signal",
                         )}
                       >
-                        T{t.number}
-                        {t.starred && (
-                          <Icon
-                            name="star"
-                            size={11}
-                            fill="currentColor"
-                            aria-label="Starred"
-                            className="text-ink-2"
-                          />
+                        {slotNow.kind === "over"
+                          ? `${clock(slotNow.over)} over`
+                          : clock(slotNow.left)}
+                        <span className="text-[13px] text-ink-3">
+                          {slotNow.kind === "over" ? " the slot" : " to slot end"}
+                        </span>
+                      </span>
+                    )}
+                    <span className="text-[12px] text-ink-3">
+                      {[session.venue, slot, `wall clock ${timeOfDay.format(new Date(now))}`]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </div>
+                </section>
+                {outbox.problem && (
+                  <p role="alert" className="m-0 text-[13px] text-signal">
+                    {outbox.problem}
+                  </p>
+                )}
+
+                {target && canLog && (
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label htmlFor="take-note" className="text-[13px] text-ink-2">
+                      Note on T{target.number}
+                    </label>
+                    <Input
+                      id="take-note"
+                      ref={noteField}
+                      value={note}
+                      onChange={(e) => {
+                        setNote(e.target.value);
+                        setNoteDirty(true);
+                      }}
+                      onBlur={saveNote}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          saveNote();
+                          e.currentTarget.blur();
+                        }
+                        if (e.key === "Escape") {
+                          setNoteDirty(false);
+                          setNote(target.notes ?? "");
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      maxLength={4000}
+                      placeholder="Type a note, then Enter"
+                      className="min-w-0 flex-1"
+                    />
+                  </div>
+                )}
+
+                {rows.length === 0 ? (
+                  <Empty
+                    title="No takes logged yet"
+                    text={
+                      canLog
+                        ? "Press Space to start the first take, or A to arm it."
+                        : "Takes appear here as they are logged."
+                    }
+                  />
+                ) : view === "logger" ? (
+                  // A wide table scrolls on its own on a phone; the page does not.
+                  <section
+                    aria-label="Takes"
+                    // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrolling region needs focus.
+                    tabIndex={0}
+                    className="overflow-x-auto rounded-panel border border-hairline bg-surface focus-visible:border-edge focus-visible:outline-none"
+                  >
+                    <table className="w-full min-w-[760px] border-collapse text-[13px]">
+                      <thead>
+                        <tr className="text-left text-[12px] text-ink-3">
+                          {[
+                            "Take",
+                            "Track",
+                            "In",
+                            "Out",
+                            ...(walled ? ["Wall clock"] : []),
+                            "Rating",
+                            "False starts",
+                            "Notes",
+                            "Score",
+                          ].map((h) => (
+                            <th key={h} className="whitespace-nowrap px-3 py-2 font-normal">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((t) => (
+                          <tr
+                            key={t.id}
+                            className={cn(
+                              "border-t border-hairline",
+                              t.lifecycle === "recording" && "bg-signal/[0.06]",
+                              t.lifecycle === "aborted" && "opacity-50",
+                            )}
+                          >
+                            {/* One line a row (#653): the notes take what the rest leave. */}
+                            <td className="tabular whitespace-nowrap px-3 py-1.5 font-medium text-ink">
+                              T{t.number}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-1.5 text-ink-2">
+                              {t.track.name}
+                            </td>
+                            <td className="tabular whitespace-nowrap px-3 py-1.5 text-ink-3">
+                              {t.timecodeIn}
+                            </td>
+                            <td className="tabular whitespace-nowrap px-3 py-1.5 text-ink-3">
+                              {t.timecodeOut ?? (t.lifecycle === "recording" ? "…" : "")}
+                            </td>
+                            {walled && (
+                              <td className="tabular whitespace-nowrap px-3 py-1.5 text-ink-3">
+                                {t.wallIn ? timeOfDay.format(new Date(t.wallIn)) : ""}
+                              </td>
+                            )}
+                            <td className="px-3 py-1.5">
+                              <Rating value={t.rating} />
+                            </td>
+                            <td className="tabular px-3 py-1.5 text-ink-3">
+                              {t.falseStarts || ""}
+                            </td>
+                            <td
+                              className="w-full max-w-0 truncate px-3 py-1.5 text-ink-2"
+                              title={t.notes ?? undefined}
+                            >
+                              {t.notes || stateWords(t)}
+                            </td>
+                            <td className="tabular whitespace-nowrap px-3 py-1.5 text-ink-3">
+                              {scoreOf(t)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </section>
+                ) : (
+                  <ul
+                    aria-label="Takes"
+                    className="m-0 flex list-none flex-col divide-y divide-hairline rounded-panel border border-hairline bg-surface p-0"
+                  >
+                    {rows.map((t) => (
+                      <li
+                        key={t.id}
+                        className={cn(
+                          "flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-[14px]",
+                          t.lifecycle === "recording" && "bg-signal/[0.06]",
+                          t.lifecycle === "aborted" && "opacity-50",
                         )}
-                      </span>
-                      <Rating value={t.rating} />
-                      <span className="min-w-0 flex-1 truncate text-ink-2">
-                        {t.notes || stateWords(t)}
-                      </span>
-                      {session.tracks.length > 1 && (
-                        <span className="text-[12px] text-ink-3">{trackName(t.track.id)}</span>
-                      )}
-                      {t.falseStarts > 0 && (
-                        <span className="text-[12px] text-ink-3">
-                          {t.falseStarts} false {t.falseStarts === 1 ? "start" : "starts"}
+                      >
+                        <span
+                          className={cn(
+                            "tabular inline-flex w-12 items-center gap-1 font-medium",
+                            t.lifecycle === "recording" ? "text-signal" : "text-ink",
+                          )}
+                        >
+                          T{t.number}
+                          {t.starred && (
+                            <Icon
+                              name="star"
+                              size={11}
+                              fill="currentColor"
+                              aria-label="Starred"
+                              className="text-ink-2"
+                            />
+                          )}
                         </span>
-                      )}
-                      {view === "producer" && scoreOf(t) && (
-                        <span className="tabular text-[12px] text-ink-3">{scoreOf(t)}</span>
-                      )}
-                      {view === "engineer" && (t.timecodeIn || t.timecodeOut) && (
-                        <span className="tabular text-[12px] text-ink-3">
-                          {t.timecodeIn ?? "…"} – {t.timecodeOut ?? "…"}
+                        <Rating value={t.rating} />
+                        {/* On a phone the notes have a line of their own, under the take (#653). */}
+                        <span className="order-last w-full min-w-0 truncate pl-[60px] text-ink-2 empty:hidden @3xl/app:order-none @3xl/app:w-auto @3xl/app:flex-1 @3xl/app:pl-0 @3xl/app:empty:block">
+                          {t.notes || stateWords(t)}
                         </span>
-                      )}
-                      {view === "engineer" && t.wallIn && (
-                        <span className="tabular text-[12px] text-ink-3">
-                          {clock(rolled(t, now))}
-                        </span>
-                      )}
-                      <span className="sr-only">{takeLifecycleNames[t.lifecycle]}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {view === "engineer" && can("view_production") && (
-                <PatchSummary projectId={session.projectId} />
-              )}
+                        {session.tracks.length > 1 && (
+                          <span className="text-[12px] text-ink-3">{trackName(t.track.id)}</span>
+                        )}
+                        {t.falseStarts > 0 && (
+                          <span className="text-[12px] text-ink-3">
+                            {t.falseStarts} false {t.falseStarts === 1 ? "start" : "starts"}
+                          </span>
+                        )}
+                        {view === "producer" && scoreOf(t) && (
+                          <span className="tabular text-[12px] text-ink-3">{scoreOf(t)}</span>
+                        )}
+                        {view === "engineer" && (t.timecodeIn || t.timecodeOut) && (
+                          <span className="tabular text-[12px] text-ink-3">
+                            {timecodeSpan(t.timecodeIn, t.timecodeOut)}
+                          </span>
+                        )}
+                        {view === "engineer" && t.wallIn && (
+                          <span className="tabular text-[12px] text-ink-3">
+                            {clock(rolled(t, now))}
+                          </span>
+                        )}
+                        <span className="sr-only">{takeLifecycleNames[t.lifecycle]}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {view === "engineer" && can("view_production") && (
+                  <PatchSummary projectId={session.projectId} />
+                )}
+              </div>
+              <TakeLogAside
+                outbox={outbox}
+                session={session}
+                view={view}
+                target={target}
+                trackId={trackId}
+                canLog={canLog}
+              />
             </div>
-            <TakeLogAside
-              outbox={outbox}
-              session={session}
-              view={view}
-              target={target}
-              trackId={trackId}
-              canLog={canLog}
-            />
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </ProductionBody>
       {large && (
         <TakeOverview
           session={session.name}
@@ -920,7 +1004,14 @@ function TakeLogAside({
     setTodo("");
   };
   return (
-    <aside aria-label="Beside the log" className="flex min-w-0 flex-col gap-5">
+    <aside
+      aria-label="Beside the log"
+      className={cn(
+        "flex min-w-0 flex-col gap-5",
+        // Under the logger's table, side by side, so the table has the width (#653).
+        view === "logger" && "@3xl/app:grid @3xl/app:grid-cols-2 @3xl/app:items-start",
+      )}
+    >
       {view === "producer" && (
         <>
           {scoreFileId && (
@@ -990,7 +1081,7 @@ function TakeLogAside({
             disabled={!canLog}
             rows={2}
             maxLength={2000}
-            placeholder="Trio from bar 65; coda at 89"
+            placeholder="Cues and bar numbers for the room"
             onSave={(reference) => outbox.notes({ reference })}
           />
         </>
@@ -1001,7 +1092,7 @@ function TakeLogAside({
         value={session.notes}
         disabled={!canLog}
         maxLength={4000}
-        placeholder="Piano a touch bright after lunch"
+        placeholder="For everyone in the room"
         onSave={(text) => outbox.notes({ notes: text })}
       />
     </aside>

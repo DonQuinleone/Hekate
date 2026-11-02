@@ -27,6 +27,11 @@ export const logQuery = z.object({
   /** Audit and authentication: one workspace's events, and the operators' events about it. */
   workspace: z.uuid().optional(),
   before: z.uuid().optional(),
+  /**
+   * The viewer's clock, which the range counts back from (#598), as Debug tools' errors do;
+   * the server's own when left out.
+   */
+  now: z.iso.datetime({ offset: true }).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 export type LogQuery = z.infer<typeof logQuery>;

@@ -3,7 +3,7 @@ title: Channels and webhooks
 description: How a workspace's events reach Slack, Discord, Microsoft Teams or a receiver of your own, how a webhook is checked, and the workspace's own mail.
 ---
 
-A workspace can tell other places what happens in it: a review asked for, a decision recorded, a new version, a stage that starts, a download. Each place is a **channel**. Admins set them up in *Workspace settings*, *Notifications and integrations*.
+A workspace can tell other places what happens in it: a review asked for, a decision recorded, a new version, a stage that starts, a download. Each place is a **channel**. Admins set them up in *Workspace settings*, *Channels*, under *Integrations*.
 
 - **Kinds.** A Slack incoming webhook, a Discord webhook, a Microsoft Teams workflow webhook, or a webhook of your own. Slack, Discord and Teams get one line and a link into Hekate; a webhook gets the whole event as JSON.
 - **Which events.** The *Events* table has a row for each kind of event and a column for each channel; *Which events…* on a channel's menu does the same for one channel.
@@ -16,7 +16,7 @@ An event names things (the project, the review, the track, who acted) and links 
 
 ## The workspace's own mail
 
-The first row of *Channels* is the workspace's mail. Until an admin chooses otherwise, it is the instance's: whatever the operator set up. *Use the workspace's own* gives the workspace a provider of its own, with the same choices the installer offers (SMTP, Resend, SparkPost, Mailgun, SendGrid, Amazon SES, Postal, Plunk, Google Workspace, Microsoft 365 or Mailcoach) and an address to send from.
+The workspace's mail is set up in *Workspace settings*, *Email*, under *Sending*, above the templates it sends. Until an admin chooses otherwise, it is the instance's: whatever the operator set up. *Use the workspace's own* gives the workspace a provider of its own, with the same choices the installer offers (SMTP, Resend, SparkPost, Mailgun, SendGrid, Amazon SES, Postal, Plunk, Google Workspace, Microsoft 365 or Mailcoach) and an address to send from.
 
 - **What it sends.** Everything sent for the workspace: notifications and digests, review requests and shares, guest links and codes, reminders, upload requests and invitations. Mail that belongs to an account rather than a workspace, such as a password reset, stays with the instance.
 - **Sealed.** The password, API key, token or client secret is encrypted with the workspace's key and never shown again; leave it empty when editing to keep it.
@@ -67,11 +67,11 @@ The signing secret is shown once, when the webhook is made. *Edit…* and *New s
 | `review.requested` | A review or a share is asked for. |
 | `decision.recorded` | A reviewer approves or requests changes. |
 | `feedback.submitted` | A reviewer submits feedback. |
-| `version.arrived` | A track has a new version. |
+| `version.arrived` | A track has a new version (a deliverable, a new cut). |
 | `stage.started` | A workflow stage starts on a track. |
 | `comment.mentioned` | A comment mentions someone. |
 | `guest.signed_in` | A guest signs in with their link. |
 | `file.downloaded` | Someone downloads a file, its original or its listening copy. |
 | `processing.failed` | A file cannot be processed. |
 
-Each event's `data` always has `project`, `actor` and `path`, and what its kind is about: `review`, `track`, `file`, `decision`, `version` or `stage`. The schemas are in `packages/shared/src/events.ts`.
+Each event's `data` always has `project`, `actor` and `path`, and what its kind is about: `review`, `track`, `file`, `decision`, `version` or `stage`. The `project` carries its `profile` (`music`, `video` or `general`), so a receiver can call a video project's tracks deliverables and its versions cuts, as the summary does. The schemas are in `packages/shared/src/events.ts`.

@@ -31,6 +31,7 @@ import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
 import { helpTopics, topicsFor } from "~/lib/help-topics";
 import { meQuery } from "~/lib/queries";
+import { statusNowQuery } from "~/lib/status";
 import {
   downloadAttachment,
   ticketQuery,
@@ -92,29 +93,37 @@ export function TicketListRow({
           {ticketKindNames[ticket.kind]} · {ticketStateCopy[ticket.state]} · {ago(ticket.updatedAt)}
         </span>
       </span>
-      <span className="tabular text-[12px] text-ink-3" title="Messages">
-        {ticket.messages}
+      {/* Labelled, not a bare number (#683). */}
+      <span className="tabular shrink-0 text-[12px] text-ink-3">
+        {ticket.messages} {ticket.messages === 1 ? "message" : "messages"}
       </span>
       <Icon name="chevronRight" size={14} className="text-ink-3" />
     </button>
   );
 }
 
-/** The thread: the workspace at the left, the operators at the right, Hekate's notes dashed. */
+/**
+ * The thread, Hekate's notes dashed. Given who is reading, each message sits on the side of
+ * whoever wrote it (#683): the reader's own at the right, everyone else's at the left, as a
+ * conversation reads; without, the workspace at the left and the operators at the right.
+ */
 export function Thread({
   messages,
   onDownload,
+  viewerId,
 }: {
   messages: TicketMessage[];
   onDownload: (a: TicketAttachment) => void;
+  /** The reader's account, whose own messages go at the right. */
+  viewerId?: string;
 }) {
+  const right = (m: TicketMessage) =>
+    m.author !== "system" &&
+    (viewerId === undefined ? m.author === "operator" : m.authorId === viewerId);
   return (
     <ol className="m-0 flex list-none flex-col gap-3 p-0">
       {messages.map((m) => (
-        <li
-          key={m.id}
-          className={cn("flex gap-3", m.author === "operator" && "flex-row-reverse text-right")}
-        >
+        <li key={m.id} className={cn("flex gap-3", right(m) && "flex-row-reverse text-right")}>
           {m.author === "system" ? (
             <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-raised text-ink-3">
               <Icon name="bolt" size={13} />
@@ -122,12 +131,7 @@ export function Thread({
           ) : (
             <Avatar person={m.authorId ?? m.name} name={m.name} size={28} />
           )}
-          <div
-            className={cn(
-              "flex min-w-0 max-w-[85%] flex-col gap-1",
-              m.author === "operator" && "items-end",
-            )}
-          >
+          <div className={cn("flex min-w-0 max-w-[85%] flex-col gap-1", right(m) && "items-end")}>
             <span className="text-[12px] text-ink-3">
               {m.name} · {ago(m.createdAt)}
             </span>
@@ -217,6 +221,7 @@ export const ticketLine = (t: TicketRow) =>
 /** One of the workspace's tickets as a thread, with a reply box and Mark resolved. */
 function TicketDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const { data, error, refetch } = useQuery(ticketQuery(id));
+  const { data: me } = useQuery(meQuery);
   const reply = useReplyToTicket(id);
   const resolve = useResolveTicket(id);
   const [body, setBody] = useState("");
@@ -247,10 +252,8 @@ function TicketDialog({ id, onClose }: { id: string; onClose: () => void }) {
                 Mark resolved
               </Button>
             )}
+            {/* The dialog's own close says Close; the footer only acts (#683). */}
             <span className="flex-1" />
-            <Button variant="ghost" onClick={onClose}>
-              Close
-            </Button>
             <Button variant="primary" disabled={!body.trim() || reply.isPending} onClick={send}>
               {reply.isPending ? "Sending" : "Send"}
             </Button>
@@ -264,6 +267,7 @@ function TicketDialog({ id, onClose }: { id: string; onClose: () => void }) {
         <div className="flex flex-col gap-4">
           <Thread
             messages={ticket.thread}
+            viewerId={me?.user.id}
             onDownload={(a) =>
               void downloadAttachment("organisation", ticket.id, a).catch((e: Error) =>
                 setFailed(e.message),
@@ -308,9 +312,11 @@ export function SupportSection({
   from?: AskedFrom;
 }) {
   const { data: me } = useQuery(meQuery);
+  const { data: status } = useQuery(statusNowQuery);
   const navigate = useNavigate();
   const support = me?.support;
   if (!support) return null;
+  const incident = (status?.open.length ?? 0) > 0;
   const go = (search: { ticket?: string; new?: "1" }) =>
     void navigate({ to: "/settings/$section", params: { section: "support" }, search });
   if (support.mode !== "app") {
@@ -359,10 +365,16 @@ export function SupportSection({
   ) : (
     <>
       {ticketId && <TicketDialog id={ticketId} onClose={() => go({})} />}
+      {/* Something down for everyone stands on its own above the tickets (#683). */}
+      {incident && (
+        <Section>
+          <StatusRows url={support.statusUrl} />
+        </Section>
+      )}
       <Tickets onNew={() => go({ new: "1" })} onOpen={(id) => go({ ticket: id })} />
       <Section title="Help yourself" intro="Most answers are already written down.">
         <DocumentationRow docsUrl={support.docsUrl} />
-        <StatusRows url={support.statusUrl} />
+        {!incident && <StatusRows url={support.statusUrl} />}
       </Section>
     </>
   );

@@ -1,14 +1,14 @@
 import {
+  isOverdue,
   itemWords,
   type OverviewSection,
   overviewSections,
-  profiles,
   reviewKindNames,
   versionLabel,
 } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { AvatarRow } from "~/components/avatar";
 import { ActivityRow, Section, Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
@@ -26,7 +26,7 @@ import { Switch } from "~/components/ui/toggle";
 import { cn } from "~/lib/cn";
 import { ago } from "~/lib/comments";
 import { dueIn } from "~/lib/home";
-import { formatDates } from "~/lib/locale";
+import { dayHere, formatDates } from "~/lib/locale";
 import {
   moveSection,
   type OverviewAttention,
@@ -40,8 +40,10 @@ import {
   myReviewsQuery,
   type ProjectOverview as OverviewData,
   type Project,
+  projectBoardQuery,
   projectOverviewQuery,
   projectReviewsQuery,
+  projectTasksQuery,
   useOverviewLayout,
   useProjectCan,
 } from "~/lib/queries";
@@ -164,7 +166,10 @@ function AttentionRow({ item }: { item: OverviewAttention }) {
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[14px] font-medium text-ink">{item.title}</span>
-        <span className="block truncate text-[13px] text-ink-3">{item.why}</span>
+        {/* On a phone the reason takes a second line rather than being cut early. */}
+        <span className="line-clamp-2 block text-[13px] text-ink-3 @3xl/app:line-clamp-1">
+          {item.why}
+        </span>
       </span>
       {item.when && (
         <span
@@ -208,6 +213,14 @@ export function ProjectOverview({ project }: { project: Project }) {
   const overview = useQuery(projectOverviewQuery(project.id));
   const mine = useQuery(myReviewsQuery);
   const reviews = useQuery(projectReviewsQuery(project.id));
+  const tasks = useQuery(projectTasksQuery(project.id));
+  // Each track's workflow status, as Files, the board and the timeline show it (#558).
+  const board = useQuery({
+    ...projectBoardQuery(project.id),
+    enabled: project.profile !== "general",
+  });
+  const workflowStatus = new Map((board.data?.cards ?? []).map((c) => [c.id, c.status]));
+  const [allAttention, setAllAttention] = useState(false);
   const layout = useOverviewLayout(project.id);
   const can = useProjectCan(project.id);
   const noun = project.profile === "video" ? "Deliverables" : "Tracks";
@@ -225,6 +238,19 @@ export function ProjectOverview({ project }: { project: Project }) {
   const attention = overviewAttention(o, mine.data ?? [], project.id);
   // Shares ask nothing, so they are never in review (#138); the Reviews tab lists them apart.
   const open = (reviews.data ?? []).filter((r) => r.status === "open" && r.kind !== "share");
+  // A review already under Needs you is not listed again under In review.
+  const above = new Set(
+    attention.filter((a) => a.kind === "review" || a.kind === "overdue").map((a) => a.targetId),
+  );
+  const rest = open.filter((r) => !above.has(r.id));
+  const nextDue = open
+    .flatMap((r) => (r.dueAt ? [r.dueAt] : []))
+    .sort()
+    .at(0);
+  const day = dayHere();
+  const openTasks = (tasks.data?.tasks ?? []).filter((t) => t.status !== "done");
+  const lateTasks = openTasks.filter((t) => isOverdue(t, day)).length;
+  const words = itemWords(project.profile);
   const empty = f.files === 0 && f.tracks === 0;
 
   const render: Record<OverviewSection, ReactNode> = {
@@ -240,10 +266,22 @@ export function ProjectOverview({ project }: { project: Project }) {
         ) : (
           <Card>
             <ul className="m-0 flex list-none flex-col p-1.5">
-              {attention.slice(0, ATTENTION_SHOWN).map((a) => (
+              {(allAttention ? attention : attention.slice(0, ATTENTION_SHOWN)).map((a) => (
                 <AttentionRow key={a.id} item={a} />
               ))}
             </ul>
+            {attention.length > ATTENTION_SHOWN && (
+              <div className="border-t border-line px-1.5 py-1.5">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-expanded={allAttention}
+                  onClick={() => setAllAttention(!allAttention)}
+                >
+                  {allAttention ? "Show fewer" : `Show all ${attention.length}`}
+                </Button>
+              </div>
+            )}
           </Card>
         )}
       </Section>
@@ -253,7 +291,9 @@ export function ProjectOverview({ project }: { project: Project }) {
         aria-label={names.stats}
         className={cn(
           "grid grid-cols-2 gap-3",
-          f.openComments === null ? "@3xl/app:grid-cols-3" : "@3xl/app:grid-cols-4",
+          2 + (f.openComments === null ? 0 : 1) + (tasks.data ? 1 : 0) === 4
+            ? "@3xl/app:grid-cols-4"
+            : "@3xl/app:grid-cols-3",
         )}
       >
         {project.profile === "general" ? (
@@ -262,24 +302,26 @@ export function ProjectOverview({ project }: { project: Project }) {
           <Stat
             label={`${noun} approved`}
             value={`${f.approvedTracks} of ${f.versionedTracks}`}
-            hint={`${f.tracks - f.versionedTracks} without a ${itemWords(project.profile).version}`}
+            // Only what has a version can be approved, and the tile says so.
+            hint={`with a ${words.version} only`}
           />
         )}
         <Stat
           label="In review"
-          value={f.openReviews}
-          hint={
-            f.nextDueAt ? `next due ${dateFormat.format(new Date(f.nextDueAt))}` : "nothing due"
-          }
+          value={open.length}
+          hint={nextDue ? `next due ${dateFormat.format(new Date(nextDue))}` : "nothing due"}
         />
         {f.openComments !== null && (
           <Stat label="Open comments" value={f.openComments} hint="threads not yet resolved" />
         )}
-        <Stat
-          label="Processing"
-          value={f.processing}
-          hint={f.processing ? "uploads being prepared" : "everything is ready"}
-        />
+        {tasks.data && (
+          <Stat
+            label="Open tasks"
+            value={openTasks.length}
+            hint={`${lateTasks} overdue`}
+            flag={lateTasks > 0}
+          />
+        )}
       </section>
     ),
     tracks: (
@@ -298,10 +340,11 @@ export function ProjectOverview({ project }: { project: Project }) {
           <ul className="m-0 flex list-none flex-col p-1.5">
             {o.tracks.map((t) => {
               const copy = trackStateCopy[t.state];
+              const status = t.version ? (workflowStatus.get(t.id) ?? null) : null;
               const inner = (
                 <>
                   <span className="flex h-9 w-12 shrink-0 items-center justify-center rounded-[5px] border border-line-strong text-ink-3">
-                    <Icon name="track" size={14} />
+                    <Icon name={project.profile === "video" ? "film" : "track"} size={14} />
                   </span>
                   <span className="min-w-0">
                     <span className="block truncate text-[14px] font-medium text-ink">
@@ -311,12 +354,19 @@ export function ProjectOverview({ project }: { project: Project }) {
                       {t.version
                         ? versionLabel(t.version.number, project.profile)
                         : trackStateLabel("no_version", project.profile)}
-                      {t.version && <span className="@3xl/app:hidden"> · {copy.label}</span>}
+                      {t.version && (
+                        <span className="@3xl/app:hidden"> · {status ?? copy.label}</span>
+                      )}
                     </span>
                   </span>
-                  <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
-                    {copy.dot && <StatusDot state={copy.dot} />}
-                    <span className="truncate">{copy.label}</span>
+                  {/* Its workflow status, with how its review stands as the dot, as on Files. */}
+                  <span
+                    className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex"
+                    title={t.version ? copy.label : undefined}
+                  >
+                    {t.version && copy.dot && <StatusDot state={copy.dot} />}
+                    {t.version && <span className="sr-only">{copy.label}: </span>}
+                    <span className={cn("truncate", !status && "text-ink-3")}>{status ?? "—"}</span>
                   </span>
                   <span className="hidden items-center gap-2 text-[13px] text-ink-3 @3xl/app:flex">
                     {t.waitingOn.length > 0 && (
@@ -359,7 +409,7 @@ export function ProjectOverview({ project }: { project: Project }) {
     reviews: (
       <Section
         title={names.reviews}
-        hint={String(open.length)}
+        hint={String(rest.length)}
         action={
           <Button variant="ghost" size="sm" asChild>
             <Link to="/projects/$projectId/reviews" params={{ projectId: project.id }}>
@@ -370,7 +420,7 @@ export function ProjectOverview({ project }: { project: Project }) {
       >
         <Card>
           <ul className="m-0 flex list-none flex-col p-1.5">
-            {open.map((r) => (
+            {rest.map((r) => (
               <li key={r.id}>
                 <Link
                   to="/reviews/$reviewId"
@@ -384,21 +434,19 @@ export function ProjectOverview({ project }: { project: Project }) {
                       {reviewKindNames[r.kind]} · {r.submitted} of {r.reviewers} responded
                     </span>
                   </span>
+                  {/* Lateness is in signal under Needs you alone; here it reads quietly. */}
                   {r.dueAt && (
-                    <span
-                      className={cn(
-                        "tabular shrink-0 text-right text-[12px]",
-                        dueIn(r.dueAt).days < 0 ? "text-signal" : "text-ink-3",
-                      )}
-                    >
+                    <span className="tabular shrink-0 text-right text-[12px] text-ink-3">
                       {dueIn(r.dueAt).label}
                     </span>
                   )}
                 </Link>
               </li>
             ))}
-            {open.length === 0 && (
-              <li className="px-3 py-4 text-[13px] text-ink-3">Nothing in review.</li>
+            {rest.length === 0 && (
+              <li className="px-3 py-4 text-[13px] text-ink-3">
+                {open.length === 0 ? "Nothing in review." : "Nothing else in review."}
+              </li>
             )}
           </ul>
         </Card>
@@ -423,16 +471,9 @@ export function ProjectOverview({ project }: { project: Project }) {
       <Section title={names.properties}>
         <Card className="px-4 py-2">
           <dl className="m-0 flex flex-col">
-            <Property name="Profile">{profiles[project.profile].label}</Property>
             {o.deliveryProfileLabel && (
               <Property name="Delivery">{o.deliveryProfileLabel}</Property>
             )}
-            <Property name="People">
-              <span className="flex items-center gap-2">
-                <AvatarRow people={f.faces} total={f.members} size={20} />
-                <span className="text-ink-3">{plural(f.members, "member")}</span>
-              </span>
-            </Property>
             {o.role && <Property name="Your role">{o.role}</Property>}
             {o.createdAt && (
               <Property name="Created">{dateFormat.format(new Date(o.createdAt))}</Property>

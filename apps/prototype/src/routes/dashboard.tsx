@@ -5,7 +5,7 @@ import { CalendarSubscribeDialog } from "~/components/calendar-subscribe";
 import { Icon, type IconName } from "~/components/icons";
 import { Card, Page, SectionHead } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
-import { NewProjectTile, ProjectCard } from "~/components/project-card";
+import { ProjectCard } from "~/components/project-card";
 import { Dot, type DotState, reviewDot } from "~/components/status";
 import { Button } from "~/components/ui/button";
 import { Dialog } from "~/components/ui/dialog";
@@ -198,7 +198,8 @@ export function DashboardPage() {
         to: `/projects/${t.projectId}/tasks`,
       })),
   ].sort((a, b) => a.at.localeCompare(b.at));
-  const dueThisWeek = deadlines.filter((d) => d.at <= week).length;
+  // The next seven days only; anything already late is overdue, counted apart.
+  const dueSoon = deadlines.filter((d) => d.at <= week && dueIn(d.at).days >= 0).length;
   const overdue = deadlines.filter((d) => dueIn(d.at).days < 0).length;
   const openComments = comments.filter(
     (c) => !c.parentId && !c.resolved && viewer.canSee(fileById(c.fileId)?.projectId ?? ""),
@@ -258,8 +259,8 @@ export function DashboardPage() {
       empty={
         <Page>
           <Empty
-            title="Nothing here yet"
-            text="Start a project, or wait to be added to one. Reviews and tasks asked of you gather here."
+            title="No projects yet"
+            text="Use New project to start one, or wait to be added to one. Reviews and tasks asked of you gather here."
             action={
               <Button variant="primary" onClick={() => setCreating(true)}>
                 New project
@@ -316,10 +317,9 @@ export function DashboardPage() {
             hint={`${open.filter((r) => responded(r) > 0).length} with responses`}
           />
           <Stat
-            label="Due this week"
-            value={dueThisWeek}
-            hint={overdue ? `${overdue} overdue` : "nothing overdue"}
-            flag={overdue > 0}
+            label="Due in 7 days"
+            value={dueSoon}
+            hint={overdue ? `and ${overdue} overdue` : "nothing overdue"}
           />
           <Stat
             label="Open comments"
@@ -332,14 +332,21 @@ export function DashboardPage() {
         {section(
           "Projects",
           String(projects.length),
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/projects">All projects</Link>
-          </Button>,
+          <span className="flex items-center gap-1">
+            {!viewer.isGuest && (
+              <Button variant="ghost" size="sm" onClick={() => setCreating(true)}>
+                <Icon name="plus" size={14} />
+                New project
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/projects">All projects</Link>
+            </Button>
+          </span>,
           <div className="grid gap-4 @3xl/app:grid-cols-2 @6xl/app:grid-cols-3">
-            {projects.slice(0, 5).map((p) => (
+            {projects.slice(0, 6).map((p) => (
               <ProjectCard key={p.id} project={p} />
             ))}
-            {!viewer.isGuest && <NewProjectTile onClick={() => setCreating(true)} />}
           </div>,
         )}
 

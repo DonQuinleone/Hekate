@@ -24,6 +24,7 @@ import {
   defaultPlayerViewSettings,
   defaultProjectRoles,
   type InstanceEnvironment,
+  type InstanceOverview,
   type InstanceSettings,
   instanceSettingsOf,
   type LoudnessSummary,
@@ -1187,11 +1188,31 @@ describe.runIf(url)("api", () => {
         // Where keys are not required (testing), the same session acts.
         const overview = await get("/api/instance/overview", first);
         expect(overview.status).toBe(200);
-        expect(await overview.json()).toMatchObject({
+        const body = (await overview.json()) as InstanceOverview;
+        expect(body).toMatchObject({
           workspaces: 1,
+          suspended: 0,
           people: 1,
+          errorsToday: { api: 0, worker: 0, unknown: 0 },
+          release: { newest: null, checking: false },
           recent: [{ action: "operator.added", target: owner.email, actor: null }],
         });
+        // With keys not required, a missing one is advice, told to the operator it is about;
+        // and mail that only reaches the log is flagged (#599).
+        expect(body.needs).toContainEqual(
+          expect.objectContaining({
+            kind: "key_missing",
+            title: "You have no passkey",
+            self: true,
+            advice: true,
+          }),
+        );
+        expect(body.needs).toContainEqual(
+          expect.objectContaining({
+            kind: "mail_logged",
+            title: "Mail is written to the log; nobody receives email",
+          }),
+        );
       });
 
       it("refuses members, and shows an owner only their own workspace", async () => {
@@ -3443,6 +3464,10 @@ describe.runIf(url)("api", () => {
         await db.delete(schema.mailEvents);
         const delivered = loggedMailer(db, memoryMailer(), true);
         await delivered.send({ to: "mira@endlesshall.example", subject: "Sent 157", text: "" });
+        // Each row is written beside its message, so the first is waited for before the second.
+        await vi.waitFor(async () =>
+          expect((await read<MailLogRow>("mail")).rows).toHaveLength(1),
+        );
         const refusing = loggedMailer(
           db,
           {
@@ -3483,6 +3508,69 @@ describe.runIf(url)("api", () => {
         const theirOwner = await join(operator, "label@example.test", "owner");
         expect((await get("/api/instance/logs/audit", theirOwner)).status).toBe(403);
         expect((await get("/api/instance/logs/mail/export", theirOwner)).status).toBe(403);
+      });
+
+      it("lists and narrows the logs by when things happened, not when they were written (#598)", async () => {
+        const operator = cookieOf(await setup());
+        const now = Date.now();
+        const hoursAgo = (hours: number) => new Date(now - hours * 60 * 60_000);
+        // Written in this order, so each id is newer than the last; their times say otherwise.
+        for (const [target, at] of [
+          ["recent-598", hoursAgo(0.5)],
+          ["after-the-fact-598", hoursAgo(3)],
+          ["long-ago-598", hoursAgo(48)],
+        ] as const)
+          await db
+            .insert(schema.instanceEvents)
+            .values({ actorId: null, action: "flag.on", target, createdAt: at });
+        for (const [subject, at] of [
+          ["Recent 598", hoursAgo(0.5)],
+          ["After the fact 598", hoursAgo(3)],
+          ["Long ago 598", hoursAgo(48)],
+        ] as const)
+          await db
+            .insert(schema.mailEvents)
+            .values({ recipient: "mira@endlesshall.example", subject, result: "sent", occurredAt: at });
+        type Page<R> = { rows: R[]; next: string | null };
+        const read = async <R>(path: string) => {
+          const res = await get(`/api/instance/logs/${path}`, operator);
+          expect(res.status).toBe(200);
+          return (await res.json()) as Page<R>;
+        };
+        // In time order, and the last day holds only the last day.
+        const day = await read<AuditLogRow>("audit?q=598&range=24h");
+        expect(day.rows.map((r) => r.target)).toEqual(["recent-598", "after-the-fact-598"]);
+        const week = await read<AuditLogRow>("audit?q=598&range=7d");
+        expect(week.rows.map((r) => r.target)).toEqual([
+          "recent-598",
+          "after-the-fact-598",
+          "long-ago-598",
+        ]);
+        // A page at a time, after the last row's time.
+        const first = await read<AuditLogRow>("audit?q=598&range=7d&limit=1");
+        expect(first.rows.map((r) => r.target)).toEqual(["recent-598"]);
+        const second = await read<AuditLogRow>(`audit?q=598&range=7d&limit=1&before=${first.next}`);
+        expect(second.rows.map((r) => r.target)).toEqual(["after-the-fact-598"]);
+        const third = await read<AuditLogRow>(`audit?q=598&range=7d&limit=1&before=${second.next}`);
+        expect(third.rows.map((r) => r.target)).toEqual(["long-ago-598"]);
+        expect(third.next).toBeNull();
+        // The single-table logs alike.
+        const mail = await read<MailLogRow>("mail?q=598&range=24h");
+        expect(mail.rows.map((r) => r.subject)).toEqual(["Recent 598", "After the fact 598"]);
+        const page = await read<MailLogRow>("mail?q=598&range=7d&limit=1");
+        const next = await read<MailLogRow>(`mail?q=598&range=7d&limit=2&before=${page.next}`);
+        expect(next.rows.map((r) => r.subject)).toEqual(["After the fact 598", "Long ago 598"]);
+        // By the viewer's clock, when the page sends it: from a day before it, and since.
+        const then = encodeURIComponent(hoursAgo(40).toISOString());
+        const back = await read<AuditLogRow>(`audit?q=598&range=24h&now=${then}`);
+        expect(back.rows.map((r) => r.target)).toEqual([
+          "recent-598",
+          "after-the-fact-598",
+          "long-ago-598",
+        ]);
+        const before = encodeURIComponent(hoursAgo(-2).toISOString());
+        const ahead = await read<AuditLogRow>(`audit?q=598&range=1h&now=${before}`);
+        expect(ahead.rows).toEqual([]);
       });
 
       it("logs every sign-in, refusal and guest link, and forgets a deleted account's address (#157)", async () => {
@@ -5107,6 +5195,8 @@ describe.runIf(url)("api", () => {
         role: "admin",
         status: "valid",
         hasAccount: false,
+        // Who sent it, by name (#688).
+        invitedBy: "Producer",
       });
 
       const accepted = await app.request(
@@ -7604,6 +7694,129 @@ describe.runIf(url)("api", () => {
           await get(`/api/organisation/audit.csv?guestId=${guestId}`, owner)
         ).text();
         expect(csv.trim().split("\r\n")).toHaveLength(2);
+      });
+
+      it("reads a playback's segments behind it, and keeps every one in the log (#684)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const me = await audit.member((await db.select().from(schema.users))[0]?.id ?? "");
+        const file = "01999999-0000-7000-8000-0000000000d1";
+        const play = async (segments: number) => {
+          const session = await audit.record(organisationId, me, {
+            action: "stream.session",
+            fileId: file,
+          });
+          for (let i = 0; i < segments; i++)
+            await audit.record(organisationId, me, {
+              action: "stream.segment",
+              fileId: file,
+              details: { segment: i },
+            });
+          return session;
+        };
+        const first = await play(3);
+        await audit.record(organisationId, me, { action: "stream.key", fileId: file });
+        const second = await play(2);
+        await audit.record(organisationId, me, { action: "download", fileId: file });
+        const [other] = await db
+          .insert(schema.organisations)
+          .values({ name: "Elsewhere", slug: "elsewhere-segments" })
+          .returning();
+        // Another workspace's segment for the same file never counts here.
+        await audit.record(other?.id ?? "", me, { action: "stream.segment", fileId: file });
+
+        type Page = { events: { id: string; action: string; segments?: number }[] };
+        const grouped = (await (
+          await get("/api/organisation/audit?segments=grouped", owner)
+        ).json()) as Page;
+        expect(grouped.events.map((e) => e.action)).toEqual([
+          "download",
+          "stream.session",
+          "stream.key",
+          "stream.session",
+        ]);
+        expect(grouped.events.find((e) => e.id === second.id)?.segments).toBe(2);
+        expect(grouped.events.find((e) => e.id === first.id)?.segments).toBe(3);
+        // Unset, or asked for every one, each segment is a row of its own.
+        for (const query of ["", "?segments=every"]) {
+          const every = (await (await get(`/api/organisation/audit${query}`, owner)).json()) as Page;
+          expect(every.events.filter((e) => e.action === "stream.segment")).toHaveLength(5);
+          expect(every.events.some((e) => e.segments !== undefined)).toBe(false);
+        }
+        expect(
+          (
+            (await (
+              await get("/api/organisation/audit?segments=grouped&action=stream.segment", owner)
+            ).json()) as Page
+          ).events,
+        ).toHaveLength(5);
+        // The export holds every row.
+        const csv = await (await get("/api/organisation/audit.csv", owner)).text();
+        expect(csv.split("stream.segment").length - 1).toBe(5);
+
+        const behind = await get(`/api/organisation/audit/sessions/${first.id}/segments`, owner);
+        expect(behind.status).toBe(200);
+        const rows = ((await behind.json()) as { events: { details: { segment: number } }[] })
+          .events;
+        expect(rows.map((r) => r.details.segment)).toEqual([0, 1, 2]);
+        // Not a playback, another workspace's, or asked by a member: refused.
+        const key = grouped.events.find((e) => e.action === "stream.key")?.id;
+        expect((await get(`/api/organisation/audit/sessions/${key}/segments`, owner)).status).toBe(
+          404,
+        );
+        const theirs = await audit.record(other?.id ?? "", me, {
+          action: "stream.session",
+          fileId: file,
+        });
+        expect(
+          (await get(`/api/organisation/audit/sessions/${theirs.id}/segments`, owner)).status,
+        ).toBe(404);
+        const member = await joinAs(owner, "segments-member@example.test", "member");
+        expect(
+          (await get(`/api/organisation/audit/sessions/${first.id}/segments`, member)).status,
+        ).toBe(403);
+        expect((await get("/api/organisation/audit/sessions/nonsense/segments", owner)).status).toBe(
+          400,
+        );
+      });
+
+      it("lists a segment on its own when its playback started before the range (#684)", async () => {
+        const owner = cookieOf(await setup());
+        const organisationId = await organisationOf(owner);
+        const me = await audit.member((await db.select().from(schema.users))[0]?.id ?? "");
+        const file = "01999999-0000-7000-8000-0000000000d2";
+        await audit.record(organisationId, me, { action: "stream.session", fileId: file });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        const since = new Date().toISOString();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        for (let i = 0; i < 2; i++)
+          await audit.record(organisationId, me, {
+            action: "stream.segment",
+            fileId: file,
+            details: { segment: i },
+          });
+        const later = await audit.record(organisationId, me, {
+          action: "stream.session",
+          fileId: file,
+        });
+        await audit.record(organisationId, me, { action: "stream.segment", fileId: file });
+
+        type Page = { events: { id: string; action: string; segments?: number }[] };
+        const ranged = (await (
+          await get(
+            `/api/organisation/audit?segments=grouped&from=${encodeURIComponent(since)}`,
+            owner,
+          )
+        ).json()) as Page;
+        // The later playback holds its segment; the earlier one's, its start out of range, stand
+        // alone rather than vanish.
+        expect(ranged.events.map((e) => e.action)).toEqual([
+          "stream.session",
+          "stream.segment",
+          "stream.segment",
+        ]);
+        expect(ranged.events[0]?.id).toBe(later.id);
+        expect(ranged.events[0]?.segments).toBe(1);
       });
 
       it("names the file each entry touched, and nothing for one it cannot find", async () => {
@@ -10224,6 +10437,7 @@ describe.runIf(url)("api", () => {
             id: string;
             name: string;
             mine: boolean;
+            owned: boolean;
             mayArchive: boolean;
             figures?: { files: number };
           }[];
@@ -10321,6 +10535,12 @@ describe.runIf(url)("api", () => {
         const engineerSees = new Map((await list(engineer)).map((p) => [p.name, p.mayArchive]));
         expect(engineerSees.get("Rags")).toBe(false);
         expect(engineerSees.get("Mine now")).toBe(true);
+        // A member of a project is not its owner; its creator is (the list's Owned by you).
+        const engineerOwns = new Map(
+          (await list(engineer)).map((p) => [p.name, [p.mine, p.owned]]),
+        );
+        expect(engineerOwns.get("Rags")).toEqual([true, false]);
+        expect(engineerOwns.get("Mine now")).toEqual([true, true]);
         expect(
           (await list(owner, "?figures=1")).find((p) => p.id === projectId)?.figures?.files,
         ).toBe(1);
@@ -10930,7 +11150,7 @@ describe.runIf(url)("api", () => {
         // The format fails Streaming (48 kHz, no bit depth): the whole file's first, then in time.
         expect(document.groups[0]?.findings.map((f) => [f.name, f.at])).toEqual([
           ["Format", "Whole file"],
-          ["Clipping", "00:12.000–00:12.500"],
+          ["Clipping", "0:12.000–0:12.500"],
         ]);
         expect(document.appendix.link).toMatch(new RegExp(`/files/${s.mix}\\?view=qa$`));
 
@@ -12577,8 +12797,15 @@ describe.runIf(url)("api", () => {
 
         it("deletes a project only when a second owner confirms, with everything in it (#240)", async () => {
           const s = await studio();
-          const deletion = (cookie: string, rest = "", method = "POST", id = s.projectId) =>
-            app.request(`/api/projects/${id}/deletion${rest}`, { ...json({}, cookie), method });
+          // Confirming takes the project's name and the owner's password, as moving it does (#676).
+          const proof = { name: "Rags", password: "correct horse battery" };
+          const deletion = (
+            cookie: string,
+            rest = "",
+            method = "POST",
+            id = s.projectId,
+            body: object = rest === "/confirm" ? proof : {},
+          ) => app.request(`/api/projects/${id}/deletion${rest}`, { ...json(body, cookie), method });
           const viewOf = async (cookie: string) =>
             (
               (await (await getAs(`/api/projects/${s.projectId}`, cookie)).json()) as {
@@ -12660,6 +12887,17 @@ describe.runIf(url)("api", () => {
             .returning();
           expect((await deletion(s.engineer, "/confirm", "POST", foreign?.id)).status).toBe(404);
 
+          // Without the project's name, or with a wrong password, nothing happens.
+          expect(
+            (await deletion(s.engineer, "/confirm", "POST", s.projectId, { ...proof, name: "Rag" }))
+              .status,
+          ).toBe(422);
+          const wrong = await deletion(s.engineer, "/confirm", "POST", s.projectId, {
+            ...proof,
+            password: "not it",
+          });
+          expect(wrong.status).toBe(403);
+          expect(await wrong.text()).toMatch(/password is not right/);
           // Confirmed: archived at once, its open review closed, and gone in seven days.
           const confirmed = await deletion(s.engineer, "/confirm");
           expect(confirmed.status).toBe(200);
@@ -13358,7 +13596,7 @@ describe.runIf(url)("api", () => {
           expect(asked.notifications[0]).toMatchObject({
             kind: "review_requested",
             actorName: "Producer",
-            text: 'asks you to approve "Master sign-off"',
+            text: 'asks you to approve “Master sign-off”',
           });
           expect(mailer.sent.map((m) => m.to)).toEqual(["composer@example.test"]);
           // Whoever asked is not told of their own request.
@@ -13371,7 +13609,7 @@ describe.runIf(url)("api", () => {
           expect((await inbox(s.owner)).notifications[0]).toMatchObject({
             kind: "decision",
             actorName: "composer",
-            text: 'approved "Master sign-off"',
+            text: 'approved “Master sign-off”',
           });
           // Nobody else heard anything.
           expect((await inbox(s.accompanist)).notifications).toEqual([]);
@@ -13751,7 +13989,7 @@ describe.runIf(url)("api", () => {
           const approved = await read(await change(first.id, { status: "done" }, s.owner));
           expect(approved.events.map((e) => e.text).slice(-3)).toEqual([
             "marked it done, waiting for approval",
-            "added a note",
+            "commented",
             "approved and closed it",
           ]);
 
@@ -14692,6 +14930,7 @@ describe.runIf(url)("api", () => {
           const day = (await (
             await send("POST", `/api/projects/${s.projectId}/sessions`, {
               name: "Day 3",
+              recordedOn: "2026-10-15",
               trackIds: [s.trackId],
             })
           ).json()) as { session: { id: string } };
@@ -14715,7 +14954,7 @@ describe.runIf(url)("api", () => {
               falseStarts: number;
               file: { id: string } | null;
               track: { id: string; name: string; projectId: string; scoreFileId: string | null };
-              session: { id: string; name: string } | null;
+              session: { id: string; name: string; recordedOn: string | null } | null;
               siblings: { id: string; number: number; starred: boolean }[];
             };
           };
@@ -14731,7 +14970,8 @@ describe.runIf(url)("api", () => {
             falseStarts: 2,
             file: { id: files[1] },
             track: { id: s.trackId, name: "Maple Leaf Rag", projectId: s.projectId },
-            session: { id: day.session.id, name: "Day 3" },
+            // Its session with its day, said beside the take rather than above it (#568).
+            session: { id: day.session.id, name: "Day 3", recordedOn: "2026-10-15" },
           });
           expect(take.siblings).toEqual([
             { id: one, number: 1, starred: false },
@@ -17109,7 +17349,7 @@ describe.runIf(url)("api", () => {
           const seen = await board(s.composer);
           expect(seen.workflows).toEqual(["Album review"]);
           expect(seen.columns.status.map((c) => c.name)).toEqual([
-            "No version",
+            "No version yet",
             "No status",
             "With conductor",
             "Editing",
@@ -17117,7 +17357,7 @@ describe.runIf(url)("api", () => {
           ]);
           expect(seen.columns.status.find((c) => c.name === "Approved")?.category).toBe("done");
           expect(seen.columns.stage.map((c) => c.name)).toEqual([
-            "No version",
+            "No version yet",
             "Not at a stage",
             "Conductor",
             "Engineer edits",
@@ -17174,7 +17414,7 @@ describe.runIf(url)("api", () => {
           expect((await getAs(statusesPath, outsiderBoard)).status).toBe(404);
           expect((await board(s.composer)).columns.status.map((c) => [c.name, c.category])).toEqual(
             [
-              ["No version", "todo"],
+              ["No version yet", "todo"],
               ["No status", "todo"],
               ["Editing", "todo"],
               ["On hold", "todo"],
@@ -17203,6 +17443,17 @@ describe.runIf(url)("api", () => {
           expect((await step({ nodeId: "fb", outcome: "done" }, s.engineer)).status).toBe(403);
           expect((await step({ nodeId: "edit", outcome: "done" })).status).toBe(409);
           expect((await step({ nodeId: "fb", outcome: "approved" })).status).toBe(422);
+          // The clock's outcome is never chosen by hand (#566), and another workspace's member
+          // cannot end the step at all.
+          expect((await step({ nodeId: "fb", outcome: "overdue" })).status).toBe(409);
+          expect((await step({ nodeId: "fb", outcome: "done" }, outsiderBoard)).status).toBe(404);
+          // The track's runs offer only the outcomes a person decides, each with where it leads.
+          const offered = (await (
+            await getAs(`/api/tracks/${s.trackId}/workflow-runs`, s.owner)
+          ).json()) as { runs: { waiting: { nodeId: string; choices: unknown[] }[] }[] };
+          expect(offered.runs[0]?.waiting.find((w) => w.nodeId === "fb")?.choices).toEqual([
+            { outcome: "done", leadsTo: "Engineer edits" },
+          ]);
           expect((await step({ nodeId: "fb", outcome: "done" })).status).toBe(200);
           const told = await db
             .select({ text: schema.notifications.text, detail: schema.notifications.detail })
@@ -18371,7 +18622,7 @@ describe.runIf(url)("api", () => {
             subject: "2 updates in Studio",
           });
           expect(mailer.sent[0]?.text).toContain(
-            'Producer asks you to give feedback on "Digest two"',
+            'Producer asks you to give feedback on “Digest two”',
           );
           expect(
             await deliverDigests(db, mailer, { publicUrl: "http://localhost:3000" }, later),
@@ -18442,7 +18693,7 @@ describe.runIf(url)("api", () => {
         ]);
         // The workspace's subject line for a decision, and who decided at the top.
         expect(mailer.sent[1]?.subject).toBe("Album master: approved");
-        expect(mailer.sent[1]?.text).toContain('composer approved "Album master"');
+        expect(mailer.sent[1]?.text).toContain('composer approved “Album master”');
         expect(mailer.sent[1]?.html).toContain("See the review");
         const done = await reviewOf(
           await app.request(
@@ -18941,6 +19192,36 @@ describe.runIf(url)("api", () => {
           "true peak +0.2 dBTP is over the \u22121.0 dBTP ceiling of Apple Digital Masters",
         );
         expect(why.message).toContain("asks for an edit decision list");
+        // A rule of the project's own marked On upload (#584) holds it back too, saying why;
+        // one not marked is only reported.
+        const masters = {
+          id: "0190a6f0-0000-7000-8000-0000000000ab",
+          name: "Masters at 96 kHz",
+          appliesTo: "audio",
+          measure: "sampleRate",
+          operator: "is",
+          value: "96",
+          severity: "fail",
+          on: true,
+        };
+        const rules = async (onUpload: boolean) =>
+          expect(
+            (
+              await send(
+                "PATCH",
+                `/api/projects/${s.projectId}`,
+                { qaSettings: { delivery: true, checks: {}, rules: [{ ...masters, onUpload }] } },
+                s.owner,
+              )
+            ).status,
+          ).toBe(200);
+        await rules(true);
+        const ruled = ((await (await add({})).json()) as { error: { message: string } }).error;
+        expect(ruled.message).toContain("Masters at 96 kHz: 48 kHz, not is 96");
+        await rules(false);
+        expect(
+          ((await (await add({})).json()) as { error: { message: string } }).error.message,
+        ).not.toContain("Masters at 96 kHz");
         // The list is read too (#56): one with no edits, or one running past the end of the
         // version (60 seconds here), is refused, saying which.
         const reasonFor = async (edlFileId: string) =>
@@ -19672,6 +19953,82 @@ describe.runIf(url)("api", () => {
           return { ...s, review, token, cookie: cookieOf(res) };
         };
 
+        it("greets a guest from their link without spending it, until they press Continue (#573)", async () => {
+          const s = await studio();
+          mailer.sent.length = 0;
+          await request(s.owner, s.projectId, {
+            kind: "approval",
+            title: "Album master",
+            items: [{ trackId: s.trackId }],
+            reviewers: [s.ids.composer, guest],
+          });
+          const token = linkFor("conductor@example.test");
+          const lookup = () => app.request("/api/guest/sessions/lookup", json({ token }));
+          // A mail scanner loading the page, twice: each time it is greeted, and nothing changes.
+          mailer.sent.length = 0;
+          for (const _ of [1, 2]) {
+            const seen = await lookup();
+            expect(seen.status).toBe(200);
+            expect(cookieOf(seen)).not.toContain("hekate_guest=");
+            const body = (await seen.json()) as {
+              verify: string;
+              organisation: string;
+              guest: { name: string } | null;
+              reviews: { title: string }[];
+              expiresAt: string;
+            };
+            expect(body).toMatchObject({
+              verify: "link",
+              organisation: "Studio",
+              guest: { name: "Mira Solberg" },
+              reviews: [{ title: "Album master" }],
+            });
+            expect(new Date(body.expiresAt).getTime()).toBeGreaterThan(Date.now());
+          }
+          expect(mailer.sent).toEqual([]);
+          const [link] = await db
+            .select({ usedAt: schema.guestLinks.usedAt })
+            .from(schema.guestLinks)
+            .where(eq(schema.guestLinks.organisationId, s.organisationId));
+          expect(link?.usedAt).toBeNull();
+          // The person's own click spends it, once, on one device.
+          expect((await signIn(token)).status).toBe(201);
+          expect((await signIn(token)).status).toBe(410);
+          // Spent, it greets no one: the same answer as any link that no longer works.
+          const spent = await lookup();
+          expect(spent.status).toBe(410);
+          expect(((await spent.json()) as { error: { code: string } }).error.code).toBe("link_gone");
+          const unknown = await app.request(
+            "/api/guest/sessions/lookup",
+            json({ token: "x".repeat(43) }),
+          );
+          expect(unknown.status).toBe(410);
+        });
+
+        it("names no one from a link where the workspace asks for a code, and sends none on looking (#573)", async () => {
+          const s = await studio();
+          await app.request("/api/organisation/settings", {
+            ...json({ guestVerification: "code" }, s.owner),
+            method: "PATCH",
+          });
+          mailer.sent.length = 0;
+          await request(s.owner, s.projectId, {
+            kind: "feedback",
+            title: "Album master",
+            items: [{ trackId: s.trackId }],
+            reviewers: [guest],
+          });
+          const token = linkFor("conductor@example.test");
+          mailer.sent.length = 0;
+          const seen = await app.request("/api/guest/sessions/lookup", json({ token }));
+          expect(seen.status).toBe(200);
+          expect(await seen.json()).toMatchObject({ verify: "code", guest: null });
+          // Looking sends no code: only Continue does.
+          expect(mailer.sent).toEqual([]);
+          expect((await signIn(token)).status).toBe(202);
+          expect(mailer.sent.map((m) => m.to)).toEqual(["conductor@example.test"]);
+        });
+
         describe("what a review covers (#501)", () => {
           /** A file put straight into a project's folder, as an upload would leave it. */
           const fileIn = async (
@@ -19941,7 +20298,7 @@ describe.runIf(url)("api", () => {
                 eq(schema.notifications.reviewId, share.id),
               ),
             );
-          expect(told.map((n) => n.text)).toEqual(['shared "Rehearsal takes" with you']);
+          expect(told.map((n) => n.text)).toEqual(['shared “Rehearsal takes” with you']);
           // In the share's own words, as the guest's mail: how often, and what to keep.
           expect(told[0]?.detail).toContain("up to 1 play of each file");
           expect(told[0]?.detail).toContain("You may download the proxy");
@@ -20067,7 +20424,7 @@ describe.runIf(url)("api", () => {
           expect(mail?.text).not.toContain("Approved or Changes requested");
           expect((await signIn(linkFor("conductor@example.test"))).status).toBe(201);
           // The accompanist decides, so waits their turn untold.
-          expect(await told(s.ids.composer)).toEqual(['asks you to approve "Album master"']);
+          expect(await told(s.ids.composer)).toEqual(['asks you to approve “Album master”']);
           expect(await told(s.ids.accompanist)).toEqual([]);
 
           // Added later, a producer decides too, and waits untold at the end of the sequence;
@@ -20089,7 +20446,7 @@ describe.runIf(url)("api", () => {
             method: "PATCH",
           });
           expect(changed.status).toBe(200);
-          expect(await told(producer)).toEqual(['asks you to follow "Album master"']);
+          expect(await told(producer)).toEqual(['asks you to follow “Album master”']);
           // No one else is told anything new.
           expect(await told(s.ids.accompanist)).toEqual([]);
           expect(await told(s.ids.composer)).toHaveLength(1);
@@ -20875,8 +21232,8 @@ describe.runIf(url)("api", () => {
             .from(schema.notifications)
             .where(eq(schema.notifications.kind, "due_soon"));
           expect(told.map((t) => t.text).sort()).toEqual([
-            'your feedback on "Album master" is due tomorrow',
-            'your feedback on "Sleeve notes" is due tomorrow',
+            'your feedback on “Album master” is due tomorrow',
+            'your feedback on “Sleeve notes” is due tomorrow',
           ]);
           expect(told.every((t) => t.userId === s.ids.composer)).toBe(true);
           // The guest gets one mail, with one link that opens both.
@@ -23053,7 +23410,7 @@ describe.runIf(url)("api", () => {
           await exported("target=csv&threads=all&replies=true&time=seconds")
         ).text();
         expect(csv).toContain(
-          "5.000,8.000,Producer: Too loud,Too loud,Producer,00:05.000 – 00:08.000,Resolved",
+          "5.000,8.000,Producer: Too loud,Too loud,Producer,0:05.000–0:08.000,Resolved",
         );
         expect(csv).toContain('"Pedal, again\nReply from Producer: Fixed now"');
         expect(csv).toContain(",,Producer: Lovely overall,Lovely overall,Producer,Whole file,Open");

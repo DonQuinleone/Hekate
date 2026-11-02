@@ -13,6 +13,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { Lockup } from "~/components/brand";
 import { Icon } from "~/components/icons";
+import { NewPassword, PASSWORDS_DIFFER, passwordsAgree } from "~/components/new-password";
 import { Button } from "~/components/ui/button";
 import { Checkbox } from "~/components/ui/choice";
 import { Field } from "~/components/ui/field";
@@ -64,7 +65,7 @@ export function InstallerPage() {
   if (!code)
     return (
       <Layout current={0}>
-        <StepHeading step="requirements" />
+        <StepHeading step="requirements" title="Setup code" />
         <CodeForm onCode={setCode} />
       </Layout>
     );
@@ -137,9 +138,19 @@ function Layout({
       <div className="flex w-full max-w-[880px] flex-col gap-8 @3xl/app:flex-row @3xl/app:gap-16">
         <div className="flex shrink-0 flex-col gap-6 @3xl/app:w-[220px]">
           <Lockup size={22} />
+          {/* On a phone, a thin bar under the step's own "Step 1 of 7", not a cloud of names. */}
+          <div
+            aria-hidden="true"
+            className="h-0.5 overflow-hidden rounded-full bg-raised @3xl/app:hidden"
+          >
+            <div
+              className="h-full rounded-full bg-ink-2 transition-[width] duration-300"
+              style={{ width: `${((current + 1) / rail.length) * 100}%` }}
+            />
+          </div>
           <ol
             aria-label="Steps"
-            className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 @3xl/app:flex-col"
+            className="m-0 hidden list-none flex-col gap-y-1 p-0 @3xl/app:flex"
           >
             {rail.map((s, i) => {
               const ticked = i < current || (s !== "owner" && done.includes(s) && i !== current);
@@ -156,14 +167,14 @@ function Layout({
                     className="flex size-5 shrink-0 items-center justify-center"
                     aria-hidden="true"
                   >
+                    {/* The brand's status language (#689): an ink tick for done, the signal for
+                        where you are, a hollow ring for what is still to come. */}
                     {i === current ? (
-                      <span className="size-3.5 rounded-full bg-signal shadow-[0_0_0_3px_var(--hk-signal-line)]" />
+                      <span className="size-2.5 rounded-full bg-signal shadow-[0_0_0_3px_var(--hk-signal-line)]" />
                     ) : ticked ? (
-                      <span className="flex size-5 items-center justify-center rounded-full bg-ok text-ground">
-                        <Icon name="check" size={12} />
-                      </span>
+                      <Icon name="check" size={14} className="text-ink" />
                     ) : (
-                      <span className="size-2 rounded-full bg-ink" />
+                      <span className="size-2.5 rounded-full border-[1.5px] border-ink-3" />
                     )}
                   </span>
                   {installStepLabels[s]}
@@ -179,14 +190,14 @@ function Layout({
   );
 }
 
-function StepHeading({ step }: { step: RailStep }) {
+function StepHeading({ step, title }: { step: RailStep; title?: string }) {
   return (
     <div>
       <p className="eyebrow m-0">
         Step {rail.indexOf(step) + 1} of {rail.length}
       </p>
       <h1 className="m-0 mt-1 text-[24px] leading-[30px] font-medium tracking-[-0.015em]">
-        {installStepLabels[step]}
+        {title ?? installStepLabels[step]}
       </h1>
     </div>
   );
@@ -203,7 +214,7 @@ function Checks({ checks }: { checks: readonly InstallCheck[] }) {
             aria-hidden="true"
             className={cn(
               "inline-block size-[7px] shrink-0 rounded-full",
-              c.state === "ok" && "bg-ok",
+              c.state === "ok" && "bg-ink",
               c.state === "warn" && "border-[1.5px] border-signal",
               c.state === "fail" && "bg-signal",
             )}
@@ -560,8 +571,14 @@ function StorageStep({ code, state, advance, back }: StepProps) {
         <Button type="button" variant="secondary" size="md" onClick={test} disabled={step.pending}>
           Write and read a test object
         </Button>
+        {/* Its result beside it, not the button's words again (#689). */}
+        {step.checks.map((c) => (
+          <span key={c.name} className="flex items-center gap-1.5 text-[13px] text-ink-2">
+            <span aria-hidden="true" className="size-[7px] rounded-full bg-ink" />
+            {c.detail}
+          </span>
+        ))}
       </div>
-      <Checks checks={step.checks} />
       <Note>
         Every object is encrypted with its own key before it is written; the backend only ever holds
         ciphertext.
@@ -968,7 +985,7 @@ function AddressStep({ code, state, advance, back }: StepProps) {
       </div>
       <Checks checks={step.checks.length > 0 ? step.checks : check.checks} />
       <ErrorLine message={check.error ?? step.error} />
-      <Footer back={back} pending={step.pending} label="Save and start Hekate" />
+      <Footer back={back} pending={step.pending} label="Save and continue" />
     </form>
   );
 }
@@ -987,13 +1004,14 @@ function OwnerStep({
   const [typed, setTyped] = useState("");
   // A code from earlier in this tab may be stale if the server restarted: then ask for it.
   const [askCode, setAskCode] = useState(!code);
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    if (form.get("password") !== form.get("confirm")) {
-      setError("The passwords do not match.");
+    if (!passwordsAgree(form)) {
+      setError(PASSWORDS_DIFFER);
       return;
     }
     const usedCode = askCode || !code ? typed : code;
@@ -1005,7 +1023,7 @@ function OwnerStep({
         json: {
           name: String(form.get("name")),
           email: String(form.get("email")),
-          password: String(form.get("password")),
+          password,
           organisation: workspace,
         },
       },
@@ -1056,28 +1074,7 @@ function OwnerStep({
         <Field label="Email">
           <Input name="email" type="email" autoComplete="username" required className="h-10" />
         </Field>
-        <div className="grid gap-4 @md/app:grid-cols-2">
-          <Field label="Password" hint="12 characters or more.">
-            <Input
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              minLength={12}
-              required
-              className="h-10"
-            />
-          </Field>
-          <Field label="Confirm password">
-            <Input
-              name="confirm"
-              type="password"
-              autoComplete="new-password"
-              minLength={12}
-              required
-              className="h-10"
-            />
-          </Field>
-        </div>
+        <NewPassword value={password} onChange={setPassword} />
         <ErrorLine message={error} />
         <div className="flex items-center gap-2">
           <Button type="submit" variant="primary" size="lg" className="ml-auto" disabled={pending}>

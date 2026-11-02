@@ -61,6 +61,18 @@ export interface WorkspaceExport {
   error: string | null;
 }
 
+/**
+ * Whether an export can no longer be downloaded: removed, or ready but past its week (#589). The
+ * server refuses a link to one past its expiry; until the job that removes it runs, it reads as
+ * expired rather than offering a download that is refused.
+ */
+export const exportExpired = (
+  e: Pick<WorkspaceExport, "status" | "expiresAt">,
+  now = new Date(),
+): boolean =>
+  e.status === "expired" ||
+  (e.status === "ready" && e.expiresAt !== null && new Date(e.expiresAt) <= now);
+
 /** A new export, and its secret key when one was made for it: shown now, and never again. */
 export interface WorkspaceExportStarted {
   export: WorkspaceExport;

@@ -5,6 +5,7 @@ import {
   type CroomImported,
   type CroomPreview,
   type CroomReport,
+  croomConflictWords,
   croomKindWords,
   croomReportEmpty,
 } from "@hekate/shared";
@@ -14,11 +15,13 @@ import { type DragEvent, useRef, useState } from "react";
 import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
+import { FoldingSection } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { FileInput, Select } from "~/components/ui/input";
 import { Refused } from "~/components/ui/states";
 import { StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
+import { reportLines } from "~/lib/croom";
 import { json, useProjectCan } from "~/lib/queries";
 import { ProjectFrame } from "./project";
 
@@ -253,52 +256,93 @@ function Counts({ preview }: { preview: CroomPreview }) {
 }
 
 function Conflicts({ conflicts }: { conflicts: CroomConflict[] }) {
-  const listed = conflicts.map((c) => `${croomKindWords[c.kind][0].toLowerCase()} ${c.name}`);
+  const listed = conflicts.map(croomConflictWords);
+  const shown =
+    listed.length > 6
+      ? `${listed.slice(0, 6).join(", ")} and ${listed.length - 6} more`
+      : listed.length > 1
+        ? `${listed.slice(0, -1).join(", ")} and ${listed.at(-1)}`
+        : (listed[0] ?? "");
   return (
     <p className="m-0 flex items-start gap-2 text-[13px] text-ink-2">
       <Icon name="warning" size={14} className="mt-0.5 shrink-0 text-ink-3" />
-      <span>
-        Already in this project: {listed.slice(0, 6).join(", ")}
-        {listed.length > 6 ? ` and ${listed.length - 6} more` : ""}. Merge into them, or import
-        beside them.
-      </span>
+      <span>Already in this project: {shown}. Merge into them, or import beside them.</span>
     </p>
   );
 }
 
-/** What the file held that is not brought over, so a name the import misread can be found. */
+/**
+ * What to look over, and what the file held that is not brought over, in people's words
+ * (#551): one quiet warning colour for the lines, the signal for the count alone, and the
+ * file's own ids only under Details for support, for whoever helps.
+ */
 function Report({ report }: { report: CroomReport }) {
+  const [open, setOpen] = useState(false);
+  const [details, setDetails] = useState(false);
   if (croomReportEmpty(report)) return null;
-  const setAside = [
-    ...report.unknownEvents.map((e) => ({ what: `Unknown event ${e.type}`, count: e.count })),
-    ...report.unknownFields.map((f) => ({
-      what: `Unread field ${f.type}.${f.field}`,
-      count: f.count,
-    })),
-    ...report.ignored.map((i) => ({ what: `${i.type}: ${i.reason}`, count: i.count })),
-  ];
+  const { lookOver, notBrought, support } = reportLines(report);
+  const total = notBrought.reduce((n, s) => n + s.count, 0);
   return (
-    <div className="flex flex-col gap-2">
-      {report.problems.map((p) => (
-        <p key={p} className="m-0 flex items-start gap-2 text-[13px] text-signal">
-          <Icon name="warning" size={14} className="mt-0.5 shrink-0" />
-          {p}
-        </p>
-      ))}
-      {setAside.length > 0 && (
-        <details className="group text-[13px]">
-          <summary className="cursor-pointer text-ink-2 hover:text-ink">
-            Not brought over · {setAside.reduce((n, s) => n + s.count, 0)}
-          </summary>
-          <ul className="m-0 mt-2 flex list-none flex-col gap-1 p-0">
-            {setAside.map((s) => (
-              <li key={s.what} className="flex items-baseline gap-3 text-ink-3">
-                <span className="min-w-0 flex-1 break-words">{s.what}</span>
-                <span className="tabular shrink-0">{s.count}</span>
+    <div className="flex flex-col gap-4">
+      {lookOver.length > 0 && (
+        <section aria-label="To look over" className="flex flex-col gap-2">
+          <h2 className="m-0 flex items-baseline gap-2 text-[16px] font-medium text-ink">
+            To look over
+            <span className="tabular text-[13px] text-signal">{lookOver.length}</span>
+          </h2>
+          <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+            {lookOver.map((p) => (
+              <li key={p} className="flex items-start gap-2 text-[13px] text-ink-2">
+                <Icon name="warning" size={14} className="mt-0.5 shrink-0 text-warn" />
+                <span className="min-w-0 [overflow-wrap:anywhere]">{p}</span>
               </li>
             ))}
           </ul>
-        </details>
+        </section>
+      )}
+      {notBrought.length > 0 && (
+        <FoldingSection
+          id="croom-not-brought"
+          title="Not brought over"
+          summary={`${total} ${total === 1 ? "thing" : "things"} the file holds that Hekate has no place for`}
+          open={open}
+          onToggle={() => setOpen(!open)}
+        >
+          {notBrought.map((s) => (
+            <div key={s.what} className="flex items-baseline gap-3 px-4 py-2 text-[13px]">
+              <span className="min-w-0 flex-1 text-ink-2 [overflow-wrap:anywhere]">{s.what}</span>
+              <span className="tabular shrink-0 text-ink-3">{s.count}</span>
+            </div>
+          ))}
+          <div className="flex flex-col gap-2 px-4 py-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              // Its words in line with the rows above, as a text button would sit.
+              className="-ml-2.5 self-start"
+              aria-expanded={details}
+              aria-controls="croom-support"
+              onClick={() => setDetails(!details)}
+            >
+              Details for support
+              <Icon
+                name="chevronDown"
+                size={12}
+                className={cn("text-ink-3 transition-transform", details && "rotate-180")}
+              />
+            </Button>
+            {details && (
+              <ul id="croom-support" className="m-0 flex list-none flex-col gap-1 p-0">
+                {support.map((s) => (
+                  <li key={s.what} className="flex items-baseline gap-3 text-[12px] text-ink-3">
+                    <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{s.what}</span>
+                    <span className="tabular shrink-0">{s.count}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </FoldingSection>
       )}
     </div>
   );

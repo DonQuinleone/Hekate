@@ -371,6 +371,7 @@ export class ReportCollector {
   private unknownFields = new Map<string, { type: string; field: string; count: number }>();
   private ignored = new Map<string, { count: number; reason: string }>();
   private problems: string[] = [];
+  private support: string[] = [];
   private problemsDropped = 0;
 
   unknownEvent(type: string) {
@@ -391,8 +392,14 @@ export class ReportCollector {
     else this.ignored.set(type, { count: 1, reason });
   }
 
-  /** A problem with one entry, said once however often it recurs; at most 100 are kept. */
-  problem(text: string) {
+  /**
+   * A problem with one entry, said once however often it recurs; at most 100 are kept. `text`
+   * is a sentence about the thing, for people; `technical`, where the file's own ids say more,
+   * goes to the preview's "Details for support" (#551).
+   */
+  problem(text: string, technical?: string) {
+    if (technical && !this.support.includes(technical) && this.support.length < 100)
+      this.support.push(technical);
     if (this.problems.includes(text)) return;
     if (this.problems.length >= 100) this.problemsDropped += 1;
     else this.problems.push(text);
@@ -409,8 +416,9 @@ export class ReportCollector {
       ignored: [...this.ignored].map(([type, held]) => ({ type, ...held })),
       problems:
         this.problemsDropped > 0
-          ? [...this.problems, `And ${this.problemsDropped} more problems like these`]
+          ? [...this.problems, `And ${this.problemsDropped} more problems like these.`]
           : [...this.problems],
+      support: [...this.support],
     };
   }
 }

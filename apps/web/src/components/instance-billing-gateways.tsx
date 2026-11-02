@@ -101,10 +101,7 @@ export function Gateways() {
             </span>
           </Row>
         )}
-        <Row
-          name="Paddle"
-          hint="Not connected. A merchant of record, collecting VAT in every country: it follows with the hosted offering."
-        />
+        {/* Only what can connect (#694): Paddle is listed once it can be. */}
         <Row
           name={
             <span className="flex items-center gap-2">

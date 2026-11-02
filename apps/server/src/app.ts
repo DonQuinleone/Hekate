@@ -613,7 +613,10 @@ export function createApi(given: AppDeps) {
           (deps.modules?.billing ?? "off") !== "off",
         ),
       )
-      .route("/projects", projectDeletionRoutes(reviewDeps))
+      .route(
+        "/projects",
+        projectDeletionRoutes({ ...reviewDeps, auth: deps.auth, keyring: deps.keyring }),
+      )
       .route("/projects", projectStorageRoutes({ db: deps.db, storage: deps.storage }))
       .route("/projects", projectScoreDownloadRoutes(downloads))
       .route("/projects", projectTrackRoutes(deps.db))

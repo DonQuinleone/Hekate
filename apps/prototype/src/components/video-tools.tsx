@@ -2,9 +2,9 @@ import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon, type IconName } from "~/components/icons";
 import { Kbd } from "~/components/label";
+import { Seg } from "~/components/player/transport";
 import { Floating } from "~/components/ui/floating";
 import { MenuList, usePopover } from "~/components/ui/menu";
-import { Switch } from "~/components/ui/toggle";
 import type { File } from "~/data";
 import { cn } from "~/lib/cn";
 import { Frame } from "./video";
@@ -338,7 +338,7 @@ export function AudioLayoutMenu({ layout }: { layout: string }) {
           align="end"
           side="bottom"
           onClose={() => setOpen(false)}
-          className="rise-in flex w-64 flex-col gap-2 rounded-panel bg-overlay p-3 shadow-3"
+          className="rise-in flex w-80 max-w-[calc(100vw-32px)] flex-col gap-2 rounded-panel bg-overlay p-3 shadow-3"
         >
           <span className="text-[13px] text-ink">Channels: {layout}</span>
           <ul className="flex flex-col gap-1">
@@ -383,44 +383,35 @@ export function AudioLayoutMenu({ layout }: { layout: string }) {
               </li>
             ))}
           </ul>
+          {/* How it is heard is one choice of three (#639), solos and mutes cleared apart. */}
           {channels.length > 2 && (
-            <div className="flex items-center justify-between text-[13px] text-ink">
-              Hear the stereo downmix
-              <Switch
-                label="Hear the stereo downmix"
-                checked={downmix}
-                onChange={(on) => {
-                  setDownmix(on);
-                  if (on) setBinaural(false);
+            <div className="flex items-center gap-3 text-[13px] text-ink-2">
+              Hear
+              <Seg
+                label="Hear"
+                value={binaural ? "binaural" : downmix ? "downmix" : "recorded"}
+                onChange={(v) => {
+                  setDownmix(v === "downmix");
+                  setBinaural(v === "binaural");
                 }}
+                options={[
+                  { id: "recorded", label: "As recorded" },
+                  { id: "downmix", label: "Stereo downmix" },
+                  { id: "binaural", label: "Binaural" },
+                ]}
               />
             </div>
           )}
-          {channels.length > 2 && (
-            <div className="flex items-center justify-between text-[13px] text-ink">
-              Hear it binaurally, on headphones
-              <Switch
-                label="Hear it binaurally, on headphones"
-                checked={binaural}
-                onChange={(on) => {
-                  setBinaural(on);
-                  if (on) setDownmix(false);
-                }}
-              />
-            </div>
-          )}
-          {heard && (
+          {(solo || muted.size > 0) && (
             <button
               type="button"
               onClick={() => {
                 setSolo(null);
                 setMuted(new Set());
-                setDownmix(false);
-                setBinaural(false);
               }}
               className="w-fit text-[13px] text-ink-3 hover:text-ink"
             >
-              Hear it as recorded
+              Clear solos
             </button>
           )}
         </Floating>

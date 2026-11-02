@@ -133,27 +133,30 @@ function Customise({ display, set }: { display: Display; set: (d: Display) => vo
               ))}
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-between border-t border-line pt-3 text-[12px]">
-            <button
-              type="button"
+          <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-3">
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={() => set(projectDefault)}
-              className="text-ink-3 hover:text-ink"
               title="Back to the project's default"
             >
               Reset
-            </button>
-            {isDefault ? (
-              <span className="text-ink-3">The project's default</span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setProjectDefault(display)}
-                className="text-ink-3 hover:text-ink"
-                title="What everyone sees until they arrange it for themselves"
-              >
-                Set as the project's default
-              </button>
-            )}
+            </Button>
+            {/* The same words whether or not it is the default already: then it is ticked and off. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={isDefault}
+              onClick={() => setProjectDefault(display)}
+              title={
+                isDefault
+                  ? "This is the project's default"
+                  : "What everyone sees until they arrange it for themselves"
+              }
+            >
+              {isDefault && <Icon name="check" size={13} />}
+              Set as the project's default
+            </Button>
           </div>
         </Floating>
       )}
@@ -275,7 +278,11 @@ function TrackCard({
 
 export function Board({ project, month }: { project: Project; month?: string }) {
   const workflow = workflows.find((w) => w.id === project.workflowId);
-  const [mode, setMode] = useState<"board" | "timeline" | "calendar">("board");
+  // A general project has no tracks to stand anywhere: no board, and it opens on its calendar.
+  const tracksHere = project.profile !== "general";
+  const [mode, setMode] = useState<"board" | "timeline" | "calendar">(
+    tracksHere ? "board" : "calendar",
+  );
   const [display, setDisplay] = useState<Display>(defaultDisplay);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   /** An entry being added or changed (#505), from the calendar or the timeline. */
@@ -284,7 +291,7 @@ export function Board({ project, month }: { project: Project; month?: string }) 
   const columns =
     display.groupBy === "stage"
       ? [
-          { id: "none", name: "No version", category: "todo" as const },
+          { id: "none", name: "No version yet", category: "todo" as const },
           ...(workflow?.stages.map((s) => ({
             id: s.id,
             name: s.name,
@@ -293,7 +300,7 @@ export function Board({ project, month }: { project: Project; month?: string }) 
           { id: "done", name: "Finished", category: "done" as const },
         ]
       : [
-          { id: "none", name: "No version", category: "todo" as const },
+          { id: "none", name: "No version yet", category: "todo" as const },
           ...(workflow?.statuses.map((s) => ({ id: s.name, name: s.name, category: s.category })) ??
             []),
         ];
@@ -321,24 +328,26 @@ export function Board({ project, month }: { project: Project; month?: string }) 
               ["timeline", "Timeline", "chart"],
               ["calendar", "Calendar", "calendar"],
             ] as const
-          ).map(([m, label, icon]) => (
-            <button
-              key={m}
-              type="button"
-              role="radio"
-              aria-checked={mode === m}
-              onClick={() => setMode(m)}
-              className={cn(
-                "flex h-7 items-center gap-1.5 rounded-[4px] px-2.5 text-[13px]",
-                mode === m ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
-              )}
-            >
-              <Icon name={icon as IconName} size={13} />
-              {label}
-            </button>
-          ))}
+          )
+            .filter(([m]) => tracksHere || m !== "board")
+            .map(([m, label, icon]) => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={mode === m}
+                onClick={() => setMode(m)}
+                className={cn(
+                  "flex h-7 items-center gap-1.5 rounded-[4px] px-2.5 text-[13px]",
+                  mode === m ? "bg-overlay text-ink shadow-2" : "text-ink-3 hover:text-ink",
+                )}
+              >
+                <Icon name={icon as IconName} size={13} />
+                {label}
+              </button>
+            ))}
         </div>
-        <span className="text-[13px] text-ink-3">{workflow?.name}</span>
+        {tracksHere && <span className="text-[13px] text-ink-3">{workflow?.name}</span>}
         <span className="ml-auto flex items-center gap-1">
           {mode === "board" && <Customise display={display} set={setDisplay} />}
         </span>
@@ -796,6 +805,8 @@ interface Event {
   kind: "review" | "task" | "track" | "session" | "day" | "entry";
   to?: string;
   overdue?: boolean;
+  /** The last day of something over several days, both included. */
+  end?: string;
   /** The entry it is, which opens to be changed (#505). */
   entry?: CalendarEntry;
 }
@@ -809,17 +820,46 @@ const eventIcon: Record<Event["kind"], IconName> = {
   entry: "calendar",
 };
 
-/** Every day of a range, both ends included. */
-function daysOf(start: string, end: string | null): string[] {
-  const out = [start];
-  if (!end) return out;
-  for (let d = new Date(`${start}T00:00:00Z`); ; ) {
-    d = new Date(d.getTime() + 86_400_000);
-    const day = d.toISOString().slice(0, 10);
-    if (day > end) break;
-    out.push(day);
+/**
+ * A week of the month with what falls on it, as Apple Calendar draws a month: something over
+ * several days is one bar across them, cut at the week's ends, each on the highest of three
+ * lines free over all its days; what does not fit is counted under its days.
+ */
+function weekBars(week: string[], events: Event[]) {
+  const first = week[0] ?? "";
+  const last = week[6] ?? "";
+  const at = (day: string) => week.indexOf(day);
+  const more = week.map(() => 0);
+  const taken: boolean[][] = [[], [], []];
+  const bars: {
+    e: Event;
+    column: number;
+    span: number;
+    lane: number;
+    before: boolean;
+    after: boolean;
+  }[] = [];
+  const placed = events
+    .filter((e) => (e.end ?? e.date) >= first && e.date <= last)
+    .map((e) => {
+      const before = e.date < first;
+      const after = (e.end ?? e.date) > last;
+      const column = before ? 0 : at(e.date);
+      const span = (after ? 6 : at(e.end ?? e.date)) - column + 1;
+      return { e, column, span, before, after };
+    })
+    .sort((a, b) => a.column - b.column || b.span - a.span);
+  for (const p of placed) {
+    const days = Array.from({ length: p.span }, (_, i) => p.column + i);
+    const lane = taken.findIndex((line) => days.every((d) => !line[d]));
+    if (lane < 0) {
+      for (const d of days) more[d] = (more[d] ?? 0) + 1;
+      continue;
+    }
+    for (const d of days) (taken[lane] as boolean[])[d] = true;
+    bars.push({ ...p, lane });
   }
-  return out;
+  return { bars, more };
 }
 
 /**
@@ -895,15 +935,14 @@ function Calendar({
       })),
     ...calendarEntries
       .filter((e) => e.projectId === project.id)
-      .flatMap((e) =>
-        daysOf(e.startsOn, e.endsOn).map((date) => ({
-          id: `${e.id}-${date}`,
-          date,
-          title: e.title,
-          kind: "entry" as const,
-          entry: e,
-        })),
-      ),
+      .map((e) => ({
+        id: e.id,
+        date: e.startsOn,
+        end: e.endsOn ?? undefined,
+        title: e.title,
+        kind: "entry" as const,
+        entry: e,
+      })),
     ...(project.profile === "music"
       ? schedule.map((d) => ({
           id: d.id,
@@ -914,8 +953,7 @@ function Calendar({
         }))
       : []),
   ];
-  const byDay = new Map<string, Event[]>();
-  for (const e of events) byDay.set(e.date, [...(byDay.get(e.date) ?? []), e]);
+  const weeks = Array.from({ length: 6 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
   const today = NOW.toISOString().slice(0, 10);
   const label = new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(cursor);
   return (
@@ -964,45 +1002,51 @@ function Calendar({
             </span>
           ))}
         </div>
-        <div className="grid grid-cols-7">
-          {cells.map((c, i) => {
-            const list = byDay.get(c.key) ?? [];
-            return (
-              // A double-click on a day is a shortcut to New entry above.
-              <div
-                key={c.key}
-                onDoubleClick={(e) => {
-                  if (!(e.target as HTMLElement).closest("a, button")) onOpen({ day: c.key });
-                }}
-                className={cn(
-                  "flex min-h-[104px] flex-col gap-1 border-b border-line p-1.5",
-                  i % 7 !== 6 && "border-r",
-                  !c.inMonth && "bg-sunken/40",
-                )}
-              >
-                <span
-                  className={cn(
-                    "tabular flex size-6 items-center justify-center rounded-full text-[12px]",
-                    c.key === today
-                      ? "bg-signal font-medium text-ground"
-                      : c.inMonth
-                        ? "text-ink-2"
-                        : "text-ink-3/60",
-                  )}
-                >
-                  {c.d.getUTCDate()}
-                </span>
-                {list.slice(0, 3).map((e) => {
+        {weeks.map((week) => {
+          const { bars, more } = weekBars(
+            week.map((c) => c.key),
+            events,
+          );
+          return (
+            <div key={week[0]?.key} className="relative border-b border-line last:border-b-0">
+              <div className="absolute inset-0 grid grid-cols-7">
+                {week.map((c, i) => (
+                  // A double-click on a day is a shortcut to New entry above.
+                  <div
+                    key={c.key}
+                    onDoubleClick={() => onOpen({ day: c.key })}
+                    className={cn(
+                      "p-1.5",
+                      i !== 6 && "border-r border-line",
+                      !c.inMonth && "bg-sunken",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "tabular flex size-6 items-center justify-center rounded-full text-[12px]",
+                        c.key === today
+                          ? "bg-signal font-medium text-ground"
+                          : c.inMonth
+                            ? "text-ink-2"
+                            : "text-ink-3/60",
+                      )}
+                    >
+                      {c.d.getUTCDate()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {/* One bar across the days it covers, cut where the week ends. */}
+              <div className="pointer-events-none relative grid min-h-[104px] grid-cols-7 content-start gap-y-1 pt-8 pb-1.5">
+                {bars.map(({ e, column, span, lane, before, after }) => {
                   const className = cn(
-                    "flex items-center gap-1 truncate rounded-chip border px-1.5 py-0.5 text-left text-[11px] leading-[15px] transition-colors hover:border-edge",
-                    e.overdue
-                      ? "border-signal/40 bg-signal/10 text-ink"
-                      : e.kind === "review" || e.kind === "track"
-                        ? "border-line bg-raised/60 text-ink"
-                        : e.kind === "entry"
-                          ? "border-line-strong bg-raised/30 text-ink"
-                          : "border-line text-ink-2",
+                    "pointer-events-auto flex min-w-0 items-center gap-1 truncate rounded-chip border px-1.5 py-0.5 text-left text-[11px] leading-[15px] text-ink transition-colors hover:border-edge",
+                    // The signal is for what is late, and nothing else.
+                    e.overdue ? "border-signal/40 bg-signal/10" : "border-line bg-raised",
+                    before ? "ml-0 rounded-l-none border-l-0" : "ml-1.5",
+                    after ? "mr-0 rounded-r-none border-r-0" : "mr-1.5",
                   );
+                  const style = { gridColumn: `${column + 1} / span ${span}`, gridRow: lane + 1 };
                   const inner = (
                     <>
                       <Icon
@@ -1019,22 +1063,31 @@ function Calendar({
                       type="button"
                       onClick={() => onOpen({ entry: e.entry })}
                       className={className}
+                      style={style}
                     >
                       {inner}
                     </button>
                   ) : e.to ? (
-                    <Link key={e.id} to={e.to} className={className}>
+                    <Link key={e.id} to={e.to} className={className} style={style}>
                       {inner}
                     </Link>
                   ) : null;
                 })}
-                {list.length > 3 && (
-                  <span className="px-1 text-[11px] text-ink-3">and {list.length - 3} more</span>
+                {more.map((n, i) =>
+                  n > 0 ? (
+                    <span
+                      key={i}
+                      className="px-2.5 text-[11px] text-ink-3"
+                      style={{ gridColumn: i + 1, gridRow: 4 }}
+                    >
+                      and {n} more
+                    </span>
+                  ) : null,
                 )}
               </div>
-            );
-          })}
-        </div>
+            </div>
+          );
+        })}
       </Card>
       <p className="text-[12px] text-ink-3">
         Review, track and task deadlines, recording sessions, schedule days and the project's

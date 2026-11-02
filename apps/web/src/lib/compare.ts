@@ -83,6 +83,31 @@ export function previousCut(
   return undefined;
 }
 
+/**
+ * A cut set against another chosen on the comparison page (#569): the other cut, ready to play,
+ * whichever of the two came first; none where it is not this track's or is still processing.
+ */
+export function cutAgainst(
+  track: CompareFamily,
+  fileId: string,
+  againstId: string,
+  profile?: ProjectProfile,
+): { mine: string; previous: CompareSource } | undefined {
+  const mine = track.versions.find((v) => v.variants.some((x) => x.fileId === fileId));
+  const other = track.versions.find((v) => v.variants.some((x) => x.fileId === againstId));
+  const chosen = other?.variants.find((x) => x.fileId === againstId);
+  if (!mine || !other || !chosen || chosen.streamStatus !== "ready" || againstId === fileId)
+    return undefined;
+  return {
+    mine: versionLabel(mine.number, profile),
+    previous: {
+      fileId: againstId,
+      label: versionLabel(other.number, profile),
+      versionNumber: other.number,
+    },
+  };
+}
+
 /** Any ready variant of the track as a source, whichever version it belongs to. */
 export function sourceFor(
   track: CompareFamily,

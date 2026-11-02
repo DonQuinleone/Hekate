@@ -20,6 +20,7 @@ import {
   isNull,
   like,
   lt,
+  sql,
   sum,
 } from "drizzle-orm";
 import { CodedException, NotFound } from "../errors.ts";
@@ -55,7 +56,7 @@ export async function billingOverview(
   now = new Date(),
 ): Promise<BillingOverview> {
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const [rows, late, [failed], payout, held, latest] = await Promise.all([
+  const [rows, late, [failed], payout, held, latest, open] = await Promise.all([
     db
       .select({
         id: organisations.id,
@@ -134,6 +135,18 @@ export async function billingOverview(
         ),
       )
       .orderBy(asc(invoices.organisationId), desc(invoices.issuedAt)),
+    // What each workspace owes on its open invoices, by currency (#694): what a waiver lets off.
+    db
+      .select({
+        organisationId: invoices.organisationId,
+        currency: invoices.currency,
+        amount: sql<number>`sum(${invoices.amountDue} - ${invoices.amountPaid})::int`,
+      })
+      .from(invoices)
+      // Across workspaces deliberately, as above.
+      .where(eq(invoices.status, "open"))
+      .groupBy(invoices.organisationId, invoices.currency)
+      .orderBy(asc(invoices.currency)),
   ]);
   const overdueOf = new Map(late.map((l) => [l.organisationId, l]));
   const creditsOf = new Map<string, { amount: number; currency: string }[]>();
@@ -143,6 +156,13 @@ export async function billingOverview(
       { amount: c.amount, currency: c.currency },
     ]);
   const latestOf = new Map(latest.map((l) => [l.organisationId, l]));
+  const owedOf = new Map<string, { amount: number; currency: string }[]>();
+  for (const o of open)
+    if (o.amount > 0)
+      owedOf.set(o.organisationId, [
+        ...(owedOf.get(o.organisationId) ?? []),
+        { amount: o.amount, currency: o.currency },
+      ]);
   const workspaces: BillingWorkspaceRow[] = rows.map((r) => {
     const owed = overdueOf.get(r.id);
     const last = latestOf.get(r.id);
@@ -160,6 +180,7 @@ export async function billingOverview(
       overdue: owed?.dueAt ? { number: owed.number, dueAt: owed.dueAt.toISOString() } : null,
       dunningSuspended: isDunningReason(r.suspendedReason),
       credits: creditsOf.get(r.id) ?? [],
+      owed: owedOf.get(r.id) ?? [],
       latestInvoice:
         last && (last.url || last.pdfUrl)
           ? { number: last.number, issuedAt: last.issuedAt.toISOString() }

@@ -104,9 +104,12 @@ export function QaReportDocument({ doc }: { doc: QaDocument }) {
   );
 }
 
+/** The checks that need attention (#564), as the QA view's badge counts them. */
 const counted = (doc: QaDocument) => {
-  const problems = doc.groups.reduce((n, g) => n + g.findings.length, 0);
-  return `${problems} ${problems === 1 ? "finding" : "findings"}`;
+  const n = doc.summary.counts.fail + doc.summary.counts.warn;
+  return n === 0
+    ? "Every check passes"
+    : `${n} ${n === 1 ? "check needs" : "checks need"} attention`;
 };
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
@@ -533,11 +536,18 @@ function Rules({ doc }: { doc: QaDocument }) {
             <caption className="pb-1 text-left text-[13px] font-medium text-ink-2">
               {title(doc)}
             </caption>
-            <thead className="sr-only">
-              <tr>
-                <th scope="col">Rule</th>
-                <th scope="col">Asked</th>
-                <th scope="col">Result</th>
+            {/* Headed columns (#565): what each rule asks for, and what was found. */}
+            <thead>
+              <tr className="border-b border-hairline text-left text-[12px] text-ink-3">
+                <th scope="col" className="py-1.5 pr-3 font-medium">
+                  Check
+                </th>
+                <th scope="col" className="hidden py-1.5 pr-3 font-medium @3xl/app:table-cell">
+                  Asks for
+                </th>
+                <th scope="col" className="w-[124px] py-1.5 font-medium">
+                  Result
+                </th>
               </tr>
             </thead>
             <tbody>

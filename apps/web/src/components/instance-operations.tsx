@@ -1,8 +1,8 @@
 import { formatBytes, type InstanceOperations, rateInWords, rateLimitCopy } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Code } from "~/components/inspect";
+import { OpenRow } from "~/components/open-row";
 import { Row, Section } from "~/components/settings";
-import { Button } from "~/components/ui/button";
 import { Failed } from "~/components/ui/states";
 import { api } from "~/lib/api";
 import { docsUrl } from "~/lib/links";
@@ -28,13 +28,6 @@ export function Operations() {
     queryFn: async () => json<InstanceOperations>(await api.instance.operations.$get()),
     refetchInterval: 15_000,
   });
-  const how = (path: string, label: string) => (
-    <Button variant="ghost" size="md" asChild>
-      <a href={`${docsUrl}${path}`} target="_blank" rel="noopener noreferrer">
-        {label}
-      </a>
-    </Button>
-  );
   const capacity = data?.capacity;
   const process = capacity?.process;
   return (
@@ -43,15 +36,19 @@ export function Operations() {
         title="Backups"
         intro="Taken outside Hekate, so it cannot say when the last one ran: the database, the storage and the master key, the first two as of the same moment."
       >
-        <Row
+        {/* Each opens its page of the docs on a click (#691), not a How to on every row. */}
+        <OpenRow
           name="Backing up"
           hint="deploy/backup.sh copies the database and the storage; the master key is kept apart from both."
-        >
-          {how("/operate/backup/", "How to")}
-        </Row>
-        <Row name="Restore" hint="Into a fresh instance, from a backup and the master key.">
-          {how("/operate/recovery/", "How to")}
-        </Row>
+          href={`${docsUrl}/operate/backup/`}
+          label="How to back up, in the docs"
+        />
+        <OpenRow
+          name="Restore"
+          hint="Into a fresh instance, from a backup and the master key."
+          href={`${docsUrl}/operate/recovery/`}
+          label="How to restore, in the docs"
+        />
         <Row
           name="Verify a restore"
           hint="Before anyone uses it: every workspace key opens, every file recorded is in storage, and a sample reads back and matches its checksum. It changes nothing."

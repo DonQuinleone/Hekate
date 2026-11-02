@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { cn } from "~/lib/cn";
+import { isShortcutHint } from "~/lib/shortcut-hint";
 import { Icon } from "../icons";
 import { Button } from "./button";
 import { Floating, type Point, withinOrFloatingFrom } from "./floating";
@@ -42,6 +43,8 @@ export interface MenuAction {
   /** A mark before the label: an icon, or a programme's logo. */
   icon?: ReactNode;
   hint?: string;
+  /** A mark after the hint, such as a state's dot, so every label starts at the same edge. */
+  trail?: ReactNode;
   danger?: boolean;
   checked?: boolean;
   /** Shown but not chosen, its hint saying why (a role still in use cannot be deleted). */
@@ -150,7 +153,18 @@ export function MenuList({
           <span className="flex min-w-4 shrink-0 justify-center text-ink-2">{a.icon}</span>
         )}
         <span className="flex-1">{a.label}</span>
-        {a.hint && <span className="text-ink-3">{a.hint}</span>}
+        {/* A shortcut means nothing on a touch screen; words about the item still show. */}
+        {a.hint && (
+          <span
+            className={cn(
+              "text-ink-3",
+              isShortcutHint(a.hint) && "[@media(pointer:coarse)]:hidden",
+            )}
+          >
+            {a.hint}
+          </span>
+        )}
+        {a.trail && <span className="flex shrink-0 items-center">{a.trail}</span>}
         {a.checked && <Icon name="check" size={14} className="text-ink-2" />}
       </button>
     ),

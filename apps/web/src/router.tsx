@@ -74,6 +74,7 @@ import {
 import {
   ProjectSettingsPage,
   type ProjectSettingsSection,
+  projectSettingsMoved,
   projectSettingsSections,
 } from "~/routes/project-settings";
 import { ProjectsPage } from "~/routes/projects";
@@ -89,7 +90,7 @@ import { SignUpLinkPage, SignUpPage } from "~/routes/sign-up";
 import { StagePlanPage } from "~/routes/stage-plan";
 import { StatusPage } from "~/routes/status";
 import { TakePage } from "~/routes/take";
-import { TakeLogPage } from "~/routes/take-log";
+import { ProjectTakeLogPage, TakeLogPage } from "~/routes/take-log";
 import { TasksPage } from "~/routes/tasks";
 import { TrackPage } from "~/routes/track";
 import { UploadLinkPage } from "~/routes/upload-link";
@@ -192,6 +193,10 @@ const fileSearchSchema = loopSearchSchema.extend({
   t: z.coerce.number().min(0).max(172_800).optional().catch(undefined),
   /** A thread to bring into view, as a task made from it links back to it (#140). */
   comment: z.uuid().optional().catch(undefined),
+  /** A cut opened with the cut before it beside it (#569), from the deliverable's Compare. */
+  cuts: z.enum(["wipe", "side"]).optional().catch(undefined),
+  /** The cut to set it against, as the comparison page chose it, instead of the one before. */
+  against: z.uuid().optional().catch(undefined),
 });
 const fileSearch = (
   search: Record<string, unknown>,
@@ -202,6 +207,8 @@ const fileSearch = (
   review?: string;
   t?: number;
   comment?: string;
+  cuts?: "wipe" | "side";
+  against?: string;
 } => fileSearchSchema.parse(search);
 
 /**
@@ -697,6 +704,15 @@ const projectSessions = createRoute({
     return <SessionsPage projectId={projectId} />;
   },
 });
+// Production's Take log (#648): it opens the day's session's take log.
+const projectTakeLog = createRoute({
+  getParentRoute: () => app,
+  path: "/projects/$projectId/take-log",
+  component: function ProjectTakeLogRoute() {
+    const { projectId } = projectTakeLog.useParams();
+    return <ProjectTakeLogPage projectId={projectId} />;
+  },
+});
 // Score marking (#52): a track's score with the producer's marks, in Production.
 const projectScoreMarking = createRoute({
   getParentRoute: () => app,
@@ -801,8 +817,11 @@ const projectSettings = createRoute({
   getParentRoute: () => app,
   path: "/projects/$projectId/settings",
   validateSearch: z.object({
+    // A section's old name (Asset security, #580) still opens it.
     section: z
-      .enum(projectSettingsSections as [ProjectSettingsSection])
+      .string()
+      .transform((s) => projectSettingsMoved[s] ?? s)
+      .pipe(z.enum(projectSettingsSections as [ProjectSettingsSection]))
       .optional()
       .catch(undefined),
   }),
@@ -935,7 +954,7 @@ const instanceHome = createRoute({
 const instanceSearch = z.object({
   ticket: z.uuid().optional().catch(undefined),
   workspace: z.uuid().optional().catch(undefined),
-  tab: z.enum(["members"]).optional().catch(undefined),
+  tab: z.enum(["members", "storage"]).optional().catch(undefined),
   /** An error reference to look up in Debug tools, from a job's Details (decision 250). */
   reference: z.string().max(32).optional().catch(undefined),
 });
@@ -1107,6 +1126,7 @@ export const router = createRouter({
       projectBoard,
       projectTasks,
       projectSessions,
+      projectTakeLog,
       projectScoreMarking,
       projectStage,
       projectPatch,

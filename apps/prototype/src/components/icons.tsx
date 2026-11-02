@@ -62,6 +62,7 @@ import {
   LogOut,
   type LucideIcon,
   Mail,
+  MapPin,
   Merge,
   MessageSquare,
   Mic,
@@ -87,6 +88,9 @@ import {
   Server,
   Settings,
   Shield,
+  SignalHigh,
+  SignalLow,
+  SignalMedium,
   SkipBack,
   SlidersHorizontal,
   Split,
@@ -228,6 +232,14 @@ const icons = {
   moon: Moon,
   settings: Settings,
   webhook: Webhook,
+  // The instance side, named for what it is: the server Hekate runs on (#611).
+  instance: Server,
+  // A place a project records in (#648); `pin` is for pinning.
+  venue: MapPin,
+  /** A task's priority, as bars rising with it (Linear's way), never a chevron or a list. */
+  priorityLow: SignalLow,
+  priorityNormal: SignalMedium,
+  priorityHigh: SignalHigh,
 } as const satisfies Record<string, LucideIcon>;
 
 /**

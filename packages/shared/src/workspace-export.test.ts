@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { exportFileName, mayExportWorkspace, workspaceExportInput } from "./workspace-export.ts";
+import {
+  exportExpired,
+  exportFileName,
+  mayExportWorkspace,
+  workspaceExportInput,
+} from "./workspace-export.ts";
 
 describe("a workspace's export (#186)", () => {
   it("takes an age public key, or none", () => {
@@ -10,6 +15,15 @@ describe("a workspace's export (#186)", () => {
     });
     expect(workspaceExportInput.safeParse({ recipient: "age1short" }).success).toBe(false);
     expect(workspaceExportInput.safeParse({ recipient: key, more: 1 }).success).toBe(false);
+  });
+
+  it("reads a ready export past its week as expired, so it offers no download (#589)", () => {
+    const now = new Date("2026-10-28T09:00:00Z");
+    const ready = { status: "ready" as const, expiresAt: "2026-10-27T18:04:00Z" };
+    expect(exportExpired(ready, now)).toBe(true);
+    expect(exportExpired({ ...ready, expiresAt: "2026-10-29T18:04:00Z" }, now)).toBe(false);
+    expect(exportExpired({ status: "expired", expiresAt: null }, now)).toBe(true);
+    expect(exportExpired({ status: "building", expiresAt: null }, now)).toBe(false);
   });
 
   it("names the archive by the workspace's address and its day", () => {

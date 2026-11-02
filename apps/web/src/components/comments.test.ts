@@ -1,7 +1,7 @@
 import type { Anchor } from "@hekate/shared";
 import { describe, expect, it } from "vitest";
 import type { Comment } from "~/lib/queries";
-import { commentMarkers, regionMarkers } from "./comments";
+import { commentMarkers, regionMarkers, threadNumbers } from "./comments";
 
 const comment = (id: string, anchor: Anchor | null, extra: Partial<Comment> = {}): Comment => ({
   id,
@@ -67,23 +67,31 @@ describe("region markers", () => {
 });
 
 describe("timeline markers", () => {
-  const at = (start: number): Anchor => ({ kind: "time", start, end: start });
-  it("marks each moment once, with the most pressing of its threads", () => {
+  const at = (start: number, end = start): Anchor => ({ kind: "time", start, end });
+  it("numbers each open thread with a moment in the order they play, as its marker (#562)", () => {
     const markers = commentMarkers([
       comment("open", at(4)),
-      comment("task", at(4), { todo: true }),
+      comment("task", at(4), { todo: true, createdAt: "2026-10-14T12:30:00Z" }),
       comment("done task", at(9), { todo: true, todoDoneAt: "2026-10-14T13:00:00Z" }),
-      comment("assigned", at(12), { assigneeId: "someone" }),
+      comment("assigned", at(12, 15), { assigneeId: "someone" }),
       comment("later", at(20), { deferredTo: "mastering" }),
       comment("settled", at(30), { resolvedAt: "2026-10-14T13:00:00Z" }),
       comment("reply", at(40), { parentId: "open" }),
       comment("page", region(1)),
     ]);
-    expect(markers).toEqual([
-      { at: 4, state: "todo" },
-      { at: 9, state: "open" },
-      { at: 12, state: "todo" },
-      { at: 20, state: "deferred" },
+    expect(markers.map((m) => [m.id, m.number, m.at, m.end, m.state])).toEqual([
+      ["open", 1, 4, undefined, "open"],
+      ["task", 2, 4, undefined, "todo"],
+      ["done task", 3, 9, undefined, "open"],
+      ["assigned", 4, 12, 15, "todo"],
+      ["later", 5, 20, undefined, "deferred"],
     ]);
+    expect(markers[0]?.preview).toBe("Former member: open");
+    expect(threadNumbers([comment("b", at(8)), comment("a", at(2))])).toEqual(
+      new Map([
+        ["a", 1],
+        ["b", 2],
+      ]),
+    );
   });
 });

@@ -1,4 +1,9 @@
 import { z } from "zod";
+import { eventNames } from "./event-names.ts";
+import { itemWords } from "./item-words.ts";
+import { projectProfile } from "./profile.ts";
+
+export { eventNames };
 
 /**
  * What happens in a workspace that its channels can carry (#161): Slack, Discord, Microsoft
@@ -20,17 +25,17 @@ export const eventKinds = [
 export type EventKind = (typeof eventKinds)[number];
 export const eventKind = z.enum(eventKinds);
 
-/** How each kind reads in the events matrix. */
+/** How each kind reads in the events matrix: a name, as the account's Notifications has it. */
 export const eventLabels: Record<EventKind, string> = {
-  "review.requested": "A review is requested",
-  "decision.recorded": "A decision is recorded",
-  "feedback.submitted": "Feedback is submitted",
-  "version.arrived": "A new version arrives",
-  "stage.started": "A stage starts",
-  "comment.mentioned": "A comment mentions someone",
-  "guest.signed_in": "A guest signs in",
-  "file.downloaded": "A download happens",
-  "processing.failed": "Processing fails",
+  "review.requested": eventNames.review,
+  "decision.recorded": eventNames.decision,
+  "feedback.submitted": "Feedback submitted",
+  "version.arrived": eventNames.version,
+  "stage.started": "Stage started",
+  "comment.mentioned": eventNames.mention,
+  "guest.signed_in": "Guest signed in",
+  "file.downloaded": "Download",
+  "processing.failed": eventNames.processing,
 };
 
 const named = z.object({ id: z.uuid(), name: z.string() });
@@ -40,9 +45,12 @@ const reviewRef = z.object({
   kind: z.enum(["approval", "feedback", "share"]),
 });
 
+/** The project, and its profile where it is known: a video project says cut for version. */
+const projectRef = named.extend({ profile: projectProfile.optional() });
+
 /** What every event says: where, who, and the page it leads to. */
 const common = {
-  project: named.nullable(),
+  project: projectRef.nullable(),
   /** Who did it, by name; null when Hekate itself did, such as a failed job. */
   actor: z.object({ name: z.string(), guest: z.boolean() }).nullable(),
   /** The page in the app, from the instance's address: `/reviews/…`. */
@@ -111,6 +119,7 @@ export function eventSummary(kind: EventKind, data: EventData): string {
   const review = d.review as z.infer<typeof reviewRef> | undefined;
   const file = d.file as { name: string } | undefined;
   const track = d.track as { name: string } | undefined;
+  const words = itemWords(data.project?.profile);
   switch (kind) {
     case "review.requested":
       return `${who} asked for ${review?.kind === "share" ? "a share" : "a review"}, ${quoted(review?.title ?? "")}${where}`;
@@ -119,9 +128,9 @@ export function eventSummary(kind: EventKind, data: EventData): string {
     case "feedback.submitted":
       return `${who} gave feedback on ${quoted(review?.title ?? "")}${where}`;
     case "version.arrived":
-      return `${who} added version ${String(d.version)} of ${track?.name ?? "a track"}${where}`;
+      return `${who} added ${words.version} ${String(d.version)} of ${track?.name ?? `a ${words.track}`}${where}`;
     case "stage.started":
-      return `${String(d.stage)} started on ${track?.name ?? "a track"}${where}`;
+      return `${String(d.stage)} started on ${track?.name ?? `a ${words.track}`}${where}`;
     case "comment.mentioned":
       return `${who} mentioned ${d.mentioned === 1 ? "someone" : `${String(d.mentioned)} people`} on ${file?.name ?? "a file"}${where}`;
     case "guest.signed_in":

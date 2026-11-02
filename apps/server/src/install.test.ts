@@ -166,7 +166,15 @@ describe("the installer", () => {
       expect(readSettingsFile(settingsFile)?.DATABASE_URL).toBeUndefined();
 
       const storagePath = join(mkdtempSync(join(tmpdir(), "hekate-install-storage-")), "objects");
-      expect((await call("/steps/storage", { kind: "local", path: storagePath })).status).toBe(200);
+      const stored = await call("/steps/storage", { kind: "local", path: storagePath });
+      expect(stored.status).toBe(200);
+      // Said beside the button that ran it, not as the button's words again (#689).
+      const { checks: storageChecks } = (await stored.json()) as {
+        checks: { name: string; state: string; detail: string }[];
+      };
+      expect(storageChecks).toEqual([
+        { name: "Test object", state: "ok", detail: expect.stringMatching(/^Passed · \d+ ms$/) },
+      ]);
       expect(readSettingsFile(settingsFile)).toMatchObject({
         STORAGE_BACKENDS: "local",
         STORAGE_LOCAL_PATH: storagePath,
@@ -189,6 +197,10 @@ describe("the installer", () => {
       expect((await call("/steps/mail", mail)).status).toBe(422);
       const test = await call("/checks/mail", { mail, to: "mira@endlesshall.example" });
       expect(test.status).toBe(200);
+      // Only to the log, it reaches nobody: a warning, which still lets the step be saved (#689).
+      expect(((await test.json()) as { checks: { state: string }[] }).checks).toEqual([
+        expect.objectContaining({ name: "Test message", state: "warn" }),
+      ]);
       expect(
         (await call("/steps/mail", { ...mail, from: "Other <other@endlesshall.example>" })).status,
       ).toBe(422);

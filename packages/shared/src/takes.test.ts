@@ -34,7 +34,7 @@ describe("takes and their bars", () => {
     expect(covers(take(1, 64, 88), 89)).toBe(false);
     expect(covers(take(1, 12, null), 12)).toBe(true);
     expect(covers(take(1, null, null), 1)).toBe(false);
-    expect(barsLabel(take(1, 64, 88))).toBe("bars 64 to 88");
+    expect(barsLabel(take(1, 64, 88))).toBe("bars 64–88");
     expect(barsLabel(take(1, 12, null))).toBe("bar 12");
     expect(barsLabel(take(1, null, null))).toBeNull();
   });

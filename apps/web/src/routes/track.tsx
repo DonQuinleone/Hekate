@@ -12,15 +12,19 @@ import { TakeImportDialog } from "~/components/take-import";
 import { TakeManager } from "~/components/takes";
 import { TrackHeading, TrackVersions } from "~/components/track-versions";
 import { Button } from "~/components/ui/button";
+import { ActionMenu, type MenuItem } from "~/components/ui/menu";
 import { Segmented } from "~/components/ui/segmented";
 import { Loading } from "~/components/ui/states";
 import type { Picked } from "~/lib/picked-files";
 import {
+  followsQuery,
   projectQuery,
   trackQuery,
+  useFollow,
   useItemWords,
   useProjectCan,
   useProjectTool,
+  useUnfollow,
 } from "~/lib/queries";
 import { primaryOf } from "~/lib/versions";
 import { PageFailed } from "~/routes/problem";
@@ -42,6 +46,10 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
   const tool = useProjectTool(track?.projectId);
   const { words, video } = useItemWords(track?.projectId);
   const navigate = useNavigate();
+  const { data: follows } = useQuery(followsQuery);
+  const follow = useFollow();
+  const unfollow = useUnfollow();
+  const mine = follows?.find((f) => f.trackId === trackId);
   const [adding, setAdding] = useState(false);
   const [sharing, setSharing] = useState(false);
   /** The files dropped on the takes, or none, while the Add takes dialog is open. */
@@ -85,6 +93,40 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
         ]}
       />
     ) : undefined;
+  const compare =
+    track.versions.length > 1 && tool("compare") && !takes && latest
+      ? // Two cuts are compared in the player, where their pictures are (#569); two versions
+        // of a track on the page that aligns them by their audio.
+        video && playable
+        ? {
+            to: "/files/$fileId" as const,
+            params: { fileId: playable.fileId },
+            search: { cuts: "side" as const },
+          }
+        : { to: "/tracks/$trackId/compare" as const, params: { trackId: track.id } }
+      : null;
+  const mayReview = live && can("request_reviews") && Boolean(latest);
+  const reviewLink = {
+    to: "/projects/$projectId/reviews/new" as const,
+    params: { projectId: track.projectId },
+    search: { item: `track:${track.id}` },
+  };
+  const what = video ? "deliverable" : "track";
+  // The header's less frequent actions behind "…" (#567): Share, with the version row's own
+  // Share for one version; on a phone, everything but the primary.
+  const shareItem = { label: "Share…", onSelect: () => setSharing(true) };
+  const phoneMenu: MenuItem[] = [
+    {
+      label: mine ? "Following" : "Follow",
+      checked: Boolean(mine),
+      disabled: !follows,
+      onSelect: () => (mine ? unfollow.mutate(mine.id) : follow.mutate({ trackId: track.id })),
+    },
+    ...(live && compare ? [{ label: "Compare", onSelect: () => void navigate(compare) }] : []),
+    ...(mayReview
+      ? [shareItem, { label: "Request a review", onSelect: () => void navigate(reviewLink) }]
+      : []),
+  ];
   return (
     <>
       <PageHeader
@@ -98,58 +140,57 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: "versions
             ),
           },
         ]}
-        title={`${track.name}: ${takes ? "takes" : words.versions}`}
+        // The track's name is its page's heading, said once (#649); the bar has the trail.
+        title={track.name}
+        heading="page"
         actions={
           <>
-            {/* Following is the member's own choice, so it stays on an archived project too. */}
-            <FollowButton target={{ trackId: track.id }} what={video ? "deliverable" : "track"} />
-            {live && (
-              <>
-                {track.versions.length > 1 && tool("compare") && !takes && (
-                  <Button variant="ghost" size="sm" asChild>
-                    <Link to="/tracks/$trackId/compare" params={{ trackId: track.id }}>
-                      <Icon name="compare" size={14} />
-                      <span className="sr-only @md/app:not-sr-only">Compare</span>
-                    </Link>
-                  </Button>
-                )}
-                {can("request_reviews") && latest && (
-                  <Button variant="secondary" size="sm" onClick={() => setSharing(true)}>
-                    <Icon name="link" size={14} />
-                    Share
-                  </Button>
-                )}
-                {can("request_reviews") && latest && (
-                  <Button variant="secondary" size="sm" asChild>
-                    <Link
-                      to="/projects/$projectId/reviews/new"
-                      params={{ projectId: track.projectId }}
-                      search={{ item: `track:${track.id}` }}
-                    >
-                      Request a review
-                    </Link>
-                  </Button>
-                )}
-                {can("upload") && !adding && !takes && (
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => {
-                      setDropped(undefined);
-                      setAdding(true);
-                    }}
-                  >
-                    <Icon name="upload" size={14} />
-                    Add {words.version}
-                  </Button>
-                )}
-                {takes && canAddTakes && !addingTakes && (
-                  <Button variant="primary" size="sm" onClick={() => setAddingTakes([])}>
-                    <Icon name="upload" size={14} />
-                    Add takes
-                  </Button>
-                )}
-              </>
+            {/* On a phone only the primary stays out; the rest are in the menu beside it. */}
+            <span className="hidden items-center gap-2 @3xl/app:flex">
+              {/* Following is the member's own choice, so it stays on an archived project too. */}
+              <FollowButton target={{ trackId: track.id }} what={what} />
+              {live && compare && (
+                <Button variant="ghost" size="sm" asChild>
+                  <Link {...compare}>
+                    <Icon name="compare" size={14} />
+                    Compare
+                  </Link>
+                </Button>
+              )}
+              {mayReview && (
+                <Button variant="secondary" size="sm" asChild>
+                  <Link {...reviewLink}>Request a review</Link>
+                </Button>
+              )}
+              {mayReview && <ActionMenu always label={track.name} actions={[shareItem]} />}
+            </span>
+            <span className="@3xl/app:hidden">
+              <ActionMenu always label={track.name} actions={phoneMenu} />
+            </span>
+            {live && can("upload") && !adding && !takes && (
+              <Button
+                variant="primary"
+                size="sm"
+                className="shrink-0"
+                onClick={() => {
+                  setDropped(undefined);
+                  setAdding(true);
+                }}
+              >
+                <Icon name="upload" size={14} />
+                Add {words.version}
+              </Button>
+            )}
+            {live && takes && canAddTakes && !addingTakes && (
+              <Button
+                variant="primary"
+                size="sm"
+                className="shrink-0"
+                onClick={() => setAddingTakes([])}
+              >
+                <Icon name="upload" size={14} />
+                Add takes
+              </Button>
             )}
           </>
         }

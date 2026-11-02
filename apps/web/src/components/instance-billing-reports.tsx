@@ -47,7 +47,7 @@ export function Reports() {
       <TileGrid
         tiles={[
           {
-            label: "MRR",
+            label: "Monthly revenue",
             value: money(data.mrr),
             hint: `${plural(data.paying, "workspace")} paying`,
           },

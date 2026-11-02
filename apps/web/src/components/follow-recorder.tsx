@@ -145,7 +145,7 @@ export function FollowRecorderSettings({ follow }: { follow: FollowRecorder }) {
         hint={
           other
             ? `Plays where ${recorderDefinition(connectedKind)?.short ?? "the recorder"}'s timecode is`
-            : "Plays where its MIDI timecode is"
+            : "Follows the DAW's MIDI timecode"
         }
         checked={follow.on}
         onChange={follow.setOn}

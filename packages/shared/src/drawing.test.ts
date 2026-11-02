@@ -137,7 +137,7 @@ describe("drawings on a frame or page (#146)", () => {
       height: 0.2,
     };
     expect(anchorTime(region)).toBe(10);
-    expect(formatAnchor(region)).toBe("00:10.000 – 00:12.000 · REGION");
+    expect(formatAnchor(region)).toBe("0:10.000–0:12.000");
     expect(
       formatAnchor({
         ...region,
@@ -151,7 +151,7 @@ describe("drawings on a frame or page (#146)", () => {
           ],
         },
       }),
-    ).toBe("00:10.000 · DRAWING");
+    ).toBe("0:10.000 · drawing");
     expect(anchorTime({ kind: "region", page: 2, x: 0, y: 0, width: 1, height: 1 })).toBeNull();
     // Two seconds were added at the start of the next version.
     const later = [

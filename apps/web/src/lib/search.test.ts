@@ -5,10 +5,12 @@ import {
   draftOf,
   fieldChips,
   fieldsOf,
+  filtersSet,
   formatDuration,
   formatSize,
   fromKindChoice,
   kindChoice,
+  kindChoices,
 } from "./search";
 
 describe("the kind menu", () => {
@@ -78,7 +80,7 @@ describe("advanced search by field", () => {
       { keys: ["durationMin", "durationMax"], label: "2 min to 5 min" },
       { keys: ["sizeMax"], label: "Under 1 GB" },
       { keys: ["frameRate"], label: "23.976 fps" },
-      { keys: ["commentText"], label: "Comments say “flicker”" },
+      { keys: ["commentText"], label: "Comment contains “flicker”" },
     ]);
     expect(fieldChips({ durationMin: 60 })).toEqual([
       { keys: ["durationMin"], label: "Longer than 1 min" },
@@ -126,5 +128,14 @@ describe("advanced search by field", () => {
     expect(describeSearch({ q: "titles", frameRate: 25 }, () => undefined)).toBe(
       "“titles”, 25 fps",
     );
+  });
+
+  it("counts the filters set, for a phone's one Filters button", () => {
+    expect(filtersSet({})).toBe(0);
+    expect(filtersSet({ fileKind: "audio", projectId: "p", since: "week" })).toBe(3);
+  });
+
+  it("writes every unset filter as Any …", () => {
+    expect(kindChoices[0]?.label).toBe("Any kind");
   });
 });

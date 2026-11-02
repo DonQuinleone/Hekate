@@ -14,8 +14,11 @@ import { type SQL, sql } from "drizzle-orm";
 import { csvCell } from "./audit.ts";
 
 /**
- * The instance's logs as tables (#157), read by operators. Ids are UUIDv7, so they sort by time
- * and a range is a scan of the primary key: newest first, a page at a time by the last id.
+ * The instance's logs as tables (#157), read by operators: newest first by when each thing
+ * happened, a page at a time after the last row's time and id (#598). Ids are UUIDv7, made when
+ * the row is written, which is never before the thing it records: a range is first narrowed by
+ * id, which the primary key serves, then by the time itself, so a row written after the fact (an
+ * import, a gateway's late delivery) still lands where it happened and outside a range it is not.
  */
 
 /** Text searched for as itself, its wildcards made plain. */
@@ -32,8 +35,23 @@ const ACCESS_ONLY = ["stream.key", "stream.session", "stream.segment", "page.ren
 
 type Filters = Omit<LogQuery, "before" | "limit"> & { before?: string | undefined; limit: number };
 
+/** Where a range starts: its hours back from the viewer's clock, or the server's. */
 const sinceOf = (filters: Filters, now: Date) =>
-  idAt(new Date(now.getTime() - logRangeHours[filters.range] * 60 * 60_000));
+  new Date(
+    (filters.now ? Date.parse(filters.now) : now.getTime()) -
+      logRangeHours[filters.range] * 60 * 60_000,
+  );
+
+/**
+ * A range on a log's rows: the id first, for the index, then the time it happened. `at` and `id`
+ * are the row's columns, as SQL.
+ */
+const within = (at: SQL, id: SQL, since: Date) =>
+  sql`${id} >= ${idAt(since)}::uuid and ${at} >= ${since.toISOString()}::timestamptz`;
+
+/** After the previous page's last row, by its time and then its id: `at` is the time's column. */
+const after = (table: string, alias: string, at: string, before: string) =>
+  sql`(${sql.raw(`${alias}.${at}`)}, ${sql.raw(`${alias}.id`)}) < (select ${sql.raw(`c.${at}`)}, c.id from ${sql.raw(table)} c where c.id = ${before}::uuid)`;
 
 /** The conditions joined with `and`; none is true. */
 const all = (conditions: SQL[]) =>
@@ -50,7 +68,10 @@ export async function auditLog(
 ): Promise<{ rows: AuditLogRow[]; next: string | null }> {
   const since = sinceOf(filters, now);
   const conditions: SQL[] = [];
-  if (filters.before) conditions.push(sql`l.id < ${filters.before}::uuid`);
+  if (filters.before)
+    conditions.push(
+      sql`(l.at, l.id) < (select c.at, c.id from l c where c.id = ${filters.before}::uuid)`,
+    );
   if (filters.workspace) conditions.push(sql`l.workspace_id = ${filters.workspace}::uuid`);
   if (filters.q) {
     const like = `%${escapeLike(filters.q)}%`;
@@ -70,7 +91,7 @@ export async function auditLog(
     target: string | null;
     ip: string | null;
   }>(sql`
-    select * from (
+    with l as (
       select e.id, e.created_at as at, 'instance' as source,
              coalesce('Operator: ' || u.name, 'Hekate') as who,
              o.id as workspace_id, o.name as workspace_name,
@@ -78,7 +99,7 @@ export async function auditLog(
       from instance_events e
       left join users u on u.id = e.actor_id
       left join organisations o on o.id::text = e.details->>'organisationId'
-      where e.id >= ${since}::uuid
+      where ${within(sql`e.created_at`, sql`e.id`, since)}
       union all
       select a.id, a.occurred_at, 'workspace', a.actor_label,
              o.id, o.name, a.action::text,
@@ -89,14 +110,15 @@ export async function auditLog(
       left join files f on f.id = a.file_id and f.organisation_id = a.organisation_id
       left join reviews r on r.id = a.review_id and r.organisation_id = a.organisation_id
       left join projects p on p.id = a.project_id and p.organisation_id = a.organisation_id
-      where a.id >= ${since}::uuid
+      where ${within(sql`a.occurred_at`, sql`a.id`, since)}
         and a.action::text not in (${sql.join(
           ACCESS_ONLY.map((a) => sql`${a}`),
           sql`, `,
         )})
-    ) l
+    )
+    select * from l
     where ${all(conditions)}
-    order by l.id desc
+    order by l.at desc, l.id desc
     limit ${filters.limit + 1}`);
   const page = rows.slice(0, filters.limit);
   return {
@@ -120,8 +142,8 @@ export async function mailLog(
   filters: Filters,
   now = new Date(),
 ): Promise<{ rows: MailLogRow[]; next: string | null }> {
-  const conditions: SQL[] = [sql`m.id >= ${sinceOf(filters, now)}::uuid`];
-  if (filters.before) conditions.push(sql`m.id < ${filters.before}::uuid`);
+  const conditions: SQL[] = [within(sql`m.occurred_at`, sql`m.id`, sinceOf(filters, now))];
+  if (filters.before) conditions.push(after("mail_events", "m", "occurred_at", filters.before));
   if (filters.q) {
     const like = `%${escapeLike(filters.q)}%`;
     conditions.push(
@@ -139,7 +161,7 @@ export async function mailLog(
     select m.id, m.occurred_at as at, m.recipient, m.subject, m.result, m.error
     from mail_events m
     where ${all(conditions)}
-    order by m.id desc
+    order by m.occurred_at desc, m.id desc
     limit ${filters.limit + 1}`);
   const page = rows.slice(0, filters.limit);
   return {
@@ -161,8 +183,8 @@ export async function authLog(
   filters: Filters,
   now = new Date(),
 ): Promise<{ rows: AuthLogRow[]; next: string | null }> {
-  const conditions: SQL[] = [sql`e.id >= ${sinceOf(filters, now)}::uuid`];
-  if (filters.before) conditions.push(sql`e.id < ${filters.before}::uuid`);
+  const conditions: SQL[] = [within(sql`e.occurred_at`, sql`e.id`, sinceOf(filters, now))];
+  if (filters.before) conditions.push(after("auth_events", "e", "occurred_at", filters.before));
   if (filters.workspace) conditions.push(sql`e.organisation_id = ${filters.workspace}::uuid`);
   if (filters.q) {
     const like = `%${escapeLike(filters.q)}%`;
@@ -192,7 +214,7 @@ export async function authLog(
     left join users u on u.id = e.user_id
     left join organisations o on o.id = e.organisation_id
     where ${all(conditions)}
-    order by e.id desc
+    order by e.occurred_at desc, e.id desc
     limit ${filters.limit + 1}`);
   const page = rows.slice(0, filters.limit);
   return {
@@ -217,8 +239,8 @@ export async function webhookLog(
   filters: Filters,
   now = new Date(),
 ): Promise<{ rows: WebhookLogRow[]; next: string | null }> {
-  const conditions: SQL[] = [sql`d.id >= ${sinceOf(filters, now)}::uuid`];
-  if (filters.before) conditions.push(sql`d.id < ${filters.before}::uuid`);
+  const conditions: SQL[] = [within(sql`d.created_at`, sql`d.id`, sinceOf(filters, now))];
+  if (filters.before) conditions.push(after("event_deliveries", "d", "created_at", filters.before));
   if (filters.workspace) conditions.push(sql`d.organisation_id = ${filters.workspace}::uuid`);
   if (filters.q) {
     const like = `%${escapeLike(filters.q)}%`;
@@ -249,7 +271,7 @@ export async function webhookLog(
     join events e on e.id = d.event_id and e.organisation_id = d.organisation_id
     join organisations o on o.id = d.organisation_id
     where ${all(conditions)}
-    order by d.id desc
+    order by d.created_at desc, d.id desc
     limit ${filters.limit + 1}`);
   const page = rows.slice(0, filters.limit);
   return {
@@ -274,8 +296,8 @@ export async function apiLog(
   filters: Filters,
   now = new Date(),
 ): Promise<{ rows: ApiLogRow[]; next: string | null }> {
-  const conditions: SQL[] = [sql`r.id >= ${sinceOf(filters, now)}::uuid`];
-  if (filters.before) conditions.push(sql`r.id < ${filters.before}::uuid`);
+  const conditions: SQL[] = [within(sql`r.created_at`, sql`r.id`, sinceOf(filters, now))];
+  if (filters.before) conditions.push(after("api_requests", "r", "created_at", filters.before));
   if (filters.workspace) conditions.push(sql`r.organisation_id = ${filters.workspace}::uuid`);
   if (filters.q) {
     const like = `%${escapeLike(filters.q)}%`;
@@ -304,7 +326,7 @@ export async function apiLog(
     from api_requests r
     join organisations o on o.id = r.organisation_id
     where ${all(conditions)}
-    order by r.id desc
+    order by r.created_at desc, r.id desc
     limit ${filters.limit + 1}`);
   const page = rows.slice(0, filters.limit);
   return {
@@ -329,8 +351,8 @@ export async function gatewayLog(
   filters: Filters,
   now = new Date(),
 ): Promise<{ rows: GatewayLogRow[]; next: string | null }> {
-  const conditions: SQL[] = [sql`g.id >= ${sinceOf(filters, now)}::uuid`];
-  if (filters.before) conditions.push(sql`g.id < ${filters.before}::uuid`);
+  const conditions: SQL[] = [within(sql`g.received_at`, sql`g.id`, sinceOf(filters, now))];
+  if (filters.before) conditions.push(after("gateway_events", "g", "received_at", filters.before));
   if (filters.workspace) conditions.push(sql`g.organisation_id = ${filters.workspace}::uuid`);
   if (filters.q) {
     const like = `%${escapeLike(filters.q)}%`;
@@ -356,7 +378,7 @@ export async function gatewayLog(
     from gateway_events g
     left join organisations o on o.id = g.organisation_id
     where ${all(conditions)}
-    order by g.id desc
+    order by g.received_at desc, g.id desc
     limit ${filters.limit + 1}`);
   const page = rows.slice(0, filters.limit);
   return {

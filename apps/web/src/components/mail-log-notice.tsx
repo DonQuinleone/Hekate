@@ -6,9 +6,10 @@ import { instanceAccessQuery, meQuery } from "~/lib/queries";
 /**
  * Where the instance writes its mail to the log instead of sending it (#503), as a
  * development install does, the pages that offer mail say so, or every "Mail" switch
- * promises something that never arrives. Operators get the way to put it right.
+ * promises something that never arrives. Operators get the way to put it right; on the
+ * workspace's Email page (#591) the fix offered is the workspace's own mail, set up just below.
  */
-export function MailLogNotice() {
+export function MailLogNotice({ fix = "instance" }: { fix?: "instance" | "workspace" }) {
   const { data: me } = useQuery(meQuery);
   const { data: access } = useQuery(instanceAccessQuery);
   if (!me?.mail?.logOnly) return null;
@@ -20,7 +21,9 @@ export function MailLogNotice() {
       <Icon name="warning" size={14} className="mt-0.5 shrink-0 text-signal" />
       <span>
         This instance writes email to its log; nothing is sent.{" "}
-        {access?.operator ? (
+        {fix === "workspace" ? (
+          "Give the workspace its own mail below, and members, guests and invitations are sent from it."
+        ) : access?.operator ? (
           <>
             Set up mail under{" "}
             <Link

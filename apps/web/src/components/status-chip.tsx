@@ -13,7 +13,7 @@ import {
   useEndWorkflowStep,
   useProjectCan,
 } from "~/lib/queries";
-import { movesOf, type StatusMove } from "~/lib/status-moves";
+import { moveLabel, movesOf, type StatusMove } from "~/lib/status-moves";
 
 const categoryDot: Record<ColumnCategory, ReviewerDotState> = {
   todo: "invited",
@@ -56,7 +56,7 @@ export function StatusChipView({
   const steps = new Set(moves.map((m) => m.step));
   const actions: MenuAction[] = moves.map((m) => ({
     // Each asks before it moves, so each ends in an ellipsis.
-    label: steps.size > 1 ? `${m.step}: ${m.label}…` : `${m.label}…`,
+    label: steps.size > 1 ? `${m.step}: ${moveLabel(m)}…` : `${moveLabel(m)}…`,
     onSelect: () => setMoving(m),
   }));
   return (
@@ -90,7 +90,11 @@ export function StatusChipView({
       {moving && (
         <Dialog
           title={`${moving.step}: ${moving.label.toLowerCase()}`}
-          description="The step ends and the workflow moves on from here. Everyone following the track is told."
+          description={
+            moving.leadsTo
+              ? `${moving.step} ends and ${moving.leadsTo} begins. Everyone following the track is told.`
+              : "The step ends and the workflow moves on from here. Everyone following the track is told."
+          }
           width="sm"
           onClose={() => setMoving(null)}
           footer={

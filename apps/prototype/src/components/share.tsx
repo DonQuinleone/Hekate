@@ -17,7 +17,7 @@ import { useViewer } from "~/viewer/context";
 export interface ShareItem {
   kind: "file" | "track" | "folder" | "version";
   name: string;
-  /** What it is, under the name: "Recording", "Track", "V3". The kind, when left out. */
+  /** A folder's contents, under its name; nothing else says more than its name (#578). */
   what?: string;
 }
 
@@ -30,27 +30,30 @@ export const fileKindWords: Record<FileKind, string> = {
   other: "File",
 };
 
-const kindWords: Record<ShareItem["kind"], string> = {
-  file: "File",
-  track: "Track",
-  folder: "Folder",
-  version: "Version",
-};
-
-type Access = "view" | "comment" | "download";
+type Access = "view" | "comment";
 const accessCopy: Record<Access, { label: string; hint: string }> = {
   view: { label: "Can view", hint: "They listen or look. Nothing is asked of them." },
-  comment: { label: "Can comment", hint: "They leave comments on it. No sign-off is asked." },
-  download: {
-    label: "Can download",
-    hint: "They comment, and download the original, watermarked for them.",
+  comment: { label: "Can comment", hint: "They are asked for feedback, without sign-off." },
+};
+
+/** What they may download (#578): nothing unless chosen, the review copy before the original. */
+type Download = "none" | "proxy" | "original";
+const downloadCopy: Record<Download, { label: string; hint: string | null }> = {
+  none: { label: "No download", hint: null },
+  proxy: {
+    label: "Review copy",
+    hint: "A review copy, made and marked for each of them. Every download is logged.",
+  },
+  original: {
+    label: "Original",
+    hint: "The original file, watermarked for each of them. Every download is logged.",
   },
 };
 
+/** When the recipients' access ends; null is until it is withdrawn. */
 type Life = 7 | 14 | 30 | null;
 const lives: Life[] = [7, 14, 30, null];
-const lifeWords = (life: Life) =>
-  life === null ? "Link works until withdrawn" : `Link works for ${life} days`;
+const lifeWords = (life: Life) => (life === null ? "When withdrawn" : `In ${life} days`);
 
 export interface Person {
   key: string;
@@ -259,17 +262,23 @@ export function PeopleField({
  */
 export function ShareDialog({
   project,
-  item,
+  item: first,
+  alternative,
   onClose,
 }: {
   project: Project;
   item: ShareItem;
+  /** Another thing it could share instead (#578): from a track's file, the file alone. */
+  alternative?: ShareItem;
   onClose: () => void;
 }) {
+  const [alone, setAlone] = useState(false);
+  const item = alone && alternative ? alternative : first;
   const viewer = useViewer();
   const navigate = useNavigate();
   const [chosen, setChosen] = useState<Person[]>([]);
   const [access, setAccess] = useState<Access>("view");
+  const [download, setDownload] = useState<Download>("none");
   const [life, setLife] = useState<Life>(7);
   const [copied, setCopied] = useState(false);
   const [sent, setSent] = useState(false);
@@ -307,7 +316,8 @@ export function ShareDialog({
       };
     }),
   ];
-  const what = item.what ?? kindWords[item.kind];
+  // Only a folder's contents are worth a line under its name (#578); "Audio" says nothing.
+  const what = item.kind === "folder" ? item.what : undefined;
   const link = sent
     ? "review.endlesshall.example/reviews/r-share-4k9x"
     : `review.endlesshall.example/${item.kind === "folder" ? "projects/p-album/files" : item.kind === "file" ? "files/f-dry" : "tracks/t-maple"}`;
@@ -322,29 +332,14 @@ export function ShareDialog({
       search: { project: project.id, kind: access === "view" ? undefined : "feedback" },
     });
   };
+  // For members who may open it already: never expires, opens nothing for anyone else.
   const linkRow = (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <div className="flex h-9 min-w-0 flex-1 basis-56 items-center gap-2 rounded-control border border-line bg-ground/70 pr-1 pl-3">
-        <Icon name="link" size={14} className="shrink-0 text-ink-3" />
-        <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2">{link}</span>
-        <Button variant="ghost" size="sm" onClick={copy} aria-live="polite">
-          {copied ? "Copied" : "Copy"}
-        </Button>
-      </div>
-      {sent ? (
-        <span className="text-[13px] text-ink-2">{lifeWords(life)}</span>
-      ) : (
-        <Dropdown
-          size="sm"
-          label="How long the link works"
-          value={lifeWords(life)}
-          actions={lives.map((choice) => ({
-            label: choice === null ? "Until withdrawn" : `${choice} days`,
-            checked: choice === life,
-            onSelect: () => setLife(choice),
-          }))}
-        />
-      )}
+    <div className="flex min-w-0 items-center gap-2 text-[13px] text-ink-3">
+      <Icon name="link" size={14} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{link}</span>
+      <Button variant="ghost" size="sm" onClick={copy} aria-live="polite">
+        {copied ? "Copied" : "Copy link"}
+      </Button>
     </div>
   );
   if (sent) {
@@ -370,11 +365,20 @@ export function ShareDialog({
         }
       >
         <div className="flex flex-col gap-4">
-          <p className="m-0 flex items-center gap-2 text-[14px] text-ink">
-            <Icon name="check" size={15} className="shrink-0 text-ink-2" />
-            Sent to {who}. Guests get a link of their own by email.
+          <p className="m-0 flex items-start gap-2 text-[14px] text-ink">
+            <Icon name="check" size={15} className="mt-0.5 shrink-0 text-ink-2" />
+            <span>
+              {access === "view"
+                ? `Shared with ${who}.`
+                : `${who} ${chosen.length === 1 ? "is" : "are"} asked for feedback, without sign-off.`}{" "}
+              Their access ends {life === null ? "when you withdraw it" : `in ${life} days`}. Guests
+              get a link of their own by email.
+            </span>
           </p>
-          {linkRow}
+          <div className="flex flex-col gap-1.5">
+            <Label>Link for members with access</Label>
+            {linkRow}
+          </div>
         </div>
       </Dialog>
     );
@@ -393,12 +397,24 @@ export function ShareDialog({
             Cancel
           </Button>
           <Button variant="primary" onClick={() => setSent(true)} disabled={chosen.length === 0}>
-            Send
+            {access === "view" ? "Share" : "Ask for feedback"}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-5">
+        {alternative && (
+          <Seg
+            size="md"
+            label="What to share"
+            value={alone ? "alone" : "whole"}
+            onChange={(v) => setAlone(v === "alone")}
+            options={[
+              { id: "whole", label: first.name },
+              { id: "alone", label: "This file only" },
+            ]}
+          />
+        )}
         <div className="flex flex-col gap-1.5">
           <Label>Who</Label>
           <PeopleField people={people} chosen={chosen} onChange={setChosen} />
@@ -410,7 +426,7 @@ export function ShareDialog({
             label="How"
             value={access}
             onChange={setAccess}
-            options={(["view", "comment", "download"] as const).map((a) => ({
+            options={(["view", "comment"] as const).map((a) => ({
               id: a,
               label: accessCopy[a].label,
             }))}
@@ -418,7 +434,36 @@ export function ShareDialog({
           <p className="m-0 text-[13px] text-ink-3">{accessCopy[access].hint}</p>
         </div>
         <div className="flex flex-col gap-1.5">
-          <Label>Link</Label>
+          <Label>Download</Label>
+          <Seg
+            size="md"
+            label="Download"
+            value={download}
+            onChange={setDownload}
+            options={(["none", "proxy", "original"] as const).map((d) => ({
+              id: d,
+              label: downloadCopy[d].label,
+            }))}
+          />
+          {downloadCopy[download].hint && (
+            <p className="m-0 text-[13px] text-ink-3">{downloadCopy[download].hint}</p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <Label>Access ends</Label>
+          <Dropdown
+            size="sm"
+            label="Access ends"
+            value={lifeWords(life)}
+            actions={lives.map((choice) => ({
+              label: lifeWords(choice),
+              checked: choice === life,
+              onSelect: () => setLife(choice),
+            }))}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5 border-t border-line pt-4">
+          <Label>Link for members with access</Label>
           {linkRow}
         </div>
       </div>

@@ -20,11 +20,12 @@ import {
   type InstanceFlag,
   type InstanceMail,
   type InstanceMemberRow,
+  type InstanceOverview,
   type InstanceSection,
   type InstanceSettings,
   type InstanceWorkspace,
   type InstanceWorkspaceDetail,
-  instanceActions,
+  instanceActionLabel,
   instanceSections,
   instanceSectionsFor,
   type LogKeepDays,
@@ -64,9 +65,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { ApiLogEntry } from "~/components/api-tokens";
+import { TileGrid } from "~/components/billing";
 import { Gauge, Spark } from "~/components/charts";
-import { Stat } from "~/components/dashboard";
 import { Empty } from "~/components/empty";
 import { SuppressionsDialog } from "~/components/event-channels";
 import { Icon } from "~/components/icons";
@@ -75,6 +75,7 @@ import { Code, Fact, Inspect } from "~/components/inspect";
 import { InstanceBilling } from "~/components/instance-billing";
 import { Operations } from "~/components/instance-operations";
 import { Queues } from "~/components/instance-queues";
+import { OpenRow } from "~/components/open-row";
 import { Page } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
 import { ConfirmStep } from "~/components/project-transfer";
@@ -148,7 +149,7 @@ export function InstancePage({
 }: {
   section: InstanceSection;
   /** A ticket open on the desk (#182), or a workspace (and its tab) opened from one. */
-  search?: { ticket?: string; workspace?: string; tab?: "members"; reference?: string };
+  search?: { ticket?: string; workspace?: string; tab?: "members" | "storage"; reference?: string };
 }) {
   const navigate = useNavigate();
   const { data: access, isPending } = useQuery(instanceAccessQuery);
@@ -274,31 +275,122 @@ function KeyNeeded() {
   );
 }
 
+/** What fixes a need, as a verb that opens it (#599); none where the fix is someone else's. */
+function NeedAction({ need: n }: { need: InstanceOverview["needs"][number] }) {
+  const docs = (path: string, label: string) => (
+    <Button variant="secondary" size="md" asChild>
+      <a href={`${docsUrl}${path}`} target="_blank" rel="noopener noreferrer">
+        {label}
+      </a>
+    </Button>
+  );
+  if (n.kind === "failed_jobs")
+    return (
+      <Button variant="secondary" size="md" asChild>
+        <Link to="/instance/$section" params={{ section: "debug" }}>
+          Look up
+        </Link>
+      </Button>
+    );
+  if (n.kind === "quota_near" && n.workspaceId)
+    return (
+      <Button variant="secondary" size="md" asChild>
+        <Link
+          to="/instance/$section"
+          params={{ section: "workspaces" }}
+          search={{ workspace: n.workspaceId, tab: "storage" }}
+        >
+          Raise the quota
+        </Link>
+      </Button>
+    );
+  if (n.kind === "key_missing" && n.self)
+    return (
+      <Button variant="secondary" size="md" asChild>
+        <Link to="/account/$section" params={{ section: "security" }}>
+          Add a passkey
+        </Link>
+      </Button>
+    );
+  if (n.kind === "release_available") return docs("/operate/upgrades/", "How to upgrade");
+  if (n.kind === "missing_objects") return docs("/operate/backup/#restoring", "How to restore");
+  if (n.kind === "mail_logged") return docs("/install/configuration/#mail", "How to set up mail");
+  return null;
+}
+
+/** The share of the disk stored media takes, in words (#599). */
+const diskShare = (stored: number, disk: { total: number } | null | undefined) => {
+  if (!disk || disk.total <= 0) return "in object storage";
+  const share = stored / disk.total;
+  return share > 0 && share < 0.01
+    ? "under 1% of the disk"
+    : `${Math.round(share * 100)}% of the disk`;
+};
+
+/** Error references since midnight, by where they came from. */
+const errorsHint = (e: { api: number; worker: number }) =>
+  e.api + e.worker === 0
+    ? "none since midnight"
+    : [e.worker > 0 && plural(e.worker, "job"), e.api > 0 && plural(e.api, "request")]
+        .filter(Boolean)
+        .join(", ");
+
+/**
+ * The instance at a glance (#599), as the prototype has it: its figures in one panel, then what
+ * needs an operator, each with the action that opens its fix, then what moved.
+ */
 function Overview() {
   const { data } = useQuery(instanceOverviewQuery);
   if (!data) return null;
   const { queue } = data;
+  const errors = data.errorsToday ?? { api: 0, worker: 0, unknown: 0 };
+  const release = data.release;
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 @3xl/app:grid-cols-4">
-        <Stat label="Workspaces" value={data.workspaces} hint="on this instance" />
-        <Stat label="People" value={data.people} hint="with an account" />
-        <Stat label="Storage" value={formatBytes(data.storageBytes)} hint="before encryption" />
-        <Stat
-          label="Queue"
-          value={queue ? queue.waiting : "?"}
-          hint={
-            !queue
+      <TileGrid
+        tiles={[
+          {
+            label: "Workspaces",
+            value: String(data.workspaces),
+            hint: data.suspended ? `${data.suspended} suspended` : "on this instance",
+          },
+          { label: "People", value: String(data.people), hint: "with an account" },
+          {
+            label: "Storage",
+            value: formatBytes(data.storageBytes),
+            hint: diskShare(data.storageBytes, data.disk),
+          },
+          {
+            label: "Queue",
+            value: queue ? String(queue.waiting) : "?",
+            hint: !queue
               ? "could not be read"
               : queue.failedToday > 0
                 ? `${queue.failedToday} failed today`
                 : queue.active > 0
                   ? `${queue.active} running`
-                  : "nothing running"
-          }
-          flag={!queue || queue.failedToday > 0}
-        />
-      </div>
+                  : "nothing waiting",
+            flag: !queue || queue.failedToday > 0,
+          },
+          {
+            label: "Errors today",
+            value: String(errors.api + errors.worker),
+            hint: errorsHint(errors),
+            flag: errors.unknown > 0,
+          },
+          release?.newest
+            ? {
+                label: "Release available",
+                value: release.newest,
+                hint: `this runs ${release.running}`,
+              }
+            : {
+                label: "Release",
+                value: release?.running ?? "…",
+                hint: release?.checking ? "up to date" : "release checks are off",
+              },
+        ]}
+      />
       <Section title="Needs an operator">
         {data.needs.length === 0 ? (
           <Row
@@ -311,40 +403,20 @@ function Overview() {
               key={n.title}
               name={
                 <span className="flex items-center gap-2">
-                  <span aria-hidden="true" className="size-[7px] shrink-0 rounded-full bg-signal" />
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "size-[7px] shrink-0 rounded-full",
+                      // Advice is no alarm: a hollow ring, as the brand marks what is open.
+                      n.advice ? "border border-ink-3" : "bg-signal",
+                    )}
+                  />
                   {n.title}
                 </span>
               }
               hint={n.detail}
             >
-              {n.kind === "failed_jobs" && (
-                <Button variant="secondary" size="md" asChild>
-                  <Link to="/instance/$section" params={{ section: "debug" }}>
-                    Debug tools
-                  </Link>
-                </Button>
-              )}
-              {n.kind === "release_available" && (
-                <Button variant="secondary" size="md" asChild>
-                  <Link to="/instance/$section" params={{ section: "system" }}>
-                    System information
-                  </Link>
-                </Button>
-              )}
-              {n.kind === "quota_near" && (
-                <Button variant="secondary" size="md" asChild>
-                  <Link to="/instance/$section" params={{ section: "workspaces" }}>
-                    Workspaces
-                  </Link>
-                </Button>
-              )}
-              {n.kind === "key_missing" && (
-                <Button variant="secondary" size="md" asChild>
-                  <Link to="/instance/$section" params={{ section: "operators" }}>
-                    Operators
-                  </Link>
-                </Button>
-              )}
+              <NeedAction need={n} />
             </Row>
           ))
         )}
@@ -360,7 +432,7 @@ function Overview() {
                 <span>
                   <span className="text-ink">{r.target ?? "Instance"}</span>{" "}
                   <span className="text-ink-2">
-                    {instanceActions[r.action] ?? r.action}
+                    {instanceActionLabel(r.action, import.meta.env.DEV)}
                     {r.actor ? ` by ${r.actor}` : " at setup"}
                   </span>
                 </span>
@@ -453,7 +525,7 @@ function Debug({ initial }: { initial?: string | undefined }) {
             <Input
               value={entered}
               onChange={(e) => setEntered(e.target.value)}
-              placeholder="HK-7F3A-2C"
+              placeholder="HK-…"
               aria-label="Error reference"
               className="tabular w-64 min-w-0"
               autoFocus
@@ -464,7 +536,8 @@ function Debug({ initial }: { initial?: string | undefined }) {
           </form>
           {invalid && (
             <p className="m-0 text-[13px] text-signal">
-              That is not an error reference: they look like HK-7F3A-2C.
+              That is not an error reference: one is HK- and six letters and digits, as the error
+              showed it.
             </p>
           )}
           {report.isError && (
@@ -493,8 +566,8 @@ function Debug({ initial }: { initial?: string | undefined }) {
                   {r.who
                     ? `${r.who.name} · ${r.who.email}`
                     : r.source === "worker"
-                      ? "A job"
-                      : "Nobody signed in"}
+                      ? "a job"
+                      : "nobody signed in"}
                 </Fact>
                 <Fact term="Workspace">{r.workspace ?? "None"}</Fact>
                 {r.requestId && (
@@ -587,9 +660,15 @@ function Debug({ initial }: { initial?: string | undefined }) {
         {errors?.length === 0 ? (
           <Row name="Nothing" hint="Nothing has failed in the last day." />
         ) : (
+          // Each opens its story on a click (#691), not an Open on every row.
           errors?.map((e) => (
-            <Row
+            <OpenRow
               key={e.reference}
+              label={`Open ${e.reference}`}
+              onOpen={() => {
+                fromList.current = true;
+                lookUp(e.reference);
+              }}
               name={
                 <span className="flex min-w-0 items-center gap-2">
                   <StatusDot state={e.knownAt ? "submitted" : "changes_requested"} />
@@ -598,20 +677,7 @@ function Debug({ initial }: { initial?: string | undefined }) {
                 </span>
               }
               hint={`${clock.format(new Date(e.occurredAt))} · ${e.workspace ?? "No workspace"} · ${e.source} · ${e.location}${e.knownAt ? " · known" : ""}`}
-              inline
-            >
-              <Button
-                variant="ghost"
-                size="md"
-                aria-label={`Open ${e.reference}`}
-                onClick={() => {
-                  fromList.current = true;
-                  lookUp(e.reference);
-                }}
-              >
-                Open
-              </Button>
-            </Row>
+            />
           ))
         )}
       </Section>
@@ -752,7 +818,8 @@ function Replay() {
 /** A gateway event taken again (#178), chosen from the last week's. */
 function GatewayReplayDialog({ onClose }: { onClose: () => void }) {
   const client = useQueryClient();
-  const log = useInfiniteQuery(instanceLogQuery("gateway", { range: "7d" }));
+  const [now] = useState(() => new Date().toISOString());
+  const log = useInfiniteQuery(instanceLogQuery("gateway", { range: "7d", now }));
   const [taken, setTaken] = useState<Map<string, string>>(new Map());
   const take = useMutation({
     mutationFn: async (id: string) =>
@@ -810,7 +877,8 @@ function GatewayReplayDialog({ onClose }: { onClose: () => void }) {
 
 function ReplayDialog({ onClose }: { onClose: () => void }) {
   const client = useQueryClient();
-  const log = useInfiniteQuery(instanceLogQuery("webhooks", { range: "7d" }));
+  const [now] = useState(() => new Date().toISOString());
+  const log = useInfiniteQuery(instanceLogQuery("webhooks", { range: "7d", now }));
   const [sent, setSent] = useState<Set<string>>(new Set());
   const replay = useMutation({
     mutationFn: async (id: string) =>
@@ -1145,30 +1213,60 @@ function Settings() {
   const { settings, environment: env } = data;
   const maintenance = settings.maintenance;
   const words = message ?? maintenance.message;
-  const modules = env.modules;
   return (
     <>
+      {/* Maintenance destroys nothing: a section of its own, first, apart from anything that does (#697). */}
       <Section
-        title="Modules"
-        intro="Set in the environment at start; shown here so an operator can see what is on."
+        title="Maintenance"
+        intro="While it is on, everyone sees a notice, and uploads and jobs wait until it is over. Nothing is lost."
       >
-        <Row name="Billing" hint="HEKATE_BILLING · off, stripe, paddle or manual" inline>
-          <span className="tabular text-[13px] text-ink-2">{modules.billing}</span>
-          <StatusDot state={modules.billing === "off" ? "cancelled" : "approved"} />
-        </Row>
-        <Row name="Support desk" hint="HEKATE_SUPPORT · off, app, link or mail" inline>
-          <span className="tabular text-[13px] text-ink-2">{modules.support}</span>
-          <StatusDot state={modules.support === "off" ? "cancelled" : "approved"} />
-        </Row>
-        <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
-          <span className="truncate text-[13px] text-ink-2">{modules.docsUrl}</span>
+        <Row
+          name="Maintenance mode"
+          hint={maintenance.on ? "On: everyone sees the notice." : "Off."}
+        >
+          <Button
+            variant={maintenance.on ? "primary" : "secondary"}
+            size="md"
+            disabled={save.isPending}
+            onClick={() =>
+              save.mutate({
+                ...settings,
+                maintenance: { on: !maintenance.on, message: words.trim() },
+              })
+            }
+          >
+            {maintenance.on ? "Turn off" : "Turn on"}
+          </Button>
         </Row>
         <Row
-          name="Status page"
-          hint="HEKATE_STATUS_URL · another page to link; unset, the instance’s own at /status"
+          name="Notice"
+          hint="Shown to everyone while maintenance mode is on, under the line saying that it is."
+          stacked
         >
-          <span className="truncate text-[13px] text-ink-2">{modules.statusUrl ?? "None"}</span>
+          <div className="flex w-full flex-col gap-2 @xl/app:flex-row">
+            <Input
+              aria-label="Maintenance notice"
+              value={words}
+              maxLength={280}
+              placeholder="Back by 18:00"
+              className="min-w-0 flex-1"
+              onChange={(e) => setMessage(e.target.value)}
+            />
+            {maintenance.on && (
+              <Button
+                variant="secondary"
+                size="md"
+                disabled={save.isPending || words.trim() === maintenance.message}
+                onClick={() =>
+                  save.mutate({ ...settings, maintenance: { on: true, message: words.trim() } })
+                }
+              >
+                Save notice
+              </Button>
+            )}
+          </div>
         </Row>
+        {save.isError && <Row name="Not changed" hint={save.error.message} />}
       </Section>
       <Registration
         mode={settings.registration.mode}
@@ -1185,7 +1283,7 @@ function Settings() {
           hint={
             env.requireSecondFactor
               ? "On for the whole instance by REQUIRE_SECOND_FACTOR in the environment."
-              : "A passkey, a security key or a code app. People without one are asked at their next sign-in."
+              : "A passkey, a security key or an authenticator app. People without one are asked at their next sign-in."
           }
           checked={env.requireSecondFactor || settings.security.requireSecondFactor}
           disabled={env.requireSecondFactor || save.isPending}
@@ -1366,23 +1464,17 @@ function Settings() {
           </Row>
         ))}
       </Section>
-      <Section title="Address and mail" intro="Set in the environment at start.">
-        <Row name="Address" hint="PUBLIC_URL" inline>
-          <span className="truncate text-[13px] text-ink-2">{env.publicUrl}</span>
-        </Row>
-        <Row
-          name="Workspace subdomains"
-          hint={
-            env.subdomains
-              ? "WORKSPACE_SUBDOMAINS · each workspace answers at its own name; single sign-on reads the workspace from it."
-              : "WORKSPACE_SUBDOMAINS · every workspace is at the address above."
-          }
-          inline
-        >
-          <span className="truncate text-[13px] text-ink-2">{env.subdomains ?? "Off"}</span>
-        </Row>
+      <Section title="Mail" intro="Set in the environment at start.">
         <Row name="Instance mail" hint={mailHints[env.mail]} inline>
-          <span className="text-[13px] text-ink-2">{mailNames[env.mail]}</span>
+          {/* Only to the log, nobody receives mail: a warning, not a quiet row (#689). */}
+          {env.mail === "log" ? (
+            <span className="flex items-center gap-2 text-[13px] text-signal">
+              <StatusDot state="changes_requested" />
+              {mailNames[env.mail]}
+            </span>
+          ) : (
+            <span className="text-[13px] text-ink-2">{mailNames[env.mail]}</span>
+          )}
           <Button
             variant="secondary"
             size="md"
@@ -1417,72 +1509,8 @@ function Settings() {
             </Button>
           </Row>
         )}
-        <Row
-          name="Telemetry"
-          hint={
-            env.telemetry
-              ? "OTEL_EXPORTER_OTLP_ENDPOINT · traces and logs go to this collector of yours, and nowhere else."
-              : "OTEL_EXPORTER_OTLP_ENDPOINT · names a collector of yours for traces and logs; nothing leaves otherwise."
-          }
-          inline
-        >
-          <span className="truncate text-[13px] text-ink-2">{env.telemetry ?? "Off"}</span>
-        </Row>
       </Section>
       {bounced && <SuppressionsDialog scope="instance" onClose={() => setBounced(false)} />}
-      <Danger>
-        <Row
-          name="Maintenance mode"
-          hint={
-            maintenance.on
-              ? "On: everyone sees the notice, and uploads and jobs wait. Nothing is lost."
-              : "Everyone sees a notice; uploads and jobs wait until it is over. Nothing is lost."
-          }
-        >
-          <Button
-            variant={maintenance.on ? "primary" : "secondary"}
-            size="md"
-            disabled={save.isPending}
-            onClick={() =>
-              save.mutate({
-                ...settings,
-                maintenance: { on: !maintenance.on, message: words.trim() },
-              })
-            }
-          >
-            {maintenance.on ? "Turn off" : "Turn on"}
-          </Button>
-        </Row>
-        <Row
-          name="Notice"
-          hint="Shown to everyone while maintenance mode is on, under the line saying that it is."
-          stacked
-        >
-          <div className="flex w-full flex-col gap-2 @xl/app:flex-row">
-            <Input
-              aria-label="Maintenance notice"
-              value={words}
-              maxLength={280}
-              placeholder="Back by 18:00"
-              className="min-w-0 flex-1"
-              onChange={(e) => setMessage(e.target.value)}
-            />
-            {maintenance.on && (
-              <Button
-                variant="secondary"
-                size="md"
-                disabled={save.isPending || words.trim() === maintenance.message}
-                onClick={() =>
-                  save.mutate({ ...settings, maintenance: { on: true, message: words.trim() } })
-                }
-              >
-                Save notice
-              </Button>
-            )}
-          </div>
-        </Row>
-        {save.isError && <Row name="Not changed" hint={save.error.message} />}
-      </Danger>
     </>
   );
 }
@@ -1530,6 +1558,7 @@ function SystemInformation() {
   });
   if (error) return <Failed what="The system" error={error} retry={refetch} />;
   if (!data) return <Loading />;
+  const env = own?.environment;
   const built = data.build === "dev" ? "A development build" : `Build ${data.build.slice(0, 12)}`;
   return (
     <>
@@ -1544,7 +1573,7 @@ function SystemInformation() {
           <Select
             aria-label="Update channel"
             value={own?.settings.updates.channel ?? data.channel}
-            disabled={!own || channel.isPending}
+            disabled={!own || channel.isPending || !data.check.on}
             onChange={(e) => channel.mutate(e.target.value as UpdateChannel)}
             className="w-36"
           >
@@ -1556,7 +1585,7 @@ function SystemInformation() {
           </Select>
         </Row>
         <Row
-          name="Last check"
+          name="Release checks"
           hint={
             !data.check.on
               ? "Off: set HEKATE_UPDATE_CHECK=true to read the project's releases once a day. Nothing about the instance is sent."
@@ -1585,49 +1614,101 @@ function SystemInformation() {
           <Row name="Not done" hint={(channel.error ?? check.error)?.message} />
         )}
       </Section>
-      <Section
-        title="Available"
-        intro="Every release is a new image: pull it and restart, and migrations run on start. Nothing is patched in place."
-      >
-        {data.available.length === 0 ? (
-          <Row
-            name={data.check.on ? "Up to date" : "Not checked"}
-            hint={
-              data.check.on
-                ? `No release on the ${data.channel} channel is newer than ${data.version}.`
-                : "Release checks are off."
-            }
-          />
-        ) : (
-          data.available.map((r) => (
+      {/* With checks off, the row above says so, once (#697): nothing is listed as available. */}
+      {data.check.on && (
+        <Section
+          title="Available"
+          intro="Every release is a new image: pull it and restart, and migrations run on start. Nothing is patched in place."
+        >
+          {data.available.length === 0 ? (
             <Row
-              key={r.version}
-              name={
-                <span className="flex items-center gap-2">
-                  {r.name}
-                  {r.prerelease && (
-                    <span className="rounded-chip border border-line px-1.5 text-[11px] text-ink-3">
-                      candidate
-                    </span>
-                  )}
-                </span>
-              }
-              hint={`${since.format(new Date(r.publishedAt))}${r.notes ? ` · ${r.notes.split("\n")[0]}` : ""}`}
-            >
-              <Button variant="ghost" size="md" asChild>
-                <a href={r.url} target="_blank" rel="noopener noreferrer">
-                  Release notes
-                </a>
-              </Button>
-              <Button variant="secondary" size="md" asChild>
-                <a href={`${docsUrl}/operate/upgrades/`} target="_blank" rel="noopener noreferrer">
-                  How to upgrade
-                </a>
-              </Button>
-            </Row>
-          ))
-        )}
-      </Section>
+              name="Up to date"
+              hint={`No release on the ${data.channel} channel is newer than ${data.version}.`}
+            />
+          ) : (
+            data.available.map((r) => (
+              <Row
+                key={r.version}
+                name={
+                  <span className="flex items-center gap-2">
+                    {r.name}
+                    {r.prerelease && (
+                      <span className="rounded-chip border border-line px-1.5 text-[11px] text-ink-3">
+                        candidate
+                      </span>
+                    )}
+                  </span>
+                }
+                hint={`${since.format(new Date(r.publishedAt))}${r.notes ? ` · ${r.notes.split("\n")[0]}` : ""}`}
+              >
+                <Button variant="ghost" size="md" asChild>
+                  <a href={r.url} target="_blank" rel="noopener noreferrer">
+                    Release notes
+                  </a>
+                </Button>
+                <Button variant="secondary" size="md" asChild>
+                  <a
+                    href={`${docsUrl}/operate/upgrades/`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    How to upgrade
+                  </a>
+                </Button>
+              </Row>
+            ))
+          )}
+        </Section>
+      )}
+      {/* What the environment sets at start, read-only, here rather than among the settings (#697). */}
+      {env && (
+        <Section title="Set at start" intro="In the environment; a change takes a restart.">
+          <Row name="Billing" hint="HEKATE_BILLING · off, stripe, paddle or manual" inline>
+            <span className="tabular text-[13px] text-ink-2">{env.modules.billing}</span>
+            <StatusDot state={env.modules.billing === "off" ? "cancelled" : "approved"} />
+          </Row>
+          <Row name="Support desk" hint="HEKATE_SUPPORT · off, app, link or mail" inline>
+            <span className="tabular text-[13px] text-ink-2">{env.modules.support}</span>
+            <StatusDot state={env.modules.support === "off" ? "cancelled" : "approved"} />
+          </Row>
+          <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
+            <span className="truncate text-[13px] text-ink-2">{env.modules.docsUrl}</span>
+          </Row>
+          <Row
+            name="Status page"
+            hint="HEKATE_STATUS_URL · another page to link; unset, the instance’s own at /status"
+          >
+            <span className="truncate text-[13px] text-ink-2">
+              {env.modules.statusUrl ?? "None"}
+            </span>
+          </Row>
+          <Row name="Address" hint="PUBLIC_URL" inline>
+            <span className="truncate text-[13px] text-ink-2">{env.publicUrl}</span>
+          </Row>
+          <Row
+            name="Workspace subdomains"
+            hint={
+              env.subdomains
+                ? "WORKSPACE_SUBDOMAINS · each workspace answers at its own name; single sign-on reads the workspace from it."
+                : "WORKSPACE_SUBDOMAINS · every workspace is at the address above."
+            }
+            inline
+          >
+            <span className="truncate text-[13px] text-ink-2">{env.subdomains ?? "Off"}</span>
+          </Row>
+          <Row
+            name="Telemetry"
+            hint={
+              env.telemetry
+                ? "OTEL_EXPORTER_OTLP_ENDPOINT · traces and logs go to this collector of yours, and nowhere else."
+                : "OTEL_EXPORTER_OTLP_ENDPOINT · names a collector of yours for traces and logs; nothing leaves otherwise."
+            }
+            inline
+          >
+            <span className="truncate text-[13px] text-ink-2">{env.telemetry ?? "Off"}</span>
+          </Row>
+        </Section>
+      )}
       <Section title="History" intro="Every release this instance has run.">
         {data.history.map((h) => (
           <Row
@@ -1717,11 +1798,286 @@ const mailResults: Record<MailLogRow["result"], string> = {
   suppressed: "Not sent: it bounced before",
 };
 
-/** What an audit row did, in words: an operator's action, or a workspace's. */
-const auditAction = (r: AuditLogRow) =>
-  r.source === "instance"
-    ? `${r.target ?? ""} ${instanceActions[r.action] ?? r.action}`.trim()
-    : (actionCopy[r.action] ?? r.action);
+/**
+ * A column of a log's table (#692): its heading, its cell, and where the cell goes on a phone,
+ * where each row is stacked: beside the time at the end of the first line, or a line of its own.
+ */
+interface LogColumn<R> {
+  label: string;
+  cell: (row: R) => ReactNode;
+  phone?: "end" | "line";
+  /** Kept to one line on a wide screen; the rest wrap and share what is left. */
+  nowrap?: boolean;
+  className?: string;
+}
+
+/** A log as a table, as the prototype draws it: headed columns, a row a line, nothing cut. */
+function LogTable<R extends { id: string; at: string }>({
+  rows,
+  columns,
+}: {
+  rows: R[];
+  columns: LogColumn<R>[];
+}) {
+  const all: LogColumn<R>[] = [
+    {
+      label: "When",
+      nowrap: true,
+      cell: (r) => <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>,
+    },
+    ...columns,
+  ];
+  // On a phone: the time, the cell that sits beside it, then each other cell a line.
+  const order = (c: LogColumn<R>, i: number) =>
+    i === 0 ? "order-0" : c.phone === "end" ? "order-1 ml-auto" : "order-2 basis-full";
+  return (
+    <table className="block w-full border-collapse text-[13px] @3xl/app:table">
+      <thead className="hidden @3xl/app:table-header-group">
+        <tr>
+          {all.map((c) => (
+            <th
+              key={c.label}
+              scope="col"
+              className="eyebrow px-3 py-2 text-left whitespace-nowrap first:pl-4 last:pr-4"
+            >
+              {c.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody className="block @3xl/app:table-row-group">
+        {rows.map((r) => (
+          <tr
+            key={r.id}
+            data-log-entry
+            className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 border-line px-4 py-2 not-first:border-t @3xl/app:table-row @3xl/app:border-t @3xl/app:p-0"
+          >
+            {all.map((c, i) => (
+              <td
+                key={c.label}
+                className={cn(
+                  "min-w-0 [overflow-wrap:anywhere] @3xl/app:table-cell @3xl/app:px-3 @3xl/app:py-2 @3xl/app:align-top @3xl/app:first:pl-4 @3xl/app:last:pr-4",
+                  order(c, i),
+                  c.nowrap && "@3xl/app:whitespace-nowrap @3xl/app:[overflow-wrap:normal]",
+                  c.className,
+                )}
+              >
+                {c.cell(r)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** Someone as the log names them: the name, the address kept for a hover (#692). */
+function LogWho({ who, operator, extra }: { who: string; operator?: boolean; extra?: string }) {
+  const at = who.indexOf(" <");
+  const name = (at > 0 ? who.slice(0, at) : who).replace(/^Operator: /, "");
+  return (
+    <span className="text-ink-2" title={[who, extra].filter(Boolean).join(" · ")}>
+      {name}
+      {operator && <span className="text-ink-3"> · operator</span>}
+    </span>
+  );
+}
+
+/** A line under a cell, quieter: the workspace a row came from. */
+const under = (text: string | null | undefined) =>
+  text ? <span className="block text-[12px] text-ink-3">{text}</span> : null;
+
+const capital = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+const auditColumns: LogColumn<AuditLogRow>[] = [
+  {
+    label: "Who",
+    nowrap: true,
+    cell: (r) => (
+      <LogWho who={r.who} operator={r.source === "instance"} extra={r.ipAddress ?? undefined} />
+    ),
+  },
+  {
+    label: "Workspace",
+    phone: "end",
+    nowrap: true,
+    cell: (r) => <span className="text-ink-3">{r.workspace?.name ?? "Instance"}</span>,
+  },
+  {
+    // The action alone; what it was done to is always On's (#692).
+    label: "Action",
+    cell: (r) => (
+      <span className="text-ink">
+        {r.source === "instance"
+          ? capital(instanceActionLabel(r.action, import.meta.env.DEV))
+          : (actionCopy[r.action] ?? r.action)}
+      </span>
+    ),
+  },
+  { label: "On", cell: (r) => <span className="text-ink-2">{r.target ?? ""}</span> },
+];
+
+const authColumns: LogColumn<AuthLogRow>[] = [
+  {
+    label: "Who",
+    cell: (r) => (
+      <>
+        <span className="text-ink-2">{r.account}</span>
+        {under(r.workspace?.name)}
+      </>
+    ),
+  },
+  {
+    label: "Method",
+    phone: "end",
+    nowrap: true,
+    cell: (r) => <span className="text-ink-3">{authMethodLabels[r.method]}</span>,
+  },
+  {
+    // A refusal's reason wraps; it is never cut while the row has room.
+    label: "Result",
+    cell: (r) => (
+      <span className={r.result === "signed_in" ? "text-ink" : "text-signal"}>{authResult(r)}</span>
+    ),
+  },
+  {
+    label: "From",
+    cell: (r) => (
+      <span className="tabular text-ink-3">
+        {[r.ipAddress, shortAgent(r.userAgent)].filter(Boolean).join(" · ")}
+      </span>
+    ),
+  },
+];
+
+const apiColumns: LogColumn<ApiLogRow>[] = [
+  {
+    label: "Token or client",
+    cell: (r) => (
+      <>
+        <span className="text-ink-2">
+          {r.token.name}
+          {r.token.kind === "service" ? " (service)" : ""}
+        </span>
+        {under(r.workspace.name)}
+      </>
+    ),
+  },
+  {
+    label: "Call",
+    cell: (r) => (
+      <span className="tabular text-ink">
+        {r.method} {r.path}
+      </span>
+    ),
+  },
+  {
+    label: "Status",
+    phone: "end",
+    nowrap: true,
+    cell: (r) => (
+      <span className={cn("tabular", r.status >= 400 ? "text-signal" : "text-ink-3")}>
+        {r.status}
+      </span>
+    ),
+  },
+  {
+    label: "Time",
+    nowrap: true,
+    cell: (r) => <span className="tabular text-ink-3">{r.durationMs} ms</span>,
+  },
+];
+
+const mailColumns: LogColumn<MailLogRow>[] = [
+  { label: "To", cell: (r) => <span className="text-ink-2">{r.to}</span> },
+  { label: "Subject", cell: (r) => <span className="text-ink">{r.subject}</span> },
+  {
+    label: "Result",
+    phone: "end",
+    cell: (r) => (
+      <>
+        <span
+          className={r.result === "failed" || r.result === "bounced" ? "text-signal" : "text-ink-3"}
+        >
+          {mailResults[r.result]}
+        </span>
+        {r.error && <span className="block text-[12px] text-signal">{r.error}</span>}
+      </>
+    ),
+  },
+];
+
+const webhookColumns: LogColumn<WebhookLogRow>[] = [
+  {
+    label: "Channel",
+    cell: (r) => (
+      <>
+        <span className="text-ink-2">
+          {channelKindLabels[r.channel.kind]} {r.channel.name}
+        </span>
+        {under(r.workspace.name)}
+      </>
+    ),
+  },
+  { label: "Event", cell: (r) => <span className="tabular text-ink">{r.event}</span> },
+  {
+    label: "Result",
+    cell: (r) => (
+      <span
+        className={
+          r.status === "failed" || (r.status === "pending" && r.attempts > 0)
+            ? "text-signal"
+            : "text-ink-3"
+        }
+      >
+        {deliveryResult(r)}
+      </span>
+    ),
+  },
+  {
+    label: "Attempt",
+    phone: "end",
+    nowrap: true,
+    cell: (r) => (
+      <span className="tabular text-ink-3">
+        {r.replay ? "Replay · " : ""}
+        {r.attempts === 1 ? "1 attempt" : `${r.attempts} attempts`}
+      </span>
+    ),
+  },
+];
+
+const gatewayColumns: LogColumn<GatewayLogRow>[] = [
+  {
+    label: "Workspace",
+    cell: (r) => <span className="text-ink-2">{r.workspace?.name ?? "Instance"}</span>,
+  },
+  {
+    label: "Event",
+    cell: (r) => (
+      <span className="tabular text-ink">{[r.event, r.summary].filter(Boolean).join(" · ")}</span>
+    ),
+  },
+  {
+    label: "Amount",
+    phone: "end",
+    nowrap: true,
+    cell: (r) => (
+      <span className="tabular text-ink-2">
+        {r.amount === null || !r.currency ? "" : formatMoney(r.amount, r.currency)}
+      </span>
+    ),
+  },
+  {
+    label: "Result",
+    cell: (r) => (
+      <span className={r.result?.startsWith("failed") ? "text-signal" : "text-ink-3"}>
+        {r.result ?? "Being taken"}
+      </span>
+    ),
+  },
+];
 
 /**
  * Logs (#157), as the prototype has them: what people and operators did, and the mail the
@@ -1738,8 +2094,11 @@ function Logs() {
   const search = useDeferredValue(q.trim());
   const [range, setRange] = useState<LogRange>("24h");
   const [workspace, setWorkspace] = useState("");
+  // The range counts back from the viewer's clock, as Debug tools' errors do (#598).
+  const [now] = useState(() => new Date().toISOString());
   const filters = {
     range,
+    now,
     ...(search ? { q: search } : {}),
     ...(kind !== "mail" && workspace ? { workspace } : {}),
   };
@@ -1829,96 +2188,17 @@ function Logs() {
             />
           </div>
         ) : kind === "audit" ? (
-          (rows as AuditLogRow[]).map((r) => (
-            <div
-              key={r.id}
-              data-log-entry
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_170px_minmax(0,1fr)] @6xl/app:grid-cols-[150px_minmax(0,1fr)_170px_minmax(0,1fr)_130px]"
-            >
-              <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>
-              <span className="justify-self-end truncate text-ink-3 @3xl/app:order-3 @3xl/app:justify-self-start">
-                {r.workspace?.name ?? "Instance"}
-              </span>
-              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-2 @3xl/app:col-span-1">
-                <span className="truncate text-ink-2">{r.who}</span>
-              </span>
-              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-4 @3xl/app:col-span-1">
-                <span className="truncate text-ink">{auditAction(r)}</span>
-                {r.source === "workspace" && r.target && (
-                  <span className="truncate text-[12px] text-ink-3">{r.target}</span>
-                )}
-              </span>
-              <span className="tabular hidden truncate text-ink-3 @6xl/app:order-5 @6xl/app:block">
-                {r.ipAddress ?? ""}
-              </span>
-            </div>
-          ))
+          <LogTable rows={rows as AuditLogRow[]} columns={auditColumns} />
         ) : kind === "auth" ? (
-          (rows as AuthLogRow[]).map((r) => (
-            <div
-              key={r.id}
-              data-log-entry
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_130px_minmax(0,1fr)] @6xl/app:grid-cols-[150px_minmax(0,1fr)_130px_minmax(0,1fr)_200px]"
-            >
-              <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>
-              <span className="justify-self-end text-ink-3 @3xl/app:order-3 @3xl/app:justify-self-start">
-                {authMethodLabels[r.method]}
-              </span>
-              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-2 @3xl/app:col-span-1">
-                <span className="truncate text-ink-2">{r.account}</span>
-                {r.workspace && (
-                  <span className="truncate text-[12px] text-ink-3">{r.workspace.name}</span>
-                )}
-              </span>
-              <span
-                className={cn(
-                  "col-span-2 truncate @3xl/app:order-4 @3xl/app:col-span-1",
-                  r.result === "signed_in" ? "text-ink" : "text-signal",
-                )}
-                title={authResult(r)}
-              >
-                {authResult(r)}
-              </span>
-              <span className="tabular hidden truncate text-ink-3 @6xl/app:order-5 @6xl/app:block">
-                {[r.ipAddress, shortAgent(r.userAgent)].filter(Boolean).join(" · ")}
-              </span>
-            </div>
-          ))
+          <LogTable rows={rows as AuthLogRow[]} columns={authColumns} />
         ) : kind === "api" ? (
-          (rows as ApiLogRow[]).map((r) => <ApiLogEntry key={r.id} row={r} workspace />)
+          <LogTable rows={rows as ApiLogRow[]} columns={apiColumns} />
         ) : kind === "webhooks" ? (
-          (rows as WebhookLogRow[]).map((r) => <WebhookEntry key={r.id} row={r} />)
+          <LogTable rows={rows as WebhookLogRow[]} columns={webhookColumns} />
         ) : kind === "gateway" ? (
-          (rows as GatewayLogRow[]).map((r) => <GatewayEntry key={r.id} row={r} />)
+          <LogTable rows={rows as GatewayLogRow[]} columns={gatewayColumns} />
         ) : (
-          (rows as MailLogRow[]).map((r) => (
-            <div
-              key={r.id}
-              data-log-entry
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 px-4 py-2 text-[13px] @3xl/app:grid-cols-[150px_minmax(0,1fr)_minmax(0,1.4fr)_150px]"
-            >
-              <span className="tabular text-ink-3">{logTime.format(new Date(r.at))}</span>
-              <span
-                className={cn(
-                  "justify-self-end @3xl/app:order-4 @3xl/app:justify-self-start",
-                  r.result === "failed" || r.result === "bounced" ? "text-signal" : "text-ink-3",
-                )}
-              >
-                {mailResults[r.result]}
-              </span>
-              <span className="col-span-2 truncate text-ink-2 @3xl/app:order-2 @3xl/app:col-span-1">
-                {r.to}
-              </span>
-              <span className="col-span-2 flex min-w-0 flex-col @3xl/app:order-3 @3xl/app:col-span-1">
-                <span className="truncate text-ink">{r.subject}</span>
-                {r.error && (
-                  <span className="truncate text-[12px] text-signal" title={r.error}>
-                    {r.error}
-                  </span>
-                )}
-              </span>
-            </div>
-          ))
+          <LogTable rows={rows as MailLogRow[]} columns={mailColumns} />
         )}
         {log.hasNextPage && (
           <div className="px-4 py-2">
@@ -2004,7 +2284,7 @@ function serviceHint(s: HealthService): string {
         ? "SMTP: the mail server answers"
         : s.state === "failed"
           ? "SMTP: the mail server does not answer"
-          : "Off: messages go to the server's log";
+          : "Off: written to the server's log, so nobody receives email";
   }
 }
 
@@ -2146,8 +2426,9 @@ function SystemHealthPage() {
             points={series.lanesBusy}
             format={figure}
             when={when}
-            max={series.lanes}
-            hint={`hekate_worker_lanes_busy of ${series.lanes}`}
+            // The lanes there are now, as Services and Operations count them (#696).
+            max={Math.max(1, now.lanes.total)}
+            hint={`hekate_worker_lanes_busy of ${now.lanes.total}`}
           />
           <Spark
             label="Uploads"
@@ -2161,7 +2442,12 @@ function SystemHealthPage() {
       <Section title="Services" intro="Every part of the machine, checked every 15 seconds.">
         {data.services.map((s) => (
           <Row key={s.name} name={serviceNames[s.name]} hint={serviceHint(s)} inline>
-            <StatusDot state={serviceDot[s.state]} />
+            {/* Mail only to the log reaches nobody: a warning, not a quiet "off" (#689). */}
+            <StatusDot
+              state={
+                s.name === "mail" && s.state === "off" ? "changes_requested" : serviceDot[s.state]
+              }
+            />
           </Row>
         ))}
       </Section>
@@ -2237,23 +2523,20 @@ function SystemHealthPage() {
         )}
         {reconcile.isError && <Row name="Not run" hint={reconcile.error.message} />}
       </Section>
-      <Section
-        title="Metrics"
-        intro="Everything above, and more, is exported for Prometheus at /metrics, read with the bearer token in METRICS_TOKEN. Grafana dashboards ship in the repository."
-      >
-        {data.metrics.map((m) => (
-          <Row
-            key={m.name}
-            name={<span className="tabular text-[13px]">{m.name}</span>}
-            hint={m.help}
-          >
-            <span className="text-[12px] text-ink-3">
-              {m.type}
-              {m.labels.length > 0 && ` · ${m.labels.join(", ")}`}
-            </span>
-          </Row>
-        ))}
-      </Section>
+      {/* The metrics are a reference, not the machine's state: they live in the docs (#696). */}
+      <p className="m-0 text-[13px] text-ink-3">
+        Everything above, and more, is exported for Prometheus at /metrics, read with the bearer
+        token in METRICS_TOKEN.{" "}
+        <a
+          href={`${docsUrl}/operate/monitoring/#what-it-says`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-ink-2 underline-offset-2 hover:text-ink hover:underline"
+        >
+          Every metric, in the docs
+        </a>
+        .
+      </p>
     </>
   );
 }
@@ -2277,7 +2560,7 @@ function Workspaces({
   access: InstanceAccess;
   /** A workspace to open first, as a ticket on the desk does (#182), and its tab. */
   open?: string;
-  tab?: "members";
+  tab?: "members" | "storage";
 }) {
   const operator = access.operator && !access.keyNeeded;
   const [q, setQ] = useState("");
@@ -2294,6 +2577,9 @@ function Workspaces({
   const current =
     workspaces.find((w) => w.id === chosen) ??
     (chosen === open && open ? { id: open } : workspaces[0]);
+  // On a phone, the list or one workspace, never both (#690): a workspace is opened from the
+  // list and left by its crumb, as Apple Mail opens a message. Side by side from @3xl.
+  const opened = chosen !== null;
   const more = useRef<HTMLDivElement>(null);
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = list;
   useEffect(() => {
@@ -2330,7 +2616,12 @@ function Workspaces({
         />
       )}
       <div className="flex h-full min-h-0 flex-col @3xl/app:flex-row">
-        <div className="flex w-full shrink-0 flex-col border-b border-line @3xl/app:w-[300px] @3xl/app:border-r @3xl/app:border-b-0">
+        <div
+          className={cn(
+            "min-h-0 w-full flex-1 flex-col @3xl/app:flex @3xl/app:w-[300px] @3xl/app:flex-none @3xl/app:shrink-0 @3xl/app:border-r @3xl/app:border-line",
+            opened ? "hidden" : "flex",
+          )}
+        >
           <div className="flex flex-col gap-2 p-3">
             <Input
               value={q}
@@ -2348,7 +2639,7 @@ function Workspaces({
               />
             )}
           </div>
-          <div className="scroll-quiet flex max-h-[40vh] min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2 @3xl/app:max-h-none">
+          <div className="scroll-quiet flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pb-2">
             <ul aria-label="Workspaces" className="m-0 flex list-none flex-col gap-0.5 p-0">
               {workspaces.map((w) => (
                 <li key={w.id}>
@@ -2361,13 +2652,27 @@ function Workspaces({
                       w.id === current?.id && "bg-raised shadow-1",
                     )}
                   >
-                    <StateDot state={w.state} />
+                    {/* Only the exception is marked (#690): a signal ring, and the word. */}
+                    {w.state === "suspended" && (
+                      <span
+                        aria-hidden="true"
+                        className="size-[7px] shrink-0 rounded-full border-[1.5px] border-signal"
+                      />
+                    )}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-[13px] text-ink">{w.name}</span>
                       <span className="block truncate text-[12px] text-ink-3">
+                        {w.state === "suspended" && (
+                          <span className="text-signal">Suspended · </span>
+                        )}
                         {people(w.members)} · {formatBytes(w.storageBytes)}
                       </span>
                     </span>
+                    <Icon
+                      name="chevronRight"
+                      size={14}
+                      className="shrink-0 text-ink-3 @3xl/app:hidden"
+                    />
                   </button>
                 </li>
               ))}
@@ -2386,7 +2691,20 @@ function Workspaces({
             )}
           </div>
         </div>
-        <div className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div
+          className={cn(
+            "scroll-quiet min-h-0 min-w-0 flex-1 overflow-y-auto @3xl/app:block",
+            opened ? "block" : "hidden",
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => setChosen(null)}
+            className="flex items-center gap-1 px-5 pt-4 text-[13px] text-ink-3 transition-colors hover:text-ink @3xl/app:hidden"
+          >
+            <Icon name="chevronLeft" size={14} />
+            Workspaces
+          </button>
           {current && (
             <WorkspaceDetail
               key={current.id}
@@ -2403,18 +2721,6 @@ function Workspaces({
 
 const people = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
 
-function StateDot({ state }: { state: WorkspaceState }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "size-[7px] shrink-0 rounded-full",
-        state === "suspended" ? "bg-ink-3" : "bg-ok",
-      )}
-    />
-  );
-}
-
 type WorkspaceTab =
   | "overview"
   | "members"
@@ -2425,6 +2731,12 @@ type WorkspaceTab =
   | "keys";
 
 /** One workspace: what it is, where it stands, and its tabs. */
+/** A reason typed by an operator, read as a sentence of its own (#685). */
+const asSentence = (text: string) => {
+  const t = text.trim();
+  return /[.!?]$/.test(t) ? t : `${t}.`;
+};
+
 function WorkspaceDetail({
   id,
   operator,
@@ -2434,17 +2746,9 @@ function WorkspaceDetail({
   operator: boolean;
   tab?: WorkspaceTab;
 }) {
-  const client = useQueryClient();
   const { data: w } = useQuery(instanceWorkspaceQuery(id));
   const [tab, setTab] = useState<WorkspaceTab>(first ?? "overview");
   const [suspending, setSuspending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const reinstate = useMutation({
-    mutationFn: async () =>
-      json(await api.instance.workspaces[":id"].reinstate.$post({ param: { id } })),
-    onSuccess: () => client.invalidateQueries({ queryKey: ["instance"] }),
-    onError: (e) => setError(e.message),
-  });
   if (!w) return null;
   return (
     <div className="fade-in flex flex-col gap-6 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8">
@@ -2454,37 +2758,20 @@ function WorkspaceDetail({
           <h2 className="m-0 truncate text-[20px] font-medium tracking-tight text-ink">{w.name}</h2>
           <p className="tabular m-0 text-[13px] text-ink-3">
             {w.slug} · since {since.format(new Date(w.createdAt))}
-            {w.state === "suspended" && (
+            {w.deleteAfter && (
               <span className="text-signal">
-                {w.deleteAfter
-                  ? ` · deleted on ${since.format(new Date(w.deleteAfter))}`
-                  : " · suspended"}
+                {` · deleted on ${since.format(new Date(w.deleteAfter))}`}
               </span>
             )}
           </p>
         </div>
-        {operator && (
-          <ActionMenu
-            always
-            label={w.name}
-            actions={[
-              w.state === "suspended"
-                ? { label: "Reinstate", onSelect: () => reinstate.mutate() }
-                : { label: "Suspend…", danger: true, onSelect: () => setSuspending(true) },
-            ]}
-          />
-        )}
       </div>
+      {/* Suspend, Reinstate and Delete are the Settings tab's Danger zone's alone (#602). */}
       {w.state === "suspended" && (
         <p className="m-0 max-w-[620px] text-[13px] text-ink-2">
-          Suspended {w.suspendedAt ? ago(w.suspendedAt) : ""}
-          {w.suspendedReason ? `: ${w.suspendedReason}` : "."} Its members see this, and its guests’
-          links do not open until it is reinstated.
-        </p>
-      )}
-      {error && (
-        <p role="alert" className="m-0 text-[13px] text-signal">
-          {error}
+          <span className="text-signal">Suspended {w.suspendedAt ? ago(w.suspendedAt) : ""}.</span>
+          {w.suspendedReason ? ` ${asSentence(w.suspendedReason)}` : ""} Its members see this, and
+          its guests’ links do not open until it is reinstated.
         </p>
       )}
       <Tabs value={tab} onValueChange={(v) => setTab(v as WorkspaceTab)}>
@@ -2524,7 +2811,7 @@ function WorkspaceDetail({
           />
         </TabsContent>
         <TabsContent value="keys" className="flex flex-col gap-6 pt-6">
-          <WorkspaceKeys id={id} name={w.name} operator={operator} />
+          <WorkspaceKeys id={id} operator={operator} />
         </TabsContent>
       </Tabs>
     </div>
@@ -2534,24 +2821,30 @@ function WorkspaceDetail({
 function WorkspaceOverview({ workspace: w }: { workspace: InstanceWorkspaceDetail }) {
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 @3xl/app:grid-cols-4">
-        <Stat
-          label="People"
-          value={w.members}
-          hint={w.guests > 0 ? `and ${w.guests} ${w.guests === 1 ? "guest" : "guests"}` : "members"}
-        />
-        <Stat
-          label="Projects"
-          value={w.projects}
-          hint={`${w.activeReviews} active ${w.activeReviews === 1 ? "review" : "reviews"}`}
-        />
-        <Stat label="Storage" value={formatBytes(w.storageBytes)} hint="before encryption" />
-        <Stat
-          label="Sign-in"
-          value={w.signIn.method === "sso" ? (w.signIn.provider ?? "SSO") : "Password"}
-          hint={w.signIn.secondFactor ? "second factor required" : "no second factor"}
-        />
-      </div>
+      <TileGrid
+        tiles={[
+          {
+            label: "Members",
+            value: String(w.members),
+            hint: w.guests > 0 ? `and ${plural(w.guests, "guest")}` : "no guests",
+          },
+          {
+            label: "Projects",
+            value: String(w.projects),
+            hint: `${w.activeReviews} active ${w.activeReviews === 1 ? "review" : "reviews"}`,
+          },
+          {
+            label: "Storage",
+            value: formatBytes(w.storageBytes),
+            hint: "stored, with what Hekate made",
+          },
+          {
+            label: "Sign-in",
+            value: w.signIn.method === "sso" ? (w.signIn.provider ?? "SSO") : "Password",
+            hint: w.signIn.secondFactor ? "second factor required" : "no second factor",
+          },
+        ]}
+      />
       {w.invited.length > 0 && (
         <Section title="Waiting to join">
           {w.invited.map((i) => (
@@ -2596,7 +2889,7 @@ const actorName = (label: string) => {
 
 const factorWords: Record<InstanceMemberRow["factor"], string> = {
   key: "passkey or security key",
-  app: "code app",
+  app: "authenticator app",
   none: "none",
 };
 
@@ -2616,7 +2909,7 @@ function WorkspaceMembers({ id, operator }: { id: string; operator: boolean }) {
   });
   return (
     <Section
-      title="People"
+      title="Members"
       intro={
         operator
           ? "Members of this workspace. Operators never sign in as anyone; what you do here is logged against your name."
@@ -2648,11 +2941,21 @@ function WorkspaceMembers({ id, operator }: { id: string; operator: boolean }) {
                   label: "Send a password reset",
                   onSelect: () => help.mutate({ userId: m.userId, action: "password-reset" }),
                 },
-                {
-                  label: "Reset the second factor",
-                  onSelect: () => help.mutate({ userId: m.userId, action: "second-factor" }),
-                },
                 "divider",
+                {
+                  // Their code app and every passkey go at once: it waits on a confirmation.
+                  label: "Reset the second factor…",
+                  danger: true,
+                  onSelect: () =>
+                    confirm({
+                      title: `Reset ${m.name}’s second factor?`,
+                      description:
+                        "Their authenticator app and every passkey are removed. They sign in with their password and set up a second factor again.",
+                      action: "Reset second factor",
+                      onConfirm: () =>
+                        help.mutateAsync({ userId: m.userId, action: "second-factor" }),
+                    }),
+                },
                 {
                   label: "Sign out everywhere…",
                   danger: true,
@@ -2688,7 +2991,7 @@ const helpDone: Record<MemberHelp, string> = {
   sessions: "Signed out everywhere. They sign in again on each device.",
   "password-reset": "A code to set a new password is on its way to them.",
   "second-factor":
-    "Their code app and passkeys are gone. They sign in with their password and add one again.",
+    "Their authenticator app and passkeys are gone. They sign in with their password and add one again.",
 };
 const roleWords: Record<string, string> = { owner: "Owner", admin: "Admin", member: "Member" };
 
@@ -2799,37 +3102,39 @@ function WorkspaceStorage({ id, operator }: { id: string; operator: boolean }) {
   return (
     <>
       <Section
-        title="Quota"
+        title="Limits"
         intro="Uploads are refused at the storage quota and invitations at the member limit; the workspace is warned from 90%. Lowering one removes nothing."
       >
-        <UsageRows usage={s.usage} />
-        {operator && (
-          <>
-            <Row name="Storage quota" inline>
+        <UsageRows
+          usage={s.usage}
+          storageControl={
+            operator && (
               <QuotaSelect
                 value={limits.storageQuota}
                 disabled={setLimits.isPending}
                 onChange={(storageQuota) => setLimits.mutate({ ...limits, storageQuota })}
               />
-            </Row>
-            <Row name="Member limit" inline>
+            )
+          }
+          memberControl={
+            operator && (
               <MemberLimitSelect
                 value={limits.memberLimit}
                 disabled={setLimits.isPending}
                 onChange={(memberLimit) => setLimits.mutate({ ...limits, memberLimit })}
               />
-            </Row>
-          </>
-        )}
+            )
+          }
+        />
         {setLimits.error && (
           <p role="alert" className="m-0 px-4 py-2 text-[13px] text-signal">
             {setLimits.error.message}
           </p>
         )}
       </Section>
-      <Section title="Storage" intro="Sizes before encryption.">
+      <Section title="Stored" intro="Sizes before encryption.">
         <Row
-          name="Used"
+          name="In all"
           hint={`${formatBytes(s.originalBytes)} of originals, ${formatBytes(s.derivedBytes)} made from them for playback, waveforms and pages`}
           inline
         >
@@ -2930,7 +3235,7 @@ function ClearRenditions({
   return (
     <Dialog
       title="Clear the rendition cache"
-      description="Every recording in this workspace is packaged again from its original, as the instance's ladder now says, taking about as long as its first preparation. Each keeps playing its old renditions until its new ones replace them. Originals are only read, never changed."
+      description="Every recording in this workspace is packaged again from its original, at the qualities the instance now streams, taking about as long as its first preparation. Each keeps playing its old renditions until its new ones replace them. Originals are only read, never changed."
       onClose={onClose}
       footer={
         <>
@@ -2938,7 +3243,7 @@ function ClearRenditions({
             Cancel
           </Button>
           <Button variant="primary" disabled={clear.isPending} onClick={() => clear.mutate()}>
-            Clear and make again
+            Clear and rebuild
           </Button>
         </>
       }
@@ -3037,10 +3342,16 @@ function WorkspaceSettingsTab({
         </Row>
         <Row name="Opening a link" inline>
           <span className="text-[13px] text-ink-2">
-            {s.guestVerification === "code" ? "Asks for an emailed code" : "Opens by itself"}
+            {s.guestVerification === "code" ? "Asks for an emailed code" : "Opens on its own"}
           </span>
         </Row>
       </Section>
+      {/* Its export (#186): for leaving or for an audit, beside its owners' own in Settings (#602). */}
+      {operator && (
+        <Section title="Export">
+          <WorkspaceExports scope={{ kind: "instance", id: w.id }} name={w.name} />
+        </Section>
+      )}
       {operator && (
         <Danger>
           <Row
@@ -3060,10 +3371,10 @@ function WorkspaceSettingsTab({
           {w.deleteAfter ? (
             <Row
               name={`Deleted on ${since.format(new Date(w.deleteAfter))}`}
-              hint="With everything in it. Until then, keeping it or reinstating it changes nothing."
+              hint="With everything in it. Until then, cancelling the deletion or reinstating it changes nothing."
             >
               <Button variant="secondary" size="md" onClick={() => keep.mutate()}>
-                Keep it
+                Cancel the deletion
               </Button>
             </Row>
           ) : (
@@ -3156,7 +3467,7 @@ function DeleteWorkspace({
   );
 }
 
-function WorkspaceKeys({ id, name, operator }: { id: string; name: string; operator: boolean }) {
+function WorkspaceKeys({ id, operator }: { id: string; operator: boolean }) {
   const client = useQueryClient();
   const { data: k } = useQuery(instanceKeysQuery(id));
   const [error, setError] = useState<string | null>(null);
@@ -3206,8 +3517,6 @@ function WorkspaceKeys({ id, name, operator }: { id: string; name: string; opera
           {error}
         </p>
       )}
-      {/* Its export (#186): for leaving or for an audit; its owners have theirs in Settings. */}
-      {operator && <WorkspaceExports scope={{ kind: "instance", id }} name={name} />}
     </Section>
   );
 }
@@ -3270,7 +3579,7 @@ function NewWorkspace({ onClose, onMade }: { onClose: () => void; onMade: (id: s
   return (
     <Dialog
       title="New workspace"
-      description="A tenant of its own: members, projects, settings and keys. Its first owner is invited by email."
+      description="A workspace of its own: members, projects, settings and keys. Its first owner is invited by email."
       onClose={onClose}
       width="sm"
       footer={
@@ -3298,19 +3607,20 @@ function NewWorkspace({ onClose, onMade }: { onClose: () => void; onMade: (id: s
               setName(e.target.value);
               if (!slugTouched) setSlug(slugFrom(e.target.value));
             }}
-            placeholder="Lantern Pictures"
             required
             autoFocus
           />
         </Field>
-        <Field label="Subdomain" hint="Lower-case letters, digits and hyphens.">
+        <Field
+          label="Subdomain"
+          hint="Lower-case letters, digits and hyphens; made from the name until you change it."
+        >
           <Input
             value={slug}
             onChange={(e) => {
               setSlugTouched(true);
               setSlug(e.target.value);
             }}
-            placeholder="lantern"
             required
           />
         </Field>
@@ -3319,7 +3629,6 @@ function NewWorkspace({ onClose, onMade }: { onClose: () => void; onMade: (id: s
             type="email"
             value={ownerEmail}
             onChange={(e) => setOwnerEmail(e.target.value)}
-            placeholder="owner@lantern.example"
             autoComplete="off"
             required
           />
@@ -3405,6 +3714,9 @@ function Operators() {
   const client = useQueryClient();
   const [confirm, confirmation] = useConfirm();
   const { data: operators = [] } = useQuery(instanceOperatorsQuery);
+  const { data: own } = useQuery(instanceOwnSettingsQuery);
+  // OPERATOR_SECURITY_KEY (#599, #600): what the page says of keys follows the rule as set.
+  const keyRequired = own?.environment.operatorSecurityKey ?? true;
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const refresh = () => client.invalidateQueries({ queryKey: ["instance"] });
@@ -3422,10 +3734,14 @@ function Operators() {
   });
   return (
     <>
-      {adding && <AddOperator onClose={() => setAdding(false)} />}
+      {adding && <AddOperator keyRequired={keyRequired} onClose={() => setAdding(false)} />}
       {/* The page says what operators are; its one list needs no title of its own (#609). */}
       <Section
-        intro="They sign in with a passkey or hardware security key, and what they do is listed under their name."
+        intro={
+          keyRequired
+            ? "They act from a session signed in with a passkey or security key, and what they do is listed under their name."
+            : "What they do is listed under their name. A passkey or security key keeps a stolen password from reaching every workspace."
+        }
         action={
           <Button variant="secondary" size="md" onClick={() => setAdding(true)}>
             <Icon name="plus" size={14} />
@@ -3449,8 +3765,10 @@ function Operators() {
                   ? `${o.keys} ${o.keys === 1 ? "passkey" : "passkeys"}`
                   : "no passkey or security key",
               o.lastSignInAt ? `signed in ${ago(o.lastSignInAt)}` : "never signed in",
-              `operator since ${since.format(new Date(o.since))}`,
-              o.addedBy ? `added by ${o.addedBy}` : "since setup",
+              // The first operator was made at setup: that is when, said once (#697).
+              o.addedBy
+                ? `operator since ${since.format(new Date(o.since))}, added by ${o.addedBy}`
+                : "operator since setup",
             ].join(" · ")}
             inline
           >
@@ -3458,8 +3776,18 @@ function Operators() {
               always
               label={o.name}
               actions={[
-                { label: "Sign out everywhere", onSelect: () => revoke.mutate(o.userId) },
-                "divider",
+                {
+                  label: "Sign out everywhere…",
+                  danger: true,
+                  onSelect: () =>
+                    confirm({
+                      title: `Sign ${o.name} out everywhere?`,
+                      description:
+                        "Every session they have ends now, on each device. They can sign in again.",
+                      action: "Sign out",
+                      onConfirm: () => revoke.mutateAsync(o.userId),
+                    }),
+                },
                 {
                   label: "Remove as operator…",
                   danger: true,
@@ -3482,12 +3810,27 @@ function Operators() {
           {error}
         </p>
       )}
+      {/* The rules the product has (#600), as set; operators never act as anyone else. */}
+      <Section title="Rules">
+        <Row
+          name="Operators sign in with a passkey or security key"
+          hint="Set in the environment (OPERATOR_SECURITY_KEY). Operators never act as anyone else."
+          inline
+        >
+          <span className="text-[13px] text-ink-2">{keyRequired ? "On" : "Off"}</span>
+          <Button variant="ghost" size="md" asChild>
+            <Link to="/instance/$section" params={{ section: "settings" }}>
+              Settings
+            </Link>
+          </Button>
+        </Row>
+      </Section>
       {confirmation}
     </>
   );
 }
 
-function AddOperator({ onClose }: { onClose: () => void }) {
+function AddOperator({ keyRequired, onClose }: { keyRequired: boolean; onClose: () => void }) {
   const client = useQueryClient();
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -3506,7 +3849,7 @@ function AddOperator({ onClose }: { onClose: () => void }) {
   return (
     <Dialog
       title="Make someone an operator"
-      description="They manage every workspace on this instance. They need an account here, and sign in with a passkey or hardware security key."
+      description={`They manage every workspace on this instance. They need an account here${keyRequired ? ", and act from a session signed in with a passkey or security key" : ""}.`}
       onClose={onClose}
       width="sm"
       footer={
@@ -3553,5 +3896,5 @@ const mailHints: Record<InstanceMail, string> = {
   smtp: "Sent over SMTP (SMTP_URL).",
   microsoft: "Sent through Microsoft Graph as the sender's mailbox (MAIL_GRAPH_*).",
   mailcoach: "Sent through Mailcoach's transactional API (MAIL_MAILCOACH_*).",
-  log: "Written to the server's log: set SMTP_URL, or a provider's settings, to send it.",
+  log: "Written to the server's log, so nobody receives email. Set SMTP_URL, or a provider's settings, to send it.",
 };

@@ -109,7 +109,8 @@ describe("tracks", () => {
   it("sums up versions and finds the latest primary file", () => {
     if (!maple) throw new Error("no track");
     expect(versionSummary(maple)).toBe("V2 of 2 · 2 variants");
-    expect(versionSummary(track("New", null, []))).toBe("—");
+    expect(versionSummary(track("New", null, []))).toBe("No version yet");
+    expect(versionSummary(track("New", null, []), "video")).toBe("No cut yet");
     expect(latestFile(maple)).toBe("dry2");
     expect(versionsOf(maple).map((i) => i.id)).toEqual(["Maple Leaf Rag-v2", "Maple Leaf Rag-v1"]);
   });
@@ -222,9 +223,15 @@ describe("columns", () => {
     expect(gridTemplate([...cols])).toBe("20px minmax(0,1fr) 150px 100px 88px 28px");
     // 20 + 240 + 250 + 88 + 28, five gaps of 12 and 24 of padding.
     expect(listMinWidth([...cols])).toBe(710);
-    // What does not fit is left off from the end, never the page made wider.
+    // What does not fit gives way first, down to three quarters of its width, the name
+    // keeping its own; only then is the end left off, never the page made wider.
     expect(fitColumns([...cols], 710)).toEqual(cols);
-    expect(fitColumns([...cols], 680).map((c) => c.id)).toEqual(["status"]);
+    // Floors of 113 and 75 need 648; the 32 over goes back in proportion.
+    expect(fitColumns([...cols], 680)).toEqual([
+      { id: "status", width: 132 },
+      { id: "updated", width: 87 },
+    ]);
+    expect(fitColumns([...cols], 640)).toEqual([{ id: "status", width: 150 }]);
     expect(fitColumns([...cols], 100)).toEqual([]);
   });
 

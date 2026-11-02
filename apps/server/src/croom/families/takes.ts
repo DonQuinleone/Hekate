@@ -117,10 +117,14 @@ export const takes: Family = {
         tc = parseTimecode(written, ctx.frameRate());
         if (!tc)
           ctx.report.problem(
-            `${ctx.type}: "${written.slice(0, 16)}" is not a timecode at ${ctx.frameRate()} frames a second, so it clears the take's (as in ControlRoom)`,
+            `A take's timecode, “${written.slice(0, 16)}”, does not fit ${ctx.frameRate()} frames a second, so the take has none, as in ControlRoom.`,
+            `${ctx.type}: "${written.slice(0, 16)}" is not a timecode at ${ctx.frameRate()} fps`,
           );
       } else if (written !== null && written !== undefined)
-        ctx.report.problem(`${ctx.type}: tc is not text, so it clears the take's timecode`);
+        ctx.report.problem(
+          "A take's timecode is not one Hekate can read, so the take has none.",
+          `${ctx.type}: tc is not text`,
+        );
       if (isIn) t.timecodeIn = tc;
       else t.timecodeOut = tc;
     }),

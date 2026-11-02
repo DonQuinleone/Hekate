@@ -1,4 +1,4 @@
-import { formatClock } from "./format.ts";
+import { audioCodecName, formatClock } from "./format.ts";
 import { layoutLabel } from "./layouts.ts";
 import type { LoudnessSummary } from "./loudness.ts";
 import type { MediaInfo } from "./media.ts";
@@ -198,18 +198,68 @@ const severityRank: Record<QaSeverity, number> = { fail: 0, warn: 1, info: 2, pa
 const worst = (a: QaSeverity | null, b: QaSeverity): QaSeverity =>
   a === null || severityRank[b] < severityRank[a] ? b : a;
 
-/** How many findings there are of each severity. */
-export function severityCounts(findings: readonly QaFinding[]): Record<QaSeverity, number> {
-  const counts: Record<QaSeverity, number> = { fail: 0, warn: 0, info: 0, pass: 0 };
-  for (const f of findings) counts[f.severity] += 1;
-  return counts;
-}
-
 /** A finding's name: its check's, or the project rule's own. */
 export const findingName = (f: Pick<QaFinding, "check" | "details">) =>
   f.check === "custom" && typeof f.details.name === "string"
     ? f.details.name
     : qaCheckNames[f.check];
+
+/**
+ * Each check by its worst finding (#564), by name (a project rule is a check of its own), in
+ * the order the checks first come: clipping in twenty places is one check that fails.
+ */
+export function checkSeverities(
+  findings: readonly Pick<QaFinding, "check" | "details" | "severity">[],
+): Map<string, QaSeverity> {
+  const out = new Map<string, QaSeverity>();
+  for (const f of findings) {
+    const name = findingName(f);
+    const seen = out.get(name);
+    out.set(name, seen === undefined ? f.severity : worst(seen, f.severity));
+  }
+  return out;
+}
+
+/**
+ * How many checks came to each severity (#564): what the QA badge, the view's tally and the
+ * report count, so the three always agree.
+ */
+export function severityCounts(
+  findings: readonly Pick<QaFinding, "check" | "details" | "severity">[],
+): Record<QaSeverity, number> {
+  const counts: Record<QaSeverity, number> = { fail: 0, warn: 0, info: 0, pass: 0 };
+  for (const severity of checkSeverities(findings).values()) counts[severity] += 1;
+  return counts;
+}
+
+/** The checks that need attention (#564): those that fail or are worth a look. */
+export function qaAttention(
+  findings: readonly Pick<QaFinding, "check" | "details" | "severity">[],
+): number {
+  const counts = severityCounts(findings);
+  return counts.fail + counts.warn;
+}
+
+/**
+ * A finding's words with its check's name before them (#564), said once: "True peak 0.9 dBTP"
+ * rather than "True peak: True peak 0.9 dBTP", where the summary already starts with it.
+ */
+export function findingLine(f: Pick<QaFinding, "check" | "details" | "summary">): string {
+  const name = findingName(f);
+  return startsWithName(f.summary, name) ? f.summary : `${name}: ${f.summary}`;
+}
+
+/** A finding's words without its check's name, for a row under that name (#564). */
+export function findingWords(f: Pick<QaFinding, "check" | "details" | "summary">): string {
+  const name = findingName(f);
+  if (!startsWithName(f.summary, name)) return f.summary;
+  const rest = f.summary.slice(name.length).replace(/^[\s:,]+/, "");
+  return rest ? `${rest[0]?.toUpperCase()}${rest.slice(1)}` : f.summary;
+}
+
+const startsWithName = (summary: string, name: string) =>
+  summary.toLowerCase().startsWith(name.toLowerCase()) &&
+  !/[a-z]/i.test(summary.charAt(name.length));
 
 /** Names in a sentence: "clipping", "clipping and true peak", "a, b and 2 more". */
 function listed(names: string[]): string {
@@ -219,10 +269,9 @@ function listed(names: string[]): string {
   return `${lower.slice(0, 2).join(", ")} and ${lower.length - 2} more`;
 }
 
-/** The checks with findings at a severity, each named once, in the order they first come. */
-const checksAt = (findings: readonly QaFinding[], severity: QaSeverity) => [
-  ...new Set(findings.filter((f) => f.severity === severity).map(findingName)),
-];
+/** The checks whose worst finding is at a severity, each named once, in the order they come. */
+const checksAt = (findings: readonly QaFinding[], severity: QaSeverity) =>
+  [...checkSeverities(findings)].filter(([, s]) => s === severity).map(([name]) => name);
 
 /**
  * The verdict in one line: not ready while any check fails (naming them), ready with what is
@@ -649,8 +698,9 @@ export function rulesChecked(
     ].filter(Boolean);
     if (asks.length > 0) add("profile", "Picture", asks.join(", "), of("picture-format", false));
   }
+  // Asked as a requirement (#565): read in a column headed "Asks for".
   for (const check of signalChecksFor(info))
-    add("signal", qaCheckNames[check], "none in the file", of(check));
+    add("signal", qaCheckNames[check], "None allowed", of(check));
   for (const rule of rules.filter((r) => r.on)) {
     const measure = ruleMeasures[rule.measure];
     add(
@@ -675,7 +725,8 @@ export function formatRows(info: MediaInfo | null): [string, string][] {
     if (video.fps) rows.push(["Frame rate", `${frameRateName(video.fps)} fps`]);
   }
   if (audio) {
-    rows.push(["Codec", audio.codec]);
+    // In words (#635), never ffmpeg's id.
+    rows.push(["Codec", audioCodecName(audio.codec, audio.bitDepth)]);
     rows.push(["Sample rate", kHz(audio.sampleRate)]);
     if (audio.bitDepth) rows.push(["Bit depth", `${audio.bitDepth}-bit`]);
     rows.push([

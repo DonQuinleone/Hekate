@@ -46,9 +46,9 @@ const statusDot: Record<TaskStatus, ReviewerDotState> = {
   done: "approved",
 };
 const priorityIcon: Record<TaskPriority, IconName> = {
-  high: "arrowUp",
-  normal: "list",
-  low: "chevronDown",
+  high: "priorityHigh",
+  normal: "priorityNormal",
+  low: "priorityLow",
 };
 const priorityName: Record<TaskPriority, string> = { high: "High", normal: "Normal", low: "Low" };
 
@@ -230,8 +230,8 @@ function TaskPanel({
         >
           {me && <Avatar person={me.user.id} name={me.user.name} size={24} />}
           <Input
-            aria-label="Add a note"
-            placeholder="Add a note"
+            aria-label="Comment"
+            placeholder="Add a comment"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             maxLength={4000}
@@ -241,7 +241,7 @@ function TaskPanel({
             variant="secondary"
             disabled={!note.trim() || mutations.note.isPending}
           >
-            Add
+            Comment
           </Button>
         </form>
       )}
@@ -301,12 +301,12 @@ function TaskBody({
                   {task.assignee.name}
                 </span>
               ) : (
-                <span className="text-ink-3">Nobody yet</span>
+                <span className="text-ink-3">Unassigned</span>
               )
             }
             actions={[
               {
-                label: "Nobody",
+                label: "Unassigned",
                 checked: !task.assignee,
                 onSelect: () => onChange({ assigneeId: null }),
               },
@@ -325,7 +325,7 @@ function TaskBody({
                 {task.assignee.name}
               </>
             ) : (
-              <span className="text-ink-3">Nobody yet</span>
+              <span className="text-ink-3">Unassigned</span>
             )}
           </span>
         )}
@@ -415,14 +415,14 @@ function TaskBody({
       )}
       {(edit || task.notes) && (
         <div className="flex flex-col gap-1.5">
-          <span className="eyebrow">Notes</span>
+          <span className="eyebrow">Description</span>
           {edit ? (
             <Textarea
-              aria-label="Notes"
+              aria-label="Description"
               rows={3}
               maxLength={4000}
               value={notes}
-              placeholder="Anything the owner should know."
+              placeholder="Add a description"
               onChange={(e) => setNotes(e.target.value)}
               onBlur={() =>
                 notes !== (task.notes ?? "") && onChange({ notes: notes.trim() || null })
@@ -546,7 +546,7 @@ function NewTaskDialog({
         <div className="grid gap-4 @md/app:grid-cols-3">
           <Field label="Owner">
             <Select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-              <option value="">Nobody yet</option>
+              <option value="">Unassigned</option>
               {people.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -577,9 +577,10 @@ function NewTaskDialog({
             </Select>
           </Field>
         )}
-        <Field label="Notes">
+        <Field label="Description">
           <Textarea
             rows={2}
+            placeholder="Add a description"
             value={notes}
             maxLength={4000}
             onChange={(e) => setNotes(e.target.value)}
@@ -656,16 +657,10 @@ export function ProjectTasks({
           title={data.tasks.length === 0 ? "No tasks yet" : "Nothing here"}
           text={
             data.tasks.length === 0
-              ? "Make one by hand, or from a comment's menu; a workflow's task stages make their own. Each has an owner, a priority and a date."
+              ? canMake
+                ? "Use New task to add one. A comment's menu and a workflow's task stages make them too."
+                : "Tasks are made from a comment's menu, by hand or by a workflow's task stages."
               : "No task fits this filter. Try another, or All."
-          }
-          action={
-            data.tasks.length === 0 && canMake ? (
-              <Button variant="secondary" onClick={() => open(undefined, true)}>
-                <Icon name="plus" size={14} />
-                New task
-              </Button>
-            ) : undefined
           }
         />
       ) : (
@@ -726,7 +721,7 @@ export function ProjectTasks({
                               <span className="truncate">{t.assignee.name}</span>
                             </>
                           ) : (
-                            <span className="text-ink-3">Nobody yet</span>
+                            <span className="text-ink-3">Unassigned</span>
                           )}
                         </span>
                         <span className="hidden text-[13px] text-ink-3 @3xl/app:block">

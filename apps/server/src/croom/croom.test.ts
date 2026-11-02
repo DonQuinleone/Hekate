@@ -312,7 +312,11 @@ describe("replaying events", () => {
       ["meta ui.*", 8],
     ]);
     expect(shown.problems).toEqual([
-      "upsert_stage_element: names a stage plan that is not in the project, so it changes nothing (as in ControlRoom)",
+      "A change to an element of a stage plan names a stage plan that is not in the project, so it changed nothing, as in ControlRoom.",
+    ]);
+    // The file's own ids go to "Details for support", never into the sentence (#551).
+    expect(shown.support).toEqual([
+      "upsert_stage_element: names a stage plan that is not in the project",
     ]);
   });
 
@@ -350,7 +354,7 @@ describe("replaying events", () => {
     // As this ControlRoom replays it: the venue is 1.
     expect([...model.venues.keys()]).toEqual(["1"]);
     expect(report.report().problems).toEqual([
-      "The file was written by a newer ControlRoom (it has add_widget): what comes after it may be linked to the wrong entries, so look it over before importing",
+      "The file was written by a newer ControlRoom: what comes after a change this import does not know may be linked to the wrong entries, so look it over before importing.",
     ]);
   });
 
@@ -369,9 +373,9 @@ describe("replaying events", () => {
     expect([...model.venues.keys()]).toEqual(["1"]);
     expect(model.todos.size).toBe(0);
     expect(report.report().problems).toEqual([
-      "Event 1 is add_todo in the events table and add_venue in its payload: it was read as ControlRoom reads it, as add_venue",
-      "Event 2 (add_venue): its payload names no type, so it was skipped, as ControlRoom skips it",
-      "Event 3 (add_take): its payload is not JSON, so it was skipped, as ControlRoom skips it",
+      "A change in the file is named one way in its list and another in its contents; it was read as ControlRoom reads it, by its contents.",
+      "A change in the file does not say what it changes, so it was skipped, as ControlRoom skips it.",
+      "A change in the file could not be read, so it was skipped, as ControlRoom skips it.",
     ]);
   });
 
@@ -393,8 +397,8 @@ describe("replaying events", () => {
     expect(model.takes.get("2")).toMatchObject({ number: 3, rating: 0 });
     const shown = report.report();
     expect(shown.problems).toEqual([
-      "set_take_rating: rating is not a number, so it was left out",
-      "set_take_rating: names a take that is not in the project, so it changes nothing (as in ControlRoom)",
+      "A change to a take's rating holds a detail that is not a number, so the detail was left out.",
+      "A change to a take's rating names a take that is not in the project, so it changed nothing, as in ControlRoom.",
     ]);
     expect(shown.unknownFields).toEqual([{ type: "add_take", field: "extra", count: 1 }]);
   });
@@ -432,8 +436,8 @@ describe("replaying events", () => {
     });
     expect(model.meta.frameRate).toBe("24");
     expect(report.report().problems).toEqual([
-      'set_take_timecode: "10:00:00:24" is not a timecode at 24 frames a second, so it clears the take\'s (as in ControlRoom)',
-      'set_meta: "48" is not a frame rate, so it changes nothing (as in ControlRoom)',
+      "A take's timecode, “10:00:00:24”, does not fit 24 frames a second, so the take has none, as in ControlRoom.",
+      "The project's frame rate, “48”, is not one Hekate knows, so it changed nothing, as in ControlRoom.",
     ]);
     expect(parseTimecode("01:02:03;04", "29.97DF")).toEqual({
       hours: 1,
@@ -732,8 +736,8 @@ describe("planning the import", () => {
       ["update_stage_plan paper", 1],
     ]);
     expect(shown.problems).toEqual([
-      "upsert_stage_element: names a stage plan that is not in the project, so it changes nothing (as in ControlRoom)",
-      'Punch-in marks name no take, so they are sticky notes saying "Punch-in"',
+      "A change to an element of a stage plan names a stage plan that is not in the project, so it changed nothing, as in ControlRoom.",
+      "Punch-in marks name no take, so they are sticky notes saying “Punch-in”",
     ]);
     expect(plan.conflicts).toEqual([]);
   });
@@ -761,7 +765,7 @@ describe("planning the import", () => {
       2,
     ]);
     expect(merged.report.problems).toContain(
-      'Take 1 of "Maple Leaf Rag" is there already, so the file\'s was left out',
+      "Take 1 of “Maple Leaf Rag” is already in this project, so the file's own take 1 was not imported",
     );
     expect(merged.plan.stageBoxes[0]?.inputs.map((i) => i.channel)).toEqual([2]);
     // The microphone still finds the channel the box already had.
@@ -819,7 +823,7 @@ describe("planning the import", () => {
       ["p0", "p2:1", 1],
     ]);
     expect(report.report().problems).toContain(
-      "Marks lie on pages of a score that no movement covers, so they are on the nearest movement",
+      "Marks lie on pages of a score that no track covers, so they are on the nearest track",
     );
   });
 
@@ -857,8 +861,8 @@ describe("planning the import", () => {
     expect(report.report().problems).toEqual(
       expect.arrayContaining([
         "3 takes were recorded under no piece and no score, so they are on a track made for them, named after the session",
-        'The file has take 2 of "Endless Hall, day 1" more than once, so only the first was brought over',
-        'A take of "Maple Leaf Rag" has no number, so it was left out',
+        "The file has take 2 of “Endless Hall, day 1” more than once, so only the first was brought over",
+        "A take of “Maple Leaf Rag” has no number, so it was left out",
       ]),
     );
   });
@@ -928,7 +932,7 @@ describe("planning the import", () => {
     expect(long[0]?.points?.[1023]).toEqual([0.5 + 2999 / 10_000, 0.5]);
     expect(report.report().problems).toEqual(
       expect.arrayContaining([
-        'Take end marks name no take, so they are sticky notes saying "Take end"',
+        "Take end marks name no take, so they are sticky notes saying “Take end”",
         "A circled dynamic says no dynamic, so it is an issue",
         "A sticky note says nothing, so it was left out",
       ]),
@@ -1017,9 +1021,9 @@ describe("planning the import", () => {
     expect(plan.works.map((w) => w.title)).toEqual(["Work 1"]);
     expect(report.report().problems).toEqual(
       expect.arrayContaining([
-        '"Lost.pdf" has no bytes in the file, so it was left out',
+        "“Lost.pdf” has no bytes in the file, so it was left out",
         "A mark is on a score Hekate could not bring over, so it was left out",
-        'The venue "4": Name the venue, so it was left out',
+        "The venue “4”: Name the venue, so it was left out",
       ]),
     );
   });

@@ -32,6 +32,7 @@ import {
   instanceFlags,
   instanceSettingsInput,
   instanceWorkspacesQuery,
+  type LogKind,
   logExportQuery,
   logKindParam,
   logQuery,
@@ -70,6 +71,7 @@ import {
   desc,
   eq,
   gt,
+  gte,
   ilike,
   inArray,
   isNotNull,
@@ -135,7 +137,7 @@ import {
   bundleSettings,
   type SupportBundle,
 } from "../support-bundle.ts";
-import { lanesNow, type SystemHealthDeps, systemHealth } from "../system-health.ts";
+import { diskOf, lanesNow, type SystemHealthDeps, systemHealth } from "../system-health.ts";
 import { HEKATE_VERSION, systemInformation } from "../system-info.ts";
 import { factorStanding, type SecondFactorRule } from "../tenancy.ts";
 import { nearQuota, workspaceUsageOf } from "../usage.ts";
@@ -345,6 +347,15 @@ const reportRow = {
   knownAt: schema.errorReports.knownAt,
 };
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Each log by name, as its export is recorded. */
+const logNames: Record<LogKind, string> = {
+  audit: "The audit log",
+  auth: "The authentication log",
+  api: "The API log",
+  mail: "The mail log",
+  webhooks: "The webhook log",
+  gateway: "The gateway log",
+};
 /** Enough for a bad day; the lookup reaches any reference still kept. */
 const ERRORS_LISTED = 200;
 
@@ -1650,6 +1661,9 @@ export function instanceRoutes(options: InstanceOptions) {
           recent,
           unkeyed,
           crowded,
+          [suspended],
+          errors,
+          disk,
         ] = await Promise.all([
           db.select({ n: count() }).from(schema.organisations),
           // People: not the accounts service tokens act through (#198).
@@ -1687,13 +1701,31 @@ export function instanceRoutes(options: InstanceOptions) {
             .limit(8),
           // Operators without a single hardware key: one lost phone from being locked out.
           db
-            .select({ name: schema.users.name })
+            .select({ id: schema.users.id, name: schema.users.name })
             .from(schema.instanceOperators)
             .innerJoin(schema.users, eq(schema.users.id, schema.instanceOperators.userId))
             .where(
               sql`not exists (select 1 from ${schema.passkeys} where ${schema.passkeys.userId} = ${schema.instanceOperators.userId})`,
             ),
           nearQuota(db),
+          db
+            .select({ n: count() })
+            .from(schema.organisations)
+            .where(isNotNull(schema.organisations.suspendedAt)),
+          // Error references since midnight (#599), as Debug tools lists them.
+          db
+            .select({
+              source: schema.errorReports.source,
+              n: count(),
+              unknown: sql<number>`count(*) filter (where ${schema.errorReports.knownAt} is null)::int`,
+            })
+            .from(schema.errorReports)
+            .where(gte(schema.errorReports.occurredAt, startOfToday()))
+            .groupBy(schema.errorReports.source),
+          // The disk only where objects are kept on it; S3's room is not this machine's.
+          options.health.described.some((d) => d.driver === "local")
+            ? diskOf(options.health.diskPath)
+            : null,
         ]);
         const needs: InstanceOverview["needs"] = [];
         if (!queue)
@@ -1720,31 +1752,63 @@ export function instanceRoutes(options: InstanceOptions) {
           needs.push({
             kind: "quota_near",
             title: `${w.name} is at ${Math.floor((w.used / w.quota) * 100)}% of its storage quota`,
-            detail: `${formatBytes(w.used)} of ${formatBytes(w.quota)}. Uploads are refused at the quota; its Storage tab can raise it.`,
+            detail: `${formatBytes(w.used)} of ${formatBytes(w.quota)}. Uploads are refused at the quota.`,
+            workspaceId: w.id,
           });
-        for (const o of unkeyed)
+        // An operator without a key (#599): what stops them acting where the rule is on, and
+        // advice where it is off. The one reading it is told so, and can add one at once.
+        for (const o of unkeyed) {
+          const self = o.id === c.var.userId;
+          const advice = !options.operatorSecurityKey;
           needs.push({
             kind: "key_missing",
-            title: `${o.name} has no passkey or security key`,
-            detail: "Operators sign in with one; until they add one they cannot act here.",
+            title: self ? "You have no passkey" : `${o.name} has no passkey`,
+            detail: advice
+              ? `A passkey or security key keeps a stolen password from reaching every workspace.${self ? "" : " They add one from their account."}`
+              : self
+                ? "Operators act only from a session signed in with a passkey or security key. Add one, then sign in with it."
+                : "Operators act only from a session signed in with a passkey or security key; until they add one they cannot act here.",
+            self,
+            advice,
+          });
+        }
+        // Mail only written to the log (#599): nobody is told of an invitation or a review.
+        if (options.environment.mail === "log")
+          needs.push({
+            kind: "mail_logged",
+            title: "Mail is written to the log; nobody receives email",
+            detail:
+              "Invitations, password resets and review requests reach no one until the server is given a mail server.",
           });
         // A newer release on the operator's channel (#158), when the check is on.
+        let newest: string | null = null;
         if (options.system.checkOn) {
           const { channel } = (await options.settings.get()).updates;
           const [checked] = await db.select().from(schema.releaseChecks);
-          const [newest] = newerReleases(HEKATE_VERSION, checked?.releases ?? [], channel);
-          if (newest)
+          const [release] = newerReleases(HEKATE_VERSION, checked?.releases ?? [], channel);
+          if (release) {
+            newest = release.version;
             needs.push({
               kind: "release_available",
-              title: `Release ${newest.version} is out`,
-              detail: `This instance runs ${HEKATE_VERSION}. System information has its notes and how to upgrade.`,
+              title: `Release ${release.version} is out`,
+              detail: `This instance runs ${HEKATE_VERSION}. Pull the new image and restart; nothing is patched in place.`,
             });
+          }
         }
+        const errorsOf = (source: string) => errors.find((e) => e.source === source)?.n ?? 0;
         const overview: InstanceOverview = {
           workspaces: workspaces?.n ?? 0,
+          suspended: suspended?.n ?? 0,
           people: people?.n ?? 0,
           storageBytes: Number(storage?.n ?? 0),
+          disk,
           queue,
+          errorsToday: {
+            api: errorsOf("api"),
+            worker: errorsOf("worker"),
+            unknown: errors.reduce((n, e) => n + Number(e.unknown), 0),
+          },
+          release: { running: HEKATE_VERSION, newest, checking: options.system.checkOn },
           needs,
           recent: recent.map((r) => ({
             at: r.at.toISOString(),
@@ -2256,12 +2320,7 @@ export function instanceRoutes(options: InstanceOptions) {
           await recordInstanceEvent(db, {
             actorId: c.var.userId,
             action: "logs.export",
-            target:
-              kind === "audit"
-                ? "The audit log"
-                : kind === "auth"
-                  ? "The authentication log"
-                  : "The mail log",
+            target: logNames[kind],
             details: { kind, filters },
             ipAddress: requestInfo(c, options.trustProxy).ipAddress ?? null,
           });

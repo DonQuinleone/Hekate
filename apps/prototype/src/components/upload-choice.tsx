@@ -13,7 +13,8 @@ import { type ChosenFile, UploadDialog } from "./ui/upload-dialog";
  */
 
 type UploadChoice = "track" | "version" | "file";
-type Grouping = "each" | "one";
+/** A track each, a track for each name the files give (their versions in order), or one track. */
+type Grouping = "each" | "name" | "one";
 
 /** The files the zone picks here, with what each becomes under each choice. */
 const sample: (ChosenFile & { track: string; variant: string })[] = [
@@ -71,7 +72,8 @@ export function UploadFilesDialog({
   const [choice, setChoice] = useState<UploadChoice>(() =>
     onto ? "version" : remembered(projectId),
   );
-  const [grouping, setGrouping] = useState<Grouping>("each");
+  // Two versions of one piece are proposed as one track, named without their version marks.
+  const [grouping, setGrouping] = useState<Grouping>("name");
   const [trackId, setTrackId] = useState(onto?.id ?? tracks[0]?.id ?? "");
   const [primary, setPrimary] = useState("a");
   const target = tracks.find((t) => t.id === trackId) ?? tracks[0];
@@ -88,6 +90,16 @@ export function UploadFilesDialog({
     }
   };
   const one = choice === "track" && grouping === "one" && n > 1;
+  const byName = choice === "track" && grouping === "name" && n > 1;
+  const names = [
+    ...new Set(chosen.map((c) => sample.find((f) => f.key === c.key)?.track ?? c.name)),
+  ];
+  /** Which of its track's files this one is, by the version its name gives. */
+  const versionIn = (c: ChosenFile) => {
+    const track = sample.find((f) => f.key === c.key)?.track;
+    const same = chosen.filter((f) => sample.find((x) => x.key === f.key)?.track === track);
+    return { track, at: same.findIndex((f) => f.key === c.key) + 1, of: same.length };
+  };
   const ordered = [...chosen].sort((a, b) => a.name.localeCompare(b.name));
 
   const what =
@@ -100,10 +112,12 @@ export function UploadFilesDialog({
           ? `The file becomes version ${next} of ${target?.name}.`
           : `${n} files become the variants of version ${next} of ${target?.name}.`
         : one
-          ? `${n} files become versions 1 to ${n} of one track ${into}, in name order.`
-          : n === 1
-            ? `The file becomes version 1 of a new track ${into}.`
-            : `${n} files become ${n} tracks ${into}, each at version 1.`;
+          ? `${n} files become versions 1 to ${n} of one track ${into}, in order.`
+          : byName
+            ? `${n} files become ${names.length} tracks ${into}, the files that name the same track its versions.`
+            : n === 1
+              ? `The file becomes version 1 of a new track ${into}.`
+              : `${n} files become ${n} tracks ${into}, each at version 1.`;
   const action =
     choice === "file"
       ? `Upload ${n} ${n === 1 ? "file" : "files"}`
@@ -111,9 +125,11 @@ export function UploadFilesDialog({
         ? `Upload version ${next}`
         : one
           ? "Make the track"
-          : n === 1
-            ? "Make a track"
-            : `Make ${n} tracks`;
+          : byName
+            ? `Make ${names.length} tracks`
+            : n === 1
+              ? "Make a track"
+              : `Make ${n} tracks`;
 
   const radio = (name: string, checked: boolean, onChange: () => void, label: string) => (
     <label className="flex cursor-pointer items-center gap-2 text-[14px] text-ink">
@@ -167,6 +183,14 @@ export function UploadFilesDialog({
                 () => setGrouping("each"),
                 "A track each",
               )}
+              {names.length > 1 &&
+                names.length < n &&
+                radio(
+                  "upload-grouping",
+                  grouping === "name",
+                  () => setGrouping("name"),
+                  `A track for each name, ${names.length} tracks`,
+                )}
               {radio(
                 "upload-grouping",
                 grouping === "one",
@@ -177,7 +201,7 @@ export function UploadFilesDialog({
           )}
           {one && (
             <label className="flex flex-col gap-1.5 pl-6 text-[13px] text-ink-2 @3xl/app:w-96">
-              Track name
+              Track
               <Input defaultValue="Pine Apple Rag" />
             </label>
           )}
@@ -204,13 +228,28 @@ export function UploadFilesDialog({
               </label>
             </div>
           );
+        if (byName) {
+          const { track, at, of } = versionIn(c);
+          return at === 1 ? (
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <label className="flex items-center gap-2 text-[12px] text-ink-3">
+                Track
+                <Input defaultValue={track ?? ""} className="h-7 w-72 max-w-full text-[13px]" />
+              </label>
+              {of > 1 && <span className="text-[12px] text-ink-3">Version 1</span>}
+            </span>
+          ) : (
+            <span className="text-[12px] text-ink-3">
+              Version {at} of {track}
+            </span>
+          );
+        }
         if (choice === "track" && !one)
           return (
-            <Input
-              defaultValue={s?.track ?? ""}
-              aria-label={`Track name for ${c.name}`}
-              className="h-7 w-72 max-w-full text-[13px]"
-            />
+            <label className="flex items-center gap-2 text-[12px] text-ink-3">
+              Track
+              <Input defaultValue={s?.track ?? ""} className="h-7 w-72 max-w-full text-[13px]" />
+            </label>
           );
         if (one)
           return (

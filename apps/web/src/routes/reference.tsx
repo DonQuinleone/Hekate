@@ -5,10 +5,16 @@ import { Lockup, Mark, Wordmark } from "~/components/brand";
 import { DrawingMarks, DrawToolbar } from "~/components/drawings";
 import { Empty } from "~/components/empty";
 import { LinkedFiles } from "~/components/file-picker";
+import { FormFooter } from "~/components/form-footer";
 import { Icon, type IconName, iconNames } from "~/components/icons";
 import { Kbd } from "~/components/kbd";
+import { NeedsYou, NeedsYouDot } from "~/components/needs-you";
+import { NewPassword } from "~/components/new-password";
+import { OpenRow } from "~/components/open-row";
 import { Card, Page, SectionHead } from "~/components/page";
 import { PageHeader } from "~/components/page-header";
+import { CommentMarkers } from "~/components/player";
+import { QaStats } from "~/components/qa";
 import { Crop, Gauge, Verdict } from "~/components/qa-report";
 import { FoldingSection, Row, Section, SwitchRow } from "~/components/settings";
 import { StatusChipView } from "~/components/status-chip";
@@ -43,6 +49,7 @@ import {
 } from "~/components/ui/upload-dialog";
 import { FrameGuides, GoToTimecode } from "~/components/video-frame";
 import { GroupLegend, KindLegend } from "~/components/workflow-kinds";
+import { WorkflowState } from "~/components/workflow-state";
 import { cn } from "~/lib/cn";
 import { categoryTones } from "~/lib/comments";
 import { ApiError } from "~/lib/queries";
@@ -109,7 +116,7 @@ const type: { name: string; className: string; use: string; sample: string }[] =
     name: "Eyebrow",
     className: "eyebrow",
     use: "A quiet heading over a group",
-    sample: "Waiting on you",
+    sample: "Needs you",
   },
   {
     name: "Tabular",
@@ -353,6 +360,7 @@ function Components() {
   const [uploading, setUploading] = useState(false);
   const [chips, setChips] = useState({ loops: true, score: false });
   const [confirming, setConfirming] = useState(false);
+  const [password, setPassword] = useState("a few words to keep");
   const [day, setDay] = useState("2026-10-12");
   const [time, setTime] = useState("13:05");
   const [moment, setMoment] = useState("2026-10-31T23:59");
@@ -528,6 +536,14 @@ function Components() {
             <Input defaultValue="mira@" aria-invalid="true" />
           </Field>
         </Spec>
+        <Spec
+          name="New password"
+          rule="The one way to set a password: its strength as wide as the field, the rule under it, then the confirmation. Reset, sign-up, an invitation and the installer alike."
+        >
+          <div className="flex w-72 flex-col gap-4">
+            <NewPassword value={password} onChange={setPassword} />
+          </div>
+        </Spec>
         <Spec name="Small" rule="28 px, for dense toolbars such as the player's settings.">
           <Input size="sm" defaultValue="-90" className="tabular w-20" aria-label="Floor" />
           <Select size="sm" defaultValue="mel" className="w-auto" aria-label="Scale">
@@ -669,6 +685,16 @@ function Components() {
             onChange={setView}
           />
           <Segmented
+            label="Show"
+            labelled
+            value={view}
+            options={[
+              { value: "list", label: "Board", icon: <Icon name="board" size={14} /> },
+              { value: "grid", label: "Calendar", icon: <Icon name="calendar" size={14} /> },
+            ]}
+            onChange={setView}
+          />
+          <Segmented
             label="Preview as"
             value={mode}
             options={[
@@ -677,6 +703,16 @@ function Components() {
               { value: "text", label: "Plain text" },
             ]}
             onChange={setMode}
+          />
+          <Segmented
+            label="Which takes, disabled"
+            value="all"
+            disabled
+            options={[
+              { value: "all", label: "All" },
+              { value: "best", label: "Best" },
+            ]}
+            onChange={() => undefined}
           />
         </Spec>
         <Spec
@@ -761,6 +797,49 @@ function Components() {
               <Input defaultValue="Joplin Rags" className="w-40" aria-label="Project name" />
             </Row>
             <SwitchRow name="Carried comments shown" checked={on} onChange={setOn} />
+          </Card>
+        </Spec>
+        <Spec
+          name="Row that opens"
+          rule="A list of things to open opens each on a click, with a chevron at its end; its other actions go in its menu, never a text link repeated on every row. Elsewhere, an arrow out."
+        >
+          <Card className="w-full max-w-[460px] divide-y divide-line">
+            <OpenRow
+              name="Canned replies"
+              hint="Quota raised · Fixed in the next patch"
+              onOpen={() => {}}
+            />
+            <OpenRow
+              name="Retry a failed job"
+              hint="media-align · failed 2 minutes ago"
+              onOpen={() => {}}
+              menu={
+                <ActionMenu label="The job" actions={[{ label: "Retry", onSelect: () => {} }]} />
+              }
+            />
+            <OpenRow
+              name="Restore"
+              hint="From a backup and the master key."
+              href="https://example.com/"
+            />
+          </Card>
+        </Spec>
+        <Spec
+          name="Form footer"
+          rule="Once at the foot of a settings form: what saving does at the left, Test and Save at the right."
+        >
+          <Card className="w-full max-w-[460px] divide-y divide-line">
+            <Row name="Server" hint="ldaps:// with its port.">
+              <Input
+                defaultValue="ldaps://directory.example:636"
+                className="w-48"
+                aria-label="Server"
+              />
+            </Row>
+            <FormFooter note="Test connects with the saved settings.">
+              <Button variant="ghost">Test connection</Button>
+              <Button variant="secondary">Save</Button>
+            </FormFooter>
           </Card>
         </Spec>
         <Spec
@@ -939,6 +1018,18 @@ function Components() {
           </span>
         </Spec>
         <Spec
+          name="Needs you"
+          rule="One name and one mark for what waits on you: the signal dot with its halo, and the badge on a project's card or row."
+        >
+          <span className="flex flex-wrap items-center gap-3 text-[12px] text-ink-2">
+            <span className="flex items-center gap-1.5">
+              <NeedsYouDot />
+              Your turn
+            </span>
+            <NeedsYou count={2} />
+          </span>
+        </Spec>
+        <Spec
           name="Comment category"
           rule="A 3 px bar at the thread's left edge, by the category's place in the project's list; six tones, then round again. Its name is in the thread's menu and on hover, never a pill."
         >
@@ -980,6 +1071,49 @@ function Components() {
           ))}
         </Spec>
         <Spec
+          name="Comment markers"
+          rule="A thread's number over the waveform or filmstrip: quiet when open, the signal for work to do, dashed when deferred, filled when its thread is open; a bar for a passage."
+        >
+          <div className="relative h-12 w-full max-w-md rounded-control bg-raised/40">
+            <CommentMarkers
+              duration={40}
+              active="c"
+              onPick={() => {}}
+              markers={[
+                {
+                  id: "a",
+                  number: 1,
+                  at: 6.2,
+                  state: "open",
+                  preview: "Mira Solberg: Pedal noise",
+                },
+                {
+                  id: "b",
+                  number: 2,
+                  at: 14.2,
+                  end: 20,
+                  state: "todo",
+                  preview: "Ines Arlow: Rushes",
+                },
+                { id: "c", number: 3, at: 26, state: "open", preview: "Tomas Varga: Lift" },
+                { id: "d", number: 4, at: 34, state: "deferred", preview: "Alex Rivera: Later" },
+              ]}
+            />
+          </div>
+        </Spec>
+        <Spec
+          name="QA figures"
+          rule="The figures that matter first, in one hairline row, for a recording and a video alike."
+        >
+          <QaStats
+            stats={[
+              { label: "Loudness", value: "−16.0 LUFS", hint: "Target −14.0 ± 1" },
+              { label: "True peak", value: "0.9 dBTP", hint: "Ceiling −1.0" },
+              { label: "Length", value: "0:40.000" },
+            ]}
+          />
+        </Spec>
+        <Spec
           name="Status chip"
           rule="A track's status in the player's header; with moves, a menu that confirms each."
         >
@@ -995,13 +1129,7 @@ function Components() {
                 step: "Engineer edits",
                 outcome: "done",
                 label: "Done",
-              },
-              {
-                runId: "run",
-                nodeId: "edit",
-                step: "Engineer edits",
-                outcome: "overdue",
-                label: "Due date passed",
+                leadsTo: "Mastering",
               },
             ]}
             onMove={() => {}}
@@ -1072,7 +1200,7 @@ function Components() {
         </Spec>
         <Spec name="Eyebrow" rule="Heads a group; a count follows in small tabular figures.">
           <span className="flex items-center gap-2">
-            <span className="eyebrow">Waiting on you</span>
+            <span className="eyebrow">Needs you</span>
             <span className="tabular text-[12px] text-ink-3">2</span>
           </span>
         </Spec>
@@ -1090,6 +1218,15 @@ function Components() {
         <div className="px-4 py-4">
           <KindLegend />
         </div>
+        <Spec
+          name="A workflow's state"
+          rule="The status dot's shapes, never green: an ink dot while it runs, a ring while it is a draft (decision 363)."
+        >
+          <span className="flex items-center gap-4">
+            <WorkflowState active />
+            <WorkflowState active={false} />
+          </span>
+        </Spec>
       </Section>
       <Section
         title="Video frame"

@@ -86,8 +86,8 @@ describe("deferChoices", () => {
       },
       { label: "Mastering", stages: [{ name: "Mastering", current: false, note: null }] },
       {
-        label: "Named by a category",
-        stages: [{ name: "Noise reduction", current: false, note: "Noise category" }],
+        label: "Where Noise comments go",
+        stages: [{ name: "Noise reduction", current: false, note: null }],
       },
     ]);
   });
@@ -101,11 +101,12 @@ describe("deferChoices", () => {
     ]);
     expect(deferChoices(undefined, categories, "noise reduction")).toEqual([
       {
-        label: "Named by a category",
-        stages: [
-          { name: "Noise reduction", current: false, note: "Noise category" },
-          { name: "Mastering", current: false, note: "Print category" },
-        ],
+        label: "Where Noise comments go",
+        stages: [{ name: "Noise reduction", current: false, note: null }],
+      },
+      {
+        label: "Where Print comments go",
+        stages: [{ name: "Mastering", current: false, note: null }],
       },
     ]);
   });

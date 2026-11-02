@@ -33,7 +33,8 @@ function rowsOf(values: unknown[] | undefined, ctx: ReplayContext): CrPatchRow[]
       if (v === undefined) return "";
       if (typeof v === "string") return v;
       ctx.report.problem(
-        `${ctx.type}: a patch row holds a cell that is not text, so it was left out`,
+        "A row of the patch list holds a cell Hekate cannot read, so the cell was left out.",
+        `${ctx.type}: a patch row holds a cell that is not text`,
       );
       return "";
     };
@@ -46,7 +47,11 @@ function elementOf(f: Fields, ctx: ReplayContext): CrElement {
   for (const p of f.list("pts") ?? [])
     if (Array.isArray(p) && p.length >= 2 && typeof p[0] === "number" && typeof p[1] === "number")
       points.push([p[0], p[1]]);
-    else ctx.report.problem(`${ctx.type}: a cable or wall holds a corner that is not two numbers`);
+    else
+      ctx.report.problem(
+        "A cable or wall on a stage plan holds a corner Hekate cannot read, so the corner was left out.",
+        `${ctx.type}: a cable or wall holds a corner that is not two numbers`,
+      );
   return {
     id: f.id("id") ?? "0",
     kind: f.str("k"),

@@ -285,7 +285,89 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
           {failure.message}
         </p>
       )}
-      <Card className="overflow-hidden">
+      {/* On a phone, six weeks of bars cannot be read: a list of what runs when instead. */}
+      <ol className="m-0 flex list-none flex-col p-0 @3xl/app:hidden">
+        {data.cards.map((card) => {
+          const bar = timelineBar(
+            {
+              version: card.version && {
+                ...card.version,
+                createdAt: dayHere(card.version.createdAt),
+              },
+              dueAt: card.dueAt && dayHere(card.dueAt),
+              due: card.due ? dayHere(card.due) : null,
+            },
+            start,
+            DAYS,
+          );
+          const finished = card.status !== null && done.has(card.status);
+          const deadline = trackDeadline(card);
+          const late = !finished && deadline !== null && new Date(deadline).getTime() < Date.now();
+          const state = card.version
+            ? (card.stage ?? card.status ?? `${capital(words.version)} ${card.version.number}`)
+            : `No ${words.version} yet`;
+          return (
+            <li key={card.id} className="border-b border-line last:border-b-0">
+              <Link
+                {...(card.version?.fileId
+                  ? { to: "/files/$fileId", params: { fileId: card.version.fileId } }
+                  : { to: "/tracks/$trackId", params: { trackId: card.id } })}
+                className="flex min-h-12 items-center gap-3 py-2"
+              >
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-[14px] text-ink">{card.name}</span>
+                  <span className={cn("truncate text-[12px]", late ? "text-signal" : "text-ink-3")}>
+                    {state}
+                    {late ? ", late" : ""}
+                  </span>
+                </span>
+                <span className="tabular shrink-0 text-right text-[13px] text-ink-3">
+                  {bar
+                    ? dayFormat.formatRange(noon(bar.from), noon(bar.to))
+                    : card.version
+                      ? "Not in these weeks"
+                      : ""}
+                  {card.due && <Icon name="flag" size={11} className="ml-1 inline-block" />}
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+        {entries.map((entry) => {
+          const inner = (
+            <>
+              <Icon name={entryIcon[entry.kind]} size={14} className="shrink-0 text-ink-3" />
+              <span className="min-w-0 flex-1 truncate text-[14px] text-ink">{entry.title}</span>
+              <span className="tabular shrink-0 text-[13px] text-ink-3">
+                {entry.endsOn
+                  ? dayFormat.formatRange(noon(entry.startsOn), noon(entry.endsOn))
+                  : dayFormat.format(noon(entry.startsOn))}
+              </span>
+            </>
+          );
+          const row = "flex min-h-12 w-full items-center gap-3 py-2 text-left";
+          return (
+            <li key={entry.id} className="border-b border-line last:border-b-0">
+              {canEntries ? (
+                <button type="button" onClick={() => setOpening(entry)} className={row}>
+                  {inner}
+                </button>
+              ) : entry.sessionId ? (
+                <Link
+                  to="/sessions/$sessionId"
+                  params={{ sessionId: entry.sessionId }}
+                  className={row}
+                >
+                  {inner}
+                </Link>
+              ) : (
+                <span className={row}>{inner}</span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      <Card className="hidden overflow-hidden @3xl/app:block">
         <div ref={scroller} className="scroll-quiet overflow-x-auto">
           <div
             className={cn(
@@ -583,12 +665,18 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
           </div>
         </div>
       </Card>
-      <p className="m-0 text-[12px] text-ink-3">
-        From each {words.track}'s latest {words.version} to its deadline, or to when its review is
-        due, or a week on where neither is set
-        {canDeadline ? "; drag a bar's end to set the deadline" : ""}
-        {canEntries ? "; drag an entry to move it, or its end to change its length" : ""}.
-      </p>
+      <div className="flex flex-col gap-0.5 text-[12px] text-ink-3">
+        <p className="m-0">
+          Each {words.track} runs from its latest {words.version} to its deadline, or to when its
+          review is due. Where neither is set, it runs a week.
+        </p>
+        {(canDeadline || canEntries) && (
+          <p className="m-0 hidden @3xl/app:block">
+            {canDeadline && "Drag a bar's end to set its deadline. "}
+            {canEntries && "Drag an entry to move it, or its end to change its length."}
+          </p>
+        )}
+      </div>
       {opening && (
         <EntryDialog projectId={projectId} entry={opening} onClose={() => setOpening(null)} />
       )}

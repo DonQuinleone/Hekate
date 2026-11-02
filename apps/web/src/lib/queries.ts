@@ -529,6 +529,8 @@ export interface ProjectFigures {
 
 export interface ProjectWithFigures extends Project {
   mine: boolean;
+  /** Whether they are one of its owners. */
+  owned: boolean;
   mayArchive: boolean;
   figures: ProjectFigures & { lastActiveAt: string };
 }
@@ -847,9 +849,15 @@ export function useProjectDeletion(projectId: string) {
         ok(await api.projects[":id"].deletion.$delete({ param: { id: projectId } })),
       onSuccess: refresh,
     }),
+    // The project's name and the person's password, as moving it asks (#676).
     confirm: useMutation({
-      mutationFn: async () =>
-        ok(await api.projects[":id"].deletion.confirm.$post({ param: { id: projectId } })),
+      mutationFn: async (proof: { name: string; password?: string }) =>
+        ok(
+          await api.projects[":id"].deletion.confirm.$post({
+            param: { id: projectId },
+            json: proof,
+          }),
+        ),
       // Archived now: lists, the sidebar, the home page and every review list change.
       onSuccess: () => void client.invalidateQueries(),
     }),
@@ -1573,21 +1581,42 @@ export interface AccessEvent {
   ipAddress: string | null;
   userAgent: string | null;
   details: Record<string, unknown> | null;
+  /** A playback's segments, read behind it, when the log was asked to group them (#684). */
+  segments?: number;
 }
 
-/** The access log, newest first, a page at a time, narrowed as the filters say (decision 263). */
-export const accessLogQuery = (filters: LogFilters) =>
+/**
+ * The access log, newest first, a page at a time, narrowed as the filters say (decision 263).
+ * `grouped`, a playback's segments are read behind its entry and counted on it (#684).
+ */
+export const accessLogQuery = (filters: LogFilters, segments?: "grouped" | "every") =>
   infiniteQueryOptions({
-    queryKey: ["organisation", "audit", filters],
+    queryKey: ["organisation", "audit", filters, segments ?? null],
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
-      const query: Record<string, string> = { limit: "50", ...logQuery(filters) };
+      const query: Record<string, string> = {
+        limit: "50",
+        ...logQuery(filters),
+        ...(segments ? { segments } : {}),
+      };
       if (pageParam) query.before = pageParam;
       return json<{ events: AccessEvent[]; nextBefore: string | null }>(
         await api.organisation.audit.$get({ query }),
       );
     },
     getNextPageParam: (page) => page.nextBefore ?? undefined,
+  });
+
+/** A playback's segments, in the order they were served, for its expanded entry (#684). */
+export const playbackSegmentsQuery = (sessionId: string) =>
+  queryOptions({
+    queryKey: ["organisation", "audit", "segments", sessionId],
+    queryFn: async () =>
+      (
+        await json<{ events: AccessEvent[] }>(
+          await api.organisation.audit.sessions[":id"].segments.$get({ param: { id: sessionId } }),
+        )
+      ).events,
   });
 
 export function useSwitchOrganisation() {
@@ -4055,6 +4084,31 @@ export interface GuestCodeSent {
 }
 
 /**
+ * What a guest's link opens, read without spending it (#573): the arrival page greets its
+ * person with this and exchanges the link only when they press Continue. Where a code is
+ * asked for, it names no one.
+ */
+export interface GuestArrival {
+  verify: "link" | "code";
+  organisation: string | null;
+  branding: PublicBranding | null;
+  guest: { name: string } | null;
+  reviews: { id: string; title: string; kind: ReviewSummary["kind"] }[];
+  expiresAt: string;
+}
+
+export const guestArrivalQuery = (token: string) =>
+  queryOptions({
+    queryKey: ["guest-link", token],
+    queryFn: async () =>
+      json<GuestArrival>(await api.guest.sessions.lookup.$post({ json: { token } })),
+    // Read once: a link is greeted, not polled, and a refusal stands.
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+
+/**
  * Exchange a magic link for a guest session in this browser, or, where the workspace asks
  * for one, have a code sent first.
  */
@@ -5237,18 +5291,24 @@ export const instanceSystemQuery = queryOptions({
 });
 
 /** The instance's filters for a log (#157), as the query string has them. */
-export function logQueryString(filters: { q?: string; range: LogRange; workspace?: string }) {
+/** A log's filters; `now` is the viewer's clock, which the range counts back from (#598). */
+export interface InstanceLogFilters {
+  q?: string;
+  range: LogRange;
+  workspace?: string;
+  now?: string;
+}
+
+export function logQueryString(filters: InstanceLogFilters) {
   const query: Record<string, string> = { range: filters.range };
   if (filters.q) query.q = filters.q;
   if (filters.workspace) query.workspace = filters.workspace;
+  if (filters.now) query.now = filters.now;
   return query;
 }
 
 /** One of the instance's logs (#157), newest first, a page at a time. */
-export const instanceLogQuery = <K extends LogKind>(
-  kind: K,
-  filters: { q?: string; range: LogRange; workspace?: string },
-) =>
+export const instanceLogQuery = <K extends LogKind>(kind: K, filters: InstanceLogFilters) =>
   infiniteQueryOptions({
     queryKey: ["instance", "logs", kind, filters],
     initialPageParam: undefined as string | undefined,

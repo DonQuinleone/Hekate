@@ -3,16 +3,21 @@ import {
   confirmableAt,
   DELETION_GRACE_MS,
   deletionProblem,
+  nameMatches,
   type ProjectDeletion,
+  transferConfirmation,
 } from "@hekate/shared";
 import { and, eq, gt, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { actorOf, projectAccess } from "../access.ts";
+import { confirmIdentity } from "../account-deletion.ts";
 import { type Audit, requestInfo } from "../audit.ts";
-import { NotFound } from "../errors.ts";
+import type { Auth } from "../auth.ts";
+import { CodedException, NotFound } from "../errors.ts";
 import type { Subdomains } from "../hosts.ts";
+import type { Keyring } from "../keyring.ts";
 import type { Mailer } from "../mail.ts";
 import { notifyNow } from "../notifications.ts";
 import { zValidator } from "../openapi/validator.ts";
@@ -80,6 +85,9 @@ export async function deletionView(
  */
 export const projectDeletionRoutes = (deps: {
   db: Database;
+  /** To confirm it is the owner at the keyboard (#676), as moving a project does. */
+  auth: Auth;
+  keyring?: Keyring;
   audit: Audit;
   trustProxy: boolean;
   mailer: Mailer;
@@ -203,71 +211,99 @@ export const projectDeletionRoutes = (deps: {
         return c.body(null, 204);
       })
       // A workspace owner other than the one who asked confirms: the project is archived at
-      // once, its open reviews closing, and goes for good seven days later.
-      .post("/:id/deletion/confirm", idParam, async (c) => {
-        const { organisationId, userId, organisationRole } = c.var;
-        const access = await reach(c.var, c.req.valid("param").id);
-        const owners = await ownersOf(db, organisationId);
-        const who = await audit.member(userId);
-        const deleteAfter = await db.transaction(async (tx) => {
-          // Taken for update, as archiving does, so a review requested meanwhile is closed too.
-          const [project] = await tx
-            .select({
-              requestedBy: projects.deletionRequestedBy,
-              requestedAt: projects.deletionRequestedAt,
-              deleteAfter: projects.deleteAfter,
-              archivedAt: projects.archivedAt,
-            })
+      // once, its open reviews closing, and goes for good seven days later. They type its name
+      // and their password, the same proof as moving it (#676).
+      .post(
+        "/:id/deletion/confirm",
+        idParam,
+        zValidator("json", transferConfirmation),
+        async (c) => {
+          const { organisationId, userId, organisationRole } = c.var;
+          const access = await reach(c.var, c.req.valid("param").id);
+          const typed = c.req.valid("json");
+          const [named] = await db
+            .select({ name: projects.name })
             .from(projects)
-            .where(inOrg(projects, organisationId, eq(projects.id, access.projectId)))
-            .for("update");
-          if (!project) throw new NotFound("Project");
-          if (!project.requestedAt) {
-            throw new HTTPException(409, { message: "No one has asked to delete this project" });
-          }
-          if (project.deleteAfter) {
-            throw new HTTPException(409, {
-              message: "This project's deletion is already confirmed",
-            });
-          }
-          const problem = deletionProblem(
-            project,
-            { userId, role: organisationRole },
-            owners.length,
-            new Date(),
-          );
-          if (problem) throw new HTTPException(403, { message: problem });
-          const now = new Date();
-          const after = new Date(now.getTime() + DELETION_GRACE_MS);
-          await tx
-            .update(projects)
-            .set({ deleteAfter: after, archivedAt: project.archivedAt ?? now, updatedAt: now })
             .where(inOrg(projects, organisationId, eq(projects.id, access.projectId)));
-          await tx
-            .update(reviews)
-            .set({ status: "cancelled", completedAt: now, updatedAt: now })
-            .where(
-              inOrg(
-                reviews,
-                organisationId,
-                eq(reviews.projectId, access.projectId),
-                eq(reviews.status, "open"),
-              ),
-            );
-          await audit.record(
-            organisationId,
-            who,
-            {
-              action: "project.deletion_confirm",
-              projectId: access.projectId,
-              details: { deleteAfter: after.toISOString() },
-            },
-            requestInfo(c, deps.trustProxy),
-            tx,
+          if (!nameMatches(typed.name, named?.name ?? ""))
+            throw new CodedException(422, "name_mismatch", "Type the project's name to confirm");
+          const confirmed = await confirmIdentity(
+            db,
+            deps.auth,
+            deps.keyring,
+            { userId, sessionId: c.var.sessionId },
+            typed.password,
           );
-          return after;
-        });
-        return c.json({ deleteAfter: deleteAfter.toISOString() });
-      })
+          if (confirmed === "sign_in_again")
+            throw new CodedException(
+              403,
+              "sign_in_again",
+              "Sign in again, then confirm within ten minutes",
+            );
+          if (confirmed === "refused")
+            throw new CodedException(403, "password_refused", "That password is not right");
+          const owners = await ownersOf(db, organisationId);
+          const who = await audit.member(userId);
+          const deleteAfter = await db.transaction(async (tx) => {
+            // Taken for update, as archiving does, so a review requested meanwhile is closed too.
+            const [project] = await tx
+              .select({
+                requestedBy: projects.deletionRequestedBy,
+                requestedAt: projects.deletionRequestedAt,
+                deleteAfter: projects.deleteAfter,
+                archivedAt: projects.archivedAt,
+              })
+              .from(projects)
+              .where(inOrg(projects, organisationId, eq(projects.id, access.projectId)))
+              .for("update");
+            if (!project) throw new NotFound("Project");
+            if (!project.requestedAt) {
+              throw new HTTPException(409, { message: "No one has asked to delete this project" });
+            }
+            if (project.deleteAfter) {
+              throw new HTTPException(409, {
+                message: "This project's deletion is already confirmed",
+              });
+            }
+            const problem = deletionProblem(
+              project,
+              { userId, role: organisationRole },
+              owners.length,
+              new Date(),
+            );
+            if (problem) throw new HTTPException(403, { message: problem });
+            const now = new Date();
+            const after = new Date(now.getTime() + DELETION_GRACE_MS);
+            await tx
+              .update(projects)
+              .set({ deleteAfter: after, archivedAt: project.archivedAt ?? now, updatedAt: now })
+              .where(inOrg(projects, organisationId, eq(projects.id, access.projectId)));
+            await tx
+              .update(reviews)
+              .set({ status: "cancelled", completedAt: now, updatedAt: now })
+              .where(
+                inOrg(
+                  reviews,
+                  organisationId,
+                  eq(reviews.projectId, access.projectId),
+                  eq(reviews.status, "open"),
+                ),
+              );
+            await audit.record(
+              organisationId,
+              who,
+              {
+                action: "project.deletion_confirm",
+                projectId: access.projectId,
+                details: { deleteAfter: after.toISOString() },
+              },
+              requestInfo(c, deps.trustProxy),
+              tx,
+            );
+            return after;
+          });
+          return c.json({ deleteAfter: deleteAfter.toISOString() });
+        },
+      )
   );
 };

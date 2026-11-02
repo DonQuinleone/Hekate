@@ -92,7 +92,7 @@ function TakeRow({
 /**
  * "Any other options for bar 72?" Every take covering the bar, rated and annotated, with
  * the one the version uses, each auditioned at the bar, looped and level-matched; and
- * the choice of which to share with the thread.
+ * the choice of which to attach to the thread.
  */
 export function OtherTakes({
   trackId,
@@ -111,7 +111,6 @@ export function OtherTakes({
     (a, b) => b.rating - a.rating || a.number - b.number,
   );
   const [auditioning, setAuditioning] = useState<string | null>(null);
-  const [mode, setMode] = useState<"specific" | "all" | "except">("specific");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const toggle = (id: string) => {
     const next = new Set(selected);
@@ -151,7 +150,7 @@ export function OtherTakes({
               )}
               onAudition={() => setAuditioning(auditioning === t.id ? null : t.id)}
               auditioning={auditioning === t.id}
-              selectable={canShare && mode !== "all"}
+              selectable={canShare}
               selected={selected.has(t.id)}
               onSelect={() => toggle(t.id)}
             />
@@ -164,30 +163,24 @@ export function OtherTakes({
           flip between them.
         </p>
       )}
+      {/* The ticks are the choice (#647): Select all, and Attach with the count ticked. */}
       {canShare && list.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-t border-line px-3 py-2">
-          <select
-            value={mode}
-            onChange={(e) => setMode(e.target.value as typeof mode)}
-            aria-label="Which takes to share with this thread"
-            className="h-7 min-w-0 flex-1 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
-          >
-            <option value="specific">The ticked takes</option>
-            <option value="all">Every take covering the bar</option>
-            <option value="except">All but the ticked</option>
-          </select>
-          <Button
-            variant="primary"
-            size="sm"
-            className="ml-auto"
-            disabled={mode !== "all" && selected.size === 0}
-          >
-            Share{" "}
-            {mode === "all"
-              ? list.length
-              : mode === "except"
-                ? list.length - selected.size
-                : selected.size}
+          <label className="flex min-w-0 flex-1 items-center gap-2 text-[13px] text-ink-2">
+            <input
+              type="checkbox"
+              checked={selected.size === list.length}
+              onChange={() =>
+                setSelected(
+                  selected.size === list.length ? new Set() : new Set(list.map((t) => t.id)),
+                )
+              }
+              className="size-4 accent-[var(--hk-ink)]"
+            />
+            Select all
+          </label>
+          <Button variant="primary" size="sm" className="ml-auto" disabled={selected.size === 0}>
+            {selected.size > 0 ? `Attach ${selected.size}` : "Attach"}
           </Button>
         </div>
       )}
@@ -350,7 +343,7 @@ export function TakePickerDialog({
   return (
     <Dialog
       title="Takes from this track"
-      description="They go on the comment for whoever reads it to hear, at its bar where it has one."
+      description="Attached takes play at the comment's bar."
       onClose={onClose}
       width="md"
       footer={

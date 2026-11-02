@@ -15,6 +15,8 @@ const moment = formatDates({
   minute: "2-digit",
 });
 const at = (iso: string) => moment.format(new Date(iso));
+const dayOf = formatDates({ day: "numeric", month: "short", year: "numeric" });
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const toolNames: Record<ReviewerTool, string> = {
   spectrogram: "spectrogram",
@@ -62,7 +64,60 @@ export function accessNote(
   if (review.accessOpen) return review.closesAt ? `open until ${at(review.closesAt)}` : null;
   if (review.opensAt && Date.parse(review.opensAt) > now.getTime())
     return `opens ${at(review.opensAt)}`;
-  return review.closesAt ? `closed ${at(review.closesAt)}` : "closed";
+  return review.closesAt ? `closed on ${dayOf.format(new Date(review.closesAt))}` : "closed";
+}
+
+/** A review in a guest's list, as their home reads it (#667). */
+export interface GuestListed {
+  kind: "approval" | "feedback" | "share";
+  status: "open" | "completed" | "cancelled";
+  dueAt: string | null;
+  submittedAt: string | null;
+  opensAt: string | null;
+  closesAt: string | null;
+  accessOpen: boolean;
+}
+
+/**
+ * What one row of a guest's home says (#667): whether it waits on them (the signal dot), and
+ * the line under its title: what it asks, when it is due, whether they have answered, and
+ * when it opens or closes to them. A share asks nothing, so it never waits on them; closed,
+ * its badge says when, in place of the access note.
+ */
+export function guestRow(review: GuestListed, now = new Date()) {
+  const share = review.kind === "share";
+  const waits =
+    !share && review.status === "open" && review.accessOpen && review.submittedAt === null;
+  const closedShare = share && (review.status !== "open" || !review.accessOpen);
+  const line: string[] = [
+    share ? "Shared with you" : review.kind === "approval" ? "Approval" : "Feedback",
+  ];
+  if (review.dueAt && review.status === "open" && !review.submittedAt) {
+    const days = Math.ceil((Date.parse(review.dueAt) - now.getTime()) / DAY_MS);
+    line.push(
+      days < 0
+        ? `${-days} ${days === -1 ? "day" : "days"} overdue`
+        : days === 0
+          ? "due today"
+          : `due in ${days} ${days === 1 ? "day" : "days"}`,
+    );
+  }
+  if (review.submittedAt) line.push("you have responded");
+  const note = accessNote(review, now);
+  if (note && !closedShare) line.push(note);
+  const ended = review.closesAt ?? null;
+  return {
+    waits,
+    line: line.join(" · "),
+    /** For a share, what its badge says; a review's badge is its status. */
+    shareBadge: share
+      ? closedShare
+        ? ended && review.status === "open"
+          ? `Closed on ${dayOf.format(new Date(ended))}`
+          : "No longer shared"
+        : "Shared"
+      : null,
+  };
 }
 
 /** A moment as a `datetime-local` field shows it, in this browser's time zone. */

@@ -6,7 +6,9 @@ import { type UploadedFile, uploadFile } from "~/lib/upload";
 import {
   actionFor,
   byName,
+  byTrackName,
   defaultChoice,
+  defaultGrouping,
   describePlan,
   isAudio,
   planUpload,
@@ -61,7 +63,8 @@ export function AudioUploadDialog({
   const [choice, setChoice] = useState<UploadChoice>(() =>
     defaultChoice({ projectId, droppedOnTrack: Boolean(onto), mayMakeTracks, hasTracks }),
   );
-  const [grouping, setGrouping] = useState<TrackGrouping>("each");
+  // Until someone chooses, files that name the same track are proposed as one (#631).
+  const [chosenGrouping, setGrouping] = useState<TrackGrouping | null>(null);
   const [trackId, setTrackId] = useState(onto?.id ?? ordered[0]?.id ?? "");
   const [names, setNames] = useState<Record<string, string>>({});
   const [primary, setPrimary] = useState<string | null>(null);
@@ -77,6 +80,7 @@ export function AudioUploadDialog({
   const audible = (c: ChosenFile<UploadedFile>) => isAudio(c.file ?? { name: c.name });
   const audio = chosen.filter(audible);
   const others = chosen.length - audio.length;
+  const grouping = chosenGrouping ?? defaultGrouping(audio.map((c) => c.name));
   const folder = folderName ?? null;
   const plan = planUpload(audio, choice, {
     grouping,
@@ -115,6 +119,18 @@ export function AudioUploadDialog({
         if (!fileId || landed.current.has(t.key)) continue;
         await version(await trackFor(t.key, t.name), main(fileId));
         landed.current.add(t.key);
+      }
+    } else if (plan.kind === "by-name") {
+      for (const t of plan.tracks) {
+        const versions = t.versions.filter((v) => fileOf.has(v.key));
+        if (versions.length === 0) continue;
+        const id = await trackFor(t.key, t.name);
+        for (const v of versions) {
+          const fileId = fileOf.get(v.key);
+          if (!fileId || landed.current.has(v.key)) continue;
+          await version(id, main(fileId));
+          landed.current.add(v.key);
+        }
       }
     } else if (plan.kind === "one-track") {
       const id = await trackFor("track", plan.name);
@@ -204,6 +220,17 @@ export function AudioUploadDialog({
           >
             A track each
           </Choice>
+          {byTrackName(audio).length > 1 && byTrackName(audio).length < audio.length && (
+            <Choice
+              type="radio"
+              name="upload-grouping"
+              checked={grouping === "name"}
+              disabled={frozen}
+              onChange={() => setGrouping("name")}
+            >
+              A track for each name, {byTrackName(audio).length} tracks
+            </Choice>
+          )}
           <Choice
             type="radio"
             name="upload-grouping"
@@ -216,7 +243,7 @@ export function AudioUploadDialog({
         </div>
       )}
       {plan.kind === "one-track" && (
-        <Field label="Track name" className="pl-6 @3xl/app:w-96">
+        <Field label="Track" className="pl-6 @3xl/app:w-96">
           <Input
             value={names.track ?? plan.name}
             onChange={(e) => setNames((n) => ({ ...n, track: e.target.value }))}
@@ -272,15 +299,42 @@ export function AudioUploadDialog({
             </div>
           );
         }
+        if (plan.kind === "by-name") {
+          const track = plan.tracks.find((t) => t.versions.some((v) => v.key === c.key));
+          const at = track?.versions.find((v) => v.key === c.key)?.number;
+          if (!track || at === undefined) return null;
+          const many = track.versions.length > 1;
+          // The first of a track's files names it; the others say which version they are.
+          return at === 1 ? (
+            <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <label className="flex min-w-0 items-center gap-2 text-[12px] text-ink-3">
+                Track
+                <Input
+                  size="sm"
+                  value={names[track.key] ?? track.name}
+                  onChange={(e) => setNames((n) => ({ ...n, [track.key]: e.target.value }))}
+                  className="w-72 min-w-0 max-w-full"
+                />
+              </label>
+              {many && <span className="text-[12px] text-ink-3">Version 1</span>}
+            </span>
+          ) : (
+            <span className="text-[12px] text-ink-3">
+              Version {at} of {track.name}
+            </span>
+          );
+        }
         if (plan.kind === "tracks")
           return (
-            <Input
-              size="sm"
-              value={names[c.key] ?? trackNameFrom(c.name)}
-              onChange={(e) => setNames((n) => ({ ...n, [c.key]: e.target.value }))}
-              aria-label={`Track name for ${c.name}`}
-              className="w-72 max-w-full"
-            />
+            <label className="flex min-w-0 items-center gap-2 text-[12px] text-ink-3">
+              Track
+              <Input
+                size="sm"
+                value={names[c.key] ?? trackNameFrom(c.name)}
+                onChange={(e) => setNames((n) => ({ ...n, [c.key]: e.target.value }))}
+                className="w-72 min-w-0 max-w-full"
+              />
+            </label>
           );
         const number = versionOf(c.key);
         return number === undefined ? null : (

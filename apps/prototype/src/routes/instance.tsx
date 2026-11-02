@@ -3,6 +3,7 @@ import { Gauge, Spark } from "~/components/charts";
 import type { IconName } from "~/components/icons";
 import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
+import { OpenRow } from "~/components/open-row";
 import { Page } from "~/components/page";
 import { usePageHeader } from "~/components/page-header";
 import { Danger, Row, Section, SwitchRow } from "~/components/settings";
@@ -30,7 +31,7 @@ export const instanceSections: { id: string; label: string; icon: IconName; hint
     id: "workspaces",
     label: "Workspaces",
     icon: "building",
-    hint: "Every tenant, with its people, projects, storage, settings and keys",
+    hint: "Every workspace, with its people, projects, storage, settings and keys",
   },
   {
     id: "operators",
@@ -371,7 +372,7 @@ const logRows: Record<LogKind, string[][]> = {
       "Changed a role",
       "Tomas Varga → Engineer",
     ],
-    ["19:58:30", "Operator: Alex Rivera", "Instance", "Suspended a workspace", "Lantern Pictures"],
+    ["19:58:30", "Alex Rivera · operator", "Instance", "Suspended a workspace", "Lantern Pictures"],
     [
       "19:40:11",
       "Alex Rivera",
@@ -664,7 +665,7 @@ function NewOrganisation({ onClose }: { onClose: () => void }) {
   return (
     <Dialog
       title="New workspace"
-      description="A tenant of its own: subdomain, members, projects, settings and keys."
+      description="A workspace of its own: members, projects, settings and keys. Its first owner is invited by email."
       onClose={onClose}
       footer={
         <>
@@ -680,18 +681,18 @@ function NewOrganisation({ onClose }: { onClose: () => void }) {
       <div className="flex flex-col gap-4">
         <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
           Name
-          <Input placeholder="Lantern Pictures" autoFocus />
+          <Input autoFocus />
         </label>
         <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
           Subdomain
           <span className="flex items-center gap-2">
-            <Input placeholder="lantern" className="w-40" />
+            <Input className="w-40" />
             <span className="text-[13px] text-ink-3">.review.endlesshall.example</span>
           </span>
         </label>
         <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
           First owner's email
-          <Input placeholder="owner@lantern.example" />
+          <Input type="email" />
         </label>
       </div>
     </Dialog>
@@ -747,6 +748,8 @@ export function InstancePage({ section }: { section: string }) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("");
   const [orgId, setOrgId] = useState("t-1");
+  // On a phone, the list or one workspace: opened from the list, left by its crumb.
+  const [opened, setOpened] = useState(false);
   const [orgTab, setOrgTab] = useState<OrgTab>("overview");
   const [logKind, setLogKind] = useState<LogKind>("audit");
   const [logQ, setLogQ] = useState("");
@@ -815,7 +818,12 @@ export function InstancePage({ section }: { section: string }) {
       <div className="flex h-full min-h-0 flex-col @3xl/app:flex-row">
         {creating && <NewOrganisation onClose={() => setCreating(false)} />}
         {deleting && <DeleteOrganisation name={org.name} onClose={() => setDeleting(false)} />}
-        <div className="flex w-full shrink-0 flex-col border-b border-line @3xl/app:w-[300px] @3xl/app:border-r @3xl/app:border-b-0">
+        <div
+          className={cn(
+            "min-h-0 w-full flex-1 flex-col @3xl/app:flex @3xl/app:w-[300px] @3xl/app:flex-none @3xl/app:shrink-0 @3xl/app:border-r @3xl/app:border-line",
+            opened ? "hidden" : "flex",
+          )}
+        >
           <div className="flex flex-col gap-2 p-3">
             <Input
               value={q}
@@ -848,28 +856,36 @@ export function InstancePage({ section }: { section: string }) {
               <button
                 key={o.id}
                 type="button"
-                onClick={() => setOrgId(o.id)}
+                onClick={() => {
+                  setOrgId(o.id);
+                  setOpened(true);
+                }}
                 aria-current={o.id === org.id ? "true" : undefined}
                 className={cn(
                   "flex shrink-0 items-center gap-2.5 rounded-control px-2.5 py-2 text-left transition-colors hover:bg-raised/60",
                   o.id === org.id && "bg-raised shadow-1",
                 )}
               >
-                <Dot
-                  state={
-                    o.state === "active"
-                      ? "approved"
-                      : o.state === "trial"
-                        ? "working"
-                        : "cancelled"
-                  }
-                />
+                {/* Only the exception is marked: a signal ring, and the word. */}
+                {o.state === "suspended" && (
+                  <span
+                    aria-hidden="true"
+                    className="size-[7px] shrink-0 rounded-full border-[1.5px] border-signal"
+                  />
+                )}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[13px] text-ink">{o.name}</span>
                   <span className="block truncate text-[12px] text-ink-3">
+                    {o.state === "suspended" && <span className="text-signal">Suspended · </span>}
+                    {o.state === "trial" && "On trial · "}
                     {o.members} people · {gb(o.used)} of {gb(o.quota)}
                   </span>
                 </span>
+                <Icon
+                  name="chevronRight"
+                  size={14}
+                  className="shrink-0 text-ink-3 @3xl/app:hidden"
+                />
               </button>
             ))}
             {visibleOrgs.length === 0 && (
@@ -881,7 +897,20 @@ export function InstancePage({ section }: { section: string }) {
             </p>
           </div>
         </div>
-        <div className="scroll-quiet min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div
+          className={cn(
+            "scroll-quiet min-h-0 min-w-0 flex-1 overflow-y-auto @3xl/app:block",
+            opened ? "block" : "hidden",
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => setOpened(false)}
+            className="flex items-center gap-1 px-5 pt-4 text-[13px] text-ink-3 transition-colors hover:text-ink @3xl/app:hidden"
+          >
+            <Icon name="chevronLeft" size={14} />
+            Workspaces
+          </button>
           <div className="fade-in flex flex-col gap-6 px-5 py-6 @3xl/app:px-10 @3xl/app:py-8">
             <div className="flex items-end gap-3">
               <div className="min-w-0 flex-1">
@@ -893,30 +922,13 @@ export function InstancePage({ section }: { section: string }) {
                   {org.state !== "active" && <span className="text-signal"> · {org.state}</span>}
                 </p>
               </div>
-              <ActionMenu
-                always
-                label={org.name}
-                actions={[
-                  { label: "Export everything", onSelect: () => {} },
-                  ...(operator
-                    ? [
-                        "divider" as const,
-                        {
-                          label: org.state === "suspended" ? "Reinstate" : "Suspend",
-                          danger: org.state !== "suspended",
-                          onSelect: () => {},
-                        },
-                      ]
-                    : []),
-                ]}
-              />
             </div>
             <Tabs
               tabs={[
                 { id: "overview", label: "Overview" },
                 { id: "members", label: `Members · ${org.members}` },
                 { id: "projects", label: `Projects · ${org.projects}` },
-                { id: "storage", label: "Storage and quota" },
+                { id: "storage", label: "Storage" },
                 { id: "billing", label: "Billing" },
                 { id: "settings", label: "Settings" },
                 { id: "keys", label: "Keys" },
@@ -964,7 +976,7 @@ export function InstancePage({ section }: { section: string }) {
             )}
             {orgTab === "members" && (
               <Section
-                title="People"
+                title="Members"
                 intro="Members of this workspace. Operators never sign in as anyone; what you do here is logged against your name."
               >
                 {members.map((m) => (
@@ -1018,28 +1030,26 @@ export function InstancePage({ section }: { section: string }) {
             {orgTab === "storage" && (
               <>
                 <Section
-                  title="Quota"
+                  title="Limits"
                   intro="Uploads are refused at the storage quota and invitations at the member limit; the workspace is warned from 90%. Lowering one removes nothing."
                 >
                   <Row
-                    name="Used"
-                    hint={`${gb(org.used)} of ${gb(org.quota)} · originals 71%, renditions 24%, pages 5%`}
-                  >
-                    <span className="flex w-56 flex-col gap-1">
-                      <span className="h-1.5 overflow-hidden rounded-full bg-raised">
-                        <span
-                          className={cn(
-                            "block h-full rounded-full",
-                            org.used / org.quota > 0.9 ? "bg-signal" : "bg-ink-2",
-                          )}
-                          style={{ width: `${Math.min(100, (org.used / org.quota) * 100)}%` }}
-                        />
+                    name="Storage"
+                    hint={
+                      <span className="flex flex-col gap-2">
+                        <span>{`${gb(org.used)} of ${gb(org.quota)}`}</span>
+                        <span className="h-1.5 w-56 max-w-full overflow-hidden rounded-full bg-raised">
+                          <span
+                            className={cn(
+                              "block h-full rounded-full",
+                              org.used / org.quota > 0.9 ? "bg-signal" : "bg-ink-2",
+                            )}
+                            style={{ width: `${Math.min(100, (org.used / org.quota) * 100)}%` }}
+                          />
+                        </span>
                       </span>
-                    </span>
-                  </Row>
-                  <Row name="Members" hint={`${org.members} of 25`} />
-                  <Row name="This month" hint="184 plays · 12 downloads" />
-                  <Row name="Storage quota">
+                    }
+                  >
                     <Select defaultValue={String(org.quota)} className="w-36">
                       <option value="250">250 GB</option>
                       <option value="1000">1 TB</option>
@@ -1048,7 +1058,7 @@ export function InstancePage({ section }: { section: string }) {
                       <option value="0">No quota</option>
                     </Select>
                   </Row>
-                  <Row name="Member limit">
+                  <Row name="Members" hint={`${org.members} of 25`}>
                     <Select defaultValue="25" className="w-36">
                       <option value="5">5</option>
                       <option value="10">10</option>
@@ -1057,6 +1067,12 @@ export function InstancePage({ section }: { section: string }) {
                       <option value="100">100</option>
                       <option value="none">No limit</option>
                     </Select>
+                  </Row>
+                  <Row name="This month" hint="184 plays · 12 downloads" />
+                </Section>
+                <Section title="Stored" intro="Sizes before encryption.">
+                  <Row name="In all" hint="Originals 71%, renditions 24%, pages 5%">
+                    <span className="tabular text-[13px] text-ink-2">{gb(org.used)}</span>
                   </Row>
                   <Row name="Backends" hint="Where this workspace's objects go.">
                     <span className="text-[13px] text-ink-2">
@@ -1193,6 +1209,16 @@ export function InstancePage({ section }: { section: string }) {
                     hint="The instance can require it for everyone instead, in Settings."
                     checked={org.factor}
                   />
+                </Section>
+                <Section title="Export">
+                  <Row
+                    name="Export everything"
+                    hint="Every record as JSON and every file as it was uploaded, in one archive encrypted with age (the file encryption tool). Kept 7 days for its download."
+                  >
+                    <Button variant="secondary" size="md">
+                      Start an export…
+                    </Button>
+                  </Row>
                 </Section>
                 <Danger>
                   <Row
@@ -1533,10 +1559,6 @@ export function InstancePage({ section }: { section: string }) {
                   </span>
                 </Row>
                 <Row
-                  name="Paddle"
-                  hint="Not connected. A merchant of record, collecting VAT in every country: it follows with the hosted offering."
-                />
-                <Row
                   name={
                     <span className="flex items-center gap-2">
                       <Dot state="approved" />
@@ -1576,7 +1598,7 @@ export function InstancePage({ section }: { section: string }) {
           {billingTab === "reports" && (
             <>
               <div className="grid grid-cols-2 gap-px overflow-hidden rounded-panel-lg border border-line bg-line @3xl/app:grid-cols-4">
-                <Tile label="MRR" value="£1,236" hint="+£98 this month" />
+                <Tile label="Monthly revenue" value="£1,236" hint="+£98 this month" />
                 <Tile label="ARR" value="£14.8k" hint="annualised" />
                 <Tile label="Churn" value="0.8%" hint="last 90 days" />
                 <Tile label="Average per workspace" value="£154" hint="paying workspaces" />
@@ -1665,24 +1687,24 @@ export function InstancePage({ section }: { section: string }) {
               value={ticketQ}
               onChange={(e) => setTicketQ(e.target.value)}
               placeholder="Search tickets"
-              className="w-64"
+              className="w-full @3xl/app:w-64"
             />
             <Select
               value={ticketState}
               onChange={(e) => setTicketState(e.target.value)}
-              className="w-44"
+              className="min-w-40 flex-1 @3xl/app:w-44 @3xl/app:flex-none"
             >
               <option value="open">Open</option>
               <option value="waiting">Waiting on you</option>
               <option value="all">All</option>
             </Select>
-            <Select defaultValue="" className="w-48">
+            <Select defaultValue="" className="min-w-40 flex-1 @3xl/app:w-48 @3xl/app:flex-none">
               <option value="">Any workspace</option>
               {orgs.map((o) => (
                 <option key={o.id}>{o.name}</option>
               ))}
             </Select>
-            <Select defaultValue="" className="w-36">
+            <Select defaultValue="" className="min-w-40 flex-1 @3xl/app:w-44 @3xl/app:flex-none">
               <option value="">Any severity</option>
               {severities.map((sv) => (
                 <option key={sv.id}>{sv.label}</option>
@@ -1714,14 +1736,11 @@ export function InstancePage({ section }: { section: string }) {
             title="Desk"
             intro="Support is a module: on because the instance runs with HEKATE_SUPPORT=app. Set it to link or mail to answer elsewhere, or off."
           >
-            <Row
+            <OpenRow
               name="Severities by plan"
               hint="Low and Normal on every plan; High from Studio; Urgent and Emergency on Label. Emergency pages the operator on call."
-            >
-              <Button variant="ghost" size="md">
-                Edit
-              </Button>
-            </Row>
+              onOpen={() => {}}
+            />
             <Row
               name="On call"
               hint="Hears of each new ticket first, and is told at once of an Emergency."
@@ -1733,21 +1752,18 @@ export function InstancePage({ section }: { section: string }) {
                 ))}
               </Select>
             </Row>
-            <Row
+            <OpenRow
               name="Canned replies"
               hint="Rate-limited channel · Quota raised · Fixed in the next patch"
-            >
-              <Button variant="ghost" size="md">
-                Manage
-              </Button>
-            </Row>
+              onOpen={() => {}}
+            />
           </Section>
         </>
       )}
       {sec === "operators" && (
         <>
           <Section
-            intro="A hardware security key is required; everything they do is in the audit log under their name."
+            intro="They act from a session signed in with a passkey or security key; everything they do is in the audit log under their name."
             action={
               <Button variant="secondary" size="md">
                 <Icon name="plus" size={14} />
@@ -1779,18 +1795,13 @@ export function InstancePage({ section }: { section: string }) {
             ))}
           </Section>
           <Section title="Rules">
-            <SwitchRow name="Hardware security key required for operators" checked />
-            <SwitchRow
-              name="Sign in as a member leaves a banner and an audit entry"
-              hint="Cannot be turned off."
-              checked
-            />
             <Row
-              name="Break glass"
-              hint="A one-time operator credential printed at install, for when every operator is locked out. Used: never."
+              name="Operators sign in with a passkey or security key"
+              hint="Set in the environment (OPERATOR_SECURITY_KEY). Operators never act as anyone else."
             >
+              <span className="text-[13px] text-ink-2">On</span>
               <Button variant="ghost" size="md">
-                Rotate
+                Settings
               </Button>
             </Row>
           </Section>
@@ -1928,39 +1939,18 @@ export function InstancePage({ section }: { section: string }) {
               </Button>
             </Row>
           </Section>
-          <Section
-            title="Metrics"
-            intro="Everything above, and more, is exported for Prometheus at /metrics, read with the bearer token in METRICS_TOKEN. Grafana dashboards ship in the repository."
-          >
-            {[
-              ["hekate_http_requests_total", "counter · route, method, status"],
-              ["hekate_http_request_duration_seconds", "histogram · route"],
-              ["hekate_http_errors_total", "counter · route, reference"],
-              [
-                "hekate_jobs_waiting · hekate_jobs_active · hekate_jobs_failed_total",
-                "gauge, gauge, counter · queue",
-              ],
-              ["hekate_job_duration_seconds", "histogram · queue"],
-              ["hekate_worker_lanes_busy", "gauge"],
-              [
-                "hekate_uploads_bytes_total · hekate_uploads_refused_total",
-                "counter · workspace, rule",
-              ],
-              ["hekate_storage_bytes", "gauge · backend, workspace"],
-              [
-                "hekate_media_keys_issued_total · hekate_page_renders_total · hekate_downloads_total",
-                "counter · workspace",
-              ],
-              ["hekate_database_up", "gauge"],
-              ["hekate_mail_sent_total · hekate_mail_failed_total", "counter"],
-              ["hekate_webhook_deliveries_total", "counter · channel, status"],
-              ["hekate_signins_total · hekate_signins_refused_total", "counter · method"],
-              ["hekate_billing_events_total", "counter · gateway, event"],
-              ["hekate_build_info", "gauge · version, build, channel"],
-            ].map(([m, k]) => (
-              <Row key={m} name={<span className="tabular text-[13px]">{m}</span>} hint={k} />
-            ))}
-          </Section>
+          {/* The metrics are a reference, not the machine's state: they live in the docs. */}
+          <p className="text-[13px] text-ink-3">
+            Everything above, and more, is exported for Prometheus at /metrics, read with the bearer
+            token in METRICS_TOKEN.{" "}
+            <a
+              href="#metrics"
+              className="text-ink-2 underline-offset-2 hover:text-ink hover:underline"
+            >
+              Every metric, in the docs
+            </a>
+            .
+          </p>
         </>
       )}
       {sec === "queues" && (
@@ -2020,7 +2010,8 @@ export function InstancePage({ section }: { section: string }) {
           </Section>
           <Section title="Recent jobs">
             {jobs.map((j) => (
-              <Row
+              <OpenRow
+                onOpen={() => {}}
                 key={j.id}
                 name={
                   <span className="flex items-center gap-2">
@@ -2038,16 +2029,12 @@ export function InstancePage({ section }: { section: string }) {
                   </span>
                 }
                 hint={`${j.org} · ${j.id} · ${j.when} ago${j.state === "failed" ? ` · ${errors.find((e) => e.job === j.id)?.ref ?? ""}` : ""}`}
-              >
-                {j.state === "failed" && (
-                  <Button variant="secondary" size="md">
-                    Retry
-                  </Button>
-                )}
-                <Button variant="ghost" size="md">
-                  Details
-                </Button>
-              </Row>
+                menu={
+                  j.state === "failed" && (
+                    <ActionMenu label={j.what} actions={[{ label: "Retry", onSelect: () => {} }]} />
+                  )
+                }
+              />
             ))}
           </Section>
         </>
@@ -2073,7 +2060,7 @@ export function InstancePage({ section }: { section: string }) {
               <option value="7d">Last 7 days</option>
               <option value="30d">Last 30 days</option>
             </Select>
-            <Select defaultValue="" className="w-48">
+            <Select defaultValue="" className="min-w-40 flex-1 @3xl/app:w-48 @3xl/app:flex-none">
               <option value="">Any workspace</option>
               {orgs.map((o) => (
                 <option key={o.id}>{o.name}</option>
@@ -2204,7 +2191,11 @@ export function InstancePage({ section }: { section: string }) {
             intro="Everything that failed in the last day, newest first."
           >
             {errors.map((e) => (
-              <Row
+              <OpenRow
+                onOpen={() => {
+                  setRef(e.ref);
+                  setFound(e);
+                }}
                 key={e.ref}
                 name={
                   <span className="flex items-center gap-2">
@@ -2214,18 +2205,7 @@ export function InstancePage({ section }: { section: string }) {
                   </span>
                 }
                 hint={`${e.when} · ${e.org} · ${e.where}`}
-              >
-                <Button
-                  variant="ghost"
-                  size="md"
-                  onClick={() => {
-                    setRef(e.ref);
-                    setFound(e);
-                  }}
-                >
-                  Open
-                </Button>
-              </Row>
+              />
             ))}
           </Section>
           <Section
@@ -2301,7 +2281,7 @@ export function InstancePage({ section }: { section: string }) {
               </Select>
             </Row>
             <Row
-              name="Last check"
+              name="Release checks"
               hint="Once a day, from the project's public releases, when HEKATE_UPDATE_CHECK is on. Nothing about the instance is sent."
             >
               <span className="text-[13px] text-ink-2">14 minutes ago</span>
@@ -2335,6 +2315,48 @@ export function InstancePage({ section }: { section: string }) {
               hint="Not on this channel yet: expected on Stable in November. Immersive review, score follow, the public API v1."
             >
               <span className="text-[13px] text-ink-3">Beta</span>
+            </Row>
+          </Section>
+          <Section title="Set at start" intro="In the environment; a change takes a restart.">
+            <Row
+              name="Billing"
+              hint="HEKATE_BILLING · off, stripe, paddle or manual · off by default"
+            >
+              <span className="tabular text-[13px] text-ink-2">{env.billing}</span>
+              <Dot state={env.billing === "off" ? "cancelled" : "approved"} />
+            </Row>
+            <Row
+              name="Support desk"
+              hint="HEKATE_SUPPORT · off, app, link or mail · off by default"
+            >
+              <span className="tabular text-[13px] text-ink-2">{env.support}</span>
+              <Dot state={env.support === "off" ? "cancelled" : "approved"} />
+            </Row>
+            <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
+              <span className="tabular text-[13px] text-ink-2">{env.docsUrl}</span>
+            </Row>
+            <Row
+              name="Status page"
+              hint="HEKATE_STATUS_URL · another page to link; unset, the instance’s own at /status"
+            >
+              <span className="tabular text-[13px] text-ink-2">None</span>
+            </Row>
+            <Row name="Address" hint="PUBLIC_URL">
+              <span className="tabular text-[13px] text-ink-2">
+                https://review.endlesshall.example
+              </span>
+            </Row>
+            <Row
+              name="Workspace subdomains"
+              hint="Each workspace answers at its own name under the address; single sign-on picks the workspace from it."
+            >
+              <span className="tabular text-[13px] text-ink-2">*.review.endlesshall.example</span>
+            </Row>
+            <Row
+              name="Telemetry"
+              hint="OTEL_EXPORTER_OTLP_ENDPOINT · names a collector of yours for traces and logs; nothing leaves otherwise."
+            >
+              <span className="text-[13px] text-ink-2">Off</span>
             </Row>
           </Section>
           <Section title="History" intro="Every release this instance has run.">
@@ -2378,32 +2400,21 @@ export function InstancePage({ section }: { section: string }) {
 
       {sec === "settings" && (
         <>
+          {/* Maintenance destroys nothing: its own section, first, apart from anything that does. */}
           <Section
-            title="Modules"
-            intro="Set in the environment at start; shown here so an operator can see what is on."
+            title="Maintenance"
+            intro="While it is on, everyone sees a notice, and uploads and jobs wait until it is over. Nothing is lost."
           >
-            <Row
-              name="Billing"
-              hint="HEKATE_BILLING · off, stripe, paddle or manual · off by default"
-            >
-              <span className="tabular text-[13px] text-ink-2">{env.billing}</span>
-              <Dot state={env.billing === "off" ? "cancelled" : "approved"} />
+            <Row name="Maintenance mode" hint="Off.">
+              <Button variant="secondary" size="md">
+                Turn on
+              </Button>
             </Row>
             <Row
-              name="Support desk"
-              hint="HEKATE_SUPPORT · off, app, link or mail · off by default"
+              name="Notice"
+              hint="Shown to everyone while maintenance mode is on, under the line saying that it is."
             >
-              <span className="tabular text-[13px] text-ink-2">{env.support}</span>
-              <Dot state={env.support === "off" ? "cancelled" : "approved"} />
-            </Row>
-            <Row name="Documentation" hint="HEKATE_DOCS_URL · where Help goes">
-              <span className="tabular text-[13px] text-ink-2">{env.docsUrl}</span>
-            </Row>
-            <Row
-              name="Status page"
-              hint="HEKATE_STATUS_URL · another page to link; unset, the instance’s own at /status"
-            >
-              <span className="tabular text-[13px] text-ink-2">None</span>
+              <Input placeholder="Back by 18:00" className="w-full @3xl/app:w-96" />
             </Row>
           </Section>
           {/* #184: one choice, not a choice and a switch that said the same thing twice. */}
@@ -2442,7 +2453,7 @@ export function InstancePage({ section }: { section: string }) {
           >
             <SwitchRow
               name="Require a second factor for every account"
-              hint="A passkey, a hardware security key or a code app. People without one are asked at their next sign-in."
+              hint="A passkey, a hardware security key or an authenticator app. People without one are asked at their next sign-in."
               checked={false}
             />
             <Row
@@ -2529,48 +2540,14 @@ export function InstancePage({ section }: { section: string }) {
               </Row>
             ))}
           </Section>
-          {/* #160: set in the environment at start, so shown read-only (decisions 178, 184). */}
-          <Section title="Address and mail" intro="Set in the environment at start.">
-            <Row name="Address" hint="PUBLIC_URL">
-              <span className="tabular text-[13px] text-ink-2">
-                https://review.endlesshall.example
-              </span>
-            </Row>
-            <Row
-              name="Workspace subdomains"
-              hint="Each workspace answers at its own name under the address; single sign-on picks the workspace from it."
-            >
-              <span className="tabular text-[13px] text-ink-2">*.review.endlesshall.example</span>
-            </Row>
+          <Section title="Mail" intro="Set in the environment at start.">
             <Row name="Instance mail" hint="Used when a workspace sets no channel of its own">
               <span className="text-[13px] text-ink-2">SMTP · mail.endlesshall.example</span>
               <Button variant="secondary" size="md">
                 Test
               </Button>
             </Row>
-            <Row
-              name="Telemetry"
-              hint="OTEL_EXPORTER_OTLP_ENDPOINT · names a collector of yours for traces and logs; nothing leaves otherwise."
-            >
-              <span className="text-[13px] text-ink-2">Off</span>
-            </Row>
           </Section>
-          <Danger>
-            <Row
-              name="Maintenance mode"
-              hint="Everyone sees a notice; uploads and jobs wait until it is over. Nothing is lost."
-            >
-              <Button variant="secondary" size="md">
-                Turn on
-              </Button>
-            </Row>
-            <Row
-              name="Notice"
-              hint="Shown to everyone while maintenance mode is on, under the line saying that it is."
-            >
-              <Input placeholder="Back by 18:00" className="w-full @3xl/app:w-96" />
-            </Row>
-          </Danger>
         </>
       )}
 
@@ -2581,19 +2558,16 @@ export function InstancePage({ section }: { section: string }) {
             title="Backups"
             intro="Taken outside Hekate, so it cannot say when the last one ran: the database, the storage and the master key, the first two as of the same moment."
           >
-            <Row
+            <OpenRow
               name="Backing up"
               hint="deploy/backup.sh copies the database and the storage; the master key is kept apart from both."
-            >
-              <Button variant="ghost" size="md">
-                How to
-              </Button>
-            </Row>
-            <Row name="Restore" hint="Into a fresh instance, from a backup and the master key.">
-              <Button variant="ghost" size="md">
-                How to
-              </Button>
-            </Row>
+              href="https://donquinleone.github.io/Hekate/operate/backup/"
+            />
+            <OpenRow
+              name="Restore"
+              hint="Into a fresh instance, from a backup and the master key."
+              href="https://donquinleone.github.io/Hekate/operate/recovery/"
+            />
             <Row
               name="Verify a restore"
               hint="Before anyone uses it: every workspace key opens, every file recorded is in storage, and a sample reads back and matches its checksum. It changes nothing."

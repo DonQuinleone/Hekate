@@ -8,14 +8,15 @@ export type ServiceState = "operational" | "degraded" | "partial" | "major";
 export type DayState = ServiceState | "none";
 export type IncidentState = "investigating" | "identified" | "monitoring" | "resolved";
 
+/** Each state's one name, the same in the help menu, on the status page and in its legend. */
 export const impactNames: Record<Exclude<ServiceState, "operational">, string> = {
-  degraded: "Degraded performance",
+  degraded: "Slow",
   partial: "Partial outage",
   major: "Major outage",
 };
 
 export const serviceStateNames: Record<ServiceState, string> = {
-  operational: "Operational",
+  operational: "Running",
   ...impactNames,
 };
 
@@ -29,8 +30,8 @@ export const incidentStateNames: Record<IncidentState, string> = {
 export const overallLine: Record<ServiceState, string> = {
   operational: "Every service is running",
   degraded: "Some services are slow",
-  partial: "Some services are failing",
-  major: "Services are down",
+  partial: "Some services have a partial outage",
+  major: "Some services have a major outage",
 };
 
 export interface IncidentUpdate {

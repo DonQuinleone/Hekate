@@ -140,8 +140,10 @@ export interface BoardColumn {
   category: ColumnCategory;
 }
 
-/** The column of tracks with no version yet, first in either grouping. */
+/** The column of tracks with no version yet, first in either grouping; its id, kept in hidden columns. */
 export const NO_VERSION = "No version";
+/** How that column is headed, in the one wording every page uses for a track with no version. */
+export const NO_VERSION_NAME = "No version yet";
 /** Versioned tracks no workflow has given a status, or at no stage now. */
 export const NO_STATUS = "No status";
 export const NOT_AT_A_STAGE = "Not at a stage";
@@ -164,7 +166,7 @@ export function boardColumns(
   // Tracks with a version but no status, or at no step, come next: not yet in the workflow.
   const rest = groupBy === "stage" ? NOT_AT_A_STAGE : NO_STATUS;
   const columns: BoardColumn[] = [
-    { id: NO_VERSION, name: NO_VERSION, category: "todo" },
+    { id: NO_VERSION, name: NO_VERSION_NAME, category: "todo" },
     { id: rest, name: rest, category: "todo" },
   ];
   const add = (name: string, category: ColumnCategory) => {

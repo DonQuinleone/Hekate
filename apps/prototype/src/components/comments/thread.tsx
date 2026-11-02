@@ -84,8 +84,15 @@ export function Thread({
   const carry = comment.carries?.find((c) => c.versionNumber === versionNumber);
   const carriedFrom = comment.carries?.[0]?.versionNumber;
   const reference = formatReference(comment.reference, project.references);
+  // A page is named once (#702): where the reference already gives it, the region adds nothing.
   const anchorText =
-    comment.anchor.kind === "whole" ? "" : formatAnchor(comment.anchor, { video, fps });
+    comment.anchor.kind === "whole" ||
+    (comment.anchor.kind === "region" &&
+      comment.anchor.at === undefined &&
+      comment.reference?.page !== undefined &&
+      project.references.page)
+      ? ""
+      : formatAnchor(comment.anchor, { video, fps });
   // Where it points, in one chip: the bar or page, then the moment it was heard at (#496),
   // then the channel it is about.
   const where = [reference, anchorText, comment.channel].filter(Boolean).join(" · ");
@@ -330,16 +337,18 @@ export function Thread({
             {personById(comment.assigneeId).name.split(" ")[0]}
           </span>
         )}
+        {/* A quiet chip whose words never change (#642): checked once it is done. */}
         {comment.todo && (
           <span
-            className={cn(
-              "rounded-chip px-1.5 text-[11px] leading-5",
-              comment.todo.done
-                ? "bg-raised text-ink-3 line-through"
-                : "border border-signal/50 text-signal",
-            )}
+            title={comment.todo.done ? "Task, done" : "Task, to do"}
+            className="flex h-6 items-center gap-1 rounded-chip border border-line px-1.5 text-[11px] text-ink-3"
           >
-            to do
+            <Icon
+              name="check"
+              size={11}
+              className={comment.todo.done ? "text-ink" : "opacity-40"}
+            />
+            Task
           </span>
         )}
         {actions.length > 0 && (

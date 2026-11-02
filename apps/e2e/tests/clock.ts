@@ -78,13 +78,27 @@ export async function onTheFixedClock(page: Page) {
 
   // The logs as they stood when the seed ended, which the fixed time stands for: what earlier
   // screens of this run did (a refused link, a file played) is later still. Their ids are
-  // UUIDv7, so the first page reads before the last id the seed's moment could have made.
-  await page.route(/\/api\/(organisation\/audit|instance\/logs\/[a-z]+)(\?.*)?$/, (route) => {
+  // UUIDv7, so the access log's first page reads before the last id the seed's moment could
+  // have made.
+  await page.route(/\/api\/organisation\/audit(\?.*)?$/, (route) => {
     const url = new URL(route.request().url());
     if (route.request().method() !== "GET" || url.searchParams.has("before"))
       return route.fallback();
     url.searchParams.set("before", lastIdAt(statSync(join(state, "seeded.json")).mtimeMs));
     return route.fallback({ url: url.toString() });
+  });
+  // The instance's logs page on from the row before by its time and id (#598), so the rows
+  // written since are left out of their answer instead.
+  await page.route(/\/api\/instance\/logs\/[a-z]+(\?.*)?$/, async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const response = await route.fetch();
+    if (!response.ok()) return route.fulfill({ response });
+    const body = (await response.json()) as { rows: { id: string }[] };
+    const last = lastIdAt(statSync(join(state, "seeded.json")).mtimeMs);
+    await route.fulfill({
+      response,
+      json: { ...body, rows: body.rows.filter((r) => r.id <= last) },
+    });
   });
 
   // The status page's days end on the fixed day, read by the server's own function.

@@ -2,11 +2,13 @@ import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { Icon } from "~/components/icons";
 import { IncidentUpdates, incidentLine, incidentSpan, StateDot } from "~/components/incidents";
+import { OpenRow } from "~/components/open-row";
 import { Row, Section } from "~/components/settings";
 import { Button } from "~/components/ui/button";
 import { DateTimeField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Input, Select, Textarea } from "~/components/ui/input";
+import { ActionMenu } from "~/components/ui/menu";
 import {
   impactNames,
   incidentStateNames,
@@ -99,17 +101,17 @@ export function StatusDesk({ incidentOpen }: { incidentOpen: boolean }) {
           <Icon name="chevronRight" size={14} className="text-ink-3" />
         </button>
       ))}
-      <Row
+      <OpenRow
         name="Address"
         hint="review.endlesshall.example/status · this instance’s own page, readable signed out"
-      >
-        <Button variant="ghost" size="md">
-          Open
-        </Button>
-        <Button variant="ghost" size="md" onClick={() => setEditing(true)}>
-          Edit
-        </Button>
-      </Row>
+        onOpen={() => setEditing(true)}
+        menu={
+          <ActionMenu
+            label="The status page"
+            actions={[{ label: "Open the status page", onSelect: () => {} }]}
+          />
+        }
+      />
       {posting && <PostIncidentDialog onClose={() => setPosting(false)} />}
       {shown && <IncidentDialog incident={shown} onClose={() => setShown(null)} />}
       {editing && <StatusAddressDialog onClose={() => setEditing(false)} />}
@@ -181,21 +183,21 @@ function PostIncidentDialog({ onClose }: { onClose: () => void }) {
           Title
           <Input placeholder="Uploads are failing" autoFocus />
         </label>
-        <ServicePicker chosen={[]} />
         <div className="grid gap-4 @md/app:grid-cols-2">
-          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-            How badly
-            <Select defaultValue="partial">
-              <ImpactOptions />
-            </Select>
-          </label>
           <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
             Where it stands
             <Select defaultValue="investigating">
               <StateOptions />
             </Select>
           </label>
+          <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+            How badly
+            <Select defaultValue="partial">
+              <ImpactOptions />
+            </Select>
+          </label>
         </div>
+        <ServicePicker chosen={[]} />
         <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
           What is happening
           <Textarea className="h-28" />
@@ -221,7 +223,6 @@ function IncidentDialog({ incident, onClose }: { incident: StatusIncident; onClo
   return (
     <Dialog
       title={incident.title}
-      description={`${incidentLine(incident)} · ${incidentSpan(incident)}`}
       onClose={onClose}
       width="lg"
       footer={

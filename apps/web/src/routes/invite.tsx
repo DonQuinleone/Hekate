@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
+import { NewPassword, PASSWORDS_DIFFER, passwordsAgree } from "~/components/new-password";
 import { Button } from "~/components/ui/button";
 import { api } from "~/lib/api";
 import { authClient } from "~/lib/auth";
@@ -24,6 +25,7 @@ export function InvitePage({ token }: { token: string }) {
   });
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [password, setPassword] = useState("");
 
   const accept = async (body: { name?: string; password?: string }) => {
     setPending(true);
@@ -45,9 +47,8 @@ export function InvitePage({ token }: { token: string }) {
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    if (form.get("password") !== form.get("confirm"))
-      return setError("The passwords do not match.");
-    void accept({ name: String(form.get("name")), password: String(form.get("password")) });
+    if (!passwordsAgree(form)) return setError(PASSWORDS_DIFFER);
+    void accept({ name: String(form.get("name")), password });
   };
 
   if (loadError) {
@@ -73,7 +74,8 @@ export function InvitePage({ token }: { token: string }) {
     );
   }
   const title = `Join ${invitation.organisation}`;
-  const intro = `You are invited as ${roleLabel[invitation.role]}, as ${invitation.email}.`;
+  // Who invited them, as the prototype says it (#688); the address it was sent to, once.
+  const intro = `${invitation.invitedBy ? `${invitation.invitedBy} invited you` : "You are invited"} to ${invitation.organisation} as ${roleLabel[invitation.role]}.`;
   const signedInAsInvitee = me?.user.email.toLowerCase() === invitation.email.toLowerCase();
   // Signed in, but as someone else: say who, and let them stay or sign out to accept.
   if (me && !signedInAsInvitee) {
@@ -92,23 +94,29 @@ export function InvitePage({ token }: { token: string }) {
         title="Signed in as someone else"
         intro={`This invitation is for ${invitation.email}, and you are signed in as ${me.user.name}.`}
       >
-        <Button variant="primary" size="lg" onClick={() => navigate({ to: "/" })}>
-          Stay as {me.user.name}
-        </Button>
-        <Button
-          variant="secondary"
-          size="lg"
-          disabled={pending}
-          onClick={() => void signOutAndAccept()}
-        >
-          Sign out and accept
-        </Button>
+        {/* They came to accept: that leads, the way back beside it, as one group (#688). */}
+        <div className="flex flex-col gap-2">
+          <Button
+            variant="primary"
+            size="lg"
+            disabled={pending}
+            onClick={() => void signOutAndAccept()}
+          >
+            Sign out and accept
+          </Button>
+          <Button variant="secondary" size="lg" onClick={() => navigate({ to: "/" })}>
+            Stay as {me.user.name}
+          </Button>
+        </div>
       </Frame>
     );
   }
   if (invitation.hasAccount) {
     return (
-      <Frame title={title} intro={intro}>
+      <Frame
+        title={title}
+        intro={signedInAsInvitee ? intro : `${intro} Sign in as ${invitation.email} to accept.`}
+      >
         {signedInAsInvitee ? (
           <Button variant="primary" size="lg" disabled={pending} onClick={() => accept({})}>
             Accept invitation
@@ -128,25 +136,28 @@ export function InvitePage({ token }: { token: string }) {
     <Frame title={title} intro={intro}>
       <form onSubmit={submit} className="flex flex-col gap-4">
         <Field id="name" label="Your name" autoComplete="name" autoFocus />
+        {/* The account is the address the invitation went to. */}
         <Field
-          id="password"
-          label="Password"
-          type="password"
-          autoComplete="new-password"
-          minLength={12}
+          id="email"
+          label="Email"
+          type="email"
+          value={invitation.email}
+          readOnly
+          required={false}
+          autoComplete="username"
         />
-        <Field
-          id="confirm"
-          label="Confirm password"
-          type="password"
-          autoComplete="new-password"
-          minLength={12}
-        />
-        <p className="m-0 text-xs text-ink-3">At least 12 characters.</p>
+        <NewPassword value={password} onChange={setPassword} />
         <ErrorLine message={error} />
-        <Button variant="primary" size="lg" type="submit" disabled={pending}>
-          {pending ? "Joining" : "Create account and join"}
-        </Button>
+        <div className="flex flex-col gap-2">
+          <Button variant="primary" size="lg" type="submit" disabled={pending}>
+            {pending ? "Joining" : "Create account and join"}
+          </Button>
+          <Button variant="secondary" size="lg" asChild>
+            <Link to="/sign-in" search={{ redirect: `/invite/${token}` }}>
+              I already have an account
+            </Link>
+          </Button>
+        </div>
       </form>
     </Frame>
   );

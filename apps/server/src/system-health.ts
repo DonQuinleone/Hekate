@@ -41,7 +41,7 @@ export interface SystemHealthDeps {
 }
 
 /** Used and total bytes of the file system holding a path; null when it cannot be read. */
-async function diskOf(path: string): Promise<HealthAmount | null> {
+export async function diskOf(path: string): Promise<HealthAmount | null> {
   try {
     const fs = await statfs(path);
     const total = fs.blocks * fs.bsize;

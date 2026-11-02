@@ -3,6 +3,7 @@ import {
   blindLetter,
   blindOrder,
   compareSources,
+  cutAgainst,
   gainLabel,
   levelGains,
   levelMatchable,
@@ -96,6 +97,17 @@ describe("compare cuts (#147)", () => {
     });
     // A variant other than the primary is compared with the cut before too.
     expect(previousCut(track, "file-c", "video")?.previous.fileId).toBe("file-a");
+  });
+
+  it("sets a cut against the one chosen on the comparison page, not only the one before", () => {
+    // Cuts 1 and 3 chosen: cut 1 beside cut 3, though cut 2 lies between them.
+    expect(cutAgainst(track, "file-e", "file-a", "video")).toEqual({
+      mine: "Cut 3",
+      previous: { fileId: "file-a", label: "Cut 1", versionNumber: 1 },
+    });
+    // Itself, or a file of another track, is no comparison.
+    expect(cutAgainst(track, "file-e", "file-e", "video")).toBeUndefined();
+    expect(cutAgainst(track, "file-e", "elsewhere", "video")).toBeUndefined();
   });
 
   it("skips an earlier cut not yet ready, and has none before the first", () => {

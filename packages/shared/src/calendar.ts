@@ -271,3 +271,69 @@ export function icsCalendar(
   ];
   return `${lines.map(fold).join("\r\n")}\r\n`;
 }
+
+/** One thing laid on a week of a month's grid: from which day, over how many, on which line. */
+export interface WeekBar<T> {
+  item: T;
+  /** The first day it covers in this week, 0 for Monday. */
+  column: number;
+  /** How many of the week's days it covers, at least one. */
+  span: number;
+  /** Its line within the week, from 0 at the top. */
+  lane: number;
+  /** Whether it began before this week, or goes on after it. */
+  before: boolean;
+  after: boolean;
+}
+
+/**
+ * A week of a month's grid with what falls on it, as Apple Calendar draws a month: something
+ * over several days is one bar across them (cut where the week ends, and taken up again on the
+ * next), each on the highest line free over all its days, longer ones first so they do not
+ * break. At most `lanes` lines; what does not fit is counted under each day it falls on.
+ */
+export function weekBars<T extends { date: string; end?: string | null }>(
+  week: readonly string[],
+  items: readonly T[],
+  lanes: number,
+): { bars: WeekBar<T>[]; more: number[] } {
+  const first = week[0];
+  const last = week[week.length - 1];
+  const more = week.map(() => 0);
+  if (!first || !last) return { bars: [], more };
+  const placed = items
+    .map((item) => {
+      const end = item.end && item.end > item.date ? item.end : item.date;
+      if (end < first || item.date > last) return null;
+      // Days as YYYY-MM-DD compare as text, so the week's ends cut it by comparison.
+      const before = item.date < first;
+      const after = end > last;
+      const from = before ? first : item.date;
+      const to = after ? last : end;
+      return {
+        item,
+        column: daysBetween(first, from),
+        span: daysBetween(from, to) + 1,
+        before,
+        after,
+      };
+    })
+    .filter((p): p is NonNullable<typeof p> => p !== null)
+    .sort((a, b) => a.column - b.column || b.span - a.span);
+  const taken: boolean[][] = [];
+  const bars: WeekBar<T>[] = [];
+  for (const p of placed) {
+    const days = Array.from({ length: p.span }, (_, i) => p.column + i);
+    let lane = 0;
+    while (lane < lanes && days.some((d) => taken[lane]?.[d])) lane += 1;
+    if (lane >= lanes) {
+      for (const d of days) more[d] = (more[d] ?? 0) + 1;
+      continue;
+    }
+    const line = taken[lane] ?? [];
+    for (const d of days) line[d] = true;
+    taken[lane] = line;
+    bars.push({ ...p, lane });
+  }
+  return { bars, more };
+}

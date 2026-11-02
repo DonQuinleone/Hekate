@@ -6,6 +6,7 @@ import {
   eventData,
   eventKinds,
   eventLabels,
+  eventNames,
   eventSummary,
   eventsSummary,
   retryDelaySeconds,
@@ -20,6 +21,12 @@ describe("events (#161)", () => {
       expect(eventData[kind]).toBeDefined();
       expect(eventLabels[kind]).toMatch(/^[A-Z]/);
     }
+  });
+
+  it("names an event as the account's notifications do (#681)", () => {
+    expect(eventLabels["review.requested"]).toBe(eventNames.review);
+    expect(eventLabels["comment.mentioned"]).toBe(eventNames.mention);
+    for (const kind of eventKinds) expect(eventLabels[kind]).not.toMatch(/\.$|^An? /);
   });
 
   it("says each event in a sentence", () => {
@@ -42,6 +49,16 @@ describe("events (#161)", () => {
         version: 3,
       }),
     ).toBe("Mira Solberg added version 3 of Bethena in Joplin Rags");
+    // A video project's versions are cuts, as its pages call them.
+    expect(
+      eventSummary("version.arrived", {
+        project: { id: project.id, name: "Opening titles", profile: "video" },
+        actor: mira,
+        path: "/tracks/t",
+        track: { id: project.id, name: "Title sequence" },
+        version: 2,
+      }),
+    ).toBe("Mira Solberg added cut 2 of Title sequence in Opening titles");
     expect(
       eventSummary("processing.failed", {
         project,

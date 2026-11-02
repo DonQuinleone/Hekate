@@ -110,7 +110,7 @@ export async function remindDue(
             actor: null,
             projectId: review.projectId,
             reviewId: review.id,
-            text: `your ${what} on "${review.title}" is due tomorrow`,
+            text: `your ${what} on “${review.title}” is due tomorrow`,
             link: `/reviews/${review.id}`,
             mail: {
               template: "due_soon",

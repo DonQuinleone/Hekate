@@ -75,8 +75,10 @@ export interface EditSegment {
   label: string;
   /** Whether it comes from a take of this track. */
   take: boolean;
-  /** The bars of the take it uses, where they are known: "bars 9 to 16". */
+  /** The bars of the take it uses, where they are known: "bars 9–16". */
   bars: string | null;
+  /** The same bars as numbers, first and last, for the transport's bar (#633). */
+  barRange?: [number, number] | null;
 }
 
 /**
@@ -103,6 +105,7 @@ export function editSegments(
       label: line.take ?? line.source,
       take: line.take !== null,
       bars: line.bars,
+      barRange: use.bars ? [use.bars[0], use.bars[1]] : null,
     });
   }
   return out;
@@ -111,3 +114,31 @@ export function editSegments(
 /** The stretch playing at a moment, if any. */
 export const segmentAt = (segments: readonly EditSegment[], at: number) =>
   segments.find((s) => s.start <= at && at < s.end) ?? null;
+
+/**
+ * The bar playing at a moment (#633), where the version's edit decisions say which bars each
+ * stretch holds: spread evenly over the stretch, as a take's bars are over its in and out
+ * points. Null where no stretch with bars covers the moment.
+ */
+export function barAt(segments: readonly EditSegment[], at: number): number | null {
+  const s = segmentAt(segments, at);
+  if (!s?.barRange || !(s.end > s.start)) return null;
+  const [first, last] = s.barRange;
+  const bars = last - first + 1;
+  return Math.min(last, first + Math.floor(((at - s.start) / (s.end - s.start)) * bars));
+}
+
+/**
+ * Where a bar starts (#633), the other way round: a bar typed into the transport goes to the
+ * first stretch holding it. Null where no stretch does.
+ */
+export function timeOfBar(segments: readonly EditSegment[], bar: number, beat = 1): number | null {
+  for (const s of segments) {
+    if (!s.barRange) continue;
+    const [first, last] = s.barRange;
+    if (bar < first || bar > last) continue;
+    const length = (s.end - s.start) / (last - first + 1);
+    return s.start + (bar - first) * length + Math.max(0, beat - 1) * (length / 4);
+  }
+  return null;
+}

@@ -12,6 +12,7 @@ import { Field } from "~/components/ui/field";
 import { Input, Textarea } from "~/components/ui/input";
 import { ActionMenu, Dropdown } from "~/components/ui/menu";
 import { Failed, Loading, Refused } from "~/components/ui/states";
+import { cn } from "~/lib/cn";
 import { repertoireQuery, useProjectCan, useRepertoire } from "~/lib/queries";
 import { ProjectFrame } from "./project";
 
@@ -156,7 +157,17 @@ function Works({
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-line px-4 py-3">
                 <h2 className="m-0 text-[16px] font-medium text-ink">{w.title}</h2>
                 <span className="text-[13px] text-ink-3">
-                  {[w.composer, w.forces, w.abbreviation].filter(Boolean).join(" · ")}
+                  {/* The abbreviation only where it says something the title does not (#703). */}
+                  {[
+                    w.composer,
+                    w.forces,
+                    w.abbreviation &&
+                    w.abbreviation.trim().toLowerCase() !== w.title.trim().toLowerCase()
+                      ? w.abbreviation
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </span>
                 <span className="ml-auto flex items-center gap-3 text-[13px] text-ink-3">
                   {w.scoreFileId && (
@@ -169,7 +180,7 @@ function Works({
                       {scores.find((f) => f.id === w.scoreFileId)?.name ?? "Score"}
                     </Link>
                   )}
-                  {w.scoreFileId && <span>page offset {w.pageOffset}</span>}
+                  {w.scoreFileId && w.pageOffset !== 0 && <span>page offset {w.pageOffset}</span>}
                   {canEdit && (
                     <ActionMenu
                       always
@@ -348,6 +359,8 @@ function WorkDialog({
   const saving = work ? changeWork : addWork;
   const nameOf = (id: string) => tracks.find((t) => t.id === id)?.name ?? "A track";
   const free = tracks.filter((t) => !taken.has(t.id) && !chosen.some((c) => c.trackId === t.id));
+  /** The row being dragged by its handle, where it is now. */
+  const [dragging, setDragging] = useState<number | null>(null);
   const move = (i: number, by: number) =>
     setChosen((all) => {
       const next = [...all];
@@ -403,31 +416,19 @@ function WorkDialog({
             autoFocus
             value={title}
             maxLength={160}
-            placeholder="Rags"
             onChange={(e) => setTitle(e.target.value)}
           />
         </Field>
         <Field label="Composer">
-          <Input
-            value={composer}
-            maxLength={120}
-            placeholder="Scott Joplin"
-            onChange={(e) => setComposer(e.target.value)}
-          />
+          <Input value={composer} maxLength={120} onChange={(e) => setComposer(e.target.value)} />
         </Field>
         <Field label="Forces">
-          <Input
-            value={forces}
-            maxLength={160}
-            placeholder="Piano trio"
-            onChange={(e) => setForces(e.target.value)}
-          />
+          <Input value={forces} maxLength={160} onChange={(e) => setForces(e.target.value)} />
         </Field>
-        <Field label="Abbreviation" hint="As the schedule shows it">
+        <Field label="Abbreviation" hint="As the schedule shows it.">
           <Input
             value={abbreviation}
             maxLength={16}
-            placeholder="RAGS"
             onChange={(e) => setAbbreviation(e.target.value)}
           />
         </Field>
@@ -441,7 +442,11 @@ function WorkDialog({
         </Field>
         <Field
           label="Score"
-          hint={work?.scoreFileId ? "Swapped, the marks follow their bars" : "One PDF for the work"}
+          hint={
+            work?.scoreFileId
+              ? "Change the score and its marks move to the same bars."
+              : "One PDF for the work."
+          }
         >
           <Dropdown
             variant="field"
@@ -464,7 +469,7 @@ function WorkDialog({
         {scoreFileId && (
           <Field
             label="Page offset"
-            hint="Added to a printed page for the PDF's: 2 for a cover and contents"
+            hint="PDF pages before printed page 1, for example 2 for a cover and contents."
             error={offset === null || Number.isNaN(offset) ? "A whole number" : undefined}
           >
             <Input
@@ -483,9 +488,60 @@ function WorkDialog({
               None yet. A single-track work is just one track.
             </p>
           )}
+          {chosen.length > 0 && (
+            // Every field headed once (#658), above the rows, as a table's columns are.
+            <div
+              aria-hidden="true"
+              className="grid grid-cols-[16px_56px_minmax(0,1fr)_auto] items-center gap-2 text-[12px] text-ink-3"
+            >
+              <span />
+              <span className="text-center">No.</span>
+              <span>Track</span>
+              <span className="flex items-center gap-2">
+                {/* One heading over the pair: from, then to. */}
+                {scoreFileId && (
+                  <span className="w-[136px] whitespace-nowrap text-center">Printed pages</span>
+                )}
+                <span className="w-[60px]" />
+              </span>
+            </div>
+          )}
           <ol className="m-0 flex list-none flex-col gap-1.5 p-0">
             {chosen.map((c, i) => (
-              <li key={c.trackId} className="flex items-center gap-2">
+              <li
+                key={c.trackId}
+                onDragOver={(e) => {
+                  if (dragging === null) return;
+                  e.preventDefault();
+                  if (dragging !== i) {
+                    move(dragging, i - dragging);
+                    setDragging(i);
+                  }
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragging(null);
+                }}
+                className={cn(
+                  "grid grid-cols-[16px_56px_minmax(0,1fr)_auto] items-center gap-2 rounded-control",
+                  dragging === i && "bg-raised/60",
+                )}
+              >
+                {/* Dragged by its handle; the row's menu moves it from the keyboard. */}
+                <span
+                  draggable
+                  aria-hidden="true"
+                  title="Drag to reorder"
+                  onDragStart={(e) => {
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", c.trackId);
+                    setDragging(i);
+                  }}
+                  onDragEnd={() => setDragging(null)}
+                  className="flex h-8 cursor-grab items-center justify-center text-ink-3 hover:text-ink active:cursor-grabbing"
+                >
+                  <Icon name="grip" size={14} />
+                </span>
                 <Input
                   aria-label={`Number of ${nameOf(c.trackId)}`}
                   value={c.number}
@@ -498,51 +554,46 @@ function WorkDialog({
                     )
                   }
                 />
-                <span className="min-w-0 flex-1 truncate text-[14px] text-ink">
-                  {nameOf(c.trackId)}
-                </span>
-                {scoreFileId &&
-                  (["pageFrom", "pageTo"] as const).map((end) => (
-                    <Input
-                      key={end}
-                      aria-label={`${end === "pageFrom" ? "First" : "Last"} printed page of ${nameOf(c.trackId)}`}
-                      inputMode="numeric"
-                      value={c[end]}
-                      placeholder={end === "pageFrom" ? "from" : "to"}
-                      className="w-16 text-center"
-                      onChange={(e) =>
-                        setChosen((all) =>
-                          all.map((x, j) => (j === i ? { ...x, [end]: e.target.value } : x)),
-                        )
-                      }
+                <span className="min-w-0 truncate text-[14px] text-ink">{nameOf(c.trackId)}</span>
+                <span className="flex items-center gap-2">
+                  {scoreFileId &&
+                    (["pageFrom", "pageTo"] as const).map((end) => (
+                      <Input
+                        key={end}
+                        aria-label={`${end === "pageFrom" ? "First" : "Last"} printed page of ${nameOf(c.trackId)}`}
+                        inputMode="numeric"
+                        value={c[end]}
+                        className="w-16 text-center"
+                        onChange={(e) =>
+                          setChosen((all) =>
+                            all.map((x, j) => (j === i ? { ...x, [end]: e.target.value } : x)),
+                          )
+                        }
+                      />
+                    ))}
+                  <span className="flex w-[60px] items-center justify-end gap-0.5">
+                    <ActionMenu
+                      always
+                      label={nameOf(c.trackId)}
+                      actions={[
+                        { label: "Move up", disabled: i === 0, onSelect: () => move(i, -1) },
+                        {
+                          label: "Move down",
+                          disabled: i === chosen.length - 1,
+                          onSelect: () => move(i, 1),
+                        },
+                      ]}
                     />
-                  ))}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={i === 0}
-                  aria-label={`Move ${nameOf(c.trackId)} up`}
-                  onClick={() => move(i, -1)}
-                >
-                  Up
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={i === chosen.length - 1}
-                  aria-label={`Move ${nameOf(c.trackId)} down`}
-                  onClick={() => move(i, 1)}
-                >
-                  Down
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`Take ${nameOf(c.trackId)} out`}
-                  onClick={() => setChosen((all) => all.filter((_, j) => j !== i))}
-                >
-                  <Icon name="close" size={12} />
-                </Button>
+                    <Button
+                      variant="ghost"
+                      size="iconSm"
+                      aria-label={`Take ${nameOf(c.trackId)} out`}
+                      onClick={() => setChosen((all) => all.filter((_, j) => j !== i))}
+                    >
+                      <Icon name="close" size={12} />
+                    </Button>
+                  </span>
+                </span>
               </li>
             ))}
           </ol>
@@ -630,7 +681,7 @@ function Venues({
                 className="group flex items-start gap-3 rounded-panel px-2 py-2.5 transition-colors hover:bg-raised/60"
               >
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-panel bg-raised text-ink-2">
-                  <Icon name="pin" size={16} />
+                  <Icon name="venue" size={16} />
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-[14px] font-medium text-ink">{v.name}</span>

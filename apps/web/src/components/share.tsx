@@ -19,9 +19,12 @@ import {
   linkLives,
   reviewerFromKey,
   type ShareAccess,
+  type ShareDownload,
   type ShareTarget,
   shareAccessCopy,
   shareAccesses,
+  shareDownloadCopy,
+  shareDownloads,
   shareRequest,
   targetItems,
   targetPath,
@@ -33,13 +36,6 @@ import { Dialog } from "./ui/dialog";
 import { Dropdown } from "./ui/menu";
 import { Segmented } from "./ui/segmented";
 
-const kindWords: Record<ShareTarget["kind"], string> = {
-  file: "File",
-  track: "Track",
-  folder: "Folder",
-  version: "Version",
-};
-
 /** The address of a path in this app, as it is copied; the host and path alone, as shown. */
 const addressOf = (path: string) => ({
   full: `${window.location.origin}${path}`,
@@ -47,19 +43,24 @@ const addressOf = (path: string) => ({
 });
 
 /**
- * Sharing one item (#489), as a share sheet does it: who, how, and a link, then Send. The
- * item is the title, so nothing asks what to share. Viewing is a share (#138); commenting,
- * and downloading with it, a feedback review. "More options" carries the choices into the
- * full request page, for stages, an order or a deadline. The same sheet opens from a row in
- * the file browser, the player's header and a track's versions.
+ * Sharing one item (#489), as a share sheet does it: who, how, what they may download and
+ * when their access ends, then Send. The item is the title, so nothing asks what to share.
+ * Viewing is a share (#138); commenting a feedback review, and the sheet says so before it
+ * is sent (#578). Copying the link is for members with access, apart from the recipients'
+ * end. "More options" carries the choices into the full request page, for stages, an order
+ * or a deadline. The same sheet opens from a row in the file browser, the player's header
+ * and a track's versions.
  */
 export function ShareDialog({
   projectId,
-  item,
+  item: first,
+  alternative = null,
   onClose,
 }: {
   projectId: string;
   item: ShareTarget;
+  /** Another thing it could share instead (#578): from a track's file, the file alone. */
+  alternative?: ShareTarget | null;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
@@ -68,7 +69,7 @@ export function ShareDialog({
   const { data: groups = [] } = useQuery(projectGroupsQuery(projectId));
   const { data: known = [] } = useQuery(projectGuestsQuery(projectId));
   // A folder shares what is in it, at every depth: the project's tree says what that is.
-  const folder = item.kind === "folder";
+  const folder = first.kind === "folder";
   const { data: folders = [] } = useQuery({ ...projectFoldersQuery(projectId), enabled: folder });
   const { data: tracks, isSuccess: tracksIn } = useQuery({
     ...projectTracksQuery(projectId),
@@ -79,8 +80,11 @@ export function ShareDialog({
     enabled: folder,
   });
   const create = useCreateReview(projectId);
+  const [alone, setAlone] = useState(false);
+  const item = alone && alternative ? alternative : first;
   const [chosen, setChosen] = useState<Person[]>([]);
   const [access, setAccess] = useState<ShareAccess>("view");
+  const [download, setDownload] = useState<ShareDownload>("none");
   const [life, setLife] = useState<LinkLife>(7);
   const [copied, setCopied] = useState(false);
 
@@ -114,11 +118,13 @@ export function ShareDialog({
   );
   const items = targetItems(item, { folders, tracks: tracks ?? [], files: files ?? [] });
   const emptyFolder = folder && tracksIn && filesIn && items.length === 0;
+  // Only a folder's count is worth a line under its name; "Audio" or "Track" says nothing.
   const what =
-    item.what ??
-    (folder
-      ? `Folder, ${items.length === 1 ? "1 item" : `${items.length} items`}`
-      : kindWords[item.kind]);
+    folder && tracksIn && filesIn
+      ? items.length === 1
+        ? "1 item"
+        : `${items.length} items`
+      : undefined;
   const sent = create.data;
   const address = addressOf(sent ? `/reviews/${sent.id}` : targetPath(item, projectId));
   const ready = chosen.length > 0 && items.length > 0 && !create.isPending;
@@ -133,6 +139,7 @@ export function ShareDialog({
     create.mutate(
       shareRequest({
         access,
+        download,
         life,
         items,
         reviewers: chosen.map((p) => reviewerFromKey(p.key, knownByEmail)),
@@ -142,7 +149,14 @@ export function ShareDialog({
   // The full page, with these choices made: stages, an order and a deadline live there.
   const more = () => {
     onClose();
-    const request = shareRequest({ access, life, items, reviewers: [], now: new Date() });
+    const request = shareRequest({
+      access,
+      download,
+      life,
+      items,
+      reviewers: [],
+      now: new Date(),
+    });
     void navigate({
       to: "/projects/$projectId/reviews/new",
       params: { projectId },
@@ -161,31 +175,17 @@ export function ShareDialog({
     });
   };
 
+  // For members who may open it already: its address in the app, which never expires and
+  // opens nothing for anyone else. Recipients get their own links by email.
   const linkRow = (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <div className="flex h-9 min-w-0 flex-1 basis-56 items-center gap-2 rounded-control border border-line bg-ground/70 pr-1 pl-3">
-        <Icon name="link" size={14} className="shrink-0 text-ink-3" />
-        <span className="min-w-0 flex-1 truncate text-[13px] text-ink-2" title={address.full}>
-          {address.shown}
-        </span>
-        <Button variant="ghost" size="sm" onClick={copy} aria-live="polite">
-          {copied ? "Copied" : "Copy"}
-        </Button>
-      </div>
-      {sent ? (
-        <span className="text-[13px] text-ink-2">{linkLifeWords(life)}</span>
-      ) : (
-        <Dropdown
-          size="sm"
-          label="How long the link works"
-          value={linkLifeWords(life)}
-          actions={linkLives.map((choice) => ({
-            label: linkLifeChoice(choice),
-            checked: choice === life,
-            onSelect: () => setLife(choice),
-          }))}
-        />
-      )}
+    <div className="flex min-w-0 items-center gap-2 text-[13px] text-ink-3">
+      <Icon name="link" size={14} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate" title={address.full}>
+        {address.shown}
+      </span>
+      <Button variant="ghost" size="sm" onClick={copy} aria-live="polite">
+        {copied ? "Copied" : "Copy link"}
+      </Button>
     </div>
   );
 
@@ -214,11 +214,20 @@ export function ShareDialog({
         }
       >
         <div className="flex flex-col gap-4">
-          <p className="m-0 flex items-center gap-2 text-[14px] text-ink">
-            <Icon name="check" size={15} className="shrink-0 text-ink-2" />
-            Sent to {who}. Guests get a link of their own by email.
+          <p className="m-0 flex items-start gap-2 text-[14px] text-ink">
+            <Icon name="check" size={15} className="mt-0.5 shrink-0 text-ink-2" />
+            <span>
+              {sent.kind === "share"
+                ? `Shared with ${who}.`
+                : `${who} ${chosen.length === 1 ? "is" : "are"} asked for feedback, without sign-off.`}{" "}
+              Their access ends {life === null ? "when you withdraw it" : `in ${life} days`}. Guests
+              get a link of their own by email.
+            </span>
           </p>
-          {linkRow}
+          <div className="flex flex-col gap-1.5">
+            <span className="label">Link for members with access</span>
+            {linkRow}
+          </div>
         </div>
       </Dialog>
     );
@@ -238,12 +247,25 @@ export function ShareDialog({
             Cancel
           </Button>
           <Button variant="primary" onClick={send} disabled={!ready}>
-            Send
+            {/* What Send will do, said before it is pressed (#578). */}
+            {access === "view" ? "Share" : "Ask for feedback"}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-5">
+        {alternative && (
+          <Segmented
+            label="What to share"
+            value={alone ? "alone" : "whole"}
+            options={[
+              { value: "whole", label: first.name },
+              { value: "alone", label: "This file only" },
+            ]}
+            onChange={(v) => setAlone(v === "alone")}
+            className="self-start"
+          />
+        )}
         <div className="flex flex-col gap-1.5">
           <span className="label">Who</span>
           <PeoplePicker
@@ -266,7 +288,33 @@ export function ShareDialog({
           <p className="m-0 text-[13px] text-ink-3">{shareAccessCopy[access].hint}</p>
         </div>
         <div className="flex flex-col gap-1.5">
-          <span className="label">Link</span>
+          <span className="label">Download</span>
+          <Segmented
+            label="Download"
+            value={download}
+            options={shareDownloads.map((d) => ({ value: d, label: shareDownloadCopy[d].label }))}
+            onChange={setDownload}
+            className="self-start"
+          />
+          {shareDownloadCopy[download].hint && (
+            <p className="m-0 text-[13px] text-ink-3">{shareDownloadCopy[download].hint}</p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span className="label">Access ends</span>
+          <Dropdown
+            size="sm"
+            label="Access ends"
+            value={linkLifeWords(life)}
+            actions={linkLives.map((choice) => ({
+              label: linkLifeChoice(choice),
+              checked: choice === life,
+              onSelect: () => setLife(choice),
+            }))}
+          />
+        </div>
+        <div className="flex flex-col gap-1.5 border-t border-line pt-4">
+          <span className="label">Link for members with access</span>
           {linkRow}
         </div>
         {emptyFolder && (

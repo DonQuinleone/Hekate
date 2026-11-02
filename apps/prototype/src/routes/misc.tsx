@@ -40,8 +40,8 @@ export function NotificationsPage() {
       empty={
         <div className="p-8">
           <Empty
-            title="Nothing new"
-            text="Decisions, replies, new versions, stage changes and assignments arrive here, and by mail as you choose."
+            title="No notifications"
+            text="You are told here when someone asks for your review, decides, replies, mentions you or adds a version, and by mail as you choose in your account."
           />
         </div>
       }
@@ -125,7 +125,7 @@ function fieldChips(f: Fields): { keys: (keyof Fields)[]; label: string }[] {
   else if (f.sizeMax) chips.push({ keys: ["sizeMax"], label: `Under ${f.sizeMax} MB` });
   if (f.frameRate) chips.push({ keys: ["frameRate"], label: `${f.frameRate} fps` });
   if (f.commentText)
-    chips.push({ keys: ["commentText"], label: `Comments say “${f.commentText}”` });
+    chips.push({ keys: ["commentText"], label: `Comment contains “${f.commentText}”` });
   return chips;
 }
 
@@ -259,7 +259,7 @@ function FieldsMenu({ fields, onApply }: { fields: Fields; onApply: (next: Field
               </Select>
             </label>
             <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-              Comments say
+              Comment contains
               <Input
                 value={draft.commentText}
                 onChange={edit("commentText")}
@@ -276,7 +276,7 @@ function FieldsMenu({ fields, onApply }: { fields: Fields; onApply: (next: Field
                   setOpen(false);
                 }}
               >
-                Clear fields
+                Clear
               </Button>
               <Button type="submit" variant="primary" size="sm">
                 Apply
@@ -286,6 +286,44 @@ function FieldsMenu({ fields, onApply }: { fields: Fields; onApply: (next: Field
         </Floating>
       )}
     </div>
+  );
+}
+
+/** The filters inline on a wide screen; behind one Filters button, with a count, on a phone. */
+function PhoneFilters({ count, children }: { count: number; children: React.ReactNode }) {
+  const [open, setOpen, box] = usePopover();
+  return (
+    <>
+      <div className="hidden @3xl/app:contents">{children}</div>
+      <div ref={box} className="relative @3xl/app:hidden">
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          onClick={() => setOpen(!open)}
+        >
+          <Icon name="filter" size={14} />
+          Filters
+          {count > 0 && (
+            <span className="tabular rounded-full bg-raised px-1.5 text-[11px] text-ink-2">
+              {count}
+            </span>
+          )}
+        </Button>
+        {open && (
+          <Floating
+            anchor={box}
+            align="start"
+            side="bottom"
+            onClose={() => setOpen(false)}
+            className="rise-in flex w-72 flex-col gap-2 rounded-panel-lg bg-overlay p-3 shadow-4 [&_select]:w-full"
+          >
+            {children}
+          </Floating>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -343,29 +381,44 @@ export function SearchPage({ query: initial = "" }: { query?: string }) {
         />
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={type} onChange={(e) => setType(e.target.value)} className="w-32">
-          <option value="">Any kind</option>
-          <option value="audio">Audio</option>
-          <option value="video">Video</option>
-          <option value="document">Documents</option>
-          <option value="image">Pictures</option>
-        </Select>
-        <Select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="w-40">
-          <option value="">Any project</option>
-          {viewer.projects().map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </Select>
-        <Select value={personId} onChange={(e) => setPersonId(e.target.value)} className="w-40">
-          <option value="">Anyone</option>
-          {people.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </Select>
+        {/* On a phone the filters wait behind one button, so the results come first. */}
+        <PhoneFilters count={[type, projectId, personId].filter(Boolean).length}>
+          {
+            <>
+              <Select value={type} onChange={(e) => setType(e.target.value)} className="w-32">
+                <option value="">Any kind</option>
+                <option value="audio">Audio</option>
+                <option value="video">Video</option>
+                <option value="document">Documents</option>
+                <option value="image">Pictures</option>
+              </Select>
+              <Select
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value)}
+                className="w-40"
+              >
+                <option value="">Any project</option>
+                {viewer.projects().map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+              <Select
+                value={personId}
+                onChange={(e) => setPersonId(e.target.value)}
+                className="w-40"
+              >
+                <option value="">Any person</option>
+                {people.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            </>
+          }
+        </PhoneFilters>
         <FieldsMenu fields={fields} onApply={setFields} />
         {filtered && (
           <Button

@@ -7,7 +7,8 @@ const text =
 /**
  * Text edited as code: numbered lines, each coloured by `colour`, with a plain text area laid
  * exactly over them, so typing, selecting, undo and pasting are the browser's own. Lines in
- * `marked` (from 1) are flagged, as where a file has a mistake.
+ * `marked` (from 1) are flagged, as where a file has a mistake, and a line's note in `notes`
+ * (why it is marked) is written at its end, as an editor shows a problem beside its line (#677).
  */
 export function CodeEditor({
   value,
@@ -15,6 +16,7 @@ export function CodeEditor({
   label,
   colour,
   marked,
+  notes,
   readOnly = false,
   ref,
   className,
@@ -24,6 +26,8 @@ export function CodeEditor({
   label: string;
   colour: (line: string) => ReactNode;
   marked?: ReadonlySet<number>;
+  /** What is wrong on a line, by its number (from 1), shown at its end. */
+  notes?: ReadonlyMap<number, string>;
   readOnly?: boolean;
   ref?: Ref<HTMLTextAreaElement>;
   className?: string;
@@ -55,6 +59,11 @@ export function CodeEditor({
               {i + 1}
             </span>
             {colour(line)}
+            {notes?.has(i + 1) && (
+              <span className="absolute top-0 right-0 max-w-[60%] truncate rounded-chip bg-overlay px-1.5 font-sans text-[12px] text-signal">
+                {notes.get(i + 1)}
+              </span>
+            )}
           </span>
         ))}
       </pre>

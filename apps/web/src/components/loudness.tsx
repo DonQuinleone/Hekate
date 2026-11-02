@@ -420,16 +420,18 @@ function StereoField({ shares }: { shares: Float32Array | null }) {
 }
 
 /** The whole file in four numbers. */
-function Readings({ summary }: { summary: LoudnessSummary }) {
+function Readings({ summary, figures }: { summary: LoudnessSummary; figures: boolean }) {
   return (
     <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
-      <Reading
-        label="Integrated"
-        value={summary.integrated === null ? "−∞" : formatLevel(summary.integrated)}
-        unit="LUFS"
-      />
+      {figures && (
+        <Reading
+          label="Integrated"
+          value={summary.integrated === null ? "−∞" : formatLevel(summary.integrated)}
+          unit="LUFS"
+        />
+      )}
       <Reading label="Range" value={summary.range.toFixed(1)} unit="LU" />
-      <Reading label="True peak" value={formatLevel(summary.truePeak)} unit="dBTP" />
+      {figures && <Reading label="True peak" value={formatLevel(summary.truePeak)} unit="dBTP" />}
       <Reading label="Max short-term" value={formatLevel(summary.shortTermMax)} unit="LUFS" />
     </div>
   );
@@ -480,10 +482,13 @@ export function Loudness({
   fileId,
   media,
   layout,
+  figures = true,
 }: {
   fileId: string;
   media: HTMLMediaElement | null;
   layout?: string;
+  /** Whether to give integrated loudness and true peak: not where QA's figures say them (#634). */
+  figures?: boolean;
 }) {
   const { data } = useQuery(loudnessQuery(fileId));
   const { data: series } = useQuery({
@@ -506,9 +511,9 @@ export function Loudness({
   const chosen = pair < pairs.length ? pair : 0;
 
   return (
-    <section aria-label="Loudness" className="flex flex-col gap-5 border-t border-hairline pt-5">
+    <section aria-label="Loudness" className="flex flex-col gap-5">
       <h2 className="m-0 text-[15px] font-medium">Loudness</h2>
-      <Readings summary={data.summary} />
+      <Readings summary={data.summary} figures={figures} />
       {series && <History series={series} media={media} frame={frame} />}
       {series && (
         <div className="flex flex-wrap items-end gap-x-8 gap-y-5">

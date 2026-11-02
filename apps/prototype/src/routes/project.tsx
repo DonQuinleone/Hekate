@@ -48,7 +48,7 @@ import { WorkflowRoute } from "./workflow.tsx";
 
 type SectionId = "attention" | "stats" | "tracks" | "reviews" | "activity" | "properties";
 const sectionNames: Record<SectionId, string> = {
-  attention: "Needs attention",
+  attention: "Needs you",
   stats: "At a glance",
   tracks: "Tracks",
   reviews: "In review",
@@ -217,7 +217,11 @@ function Overview({ project }: { project: Project }) {
   const workflow = workflows.find((w) => w.id === project.workflowId);
   const projectTracks = tracks.filter((t) => t.projectId === project.id);
   const states = projectTracks.map((t) => ({ track: t, s: trackState(t, project) }));
-  const open = reviews.filter((r) => r.projectId === project.id && r.status === "open");
+  // Shares ask nothing, so they are never in review.
+  const open = reviews.filter(
+    (r) => r.projectId === project.id && r.status === "open" && r.kind !== "share",
+  );
+  const [allAttention, setAllAttention] = useState(false);
   const recent = activity.filter((a) => a.projectId === project.id).slice(0, 8);
   const openTasks = tasks.filter((t) => t.projectId === project.id && t.status !== "done");
   const fileIds = new Set(
@@ -263,7 +267,7 @@ function Overview({ project }: { project: Project }) {
         id: `over-${r.id}`,
         dot: "changes_requested" as const,
         title: r.title,
-        why: `Overdue, waiting on ${
+        why: `Waiting on ${
           r.reviewers
             .filter((x) => x.state !== "submitted")
             .map((x) => personById(x.personId).name.split(" ")[0])
@@ -310,9 +314,7 @@ function Overview({ project }: { project: Project }) {
         id: t.id,
         icon: "task" as IconName,
         title: t.title,
-        why: t.assigneeId
-          ? `Overdue task for ${personById(t.assigneeId).name}`
-          : "Overdue and unassigned",
+        why: t.assigneeId ? `A task for ${personById(t.assigneeId).name}` : "An unassigned task",
         when: dueIn(`${t.dueAt}T23:59:00Z`).label,
         urgent: true,
         to: "/projects/$projectId/$view",
@@ -321,11 +323,15 @@ function Overview({ project }: { project: Project }) {
       })),
   ];
 
+  // A review already under Needs you is not listed again under In review.
+  const above = new Set(attention.map((a) => a.params?.reviewId).filter(Boolean));
+  const rest = open.filter((r) => !above.has(r.id));
+
   const render: Record<SectionId, ReactNode> = {
     attention: (
       <section className="flex flex-col gap-3">
         <SectionHead
-          title="Needs attention"
+          title="Needs you"
           hint={attention.length ? String(attention.length) : undefined}
         />
         {attention.length === 0 ? (
@@ -335,7 +341,7 @@ function Overview({ project }: { project: Project }) {
         ) : (
           <Card>
             <ul className="flex flex-col p-1.5">
-              {attention.slice(0, 5).map((a) => (
+              {(allAttention ? attention : attention.slice(0, 5)).map((a) => (
                 <li key={a.id}>
                   <Link
                     to={a.to}
@@ -358,7 +364,9 @@ function Overview({ project }: { project: Project }) {
                       <span className="block truncate text-[14px] font-medium text-ink">
                         {a.title}
                       </span>
-                      <span className="block truncate text-[13px] text-ink-3">{a.why}</span>
+                      <span className="line-clamp-2 block text-[13px] text-ink-3 @3xl/app:line-clamp-1">
+                        {a.why}
+                      </span>
                     </span>
                     {a.when && (
                       <span
@@ -379,6 +387,13 @@ function Overview({ project }: { project: Project }) {
                 </li>
               ))}
             </ul>
+            {attention.length > 5 && (
+              <div className="border-t border-line px-1.5 py-1.5">
+                <Button variant="ghost" size="sm" onClick={() => setAllAttention(!allAttention)}>
+                  {allAttention ? "Show fewer" : `Show all ${attention.length}`}
+                </Button>
+              </div>
+            )}
           </Card>
         )}
       </section>
@@ -388,7 +403,7 @@ function Overview({ project }: { project: Project }) {
         <Stat
           label={`${noun[0]?.toUpperCase()}${noun.slice(1)} approved`}
           value={`${approved} of ${withVersion}`}
-          hint={`${projectTracks.length - withVersion} without a version`}
+          hint={`with a ${project.profile === "music" ? "version" : "cut"} only`}
         />
         <Stat
           label="In review"
@@ -442,7 +457,7 @@ function Overview({ project }: { project: Project }) {
                       <Thumb file={file} width={56} height={36} />
                     ) : (
                       <span className="flex h-9 w-14 items-center justify-center rounded-[5px] border border-dashed border-line-strong text-ink-3">
-                        <Icon name="track" size={14} />
+                        <Icon name={project.profile === "video" ? "film" : "track"} size={14} />
                       </span>
                     )}
                     <span className="min-w-0">
@@ -450,7 +465,7 @@ function Overview({ project }: { project: Project }) {
                         {t.name}
                       </span>
                       <span className="block truncate text-[13px] text-ink-3">
-                        {s.version ? `V${s.version.number}` : "No versions yet"}
+                        {s.version ? `V${s.version.number}` : "No version yet"}
                         <span className="@3xl/app:hidden"> · {s.label}</span>
                         {s.stage && (
                           <span className="hidden @3xl/app:inline"> · {s.stage.name}</span>
@@ -489,7 +504,7 @@ function Overview({ project }: { project: Project }) {
       <section className="flex flex-col gap-3">
         <SectionHead
           title="In review"
-          hint={String(open.length)}
+          hint={String(rest.length)}
           action={
             <Button variant="ghost" size="sm" asChild>
               <Link
@@ -503,7 +518,7 @@ function Overview({ project }: { project: Project }) {
         />
         <Card>
           <ul className="flex flex-col p-1.5">
-            {open.map((r) => (
+            {rest.map((r) => (
               <li key={r.id}>
                 <Link
                   to="/reviews/$reviewId"
@@ -518,21 +533,19 @@ function Overview({ project }: { project: Project }) {
                     </span>
                   </span>
                   <AvatarRow personIds={r.reviewers.map((x) => x.personId)} size={20} />
+                  {/* Lateness is in signal under Needs you alone; here it reads quietly. */}
                   {r.dueAt && (
-                    <span
-                      className={cn(
-                        "tabular w-20 text-right text-[12px]",
-                        dueIn(r.dueAt).days < 0 ? "text-signal" : "text-ink-3",
-                      )}
-                    >
+                    <span className="tabular w-24 text-right text-[12px] text-ink-3">
                       {dueIn(r.dueAt).label}
                     </span>
                   )}
                 </Link>
               </li>
             ))}
-            {open.length === 0 && (
-              <li className="px-3 py-4 text-[13px] text-ink-3">Nothing in review.</li>
+            {rest.length === 0 && (
+              <li className="px-3 py-4 text-[13px] text-ink-3">
+                {open.length === 0 ? "Nothing in review." : "Nothing else in review."}
+              </li>
             )}
           </ul>
         </Card>
@@ -560,9 +573,6 @@ function Overview({ project }: { project: Project }) {
       <section className="flex flex-col gap-3">
         <SectionHead title="Properties" />
         <Card className="flex flex-col gap-0.5 px-4 py-2">
-          <Property name="Profile">
-            {{ music: "Music", video: "Video", general: "General" }[project.profile]}
-          </Property>
           <Property name="Workflow">
             <Link
               to="/projects/$projectId/$view"
@@ -577,9 +587,6 @@ function Overview({ project }: { project: Project }) {
               {deliveryProfiles.find((d) => d.id === project.deliveryProfile)?.name}
             </Property>
           )}
-          <Property name="People">
-            <AvatarRow personIds={project.members.map((m) => m.personId)} size={20} />
-          </Property>
           <Property name="Your role">{viewer.roleName(project.id) ?? "Workspace"}</Property>
           <Property name="Created">{formatDate(project.createdAt)}</Property>
         </Card>
@@ -621,10 +628,8 @@ function ProjectReviews({ project }: { project: Project }) {
   ];
   const canRequest = viewer.can(project.id, "request_reviews");
   const toolbar = (
+    // The page is named in the trail, and each section counts its own: no count here.
     <div className="flex items-center gap-2">
-      <span className="text-[13px] text-ink-3">
-        {plural(list.length, "review")}, {plural(shares.length, "share")}
-      </span>
       <span className="ml-auto flex gap-1.5">
         {canRequest && (
           <Button

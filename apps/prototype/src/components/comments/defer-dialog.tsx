@@ -14,8 +14,8 @@ interface Group {
 
 /**
  * The stages a thread may be deferred to (#499): the project's workflow's, with the one the
- * track is at marked, then the stages the categories name that the workflow lacks (so "Noise
- * reduction" reads as the Noise category's). Nothing is typed; the builder is a link away.
+ * track is at marked, then each stage a category names that the workflow lacks, under where
+ * that category's comments go. Nothing is typed; the builder is a link away.
  */
 export function deferGroups(project: Project, trackId: string | null): Group[] {
   const workflow = workflows.find((w) => w.id === project.workflowId);
@@ -28,12 +28,15 @@ export function deferGroups(project: Project, trackId: string | null): Group[] {
       stages: workflow.stages.map((s) => ({ name: s.name, current: s.status === status })),
     });
   const known = new Set(groups.flatMap((g) => g.stages.map((s) => s.name.toLowerCase())));
-  const named = categories.flatMap((c) =>
-    c.stage && !known.has(c.stage.toLowerCase())
-      ? [{ name: c.stage, current: false, note: `${c.name} category` }]
-      : [],
-  );
-  if (named.length > 0) groups.push({ label: "Named by a category", stages: named });
+  // Each category's stage under where its comments go (#643), never "Named by a category".
+  for (const c of categories)
+    if (c.stage && !known.has(c.stage.toLowerCase())) {
+      known.add(c.stage.toLowerCase());
+      groups.push({
+        label: `Where ${c.name} comments go`,
+        stages: [{ name: c.stage, current: false }],
+      });
+    }
   return groups;
 }
 
@@ -52,10 +55,8 @@ export function DeferDialog({
   onClose: () => void;
 }) {
   const groups = deferGroups(project, trackId);
-  const all = groups.flatMap((g) => g.stages);
-  const [picked, setPicked] = useState<string | null>(
-    all.find((s) => s.current)?.name ?? all[0]?.name ?? null,
-  );
+  // Nothing is chosen until a stage is (#643), so Defer waits for a choice.
+  const [picked, setPicked] = useState<string | null>(null);
   return (
     <Dialog
       title="Defer to a stage"

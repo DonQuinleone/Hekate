@@ -2,6 +2,8 @@ import { channelsFor, type NotificationPreferences } from "@hekate/shared";
 import { useQuery } from "@tanstack/react-query";
 import {
   AppearanceSection,
+  PasswordSection,
+  PlayerSection,
   ProfileSection,
   SecondFactorSection,
   SessionsSection,
@@ -28,13 +30,13 @@ const sections: (NavSection & { intro: string })[] = [
   {
     id: "account",
     label: "Account",
-    intro: "Who you are to Hekate, and how you sign in.",
+    intro: "Who you are to Hekate.",
   },
   {
     id: "security",
     label: "Security",
     intro:
-      "How sign-in is guarded, and every browser and device signed in as you. Sign out any you do not recognise, then change your password.",
+      "How you sign in and how it is guarded, and every browser and device signed in as you. Sign out any you do not recognise, then change your password.",
   },
   {
     id: "tokens",
@@ -54,8 +56,12 @@ const sections: (NavSection & { intro: string })[] = [
   {
     id: "appearance",
     label: "Appearance",
-    intro:
-      "How Hekate looks, what the recording page shows you, and how the player behaves. Yours alone.",
+    intro: "How Hekate looks to you: its theme, and how much room each list takes. Yours alone.",
+  },
+  {
+    id: "player",
+    label: "Player",
+    intro: "How the player opens and behaves for you.",
   },
 ];
 
@@ -158,6 +164,7 @@ export function AccountPage({ section }: { section: string }) {
         {current.id === "account" && <ProfileSection />}
         {current.id === "security" && (
           <>
+            <PasswordSection />
             <SecondFactorSection />
             <PasskeysSection />
             <SessionsSection />
@@ -172,6 +179,7 @@ export function AccountPage({ section }: { section: string }) {
         {current.id === "apps" && <ConnectedAppsSection />}
         {current.id === "notifications" && <Notifications />}
         {current.id === "appearance" && <AppearanceSection />}
+        {current.id === "player" && <PlayerSection />}
       </SettingsLayout>
     </>
   );

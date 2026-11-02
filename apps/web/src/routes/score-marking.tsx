@@ -1067,7 +1067,7 @@ function MarkFields({
           <span>
             <Button variant="ghost" size="sm" onClick={onDelete}>
               <Icon name="trash" size={14} />
-              Rub out
+              Delete
             </Button>
           </span>
         </>

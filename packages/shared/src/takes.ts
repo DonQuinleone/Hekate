@@ -358,7 +358,8 @@ export interface TakeRow extends TakePlace {
  */
 export interface TakeDetail extends TakeRow {
   track: { id: string; name: string; projectId: string; scoreFileId: string | null };
-  session: { id: string; name: string } | null;
+  /** The session it was recorded in, with its day: said beside the take, never above it (#568). */
+  session: { id: string; name: string; recordedOn: string | null } | null;
   /** In take order, this take among them. */
   siblings: Pick<TakeRow, "id" | "number" | "starred">[];
 }
@@ -455,7 +456,7 @@ export function gapsLabel(gaps: [number, number][]): string {
 export function barsLabel(t: Pick<TakePlace, "barFrom" | "barTo">): string | null {
   const r = barsOf(t);
   if (!r) return null;
-  return r[0] === r[1] ? `bar ${r[0]}` : `bars ${r[0]} to ${r[1]}`;
+  return r[0] === r[1] ? `bar ${r[0]}` : `bars ${r[0]}–${r[1]}`;
 }
 
 /** A point in a take as typed: seconds ("92.5") or a clock ("1:32.5", "1:02:03"); null if neither. */

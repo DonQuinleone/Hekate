@@ -86,7 +86,10 @@ export function formatDates(options: Intl.DateTimeFormatOptions) {
       formatRange: (a: Date | number, b: Date | number) => {
         const from = format(a);
         const to = format(b);
-        return from === to ? from : `${from} – ${to}`;
+        if (from === to) return from;
+        // An en dash, as docs/brand.md writes ranges: close up between single words
+        // (2026-09-28–2026-11-08), spaced where either side has words of its own (12 Oct – 3 Nov).
+        return /\s/.test(from) || /\s/.test(to) ? `${from} – ${to}` : `${from}–${to}`;
       },
     };
   }

@@ -64,7 +64,7 @@ export interface TaskRights {
   /** The statuses they may move it to from where it is. */
   statusTo: TaskStatus[];
   delete: boolean;
-  /** Adding a note to its activity. */
+  /** Adding a comment to its activity (stored as a note). */
   note: boolean;
 }
 
@@ -227,9 +227,10 @@ export function taskEventText(kind: TaskEventKind, detail: TaskEventDetail | nul
       if (detail?.to === "in_progress") return "started on it";
       return "opened it again";
     case "edited":
-      return `changed the ${(detail?.fields ?? ["task"]).join(" and ")}`;
+      // A task's notes are its description; entries written before the word changed say notes.
+      return `changed the ${(detail?.fields ?? ["task"]).map((f) => (f === "notes" ? "description" : f)).join(" and ")}`;
     case "note":
-      return "added a note";
+      return "commented";
   }
 }
 

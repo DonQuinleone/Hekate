@@ -1,4 +1,4 @@
-import type { Anchor, CarryStatus } from "@hekate/shared";
+import { type Anchor, anchorTime, type CarryStatus } from "@hekate/shared";
 import { relativeFormat } from "./locale";
 import type { Loop } from "./loop";
 import type { Comment, CommentHistory } from "./queries";
@@ -98,9 +98,11 @@ export function arrangeThreads(
         [t.comment, ...t.replies].some((c) => c.body.toLocaleLowerCase().includes(words)),
       )
     : [...threads];
-  return newest
-    ? found.sort((a, b) => b.comment.createdAt.localeCompare(a.comment.createdAt))
-    : found;
+  if (newest) return found.sort((a, b) => b.comment.createdAt.localeCompare(a.comment.createdAt));
+  // In the order they play (#562), as their markers are numbered; those with no moment keep
+  // their place after them.
+  const at = (t: Thread) => anchorTime(t.comment.anchor ?? null) ?? Number.POSITIVE_INFINITY;
+  return found.sort((a, b) => at(a) - at(b));
 }
 
 /** Where a thread is listed, for a link to it (#140) to show it whatever was chosen. */

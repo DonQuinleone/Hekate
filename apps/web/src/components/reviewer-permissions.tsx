@@ -1,6 +1,8 @@
 import {
   type CommentScope,
   type DownloadLevel,
+  itemWords,
+  type ProjectProfile,
   type ReviewerPermissions,
   type ReviewerPermissionsChange,
   type ReviewerTool,
@@ -38,7 +40,7 @@ const toolLabels: Record<ReviewerTool, string> = {
  */
 const downloadChoices: { value: DownloadLevel; label: string }[] = [
   { value: "none", label: "No download" },
-  { value: "proxy", label: "Proxy" },
+  { value: "proxy", label: "Review copy" },
   { value: "original", label: "Original" },
 ];
 
@@ -49,10 +51,12 @@ export function ReviewerPermissionsEditor({
   initial,
   items,
   standing = false,
+  profile = null,
   pending,
   error,
   onSave,
   onCancel,
+  formId,
 }: {
   name: string;
   kind: ReviewKind;
@@ -63,10 +67,17 @@ export function ReviewerPermissionsEditor({
   items?: { id: string; name: string }[];
   /** What holds in every review of a project (#55): no dates, which belong to one review. */
   standing?: boolean;
+  /** The project's profile, for its words (#670): a video project's earlier cuts. */
+  profile?: ProjectProfile | null;
   pending: boolean;
   error: string | null;
   onSave: (change: ReviewerPermissionsChange) => void;
   onCancel: () => void;
+  /**
+   * Inside a dialog that draws its own footer: the form takes this id for the footer's Save
+   * (`form={formId}`), and draws neither its card nor its buttons.
+   */
+  formId?: string;
 }) {
   const [p, setP] = useState(initial);
   // A share's people only listen and look (#138): no comments, decisions or invitations.
@@ -109,9 +120,10 @@ export function ReviewerPermissionsEditor({
   };
   return (
     <form
+      id={formId}
       onSubmit={submit}
       aria-label={`What ${name} may do`}
-      className="mt-1 flex flex-col gap-4 rounded-panel border border-hairline bg-surface p-4"
+      className="flex flex-col gap-4"
     >
       {guest && !share && (
         <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
@@ -149,7 +161,7 @@ export function ReviewerPermissionsEditor({
         )}
         {guest && (
           <Toggle
-            label="Earlier versions"
+            label={`Earlier ${itemWords(profile).versions}`}
             checked={p.history ?? false}
             onChange={(history) => setP({ ...p, history })}
           />
@@ -217,6 +229,10 @@ export function ReviewerPermissionsEditor({
                 </label>
                 <DateTimeField id={`${id}-until`} value={until} onChange={setUntil} />
               </span>
+              {/* Under the fields it is about (#670), not under the plays beside them. */}
+              <span className="text-xs text-ink-3 sm:col-span-2">
+                Left empty, access runs from now until the review ends.
+              </span>
             </>
           )}
           {guest && (
@@ -238,21 +254,29 @@ export function ReviewerPermissionsEditor({
           )}
         </fieldset>
       )}
-      <p className="m-0 text-xs text-ink-3">
-        {standing
-          ? "For every review of this project that asks them; a review can still change it for itself."
-          : "Left empty, access runs from now until the review ends."}
-        {guest ? "" : " Their comments and tools follow their role in the project."}
-      </p>
+      {(standing || !guest) && (
+        <p className="m-0 text-xs text-ink-3">
+          {[
+            standing
+              ? "For every review of this project that asks them; a review can still change it for itself."
+              : "",
+            guest ? "" : "Their comments and tools follow their role in the project.",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        </p>
+      )}
       {error && <p className="m-0 text-xs text-signal">{error}</p>}
-      <div className="flex justify-end gap-2">
-        <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button size="sm" variant="primary" type="submit" disabled={pending}>
-          Save
-        </Button>
-      </div>
+      {!formId && (
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button size="sm" variant="primary" type="submit" disabled={pending}>
+            Save
+          </Button>
+        </div>
+      )}
     </form>
   );
 }

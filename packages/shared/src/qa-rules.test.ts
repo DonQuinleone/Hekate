@@ -3,12 +3,15 @@ import type { QaFinding } from "./qa.ts";
 import {
   applyQaSettings,
   type CustomRule,
+  checkRuns,
   customRule,
   defaultQaSettings,
   meetsRule,
+  openQaCategories,
   qaSettingsOf,
   ruleCategory,
   ruleFindings,
+  uploadRuleRefusals,
   wildcardMatches,
 } from "./qa-rules.ts";
 
@@ -173,5 +176,74 @@ describe("QA rules", () => {
     expect(Date.now() - started).toBeLessThan(500);
     // Long runs of spaces in a list or a range are read as plainly.
     expect(meetsRule({ operator: "oneOf", value: `44.1${" ".repeat(10_000)}, 48` }, 48)).toBe(true);
+  });
+});
+
+describe("uploadRuleRefusals", () => {
+  const file = {
+    name: "Rag.flac",
+    info,
+    summary,
+    probing: false,
+    measuring: false,
+  } as Parameters<typeof uploadRuleRefusals>[1][number];
+
+  it("holds a version back on a rule marked On upload that fails, saying why", () => {
+    const [refused] = uploadRuleRefusals([rule({ onUpload: true })], [file]);
+    expect(refused).toMatchObject({ check: "rule", rule: "Masters at 96 kHz", file: "Rag.flac" });
+    expect(refused?.message).toContain("Masters at 96 kHz: 48 kHz, not is 96");
+  });
+
+  it("lets it through where the rule passes, is not marked, or is switched off", () => {
+    expect(uploadRuleRefusals([rule({ onUpload: true, value: "48" })], [file])).toEqual([]);
+    expect(uploadRuleRefusals([rule({})], [file])).toEqual([]);
+    expect(uploadRuleRefusals([rule({ onUpload: true, on: false })], [file])).toEqual([]);
+  });
+
+  it("waits for a file still being probed, and for its loudness where a rule asks it", () => {
+    const loud = rule({ onUpload: true, measure: "truePeak", operator: "atMost", value: "-1" });
+    expect(uploadRuleRefusals([loud], [{ ...file, measuring: true }])[0]?.check).toBe("measuring");
+    // A rule on the format is judged as soon as the probe is in.
+    expect(
+      uploadRuleRefusals([rule({ onUpload: true })], [{ ...file, measuring: true }])[0]?.check,
+    ).toBe("rule");
+    expect(
+      uploadRuleRefusals([rule({ onUpload: true })], [{ ...file, probing: true }])[0]?.check,
+    ).toBe("measuring");
+  });
+
+  it("keeps rules made before it as they were", () => {
+    expect(customRule.safeParse(rule({})).success).toBe(true);
+    expect(customRule.parse(rule({ onUpload: true })).onUpload).toBe(true);
+  });
+});
+
+describe("checkRuns", () => {
+  it("runs a signal check always, and a delivery check only with the delivery checks and its own", () => {
+    expect(checkRuns({ ...defaultQaSettings, delivery: false }, "clipping")).toBe(true);
+    expect(checkRuns(defaultQaSettings, "true-peak")).toBe(true);
+    expect(checkRuns({ ...defaultQaSettings, delivery: false }, "true-peak")).toBe(false);
+    expect(
+      checkRuns(
+        { ...defaultQaSettings, checks: { "true-peak": { on: false, severity: null } } },
+        "true-peak",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("openQaCategories", () => {
+  it("opens what the profile works with and folds the rest", () => {
+    expect([...openQaCategories("music", ["audio", "document"])].sort()).toEqual([
+      "artwork",
+      "audio",
+      "metadata",
+      "naming",
+    ]);
+    expect(openQaCategories("music", ["audio"]).has("video")).toBe(false);
+    expect(openQaCategories("music", ["audio"]).has("immersive")).toBe(false);
+    expect(openQaCategories("video", []).has("video")).toBe(true);
+    expect(openQaCategories("general", ["document"]).has("audio")).toBe(false);
+    expect(openQaCategories("general", ["audio"]).has("audio")).toBe(true);
   });
 });

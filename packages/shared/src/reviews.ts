@@ -30,6 +30,35 @@ export type ReviewOrder = (typeof reviewOrders)[number];
 export const approvalRules = ["all", "any", "share"] as const;
 export type ApprovalRule = (typeof approvalRules)[number];
 
+/** Each order as both the request and the review pages name it (#576). */
+export const reviewOrderNames: Record<ReviewOrder, string> = {
+  parallel: "All at once",
+  sequence: "In steps",
+};
+
+/**
+ * An approval's rule in words, the same on the request and the review pages (#576): "Everyone
+ * approves", "Any one approves", "At least 66% approve". The threshold is never called a
+ * share, which is a kind of review. Feedback has no rule: everyone submits.
+ */
+export function ruleName(
+  kind: ReviewKind,
+  rule: ApprovalRule | null | undefined,
+  share?: number | null,
+): string {
+  if (kind !== "approval") return "Everyone submits";
+  if (rule === "any") return "Any one approves";
+  if (rule === "share") return `At least ${share ?? 100}% approve`;
+  return "Everyone approves";
+}
+
+/** A rule as its choice is labelled, before the per cent is typed: "At least …". */
+export const ruleChoiceNames: Record<ApprovalRule, string> = {
+  all: "Everyone",
+  any: "Any one",
+  share: "At least",
+};
+
 export const reviewDecisions = ["approved", "changes_requested"] as const;
 export type ReviewDecision = (typeof reviewDecisions)[number];
 
@@ -383,7 +412,7 @@ export const remindInput = z.object({
   reviewerId: z.uuid().optional(),
 });
 
-/** How far a step of a review, or its gate, has got. */
+/** How far a step of a review, or its outcome, has got. */
 export type StepState = "done" | "current" | "ahead" | "failed";
 
 export interface StepReviewer {
@@ -423,9 +452,9 @@ export function reviewSteps<R extends StepReviewer>(
 }
 
 /**
- * The gate at the end of a review: passed once it is approved or the feedback is in,
- * failed when changes are requested, current once every step is done but nothing is
- * decided, ahead before that. A cancelled review's gate never opens.
+ * The outcome at the end of a review's steps: reached once it is approved or the feedback is
+ * in, failed when changes are requested, current once every step is done but nothing is
+ * decided, ahead before that. A cancelled review never reaches it.
  */
 export function gateState(
   status: ReviewStatus,
@@ -439,7 +468,7 @@ export function gateState(
 }
 
 /**
- * What the gate counts: of the reviewers it waits on (in an approval, those asked for a
+ * What the rule counts: of the reviewers it waits on (in an approval, those asked for a
  * decision), how many approved, asked for changes, submitted, and are still to come.
  */
 export function gateCounts(

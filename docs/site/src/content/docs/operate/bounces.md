@@ -68,4 +68,4 @@ Mailcoach sends no complaints by webhook, and its webhooks belong to email lists
 
 ## What bounced
 
-**Bounced addresses…** (instance **Settings**, **Address and mail**; a workspace's **Notifications and integrations**, its mail's menu) lists what is no longer sent to. **Send again** takes an address off the list, for one put right or reported in error. Every report, and every message held back, is in the mail log.
+**Bounced addresses…** (instance **Settings**, **Address and mail**; a workspace's **Email**, its mail's menu) lists what is no longer sent to. **Send again** takes an address off the list, for one put right or reported in error. Every report, and every message held back, is in the mail log.

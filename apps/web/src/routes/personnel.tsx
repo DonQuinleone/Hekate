@@ -14,6 +14,7 @@ import { Empty } from "~/components/empty";
 import { Icon } from "~/components/icons";
 import { ProductionBody } from "~/components/production-nav";
 import { Button } from "~/components/ui/button";
+import { Count } from "~/components/ui/chip";
 import { Choice } from "~/components/ui/choice";
 import { Dialog, useConfirm } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
@@ -70,11 +71,30 @@ export function PersonnelPage({ projectId }: { projectId: string }) {
   );
 }
 
-/** A yes or no beside someone: filled when it is done, dashed while it is not. */
-function Flag({ on, label, title }: { on: boolean; label: string; title: string }) {
+/** The flags' two columns, headed once over each list on a wide screen (#660). */
+const flagColumns = "w-24 shrink-0";
+
+/**
+ * A yes or no beside someone: filled when it is done, dashed while it is not. On a wide screen
+ * its column is headed, so only the mark and any count show; on a phone it says its word.
+ */
+function Flag({
+  on,
+  label,
+  value,
+  title,
+}: {
+  on: boolean;
+  label: string;
+  value?: string;
+  title: string;
+}) {
   return (
     <span
-      className={cn("flex items-center gap-1.5 text-[12px]", on ? "text-ink-2" : "text-ink-3")}
+      className={cn(
+        "flex items-center gap-1.5 text-[12px] @xl/app:w-24 @xl/app:shrink-0",
+        on ? "text-ink-2" : "text-ink-3",
+      )}
       title={title}
     >
       <span
@@ -85,7 +105,8 @@ function Flag({ on, label, title }: { on: boolean; label: string; title: string 
         )}
       />
       <span className="sr-only">{on ? "Yes:" : "No:"}</span>
-      {label}
+      <span className="@xl/app:sr-only">{label}</span>
+      {value && <span className="tabular">{value}</span>}
     </span>
   );
 }
@@ -109,12 +130,14 @@ function Flags({ entry }: { entry: Personnel }) {
     <>
       <Flag
         on={unsigned === 0}
-        label={`agreement ${total - unsigned}/${total}`}
+        label="agreement"
+        value={`${total - unsigned}/${total}`}
         title={`${total - unsigned} of ${total} players have signed the session agreement`}
       />
       <Flag
         on={headphones > 0}
-        label={`headphones ${headphones}`}
+        label="headphones"
+        value={String(headphones)}
         title={`${headphones} of the named players need headphones`}
       />
     </>
@@ -161,7 +184,8 @@ function PersonnelList({
         />
       ) : (
         <div className="flex flex-col gap-6">
-          {groups.map(({ kind, rows }, g) => (
+          {canEdit && <div className="-mb-3 flex justify-end">{addButton}</div>}
+          {groups.map(({ kind, rows }) => (
             <section
               key={kind}
               aria-label={kindWords[kind].heading}
@@ -169,9 +193,20 @@ function PersonnelList({
             >
               <div className="flex items-center gap-2">
                 <span className="label">
-                  {kindWords[kind].heading} · {rows.length}
+                  {kindWords[kind].heading}
+                  <Count>{rows.length}</Count>
                 </span>
-                {canEdit && g === 0 && <span className="ml-auto">{addButton}</span>}
+                {/* The flags' columns, headed here rather than on every row (#660). */}
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "ml-auto hidden items-center gap-3 text-[12px] text-ink-3 @xl/app:flex",
+                    canEdit ? "pr-[80px]" : "pr-[40px]",
+                  )}
+                >
+                  <span className={flagColumns}>Agreement</span>
+                  <span className={flagColumns}>Headphones</span>
+                </span>
               </div>
               <ul className="-mx-2 m-0 flex list-none flex-col p-0">
                 {rows.map((p) => (
@@ -207,16 +242,25 @@ function PersonnelList({
                           <Flags entry={p} />
                         </span>
                       </span>
-                      {p.kind === "ensemble" && p.sections.length > 0 && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-expanded={open === p.id}
-                          onClick={() => setOpen(open === p.id ? null : p.id)}
-                        >
-                          {open === p.id ? "Hide" : "Breakdown"}
-                        </Button>
-                      )}
+                      {/* A disclosure for an ensemble's sections (#660), its place kept on every
+                          row so each lines up with the next. */}
+                      <span className="flex size-7 shrink-0 items-center justify-center">
+                        {p.kind === "ensemble" && p.sections.length > 0 && (
+                          <Button
+                            variant="ghost"
+                            size="iconSm"
+                            aria-expanded={open === p.id}
+                            aria-label={`Sections of ${p.name}`}
+                            onClick={() => setOpen(open === p.id ? null : p.id)}
+                          >
+                            <Icon
+                              name="chevronDown"
+                              size={14}
+                              className={cn("transition-transform", open === p.id && "rotate-180")}
+                            />
+                          </Button>
+                        )}
+                      </span>
                       {canEdit && (
                         <ActionMenu
                           label={p.name}
@@ -263,7 +307,8 @@ function PersonnelList({
 /** An ensemble's sections: how many, how they divide, and the players named so far. */
 function Breakdown({ entry }: { entry: Personnel }) {
   return (
-    <div className="rise-in mx-2 mb-2 rounded-panel border border-line bg-raised/30 p-3">
+    // Under the name, on the list's own ground, as a row's details are (#660).
+    <div className="rise-in mr-[76px] mb-2 ml-12 border-line border-l pl-3">
       <table className="w-full table-fixed text-[13px]">
         <caption className="sr-only">{entry.name}, by section</caption>
         <colgroup>
@@ -373,7 +418,8 @@ function EntryDialog({
       role: role.trim(),
       agreement,
       headphones,
-      link,
+      // An ensemble is many people, so never one member or guest (#660).
+      link: kind === "ensemble" ? null : link,
       seating: kind === "ensemble" ? seating.trim() : "",
       sections:
         kind === "ensemble"
@@ -421,7 +467,6 @@ function EntryDialog({
               autoFocus
               value={name}
               maxLength={120}
-              placeholder={kind === "ensemble" ? "Endless Hall Strings" : "Mira Solberg"}
               onChange={(e) => setName(e.target.value)}
             />
           </Field>
@@ -429,34 +474,36 @@ function EntryDialog({
             <Input
               value={role}
               maxLength={80}
-              placeholder={kind === "ensemble" ? "Strings" : "Conductor"}
+              placeholder="Optional"
               onChange={(e) => setRole(e.target.value)}
             />
           </Field>
         </div>
-        <Field
-          label="In Hekate"
-          hint="The member or guest this is, so they are one person throughout"
-        >
-          <Dropdown
-            variant="field"
-            value={linked ? `${linked.name} (${linked.kind})` : "Not linked"}
-            actions={[
-              { label: "Not linked", checked: link === null, onSelect: () => setLink(null) },
-              ...(people.length > 0 ? ["divider" as const] : []),
-              ...people.map((p) => ({
-                label: `${p.name} (${p.kind})`,
-                checked: p.kind === link?.kind && p.id === linkedId,
-                onSelect: () =>
-                  setLink(
-                    p.kind === "member"
-                      ? { kind: "member", userId: p.id }
-                      : { kind: "guest", guestId: p.id },
-                  ),
-              })),
-            ]}
-          />
-        </Field>
+        {kind !== "ensemble" && (
+          <Field
+            label="In Hekate"
+            hint="The member or guest this is, so they are one person throughout"
+          >
+            <Dropdown
+              variant="field"
+              value={linked ? `${linked.name} (${linked.kind})` : "Not linked"}
+              actions={[
+                { label: "Not linked", checked: link === null, onSelect: () => setLink(null) },
+                ...(people.length > 0 ? ["divider" as const] : []),
+                ...people.map((p) => ({
+                  label: `${p.name} (${p.kind})`,
+                  checked: p.kind === link?.kind && p.id === linkedId,
+                  onSelect: () =>
+                    setLink(
+                      p.kind === "member"
+                        ? { kind: "member", userId: p.id }
+                        : { kind: "guest", guestId: p.id },
+                    ),
+                })),
+              ]}
+            />
+          </Field>
+        )}
         <div className="flex flex-wrap gap-x-5 gap-y-2">
           <Choice checked={agreement} onChange={(e) => setAgreement(e.target.checked)}>
             Session agreement signed
@@ -480,7 +527,6 @@ function EntryDialog({
                       <Input
                         value={s.name}
                         maxLength={60}
-                        placeholder="Violin I"
                         onChange={(e) => edit(s.key, { name: e.target.value })}
                       />
                     </Field>
@@ -495,7 +541,7 @@ function EntryDialog({
                       <Input
                         value={s.divisi}
                         maxLength={40}
-                        placeholder="2 + 2"
+                        placeholder="None"
                         onChange={(e) => edit(s.key, { divisi: e.target.value })}
                       />
                     </Field>
@@ -599,7 +645,7 @@ function EntryDialog({
               <Input
                 value={seating}
                 maxLength={400}
-                placeholder="Antiphonal violins; basses behind the cellos"
+                placeholder="Optional"
                 onChange={(e) => setSeating(e.target.value)}
               />
             </Field>

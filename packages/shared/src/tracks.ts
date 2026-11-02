@@ -146,7 +146,8 @@ export type VersionRefusal =
   | { check: "measuring"; file: string; message: string }
   | { check: "edl"; message: string }
   | { check: "edl_unreadable"; file: string; message: string }
-  | { check: "edl_too_long"; file: string; end: number; duration: number; message: string };
+  | { check: "edl_too_long"; file: string; end: number; duration: number; message: string }
+  | { check: "rule"; rule: string; file: string; message: string };
 
 const dB = (n: number) => `${n > 0 ? "+" : ""}${n.toFixed(1).replace("-", "\u2212")}`;
 
