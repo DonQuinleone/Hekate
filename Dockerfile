@@ -8,7 +8,7 @@
 FROM node:26-alpine@sha256:40cd011b55415bc894e45b02fdd5a5dfde056921b7d23a64c74f80497af48797 AS base
 ENV PNPM_HOME=/pnpm PATH=/pnpm:$PATH
 # Node 26 no longer ships Corepack; install the pnpm version package.json pins.
-RUN npm install -g pnpm@12.11.2 && npm cache clean --force
+RUN npm install -g pnpm@12.16.1 && npm cache clean --force
 WORKDIR /app
 
 # Build the web app with the full workspace.
