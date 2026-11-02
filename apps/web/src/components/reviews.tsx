@@ -102,16 +102,23 @@ export function ProjectReviews({ projectId }: { projectId: string }) {
                             "grid-cols-[auto_minmax(0,1fr)_auto] @3xl/app:grid-cols-[auto_minmax(0,1fr)_140px_170px]",
                           )}
                         >
-                          <StatusDot state={reviewState(review)} />
+                          {/* As wide as a share's link mark, so every title starts in one line. */}
+                          <span className="flex w-3.5 justify-center">
+                            <StatusDot state={reviewState(review)} />
+                          </span>
                           <span className="min-w-0">
                             <span className="block truncate text-[14px] font-medium text-ink">
                               {review.title}
                             </span>
                             <span className="block truncate text-[13px] text-ink-3">
                               {reviewKindNames[review.kind]}
-                              {review.youReview && review.status === "open"
-                                ? " · you are a reviewer"
-                                : ""}
+                              {review.youReview && review.status === "open" && (
+                                // On a phone the line keeps what it most needs: how many answered.
+                                <span className="hidden @3xl/app:inline">
+                                  {" "}
+                                  · you are a reviewer
+                                </span>
+                              )}
                               <span className="@3xl/app:hidden"> · {standing(review)}</span>
                             </span>
                           </span>
