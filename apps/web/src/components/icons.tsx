@@ -88,6 +88,9 @@ import {
   Server,
   Settings,
   Shield,
+  SignalHigh,
+  SignalLow,
+  SignalMedium,
   SkipBack,
   SlidersHorizontal,
   Split,
@@ -235,6 +238,10 @@ const icons = {
   instance: Server,
   // A place a project records in (#648); `pin` is for pinning.
   venue: MapPin,
+  /** A task's priority, as bars rising with it (Linear's way), never a chevron or a list. */
+  priorityLow: SignalLow,
+  priorityNormal: SignalMedium,
+  priorityHigh: SignalHigh,
 } as const satisfies Record<string, LucideIcon>;
 
 /**

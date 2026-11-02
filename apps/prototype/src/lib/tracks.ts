@@ -50,7 +50,7 @@ export function trackState(track: Track, project: Project): TrackState {
       ? roleOf(stage.participants, project)
       : [];
   const label = !version
-    ? "No version"
+    ? "No version yet"
     : version.state === "pending"
       ? "Analysing"
       : version.state === "failed"

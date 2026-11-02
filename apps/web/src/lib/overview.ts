@@ -11,7 +11,7 @@ import type { MyReview, ProjectOverview } from "./queries";
 
 /** What a section is called on the page and in the customise menu. */
 export const sectionNames = (noun: "Tracks" | "Deliverables"): Record<OverviewSection, string> => ({
-  attention: "Needs attention",
+  attention: "Needs you",
   stats: "At a glance",
   tracks: noun,
   reviews: "In review",
@@ -83,13 +83,17 @@ export function overviewAttention(
       };
     }),
     ...overview.overdue
-      .filter((r) => !yours.has(r.id))
+      // Late by the reader's own clock, so the count and the words beside it agree.
+      .filter((r) => !yours.has(r.id) && (!r.dueAt || dueIn(r.dueAt, now).days < 0))
       .map(
         (r): OverviewAttention => ({
           id: `overdue-${r.id}`,
           kind: "overdue",
           title: r.title,
-          why: r.waitingOn.length ? `Overdue, waiting on ${firstNames(r.waitingOn)}` : "Overdue",
+          // How late is said once, beside it.
+          why: r.waitingOn.length
+            ? `Waiting on ${firstNames(r.waitingOn)}`
+            : "Everyone has answered; it is still open",
           when: r.dueAt ? dueIn(r.dueAt, now).label : undefined,
           urgent: true,
           targetId: r.id,
@@ -121,10 +125,10 @@ export function overviewAttention(
 /** How a track's standing reads, and the dot that goes with it. */
 /** A track's state in its project's words (#16): a deliverable has no cuts yet. */
 export const trackStateLabel = (state: TrackState, profile?: ProjectProfile) =>
-  state === "no_version" ? `No ${itemWords(profile).versions} yet` : trackStateCopy[state].label;
+  state === "no_version" ? `No ${itemWords(profile).version} yet` : trackStateCopy[state].label;
 
 export const trackStateCopy: Record<TrackState, { label: string; dot: ReviewState | null }> = {
-  no_version: { label: "No versions yet", dot: null },
+  no_version: { label: "No version yet", dot: null },
   not_reviewed: { label: "Not in review", dot: null },
   in_review: { label: "In review", dot: "in_review" },
   changes_requested: { label: "Changes requested", dot: "changes_requested" },

@@ -32,16 +32,21 @@ export function ColumnsMenu({
   names,
   onChange,
   shown: fitted,
+  unavailable = [],
 }: {
   columns: FileColumnLayout;
   names: Record<FileColumn, string>;
   onChange: (columns: FileColumnLayout) => void;
   /** The columns that fit the list now; the others chosen are left off for lack of room. */
   shown?: FileColumn[];
+  /** Columns no row here can fill (Status without tracks), left out of the menu. */
+  unavailable?: FileColumn[];
 }) {
   const [open, setOpen, box] = usePopover();
   const shown = columns.map((c) => c.id);
-  const listed = [...shown, ...fileColumns.filter((id) => !shown.includes(id))];
+  const listed = [...shown, ...fileColumns.filter((id) => !shown.includes(id))].filter(
+    (id) => !unavailable.includes(id),
+  );
   return (
     <div ref={box} className="relative flex justify-end">
       <button
@@ -70,16 +75,24 @@ export function ColumnsMenu({
           <ul className="m-0 mt-1 flex list-none flex-col p-0">
             {listed.map((id) => {
               const on = shown.includes(id);
+              // Chosen, but left off for room: shown as off, as it is, until there is room.
+              const noRoom = on && fitted !== undefined && !fitted.includes(id);
               return (
                 <li key={id} className="flex h-8 items-center gap-1 rounded-control px-2 text-ink">
                   <Switch
                     label={names[id]}
-                    checked={on}
+                    checked={on && !noRoom}
+                    disabled={noRoom}
                     onChange={() => onChange(toggleColumn(columns, id))}
                   />
                   <span className="ml-1.5 min-w-0 flex-1 truncate">{names[id]}</span>
-                  {on && fitted && !fitted.includes(id) && (
-                    <span className="shrink-0 text-[11px] text-ink-3">No room</span>
+                  {noRoom && (
+                    <span
+                      className="shrink-0 text-[11px] text-ink-3"
+                      title="Move it earlier to show it"
+                    >
+                      No room
+                    </span>
                   )}
                   {on && (
                     <>

@@ -2467,6 +2467,21 @@ Some organisations must keep their material in storage they own, and a workspace
 - **The tray.** At the pane's foot on the right, as Frame.io, Dropbox and Google Drive keep theirs: each file's name, its progress and size, Cancel, and Retry once it has failed; folded to one line with the count and how far along by bytes (`traySummary`, tested); a file that arrives is marked done a moment and leaves, and the tray closes once nothing is left. On a phone it sits above the bottom bar.
 - **What follows.** The other upload dialogs (a new version, a variant, the audio dialog, take import) still send their own files while open, since each goes on to make something of them; they can hand their files to the queue (`useUploadQueue().send`) as their pages change. The prototype's files page shows its uploads in place and follows with them.
 
+## 320. Status means where a track stands in its workflow, on every page
+
+#558. Files and Overview headed a track's review state "Status" ("In review"), while the board and the timeline showed the status its workflow gave it ("Mastered"): one word for two facts, and the same track read two ways.
+
+- **Status is the workflow's,** as `docs/domain.md` defines it, wherever a column or a line says so: Files, Overview, the board and the timeline. How its review stands is the dot beside it, and its words on hover and for screen readers, never a second status. The web reads each track's status from the board's own query, which those pages share, so nothing new crosses the API.
+- **One wording for nothing yet.** A track with no version has a dash under Status and reads "No version yet" (a deliverable "No cut yet") wherever that is said: Versions, the board's first column (its id stays "No version", which people's hidden columns hold), the overview. A folder has a dash under Versions; it holds versions but has none.
+- **A column only where it can be filled.** Where no row in view can have a status (a general project's files, none being prepared), Status leaves the list and the Columns menu; the member's chosen columns are kept as they are, for the projects where it applies.
+
+## 321. Files that name the same track are proposed as its versions
+
+#631. Uploading "Pine Apple Rag - V1 mix.wav" and "Pine Apple Rag - V2 mix.wav" made two tracks, named with their suffixes.
+
+- **A track's name leaves out what says which version or mix a file is** (`trackNameFrom` in `apps/web/src/lib/upload-plan.ts`): a version mark (V1, ver 2, version 3) cuts the name where it stands; treatment words ("mix", "final", "dry mix", "master") and a plain trailing number come off the end; a catalogue or part number ("No 5", "Op 10", "Reel 2") is the piece's own and stays.
+- **Grouped by the name they give.** Several files that all name one track are proposed as that track with a version each; where some share a name and others do not, as a track for each name; otherwise a track each, as before. Versions are numbered in the order the names give where each gives a different one, else in name order. The choice is the person's: *A track each*, *A track for each name* and *One track* stay on offer. All of it is pure and tested.
+
 ## 330. The status menu offers what a person decides, named by where it leads
 
 #566. A track's status menu offered every outcome of the step it waited at, by its raw name: "Done" beside "Due date passed". The second is an event the clock raises; choosing it by hand faked a deadline, and neither said where the track would go next.

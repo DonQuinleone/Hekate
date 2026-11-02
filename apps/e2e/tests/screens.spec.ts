@@ -234,7 +234,7 @@ const screens: Screen[] = [
   {
     name: "project-overview",
     path: (s) => `/projects/${s.musicProjectId}`,
-    ready: "main section[aria-label='Needs attention'] li",
+    ready: "main section[aria-label='Needs you'] li",
   },
   {
     name: "project-overview-video",
@@ -1832,7 +1832,7 @@ test("sidebar-collapsed-switcher", async ({ page }, info) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.addInitScript(() => localStorage.setItem("hekate.sidebar", "collapsed"));
   await page.goto(`/projects/${seeded().musicProjectId}`);
-  await settle(page, "main section[aria-label='Needs attention'] li");
+  await settle(page, "main section[aria-label='Needs you'] li");
   await page.getByRole("button", { name: /Switch project/ }).click();
   const menu = page.getByRole("menu", { name: "Switch project" });
   await menu.getByRole("menuitemradio").last().hover({ timeout: 5_000 });
@@ -1961,7 +1961,7 @@ test("project-people-permissions", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/people`);
   await settle(page, "main >> text=Ines Arlow");
   await page.getByRole("button", { name: "Actions for Mira Solberg" }).click();
-  await page.getByRole("menuitem", { name: /Review permissions/ }).click();
+  await page.getByRole("menuitem", { name: /Permissions in reviews/ }).click();
   const dialog = page.getByRole("dialog", { name: "Mira Solberg in this project's reviews" });
   await expect(dialog.getByRole("button", { name: "Save" })).toBeVisible();
   await saveScreen(page, "project-people-permissions");
@@ -4156,20 +4156,30 @@ test("files-upload-audio", async ({ page }) => {
     ),
   );
   await settle(page, "[role=dialog] ul[aria-label='Files chosen'] li");
-  // Three choices above the files; a new track by default, each named from its file.
+  // Three choices above the files; a new track by default, and the two versions of one
+  // piece proposed as one track (#631), named without their version marks.
   await expect(dialog.getByRole("radio", { name: "New track" })).toBeChecked();
-  await expect(dialog.getByLabel("Track name for Elite Syncopations.wav")).toHaveValue(
-    "Elite Syncopations",
-  );
-  await expect(dialog).toContainText("3 files become 3 tracks");
-  await expect(dialog.getByRole("button", { name: "Make 3 tracks" })).toBeEnabled();
+  await expect(
+    dialog.getByRole("radio", { name: "A track for each name, 2 tracks" }),
+  ).toBeChecked();
+  const named = dialog.getByRole("textbox", { name: "Track" });
+  await expect(named).toHaveCount(2);
+  await expect(named.nth(0)).toHaveValue("Pine Apple Rag");
+  await expect(named.nth(1)).toHaveValue("Elite Syncopations");
+  await expect(dialog).toContainText("Version 2 of Pine Apple Rag");
+  await expect(dialog).toContainText("3 files become 2 tracks");
+  await expect(dialog.getByRole("button", { name: "Make 2 tracks" })).toBeEnabled();
   await saveScreen(page, "files-upload-audio");
   await checkScreen(page);
-  // One track with a version per file, in name order.
+  // A track each.
+  await dialog.getByRole("radio", { name: "A track each" }).check();
+  await expect(dialog).toContainText("3 files become 3 tracks");
+  await expect(dialog.getByRole("button", { name: "Make 3 tracks" })).toBeEnabled();
+  // One track with a version per file, in order.
   await dialog.getByRole("radio", { name: "One track, 3 versions" }).check();
   await expect(dialog).toContainText("3 files become versions 1 to 3 of one track");
-  // Nothing the three names share: the first file's name, to be typed over.
-  await expect(dialog.getByLabel("Track name")).toHaveValue("Pine Apple Rag - V1 mix");
+  // Nothing the three names share: the first file's track, to be typed over.
+  await expect(dialog.getByRole("textbox", { name: "Track" })).toHaveValue("Pine Apple Rag");
   await expect(dialog.getByRole("button", { name: "Make the track" })).toBeEnabled();
   // A new version of a track that exists: each file a variant, one primary.
   await dialog.getByRole("radio", { name: "New version of" }).check();
@@ -4518,7 +4528,7 @@ test("project-board", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/board`);
   await settle(page, "main >> text=Maple Leaf Rag");
-  await expect(page.getByRole("region", { name: "No version" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "No version yet" })).toBeVisible();
   await saveScreen(page, "project-board");
   await checkScreen(page);
 });
@@ -4568,7 +4578,8 @@ test("project-board-default", async ({ page }) => {
 test("project-timeline", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/board?view=timeline`);
-  await settle(page, "main >> text=Maple Leaf Rag");
+  // In the grid at desktop width, in the list that stands for it on a phone (#560).
+  await settle(page, "main >> text=Maple Leaf Rag >> visible=true");
   await expect(page.getByRole("button", { name: "Timeline", pressed: true })).toBeVisible();
   await saveScreen(page, "project-timeline");
   await checkScreen(page);
@@ -4604,7 +4615,8 @@ test("project-calendar-entry", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/board?view=calendar`);
   await settle(page, 'main >> a:visible:has-text("Re-export the stems at 96 kHz")');
   await page.getByRole("button", { name: "New entry" }).click();
-  const dialog = page.getByRole("dialog", { name: "New entry" });
+  // Titled by its kind, which the dialog changes as it is chosen.
+  const dialog = page.getByRole("dialog", { name: /^New / });
   await expect(dialog.getByRole("button", { name: "Create entry" })).toBeDisabled();
   await dialog.getByLabel("Title").fill("Day 4");
   await dialog.getByRole("button", { name: "Session", exact: true }).click();
@@ -4618,12 +4630,13 @@ test("project-calendar-entry", async ({ page }) => {
 test("project-timeline-entry", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/board?view=timeline`);
-  await settle(page, "main >> text=Listening meeting with the label");
+  await settle(page, "main >> text=Listening meeting with the label >> visible=true");
   await page
-    .getByRole("button", { name: /^Listening meeting with the label, / })
+    .getByRole("button", { name: /^Listening meeting with the label/ })
+    .filter({ visible: true })
     .first()
     .click();
-  const dialog = page.getByRole("dialog", { name: "Entry" });
+  const dialog = page.getByRole("dialog", { name: "Edit meeting" });
   await expect(dialog.getByRole("button", { name: "Remove…", exact: true })).toBeVisible();
   await saveScreen(page, "project-timeline-entry");
   await checkScreen(page);
@@ -4651,9 +4664,9 @@ test("project-upload-request", async ({ page }) => {
   await expect(dialog.getByText("String stems")).toBeVisible();
   await saveScreen(page, "project-upload-request");
   await checkScreen(page);
-  // To a track (#425): each file sent becomes its next version, as the form says.
+  // To a track (#425): each file sent becomes its next version, as the description says.
   await dialog.getByRole("combobox", { name: "Into" }).selectOption({ label: "Maple Leaf Rag" });
-  await expect(dialog.getByText("becomes the next version of Maple Leaf Rag")).toBeVisible();
+  await expect(dialog.getByRole("combobox", { name: "Into" })).toHaveValue(/^track:/);
   await expect(dialog.getByText("Next mix")).toBeVisible();
   await saveScreen(page, "project-upload-request-track");
   await checkScreen(page);

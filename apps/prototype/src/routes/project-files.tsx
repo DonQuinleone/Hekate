@@ -525,33 +525,36 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
         search={{ view: "takes" }}
       />,
     );
-  if (!s.version && canUpload)
-    quick.push(
-      <Quick
-        key="add"
-        icon="upload"
-        label="Add the first version"
-        to="/tracks/$trackId"
-        params={{ trackId: track.id }}
-        search={{ view: "versions" }}
-      />,
-    );
-  else if (s.version?.state === "failed" && canUpload)
-    quick.push(<Quick key="replace" icon="refresh" label="Replace the file" onClick={() => {}} />);
-  else if (s.version?.status === "Approved" && viewer.tools(project.id).has("download"))
-    quick.push(<Quick key="deliver" icon="download" label="Deliver" onClick={() => {}} />);
-  else if (file && canRequest && !s.review)
-    quick.push(
-      <Quick
-        key="review"
-        icon="review"
-        label="Request a review"
-        onClick={() =>
-          navigate({ to: "/reviews/new", search: { project: project.id, item: track.id } })
-        }
-      />,
-    );
+  // What a track most wants next is in its menu: the hover keeps the same actions on every row.
+  const next: MenuAction[] =
+    !s.version && canUpload
+      ? [
+          {
+            label: "Add the first version",
+            onSelect: () =>
+              navigate({
+                to: "/tracks/$trackId",
+                params: { trackId: track.id },
+                search: { view: "versions" },
+              }),
+          },
+        ]
+      : s.version?.state === "failed" && canUpload
+        ? [{ label: "Replace the file…", onSelect: () => {} }]
+        : s.version?.status === "Approved" && viewer.tools(project.id).has("download")
+          ? [{ label: "Deliver…", onSelect: () => {} }]
+          : [];
   const organising: (MenuAction | "divider")[] = [
+    ...next,
+    ...(file && canRequest
+      ? [
+          {
+            label: "Request a review…",
+            onSelect: () =>
+              navigate({ to: "/reviews/new", search: { project: project.id, item: track.id } }),
+          },
+        ]
+      : []),
     ...(file
       ? [
           {
@@ -570,6 +573,7 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
     { label: "Rename", hint: "F2", onSelect: () => row.rename() },
     { label: "Move to…", onSelect: () => row.move() },
     { label: "Cut", hint: "⌘X", onSelect: () => row.cut() },
+    { label: "Paste", hint: "Nothing cut", disabled: true, onSelect: () => {} },
     { label: "Link a score…", onSelect: () => {} },
     ...(viewer.can(project.id, "delete")
       ? ["divider" as const, { label: "Delete…", danger: true, onSelect: () => {} }]
@@ -610,16 +614,23 @@ function TrackRow({ track, project }: { track: Track; project: Project }) {
           </span>
         </Link>
       )}
+      {/* Its workflow status, the same word as on the board; a dash until it has a version. */}
       <span className="hidden items-center gap-2 text-[13px] text-ink-2 @3xl/app:flex">
-        <Dot state={s.dot} />
-        <span className="truncate">{s.label}</span>
+        {s.version ? (
+          <>
+            <Dot state={s.dot} />
+            <span className="truncate">{s.label}</span>
+          </>
+        ) : (
+          <span className="text-ink-3">—</span>
+        )}
       </span>
       <span className="tabular hidden truncate text-[13px] text-ink-3 @3xl/app:block">
         {s.version
           ? `V${s.version.number}${track.versions.length > 1 ? ` of ${track.versions.length}` : ""}${
               s.version.variants.length > 1 ? ` · ${s.version.variants.length} variants` : ""
             }`
-          : "—"}
+          : "No version yet"}
       </span>
       <span className="hidden items-center @3xl/app:flex">
         {s.waitingOn.length > 0 ? (
@@ -668,6 +679,7 @@ function FileRow({ file, project }: { file: File; project: Project }) {
           { label: "Rename", hint: "F2", onSelect: () => row.rename() },
           { label: "Move to…", onSelect: () => row.move() },
           { label: "Cut", hint: "⌘X", onSelect: () => row.cut() },
+          { label: "Paste", hint: "Nothing cut", disabled: true, onSelect: () => {} },
           { label: "Attach to a track…", onSelect: () => {} },
           { label: "Tags…", onSelect: () => {} },
           ...(viewer.can(project.id, "delete")
@@ -771,9 +783,15 @@ function FolderRow({ folder, project }: { folder: Folder; project: Project }) {
           { label: "Rename", hint: "F2", onSelect: () => row.rename() },
           { label: "Move to…", onSelect: () => row.move() },
           { label: "Cut", hint: "⌘X", onSelect: () => row.cut() },
-          ...(b && b.cut.size > 0 && !b.cut.has(folder.id)
-            ? [{ label: "Paste here", hint: "⌘V", onSelect: () => b.setCut(new Set()) }]
-            : []),
+          // Paste is always beside Cut, switched off while nothing is cut.
+          b && b.cut.size > 0 && !b.cut.has(folder.id)
+            ? { label: "Paste into this folder", hint: "⌘V", onSelect: () => b.setCut(new Set()) }
+            : {
+                label: "Paste into this folder",
+                hint: "Nothing cut",
+                disabled: true,
+                onSelect: () => {},
+              },
           { label: "Delete…", danger: true, onSelect: () => {} },
         ]
       : []),
@@ -801,10 +819,9 @@ function FolderRow({ folder, project }: { folder: Folder; project: Project }) {
           {folder.name}
         </Link>
       )}
+      {/* No status and no versions: a folder holds them, it has none of its own. */}
       <span className="hidden text-[13px] text-ink-3 @3xl/app:block">—</span>
-      <span className="hidden truncate text-[13px] text-ink-3 @3xl/app:block">
-        {folderCount(project.id, folder.id)}
-      </span>
+      <span className="hidden text-[13px] text-ink-3 @3xl/app:block">—</span>
       <span className="hidden @3xl/app:block" />
       <span className="hidden @3xl/app:block" />
       <span className="hidden @3xl/app:block" />
@@ -1231,7 +1248,7 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
   const [moving, setMoving] = useState<string | null>(null);
   /** What the selection bar and the context menu on a selected row both offer. */
   const selectionActions: (MenuAction | "divider")[] = [
-    { label: "Favourite", onSelect: () => {} },
+    { label: "Add to favourites", onSelect: () => {} },
     { label: "Mark as viewed", onSelect: () => {} },
     ...(organise
       ? [
@@ -1239,6 +1256,9 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
           { label: "Move to…", onSelect: () => setMoving(`Move ${picked.size} items`) },
           { label: "Tags…", onSelect: () => {} },
           { label: "Cut", hint: "⌘X", onSelect: () => setCut(new Set(picked)) },
+          cut.size > 0
+            ? { label: "Paste", hint: "⌘V", onSelect: () => setCut(new Set()) }
+            : { label: "Paste", hint: "Nothing cut", disabled: true, onSelect: () => {} },
         ]
       : []),
     ...(viewer.can(project.id, "delete")
@@ -1306,7 +1326,6 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
   const [choosing, setChoosing] = useState(false);
   // Where an upload request's files go: a folder, or a track's next version (#425).
   const [requestInto, setRequestInto] = useState("f-day2");
-  const requestTrack = allTracks.find((t) => t.id === requestInto);
   // The columns start at the top of the project, so an empty open folder still shows them.
   const empty =
     state === "empty" ||
@@ -1442,7 +1461,7 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
           <div className="flex flex-col gap-4">
             <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
               Name
-              <Input defaultValue="String stems" />
+              <Input placeholder="For example, mixes from the orchestra" />
             </label>
             <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
               What you want
@@ -1487,12 +1506,6 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
                 <DateField defaultValue="2026-10-20" />
               </label>
             </div>
-            {requestTrack && (
-              <p className="text-[12px] text-ink-3">
-                Each file sent becomes the next version of {requestTrack.name} once it has been
-                processed, and arrives beside the track.
-              </p>
-            )}
             <div className="grid gap-4 @md/app:grid-cols-2">
               <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
                 Password (optional)
@@ -1510,6 +1523,33 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
               </Link>
               . What arrives is listed here with who sent it.
             </p>
+            {/* What has been asked for already, each saying where it stands in words. */}
+            <section className="flex flex-col gap-1">
+              <h3 className="eyebrow">Requests in this project</h3>
+              <ul className="list-none p-0">
+                {(
+                  [
+                    ["String stems", "in_review", "Open until 28 October", "2 of 5 files"],
+                    ["Session photos", "cancelled", "Closed", "4 of 10 files"],
+                  ] as const
+                ).map(([name, dot, state, arrived]) => (
+                  <li
+                    key={name}
+                    className="flex items-center gap-3 border-t border-line py-2.5 text-[13px] first:border-t-0"
+                  >
+                    <Icon name="chevronRight" size={12} className="shrink-0 text-ink-3" />
+                    <span className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-ink">{name}</span>
+                      <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
+                        <Dot state={dot} />
+                        {state}
+                      </span>
+                    </span>
+                    <span className="tabular shrink-0 text-ink-3">{arrived}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
           </div>
         </Dialog>
       )}
@@ -1553,13 +1593,6 @@ export function Files({ project, folderId }: { project: Project; folderId: strin
             canUpload
               ? "Drop files anywhere on this page to upload them here, or use Upload. A track groups a piece's versions."
               : "Files appear here once someone uploads them."
-          }
-          action={
-            canUpload ? (
-              <Button variant="primary" onClick={() => setChoosing(true)}>
-                Upload
-              </Button>
-            ) : undefined
           }
         />
       ) : view === "columns" ? (

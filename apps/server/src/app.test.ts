@@ -13950,7 +13950,7 @@ describe.runIf(url)("api", () => {
           const approved = await read(await change(first.id, { status: "done" }, s.owner));
           expect(approved.events.map((e) => e.text).slice(-3)).toEqual([
             "marked it done, waiting for approval",
-            "added a note",
+            "commented",
             "approved and closed it",
           ]);
 
@@ -17310,7 +17310,7 @@ describe.runIf(url)("api", () => {
           const seen = await board(s.composer);
           expect(seen.workflows).toEqual(["Album review"]);
           expect(seen.columns.status.map((c) => c.name)).toEqual([
-            "No version",
+            "No version yet",
             "No status",
             "With conductor",
             "Editing",
@@ -17318,7 +17318,7 @@ describe.runIf(url)("api", () => {
           ]);
           expect(seen.columns.status.find((c) => c.name === "Approved")?.category).toBe("done");
           expect(seen.columns.stage.map((c) => c.name)).toEqual([
-            "No version",
+            "No version yet",
             "Not at a stage",
             "Conductor",
             "Engineer edits",
@@ -17375,7 +17375,7 @@ describe.runIf(url)("api", () => {
           expect((await getAs(statusesPath, outsiderBoard)).status).toBe(404);
           expect((await board(s.composer)).columns.status.map((c) => [c.name, c.category])).toEqual(
             [
-              ["No version", "todo"],
+              ["No version yet", "todo"],
               ["No status", "todo"],
               ["Editing", "todo"],
               ["On hold", "todo"],

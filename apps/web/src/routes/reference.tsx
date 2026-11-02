@@ -685,6 +685,16 @@ function Components() {
             onChange={setView}
           />
           <Segmented
+            label="Show"
+            labelled
+            value={view}
+            options={[
+              { value: "list", label: "Board", icon: <Icon name="board" size={14} /> },
+              { value: "grid", label: "Calendar", icon: <Icon name="calendar" size={14} /> },
+            ]}
+            onChange={setView}
+          />
+          <Segmented
             label="Preview as"
             value={mode}
             options={[

@@ -56,6 +56,7 @@ export function ReviewerPermissionsEditor({
   error,
   onSave,
   onCancel,
+  formId,
 }: {
   name: string;
   kind: ReviewKind;
@@ -72,6 +73,11 @@ export function ReviewerPermissionsEditor({
   error: string | null;
   onSave: (change: ReviewerPermissionsChange) => void;
   onCancel: () => void;
+  /**
+   * Inside a dialog that draws its own footer: the form takes this id for the footer's Save
+   * (`form={formId}`), and draws neither its card nor its buttons.
+   */
+  formId?: string;
 }) {
   const [p, setP] = useState(initial);
   // A share's people only listen and look (#138): no comments, decisions or invitations.
@@ -113,7 +119,12 @@ export function ReviewerPermissionsEditor({
     });
   };
   return (
-    <form onSubmit={submit} aria-label={`What ${name} may do`} className="flex flex-col gap-4">
+    <form
+      id={formId}
+      onSubmit={submit}
+      aria-label={`What ${name} may do`}
+      className="flex flex-col gap-4"
+    >
       {guest && !share && (
         <fieldset className="m-0 flex flex-col gap-2 border-0 p-0">
           <legend className="label mb-2">Comments they see</legend>
@@ -256,14 +267,16 @@ export function ReviewerPermissionsEditor({
         </p>
       )}
       {error && <p className="m-0 text-xs text-signal">{error}</p>}
-      <div className="flex justify-end gap-2">
-        <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancel
-        </Button>
-        <Button size="sm" variant="primary" type="submit" disabled={pending}>
-          Save
-        </Button>
-      </div>
+      {!formId && (
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="ghost" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button size="sm" variant="primary" type="submit" disabled={pending}>
+            Save
+          </Button>
+        </div>
+      )}
     </form>
   );
 }

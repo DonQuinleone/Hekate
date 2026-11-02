@@ -13,6 +13,7 @@ import { DateField } from "~/components/ui/date-field";
 import { Dialog } from "~/components/ui/dialog";
 import { Field } from "~/components/ui/field";
 import { Input, Select, Textarea } from "~/components/ui/input";
+import { type ReviewState, StatusDot } from "~/components/ui/status";
 import { cn } from "~/lib/cn";
 import { dayHere, formatDates } from "~/lib/locale";
 import {
@@ -31,11 +32,21 @@ const dayFormat = formatDates({ day: "numeric", month: "long" });
 /** The day `days` from today, where the member is. */
 const dayFromNow = (days: number) => dayHere(Date.now() + days * 86_400_000);
 
-const stateCopy: Record<UploadRequestState, string> = {
-  open: "Open",
-  full: "Full",
-  expired: "Lapsed",
-  closed: "Closed",
+/** Where a request stands, in words: never a lone word that reads as a button. */
+const stateWords = (request: Pick<UploadRequest, "state" | "expiresAt">) => {
+  const until = dayFormat.format(new Date(request.expiresAt));
+  return {
+    open: `Open until ${until}`,
+    full: "Every file has arrived",
+    expired: `Ended ${until}`,
+    closed: "Closed",
+  }[request.state];
+};
+const stateDot: Record<UploadRequestState, ReviewState> = {
+  open: "in_review",
+  full: "submitted",
+  expired: "cancelled",
+  closed: "cancelled",
 };
 
 /** A link shown once, to copy. */
@@ -92,12 +103,15 @@ function RequestRow({
           size={12}
           className={cn("shrink-0 text-ink-3 transition-transform", open && "rotate-90")}
         />
-        <span className="min-w-0 flex-1 truncate text-ink">{request.name}</span>
-        <span className="tabular shrink-0 text-ink-3">
-          {request.arrived} of {request.fileLimit}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-ink">{request.name}</span>
+          <span className="flex min-w-0 items-center gap-1.5 text-[12px] text-ink-3">
+            <StatusDot state={stateDot[request.state]} />
+            <span className="truncate">{stateWords(request)}</span>
+          </span>
         </span>
-        <span className={cn("w-14 shrink-0 text-right", live ? "text-ink-2" : "text-ink-3")}>
-          {stateCopy[request.state]}
+        <span className="tabular shrink-0 text-ink-3">
+          {request.arrived} of {request.fileLimit} {request.fileLimit === 1 ? "file" : "files"}
         </span>
       </button>
       {open && (
@@ -267,7 +281,7 @@ export function UploadRequestDialog({
               <Input
                 autoFocus
                 value={name}
-                placeholder="String stems"
+                placeholder="For example, mixes from the orchestra"
                 onChange={(e) => setName(e.target.value)}
               />
             </Field>
@@ -323,12 +337,6 @@ export function UploadRequestDialog({
                 />
               </Field>
             </div>
-            {intoTrack && (
-              <p className="m-0 text-[12px] text-ink-3">
-                Each file sent becomes the next {words.version} of {trackName(intoTrack)} once it
-                has been processed, and arrives beside the {words.track}.
-              </p>
-            )}
             <div className="grid gap-4 @md/app:grid-cols-2">
               <Field
                 label="Password (optional)"

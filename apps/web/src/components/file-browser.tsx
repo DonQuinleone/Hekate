@@ -67,6 +67,7 @@ import {
   fileColumnsQuery,
   meQuery,
   type ProjectFile,
+  projectBoardQuery,
   projectFilesQuery,
   projectFoldersQuery,
   projectMarksQuery,
@@ -258,8 +259,9 @@ function TagPills({ ids, tags }: { ids: string[]; tags: Map<string, Tag> }) {
 const dragType = "application/x-hekate-items";
 
 /**
- * A row's tags edited over the row, floating from its tag cell (or its name, when the list
- * shows no Tags column): the row stays as it is underneath, as Notion's cells do.
+ * A row's tags edited from the row, floating down from its tag cell (or its name, when the
+ * list shows no Tags column), as Notion's multi-select opens from its cell: the row stays in
+ * view and marked as the one being edited, and only the rows after it are covered.
  */
 function TagPopover({
   anchor,
@@ -285,7 +287,7 @@ function TagPopover({
     <Floating
       anchor={anchor}
       align="start"
-      gap={-2}
+      gap={6}
       role="dialog"
       aria-label={label}
       data-e2e-overlap
@@ -338,8 +340,13 @@ function Pick({
 
 function Comments({ n }: { n: number }) {
   return n > 0 ? (
-    <span className="flex items-center gap-0.5" title={`${n} open comments`}>
-      <Icon name="comment" size={11} /> {n}
+    <span
+      className="tabular flex shrink-0 items-center gap-0.5 text-[12px] text-ink-3"
+      title={`${n} open ${n === 1 ? "comment" : "comments"}`}
+    >
+      <Icon name="comment" size={11} aria-hidden="true" />
+      <span className="sr-only">, open comments: </span>
+      {n}
     </span>
   ) : null;
 }
@@ -377,6 +384,9 @@ export function FileBrowser({
     ...projectTracksQuery(projectId),
     enabled: withTracks,
   });
+  // Each track's workflow status, as the board and the timeline show it (#558).
+  const { data: board } = useQuery({ ...projectBoardQuery(projectId), enabled: withTracks });
+  const workflowStatus = new Map((board?.cards ?? []).map((c) => [c.id, c.status]));
   const { data: markList } = useQuery(projectMarksQuery(projectId));
   const { data: tagList } = useQuery(tagsQuery);
   const { data: me } = useQuery(meQuery);
@@ -412,8 +422,6 @@ export function FileBrowser({
     );
     watching.current.observe(box);
   }, []);
-  const columns = listWidth === null ? chosenColumns : fitColumns(chosenColumns, listWidth);
-  const gridVars = { "--cols": gridTemplate(columns) } as CSSProperties;
   const names = {
     ...columnNames,
     versions: withTracks ? capital(words.versions) : "Details",
@@ -503,6 +511,14 @@ export function FileBrowser({
     ? filterProject(all, allTracks, allFiles, filters, myId, marks)
     : favouritesFirst(itemsIn(all, allTracks, allFiles, folderId), marks);
   const order = items.map(markKey);
+  // Status is where a track stands in its workflow (docs/domain.md), or a file being prepared:
+  // without tracks, and with nothing being prepared, no row can have one, so the column goes.
+  const statusApplies = withTracks || items.some((i) => i.kind === "file" && processing(i.file));
+  const offeredColumns = statusApplies
+    ? chosenColumns
+    : chosenColumns.filter((c) => c.id !== "status");
+  const columns = listWidth === null ? offeredColumns : fitColumns(offeredColumns, listWidth);
+  const gridVars = { "--cols": gridTemplate(columns) } as CSSProperties;
   /**
    * The columns always start at the top of the project (as the Finder's do), with the open
    * folder's ancestors opened and the folder chosen; choosing another folder in them opens it.
@@ -899,6 +915,12 @@ export function FileBrowser({
     organise.deleteFile.isPending ||
     trackMutations.updateTrack.isPending;
 
+  /** Paste, offered beside Cut always: switched off, saying why, while nothing is cut. */
+  const pasteAction = (label: string, into: string | null): MenuAction =>
+    cut.size > 0
+      ? { label, hint: mod("V"), onSelect: () => paste(into) }
+      : { label, hint: "Nothing cut", disabled: true, onSelect: () => {} };
+
   /**
    * Everything that can be done to one item, in one list: the row's "…" menu and the context
    * menu on the row both show it, so neither falls behind the other.
@@ -934,9 +956,10 @@ export function FileBrowser({
           { label: "Rename", hint: "F2", onSelect: () => startRename(item) },
           { label: "Move to…", onSelect: () => setMoving([item]) },
           { label: "Cut", hint: mod("X"), onSelect: () => cutRows([key]) },
-          ...(item.kind === "folder" && cut.size > 0 && !cut.has(key)
-            ? [{ label: "Paste here", hint: mod("V"), onSelect: () => paste(item.folder.id) }]
-            : []),
+          // Paste is always beside Cut: into a folder on its own row, else here.
+          item.kind === "folder" && !cut.has(key)
+            ? pasteAction("Paste into this folder", item.folder.id)
+            : pasteAction("Paste", folderId),
           // The score beside its recordings, as its versions page links one (#52).
           ...(item.kind === "track" && !video
             ? [
@@ -968,8 +991,55 @@ export function FileBrowser({
               ]),
         ]
       : [];
+    // What a track most wants next is in its menu, not its hover, which keeps fixed actions.
+    const next =
+      item.kind === "track"
+        ? trackNext(item.track, {
+            upload: can("upload"),
+            organise: manage,
+            download: mayDownload,
+            requestReviews: can("request_reviews"),
+          })
+        : null;
+    const latestOf = item.kind === "track" ? item.track.versions.at(-1) : undefined;
+    const latestFileId = item.kind === "track" ? latestFile(item.track) : undefined;
+    const nextAction: MenuAction[] =
+      item.kind !== "track"
+        ? []
+        : next === "add"
+          ? [
+              {
+                label: `Add the first ${words.version}`,
+                onSelect: () =>
+                  void navigate({
+                    to: "/tracks/$trackId",
+                    params: { trackId: item.track.id },
+                    search: { view: "versions" },
+                  }),
+              },
+            ]
+          : next === "replace" && latestOf
+            ? [
+                {
+                  label: "Replace the file…",
+                  onSelect: () => setReplacing({ track: item.track, version: latestOf }),
+                },
+              ]
+            : next === "deliver" && latestFileId
+              ? [
+                  {
+                    label: "Deliver…",
+                    onSelect: () =>
+                      setDownloading({
+                        fileId: latestFileId,
+                        name: fileById.get(latestFileId)?.name ?? item.track.name,
+                      }),
+                  },
+                ]
+              : [];
     // Comparing as the track's page offers it; sharing as the project's reviews page does.
     const aboutItem: MenuAction[] = [
+      ...nextAction,
       ...(item.kind === "track" && live && item.track.versions.length > 1 && tool("compare")
         ? [
             {
@@ -985,6 +1055,19 @@ export function FileBrowser({
       // Takes are added from their track (#490), by those who edit takes and upload.
       ...(item.kind === "track" && live && !video && can("edit_takes") && can("upload")
         ? [{ label: "Add takes…", onSelect: () => setAddingTakes(item.track) }]
+        : []),
+      ...(item.kind === "track" && can("request_reviews") && latestFileId
+        ? [
+            {
+              label: "Request a review…",
+              onSelect: () =>
+                void navigate({
+                  to: "/projects/$projectId/reviews/new",
+                  params: { projectId },
+                  search: { item: `track:${item.track.id}` },
+                }),
+            },
+          ]
         : []),
       ...(can("request_reviews")
         ? [
@@ -1010,7 +1093,7 @@ export function FileBrowser({
     ];
     const about: (MenuAction | "divider")[] = aboutItem.length ? ["divider", ...aboutItem] : [];
     const recovering: (MenuAction | "divider")[] = failedFile
-      ? ["divider", { label: "Try preparing again", onSelect: () => retry.mutate(failedFile.id) }]
+      ? ["divider", { label: "Retry", onSelect: () => retry.mutate(failedFile.id) }]
       : [];
     return [...personal, ...about, ...recovering, ...organising];
   };
@@ -1030,7 +1113,7 @@ export function FileBrowser({
   const chosenFiles = chosen.flatMap((i) => (i.kind === "file" ? [i.file] : []));
   const selectionActions: (MenuAction | "divider")[] = [
     {
-      label: allHave(chosenKeys, marks.favourite) ? "Unfavourite" : "Favourite",
+      label: allHave(chosenKeys, marks.favourite) ? "Remove from favourites" : "Add to favourites",
       onSelect: () =>
         favour(
           chosen.map((i) => ({ kind: i.kind as MarkKind, id: i.id })),
@@ -1066,6 +1149,7 @@ export function FileBrowser({
           { label: "Move to…", onSelect: () => setMoving(chosen) },
           ...(chosenFiles.length > 0 ? [{ label: "Tags…", onSelect: () => setBulk("tags") }] : []),
           { label: "Cut", hint: mod("X"), onSelect: () => cutRows(chosenKeys) },
+          pasteAction("Paste", folderId),
         ]
       : []),
     ...(mayDelete &&
@@ -1252,12 +1336,19 @@ export function FileBrowser({
           >
             {itemName(item, versionLabel)}
           </span>
-          {marks.favourite.has(key) && (
-            <span title="Favourite" className="flex shrink-0 text-ink-3">
-              <Icon name="star" size={12} aria-hidden="true" />
+          {/* On a card the mark sits over the picture's corner, leaving the name its width. */}
+          {marks.favourite.has(key) && !compact && (
+            <span title="A favourite" className="flex shrink-0 text-ink-3">
+              <Icon name="star" size={12} fill="currentColor" aria-hidden="true" />
               <span className="sr-only">, a favourite</span>
             </span>
           )}
+          {/* Open threads beside the name, a mark of their own rather than in a date's column. */}
+          {compact ? null : item.kind === "track" ? (
+            <Comments n={trackComments(item.track)} />
+          ) : item.kind === "file" ? (
+            <Comments n={item.file.openComments ?? 0} />
+          ) : null}
           {!compact && item.kind === "file" && !columns.some((c) => c.id === "tags") && (
             <TagPills ids={item.file.tagIds ?? []} tags={tagById} />
           )}
@@ -1336,7 +1427,9 @@ export function FileBrowser({
   const cell = (item: Item, id: FileColumn): ReactNode => {
     if (item.kind === "folder") {
       if (id === "status") return "—";
-      if (id === "versions") return folderCount(all, allTracks, allFiles, item.folder.id);
+      // Among tracks the column counts versions, which a folder has none of.
+      if (id === "versions")
+        return withTracks ? "—" : folderCount(all, allTracks, allFiles, item.folder.id);
       return null;
     }
     if (item.kind === "track") {
@@ -1347,13 +1440,18 @@ export function FileBrowser({
         case "status": {
           // While its latest file is prepared, or after that failed, that is what it says.
           if (file && processing(file)) return statusOf(file);
-          const state = t.state ?? (t.versions.length ? "not_reviewed" : "no_version");
+          // Nothing to stand anywhere yet; the Versions column says "No version yet".
+          if (!t.versions.length) return "—";
+          // The status its workflow gave it, with how its review stands as the dot.
+          const state = t.state ?? "not_reviewed";
           const copy = trackStateCopy[state];
+          const status = workflowStatus.get(t.id) ?? null;
           return (
-            <>
+            <span className="flex min-w-0 items-center gap-2" title={copy.label}>
               {copy.dot && <StatusDot state={copy.dot} />}
-              <span className="truncate text-ink-2">{trackStateLabel(state, profile)}</span>
-            </>
+              <span className="sr-only">{copy.label}: </span>
+              <span className="truncate text-ink-2">{status ?? "—"}</span>
+            </span>
           );
         }
         case "versions":
@@ -1361,12 +1459,7 @@ export function FileBrowser({
         case "people":
           return t.waitingOn?.length ? <AvatarRow people={t.waitingOn} size={22} max={3} /> : "—";
         case "updated":
-          return (
-            <span className="tabular flex items-center gap-1.5">
-              {latest ? ago(latest.createdAt) : ""}
-              <Comments n={trackComments(t)} />
-            </span>
-          );
+          return <span className="tabular">{latest ? ago(latest.createdAt) : ""}</span>;
         default:
           return file ? fileCell(file, id) : null;
       }
@@ -1401,12 +1494,7 @@ export function FileBrowser({
             "—"
           );
         case "updated":
-          return (
-            <span className="tabular flex items-center gap-1.5">
-              {ago(f.createdAt)}
-              <Comments n={f.openComments ?? 0} />
-            </span>
-          );
+          return <span className="tabular">{ago(f.createdAt)}</span>;
         default:
           return fileCell(f, id);
       }
@@ -1431,14 +1519,19 @@ export function FileBrowser({
         <button
           type="button"
           data-tags
-          aria-label={names.length ? `Tags: ${names.join(", ")}. Edit` : "Add a tag"}
+          // Named by what it shows, so the visible tags are its name too (WCAG 2.5.3).
+          aria-label={names.length ? undefined : "Add a tag"}
           onClick={(event) =>
             setEditing({ id: f.id, mode: "tags", at: { current: event.currentTarget } })
           }
           className="-mx-1.5 flex h-7 min-w-0 max-w-full items-center rounded-control px-1.5 text-left transition-colors hover:bg-raised"
         >
           {names.length ? (
-            pills
+            <>
+              <span className="sr-only">Tags: </span>
+              {pills}
+              <span className="sr-only">, edit</span>
+            </>
           ) : (
             <span className="text-[12px] text-ink-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
               Add a tag
@@ -1453,19 +1546,23 @@ export function FileBrowser({
   const subOf = (item: Item) => {
     if (item.kind === "folder") return folderCount(all, allTracks, allFiles, item.folder.id);
     if (item.kind === "track") {
-      const state =
-        item.track.state ?? (item.track.versions.length ? "not_reviewed" : "no_version");
       const latest = item.track.versions.at(-1);
-      return `${trackStateLabel(state, profile)}${latest ? ` · ${versionLabel(latest.number)}` : ""}`;
+      if (!latest) return trackStateLabel("no_version", profile);
+      // Its workflow status, as the Status column shows it; how its review stands without one.
+      const status =
+        workflowStatus.get(item.track.id) ??
+        trackStateLabel(item.track.state ?? "not_reviewed", profile);
+      return `${status} · ${versionLabel(latest.number)}`;
     }
     return item.kind === "file" ? fileSummary(item.file) : undefined;
   };
 
   /**
    * A row's quick ways in, as the prototype has them: a track opens in the player, its
-   * versions and notes, and its takes; then the one thing it most wants next (its first
-   * version, a file to replace, delivering it once approved, or a review). A file opens, or
-   * downloads. Each for those who may, as the page it leads to decides.
+   * versions and notes, and its takes. They are the same on every row, each named in its
+   * tooltip; what a track most wants next (its first version, a file to replace, delivering
+   * it, a review) is in its menu instead, since an icon that changes meaning cannot be learnt.
+   * A file opens, or downloads. Each for those who may, as the page it leads to decides.
    */
   const quickActions = (item: Item): ReactNode[] => {
     const icon = (name: IconName) => <Icon name={name} size={14} />;
@@ -1496,7 +1593,6 @@ export function FileBrowser({
     }
     if (item.kind !== "track") return [];
     const t = item.track;
-    const latest = t.versions.at(-1);
     const fileId = latestFile(t);
     const out: ReactNode[] = [];
     if (fileId)
@@ -1540,60 +1636,6 @@ export function FileBrowser({
           {icon("take")}
         </Link>,
       );
-    const next = trackNext(t, {
-      upload: can("upload"),
-      organise: manage,
-      download: mayDownload,
-      requestReviews: can("request_reviews"),
-    });
-    if (next === "add") {
-      const first = `Add the first ${words.version}`;
-      out.push(
-        <Link
-          key="add"
-          to="/tracks/$trackId"
-          params={{ trackId: t.id }}
-          search={{ view: "versions" }}
-          aria-label={first}
-          title={first}
-          className={quickClass}
-        >
-          {icon("upload")}
-        </Link>,
-      );
-    } else if (next === "replace" && latest) {
-      out.push(
-        <Quick
-          key="replace"
-          icon="refresh"
-          label="Replace the file"
-          onClick={() => setReplacing({ track: t, version: latest })}
-        />,
-      );
-    } else if (next === "deliver" && fileId) {
-      out.push(
-        <Quick
-          key="deliver"
-          icon="download"
-          label="Deliver"
-          onClick={() => setDownloading({ fileId, name: fileById.get(fileId)?.name ?? t.name })}
-        />,
-      );
-    } else if (next === "review") {
-      out.push(
-        <Link
-          key="review"
-          to="/projects/$projectId/reviews/new"
-          params={{ projectId }}
-          search={{ item: `track:${t.id}` }}
-          aria-label="Request a review"
-          title="Request a review"
-          className={quickClass}
-        >
-          {icon("review")}
-        </Link>,
-      );
-    }
     return out;
   };
 
@@ -1661,6 +1703,8 @@ export function FileBrowser({
         className={cn(
           "group border-b border-line last:border-b-0 hover:bg-raised/40",
           selected.has(key) && "bg-raised/60",
+          // The row whose tags are open is marked, so the editor reads as its own.
+          floated && "bg-raised shadow-[inset_0_0_0_1px_var(--hk-edge)]",
           droppedOn(item) && "bg-raised shadow-[inset_0_0_0_1px_var(--hk-edge)]",
           item.kind === "track" &&
             aimed === item.track.id &&
@@ -1695,19 +1739,8 @@ export function FileBrowser({
     <section aria-label="Files" className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <nav aria-label="Folder path" className="flex min-w-0 items-center gap-1 text-[14px]">
-          {filtered ? (
-            <>
-              <button
-                type="button"
-                className="text-ink-3 hover:text-ink"
-                onClick={() => onOpenFolder(null)}
-              >
-                All files
-              </button>
-              <span className="text-edge">/</span>
-              <span className="font-medium text-ink">Filtered</span>
-            </>
-          ) : path.length === 0 ? null : (
+          {/* A filter is not a place: the chips below say what is shown, and clear it. */}
+          {filtered || path.length === 0 ? null : (
             <button
               type="button"
               className={cn(
@@ -1744,13 +1777,14 @@ export function FileBrowser({
           <span
             className={cn(
               "shrink-0 text-[13px] text-ink-2",
-              path.length > 0 || filtered ? "ml-2" : "",
+              path.length > 0 && !filtered ? "ml-2" : "",
             )}
           >
             Items<Count>{items.length}</Count>
           </span>
         </nav>
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
+        {/* Wrapped under the trail on a phone, it starts at the left rather than leaving a gap. */}
+        <div className="flex flex-wrap items-center gap-1.5 @3xl/app:ml-auto">
           <FilterMenu filters={filters} tags={tags} onChange={onFilter} />
           <Segmented
             label="View"
@@ -1951,6 +1985,7 @@ export function FileBrowser({
             files={allFiles}
             menu={(item) => menu(item, true)}
             editor={editor}
+            workflowStatus={workflowStatus}
           />
         ) : view !== "grid" ? (
           <Card>
@@ -1980,6 +2015,7 @@ export function FileBrowser({
               ))}
               <span />
               <ColumnsMenu
+                unavailable={statusApplies ? [] : ["status"]}
                 columns={chosenColumns}
                 shown={columns.map((c) => c.id)}
                 names={names}
@@ -2000,7 +2036,7 @@ export function FileBrowser({
                 item.kind === "folder"
                   ? folderCount(all, allTracks, allFiles, item.folder.id)
                   : item.kind === "track"
-                    ? trackStateLabel(item.track.state ?? "no_version", profile)
+                    ? subOf(item)
                     : item.kind === "file"
                       ? details(item.file)
                       : "";
@@ -2041,15 +2077,22 @@ export function FileBrowser({
                           : "opacity-0 focus-within:opacity-100 group-focus-within:opacity-100 @3xl/app:group-hover:opacity-100",
                       )}
                     />
-                  </span>
-                  <span className="flex min-w-0 items-start gap-1">
-                    <span className="min-w-0 flex-1">
-                      {open && editing?.mode === "rename"
-                        ? editor(item)
-                        : nameOf(item, undefined, true)}
-                      <span className="block truncate text-[12px] text-ink-3">{sub}</span>
+                    {/* The mark and the menu over the picture's corner, so the name has the card's width. */}
+                    <span className="absolute top-1 right-1 flex items-center gap-0.5">
+                      {marks.favourite.has(markKey(item)) && (
+                        <span title="A favourite" className="flex px-1 text-ink-3">
+                          <Icon name="star" size={12} fill="currentColor" aria-hidden="true" />
+                          <span className="sr-only">A favourite</span>
+                        </span>
+                      )}
+                      {!open && menu(item)}
                     </span>
-                    {!open && menu(item)}
+                  </span>
+                  <span className="min-w-0">
+                    {open && editing?.mode === "rename"
+                      ? editor(item)
+                      : nameOf(item, undefined, true)}
+                    <span className="block truncate text-[12px] text-ink-3">{sub}</span>
                   </span>
                   {open && editing?.mode !== "rename" && editor(item)}
                 </li>
@@ -2160,6 +2203,10 @@ function SelectionBar({
   tags: ReactNode;
   remove: () => void;
 }) {
+  const offered = actions.filter((a): a is MenuAction => a !== "divider" && !a.disabled);
+  const moves = offered.filter((a) => a.label === "Move to…" || a.danger);
+  const main = moves.length > 0 ? moves : offered.slice(0, 1);
+  const rest = offered.filter((a) => !main.includes(a));
   return (
     <div
       role="toolbar"
@@ -2184,19 +2231,27 @@ function SelectionBar({
       {error && <p className="m-0 px-1.5 text-[12px] text-signal">{error}</p>}
       <div className="flex flex-wrap items-center gap-1">
         <span className="tabular px-2 text-[13px] text-ink">{count} selected</span>
-        {actions.map((a) =>
-          a === "divider" ? null : (
-            <Button
-              key={a.label}
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={a.onSelect}
-              className={cn(a.danger && "text-signal hover:text-signal")}
-            >
-              {a.label}
-            </Button>
-          ),
+        {/* What can be done now; Paste joins once something is cut. */}
+        {offered.map((a) => (
+          <Button
+            key={a.label}
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={a.onSelect}
+            className={cn(
+              a.danger && "text-signal hover:text-signal",
+              !main.includes(a) && "hidden @3xl/app:inline-flex",
+            )}
+          >
+            {a.label}
+          </Button>
+        ))}
+        {/* On a phone the bar keeps to one line: its main actions, and the rest under "…". */}
+        {rest.length > 0 && (
+          <span className="@3xl/app:hidden">
+            <ActionMenu label="the selection" actions={rest} always />
+          </span>
         )}
         <button
           type="button"
@@ -2353,6 +2408,7 @@ function ColumnBrowser({
   files,
   menu,
   editor,
+  workflowStatus,
 }: {
   root: Item[];
   path: Item[];
@@ -2363,6 +2419,8 @@ function ColumnBrowser({
   files: ProjectFile[];
   menu: (item: Item) => ReactNode;
   editor: (item: Item) => ReactNode;
+  /** Each track's workflow status, as the list's Status column shows it. */
+  workflowStatus: Map<string, string | null>;
 }) {
   const { words, versionLabel, video } = useItemWords(tracks[0]?.projectId);
   // The path holds what was chosen; after a rename, move, delete or refresh, it follows the
@@ -2372,71 +2430,107 @@ function ColumnBrowser({
   const last = fresh.at(-1);
   const choose = (depth: number, item: Item) => onPath([...fresh.slice(0, depth), item]);
   const fileById = new Map(files.map((f) => [f.id, f]));
+  const previewing = last !== undefined && open(last) === null;
+  // On a phone, one column at a time, as the iOS Files app shows them: the deepest, or the
+  // preview of what is chosen in it, with a way back that names where it leads.
+  const phoneDepth = previewing ? fresh.length : columns.length - 1;
+  const backTo = phoneDepth - 1;
+  const nameAt = (depth: number) => {
+    const at = fresh[depth - 1];
+    return depth <= 0 || !at ? "All files" : itemName(at, versionLabel);
+  };
   return (
-    <Card className="scroll-quiet flex min-h-[420px] overflow-x-auto">
-      {columns.map((col, depth) => (
-        <ul
-          key={String(depth)}
-          aria-label={depth === 0 ? "Contents" : undefined}
-          className="m-0 flex w-[240px] shrink-0 list-none flex-col overflow-y-auto border-r border-line p-0 py-1"
-        >
-          {col.items.map((item) => {
-            const selected = col.selected?.id === item.id;
-            const common = { item, selected, onClick: () => choose(depth, item) };
-            if (item.kind === "folder")
-              return <ColumnRow key={item.id} {...common} name={item.folder.name} container />;
-            if (item.kind === "track") {
-              const state = item.track.state ?? "no_version";
-              const latest = item.track.versions.at(-1);
+    <div className="flex flex-col gap-2">
+      {phoneDepth > 0 && (
+        <div className="flex min-w-0 items-center gap-2 @3xl/app:hidden">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-2 min-w-0"
+            onClick={() => onPath(fresh.slice(0, backTo))}
+          >
+            <Icon name="chevronLeft" size={14} />
+            <span className="truncate">{nameAt(backTo)}</span>
+          </Button>
+          {!previewing && (
+            <span className="min-w-0 truncate text-[14px] font-medium text-ink">
+              {nameAt(phoneDepth)}
+            </span>
+          )}
+        </div>
+      )}
+      <Card className="scroll-quiet flex min-h-[420px] overflow-x-auto">
+        {columns.map((col, depth) => (
+          <ul
+            key={String(depth)}
+            aria-label={depth === 0 ? "Contents" : undefined}
+            className={cn(
+              "m-0 w-full shrink-0 list-none flex-col overflow-y-auto border-line p-0 py-1 @3xl/app:flex @3xl/app:w-[240px] @3xl/app:border-r",
+              depth === phoneDepth ? "flex" : "hidden",
+            )}
+          >
+            {col.items.map((item) => {
+              const selected = col.selected?.id === item.id;
+              const common = { item, selected, onClick: () => choose(depth, item) };
+              if (item.kind === "folder")
+                return <ColumnRow key={item.id} {...common} name={item.folder.name} container />;
+              if (item.kind === "track") {
+                const state = item.track.state ?? "no_version";
+                const latest = item.track.versions.at(-1);
+                return (
+                  <ColumnRow
+                    key={item.id}
+                    {...common}
+                    name={item.track.name}
+                    hint={
+                      latest
+                        ? `${workflowStatus.get(item.track.id) ?? trackStateLabel(state, video ? "video" : undefined)} · ${versionLabel(latest.number)}`
+                        : trackStateLabel("no_version", video ? "video" : undefined)
+                    }
+                    container={item.track.versions.length > 0}
+                  />
+                );
+              }
+              if (item.kind === "version")
+                return (
+                  <ColumnRow
+                    key={item.id}
+                    {...common}
+                    name={versionLabel(item.version.number)}
+                    hint={`${item.version.variants.length} ${item.version.variants.length === 1 ? words.variant : words.variants} · ${ago(item.version.createdAt)}`}
+                    container={false}
+                  />
+                );
               return (
                 <ColumnRow
                   key={item.id}
                   {...common}
-                  name={item.track.name}
-                  hint={`${trackStateLabel(state, video ? "video" : undefined)}${latest ? ` · ${versionLabel(latest.number)}` : ""}`}
-                  container={item.track.versions.length > 0}
-                />
-              );
-            }
-            if (item.kind === "version")
-              return (
-                <ColumnRow
-                  key={item.id}
-                  {...common}
-                  name={versionLabel(item.version.number)}
-                  hint={`${item.version.variants.length} ${item.version.variants.length === 1 ? words.variant : words.variants} · ${ago(item.version.createdAt)}`}
+                  name={item.file.name}
+                  hint={details(item.file)}
                   container={false}
                 />
               );
-            return (
-              <ColumnRow
-                key={item.id}
-                {...common}
-                name={item.file.name}
-                hint={details(item.file)}
-                container={false}
-              />
-            );
-          })}
-          {col.items.length === 0 && <li className="px-3 py-3 text-[12px] text-ink-3">Empty</li>}
-        </ul>
-      ))}
-      {last && open(last) === null ? (
-        <Preview
-          item={last}
-          folders={folders}
-          tracks={tracks}
-          files={files}
-          fileById={fileById}
-          menu={menu}
-          editor={editor}
-        />
-      ) : (
-        <div className="flex w-[280px] shrink-0 items-center justify-center p-4 text-center text-[12px] text-ink-3">
-          {last ? "Choose something inside" : "Choose something to see its details"}
-        </div>
-      )}
-    </Card>
+            })}
+            {col.items.length === 0 && <li className="px-3 py-3 text-[12px] text-ink-3">Empty</li>}
+          </ul>
+        ))}
+        {last && previewing ? (
+          <Preview
+            item={last}
+            folders={folders}
+            tracks={tracks}
+            files={files}
+            fileById={fileById}
+            menu={menu}
+            editor={editor}
+          />
+        ) : (
+          <div className="hidden w-[280px] shrink-0 items-center justify-center p-4 text-center text-[12px] text-ink-3 @3xl/app:flex">
+            {last ? "Choose something inside" : "Choose something to see its details"}
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }
 
@@ -2475,7 +2569,7 @@ function Preview({
     rows.push(["Holds", folderCount(folders, tracks, files, item.folder.id)]);
   if (item.kind === "track") {
     rows.push([
-      "Status",
+      "Review",
       trackStateLabel(item.track.state ?? "no_version", video ? "video" : undefined),
     ]);
     rows.push([capital(words.versions), String(item.track.versions.length)]);
@@ -2492,7 +2586,8 @@ function Preview({
     if (file.uploadedBy) rows.push(["Uploaded by", file.uploadedBy]);
   }
   return (
-    <div className="flex w-[280px] shrink-0 flex-col gap-4 p-4">
+    // As wide as it needs, from 280 to 440 pixels; on a phone, the whole width.
+    <div className="flex w-full min-w-0 shrink-0 flex-col gap-4 p-4 @3xl/app:w-auto @3xl/app:max-w-[440px] @3xl/app:min-w-[280px] @3xl/app:flex-1">
       <span className="flex h-[110px] items-center justify-center rounded-[6px] bg-sunken text-ink-3">
         <Icon name={file ? kindIcon[file.kind] : itemIcon(item)} size={28} />
       </span>
@@ -2512,8 +2607,9 @@ function Preview({
         ))}
       </dl>
       <div className="flex flex-wrap gap-1.5">
+        {/* Secondary: the view's one primary is the toolbar's Upload. */}
         {file && (
-          <Button variant="primary" size="sm" asChild>
+          <Button variant="secondary" size="sm" asChild>
             <Link to="/files/$fileId" params={{ fileId: file.id }}>
               Open
             </Link>
