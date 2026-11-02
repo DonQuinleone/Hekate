@@ -1581,7 +1581,8 @@ export function WorkflowCanvas({
         </aside>
       )}
 
-      {!inspectorOpen && allProblems.length > 0 && (
+      {/* Not while a notice or an Undo is shown, which it would sit over on a phone. */}
+      {!inspectorOpen && allProblems.length > 0 && !notice && !untidy && !removed && (
         <button
           type="button"
           onClick={() => {

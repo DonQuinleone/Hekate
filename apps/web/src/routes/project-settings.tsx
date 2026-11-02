@@ -726,13 +726,15 @@ function VisibleWatermark({
     <FoldingSection
       id="visible-watermark"
       title="Visible watermark"
-      intro="Laid over video in the player, and burned into each page, picture and download, in the viewer's own name."
+      intro="Over video in the player, and burned into each page, picture and download, in the viewer's name."
       summary={watermarkSummary(settings)}
       open={open}
       onToggle={onToggle}
     >
-      <div className="grid gap-5 px-4 py-4 @3xl/app:grid-cols-[minmax(0,1fr)_minmax(0,300px)] @3xl/app:gap-8">
-        <div className="flex min-w-0 flex-col gap-4">
+      {/* Its three fields in a row, the preview beside them as a thumbnail, as Stripe lays out a
+          branding setting: compact enough for the page to lead with it. */}
+      <div className="grid gap-5 px-4 py-4 @3xl/app:grid-cols-[minmax(0,1fr)_200px] @3xl/app:gap-6">
+        <div className="grid min-w-0 content-start gap-4 @xl/app:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6rem]">
           <Field label="Who it marks">
             <Select
               value={settings.scope}
@@ -759,7 +761,7 @@ function VisibleWatermark({
               ))}
             </Select>
           </Field>
-          <Field label="Strength" hint="10 to 80 per cent: faint enough to watch through.">
+          <Field label="Strength">
             <SavedInput
               key={settings.opacity}
               value={`${settings.opacity}%`}
@@ -773,11 +775,17 @@ function VisibleWatermark({
               className="tabular w-24"
             />
           </Field>
+          <p className="m-0 text-[12px] text-ink-3 @xl/app:col-span-3">
+            Strength runs from 10 to 80 per cent: faint enough to watch through.
+          </p>
         </div>
         <figure className="m-0 flex min-w-0 flex-col gap-1.5">
+          <figcaption className="text-[13px] text-ink-2">
+            {off ? "Preview: nothing is marked" : "Preview"}
+          </figcaption>
           {/* A frame stands in for the picture: dark in either theme, as a video is. */}
           <div
-            className="relative aspect-video w-full overflow-hidden rounded-panel"
+            className="relative aspect-video w-full max-w-[320px] overflow-hidden rounded-panel"
             style={{
               background:
                 "radial-gradient(120% 90% at 30% 20%, var(--hk-cover-video-lit), var(--hk-cover-video-deep) 70%)",
@@ -789,9 +797,6 @@ function VisibleWatermark({
               />
             )}
           </div>
-          <figcaption className="text-[12px] text-ink-3">
-            {off ? "Preview: nothing is marked." : "Preview, in your own name."}
-          </figcaption>
         </figure>
         {update.error && (
           <p role="alert" className="m-0 text-[13px] text-signal @3xl/app:col-span-2">

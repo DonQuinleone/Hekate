@@ -351,13 +351,13 @@ function Watermarks({ project }: { project: Project }) {
         key="watermark"
         id="visible-watermark"
         title="Visible watermark"
-        intro="Laid over video in the player, and burned into each page, picture and download, in the viewer's own name."
+        intro="Over video in the player, and burned into each page, picture and download, in the viewer's name."
         summary="Guests only · Bottom right · 35%"
         open={open}
         onToggle={() => setOpen(!open)}
       >
-        <div className="grid gap-5 px-4 py-4 @3xl/app:grid-cols-[minmax(0,1fr)_minmax(0,300px)] @3xl/app:gap-8">
-          <div className="flex min-w-0 flex-col gap-4">
+        <div className="grid gap-5 px-4 py-4 @3xl/app:grid-cols-[minmax(0,1fr)_200px] @3xl/app:gap-6">
+          <div className="grid min-w-0 content-start gap-4 @xl/app:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6rem]">
             <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
               Who it marks
               <Select defaultValue="guests">
@@ -377,19 +377,19 @@ function Watermarks({ project }: { project: Project }) {
             <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
               Strength
               <Input defaultValue="35%" className="w-24" />
-              <span className="text-[12px] text-ink-3">
-                10 to 80 per cent: faint enough to watch through.
-              </span>
             </label>
+            <p className="text-[12px] text-ink-3 @xl/app:col-span-3">
+              Strength runs from 10 to 80 per cent: faint enough to watch through.
+            </p>
           </div>
           <figure className="m-0 flex min-w-0 flex-col gap-1.5">
-            <div className="relative aspect-video w-full overflow-hidden rounded-panel bg-sunken">
+            <figcaption className="text-[13px] text-ink-2">Preview</figcaption>
+            <div className="relative aspect-video w-full max-w-[320px] overflow-hidden rounded-panel bg-sunken">
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_40%_30%,#3a2a24,#0b0b0d_70%)]" />
-              <span className="absolute right-3 bottom-2 text-[11px] tracking-[0.1em] text-paper/40">
-                Mira Solberg · Endless Hall Records · 14 Oct 2026
+              <span className="absolute right-2 bottom-1.5 text-[10px] tracking-[0.1em] text-paper/40">
+                Mira Solberg · Endless Hall Records
               </span>
             </div>
-            <figcaption className="text-[12px] text-ink-3">Preview, in your own name.</figcaption>
           </figure>
         </div>
       </FoldingSection>

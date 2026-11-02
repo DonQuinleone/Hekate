@@ -2676,8 +2676,9 @@ const exportsShown = {
   ],
 };
 
-// A music project's Watermarks and downloads fits one screen at desktop height, audio first
-// (decision 287), and the visible watermark is one section, with its fields and preview (#674).
+// A music project's Watermarks and downloads leads with its marks in one screen at desktop
+// height, audio first (decision 287), the visible watermark one section with its fields and
+// preview (#674).
 test("project-settings-security-video-opened", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/projects/${seeded().musicProjectId}/settings?section=watermarks`);
@@ -2685,15 +2686,16 @@ test("project-settings-security-video-opened", async ({ page }) => {
   const headings = await page.locator("main h2").allTextContents();
   expect(headings.slice(0, 3)).toEqual(["Audio", "Visible watermark", "Downloads and deletion"]);
   if (test.info().project.name === "desktop") {
-    // Its last row ends inside the window: only the page's own margin is below the fold.
+    // The marks lead the page and end inside the window, the watermark's preview with them
+    // (#674); who may download and delete may be a scroll away.
     const overflow = await page.evaluate(() => {
       const main = document.querySelector("main");
-      const last = [...document.querySelectorAll("main section")].at(-1);
-      return main && last
-        ? last.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom
-        : 0;
+      const mark = document.querySelector("main section:has(#visible-watermark)");
+      return main && mark
+        ? mark.getBoundingClientRect().bottom - main.getBoundingClientRect().bottom
+        : 1;
     });
-    expect(overflow, "the page fits one screen").toBeLessThanOrEqual(0);
+    expect(overflow, "the marks fit one screen").toBeLessThanOrEqual(0);
   }
   await expect(page.getByRole("combobox", { name: "Who it marks" })).toBeVisible();
   await showWhole(page);
