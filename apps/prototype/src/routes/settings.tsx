@@ -421,7 +421,7 @@ export function SettingsPage({
                     Amount
                   </th>
                   <th className="label w-28 px-2 py-2 font-normal @3xl/app:w-44">Status</th>
-                  <th className="w-16 px-4 py-2">
+                  <th className="w-20 py-2 pr-2.5 pl-2">
                     <span className="sr-only">Open</span>
                   </th>
                 </tr>
@@ -451,7 +451,7 @@ export function SettingsPage({
                         {st}
                       </span>
                     </td>
-                    <td className="px-4 py-row text-right">
+                    <td className="py-row pr-2.5 pl-2 text-right">
                       <Button variant="ghost" size="sm">
                         PDF
                       </Button>
