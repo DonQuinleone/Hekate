@@ -13,7 +13,7 @@ import {
   videoClock,
 } from "@hekate/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Checksum } from "~/components/checksum";
 import {
@@ -57,7 +57,7 @@ import { Segmented } from "~/components/ui/segmented";
 import { failureText, Loading } from "~/components/ui/states";
 import { cn } from "~/lib/cn";
 import { threadsOf } from "~/lib/comments";
-import { compareSources, previousCut } from "~/lib/compare";
+import { compareSources, cutAgainst, previousCut } from "~/lib/compare";
 import { editSegments } from "~/lib/edit-decisions";
 import { useFileMedia } from "~/lib/file-media";
 import { useListening } from "~/lib/listening-room";
@@ -229,7 +229,12 @@ function Playback({
     ...compareFamilyQuery(file.id),
     enabled: file.kind === "video" && Boolean(file.variant),
   });
-  const before = family ? previousCut(family, file.id, file.profile) : undefined;
+  // The cut chosen on the comparison page, where it came from there; else the one before.
+  const against = (useSearch({ strict: false }) as { against?: string }).against;
+  const before = family
+    ? ((against ? cutAgainst(family, file.id, against, file.profile) : undefined) ??
+      previousCut(family, file.id, file.profile))
+    : undefined;
   const cuts = before
     ? {
         ...before,

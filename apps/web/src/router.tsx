@@ -195,6 +195,8 @@ const fileSearchSchema = loopSearchSchema.extend({
   comment: z.uuid().optional().catch(undefined),
   /** A cut opened with the cut before it beside it (#569), from the deliverable's Compare. */
   cuts: z.enum(["wipe", "side"]).optional().catch(undefined),
+  /** The cut to set it against, as the comparison page chose it, instead of the one before. */
+  against: z.uuid().optional().catch(undefined),
 });
 const fileSearch = (
   search: Record<string, unknown>,
@@ -206,6 +208,7 @@ const fileSearch = (
   t?: number;
   comment?: string;
   cuts?: "wipe" | "side";
+  against?: string;
 } => fileSearchSchema.parse(search);
 
 /**

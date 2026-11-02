@@ -214,8 +214,11 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
             <Button variant="secondary" size="sm" asChild>
               <Link
                 to="/files/$fileId"
-                params={{ fileId: data.b.fileId }}
-                search={{ cuts: "side" }}
+                params={{ fileId: (data.a.number > data.b.number ? data.a : data.b).fileId }}
+                search={{
+                  cuts: "side",
+                  against: (data.a.number > data.b.number ? data.b : data.a).fileId,
+                }}
               >
                 <Icon name="compare" size={14} />
                 Compare the pictures
