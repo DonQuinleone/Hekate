@@ -365,7 +365,7 @@ const screens: Screen[] = [
   {
     name: "take",
     path: (s) => `/takes/${s.takeId}`,
-    ready: "main >> text=The summed mix.",
+    ready: "main [role=toolbar] button:has-text('Loop')",
   },
   {
     name: "track-takes",
