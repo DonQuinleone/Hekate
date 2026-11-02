@@ -842,10 +842,10 @@ function GuestAccount() {
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`${person.name}, account`}
         onClick={() => setOpen(!open)}
         className="flex items-center gap-2.5 rounded-control py-1 pr-1 pl-2 transition-colors hover:bg-raised"
       >
+        <span className="sr-only @3xl/app:hidden">{person.name}</span>
         <span className="hidden flex-col items-end leading-tight @3xl/app:flex">
           <span className="text-[13px] text-ink">{person.name}</span>
           <span className="text-[12px] text-ink-3">{organisation.name}</span>

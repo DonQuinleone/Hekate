@@ -409,7 +409,7 @@ const screens: Screen[] = [
   {
     name: "review-general",
     path: (s) => `/reviews/${s.signOffId}`,
-    ready: "text=Gate passed",
+    ready: "main >> text=Approved when",
   },
   { name: "review", path: (s) => `/reviews/${s.reviewId}`, ready: "h1:has-text('Album masters')" },
   // The review page in each of its states (#129).
@@ -421,12 +421,12 @@ const screens: Screen[] = [
   {
     name: "review-changes",
     path: (s) => `/reviews/${s.reviewStates.changes}`,
-    ready: "text=Gate not passed",
+    ready: "main ol[aria-label=Steps] >> text=Changes requested",
   },
   {
     name: "review-approved",
     path: (s) => `/reviews/${s.reviewStates.approved}`,
-    ready: "text=Gate passed",
+    ready: "main >> text=Approved when",
   },
   {
     name: "review-cancelled",
@@ -1810,7 +1810,7 @@ test("project-people-invite", async ({ page }) => {
   await dialog
     .getByRole("textbox", { name: "Email", exact: true })
     .fill("mira.solberg@example.test");
-  await dialog.getByRole("textbox", { name: /^Role/ }).fill("Conductor");
+  await dialog.getByRole("textbox", { name: /^Shown as/ }).fill("Conductor");
   await dialog.getByRole("combobox", { name: /^Group/ }).selectOption({ label: "Soloists" });
   await dialog.getByRole("textbox", { name: /^Note/ }).fill("Conducts the spring programme.");
   await expect(dialog.getByRole("button", { name: "Add reviewer" })).toBeEnabled();
@@ -3867,6 +3867,9 @@ test.describe("guest code", () => {
         values (gen_random_uuid(), ${workspace?.id ?? ""}, ${guest?.id ?? ""},
           ${createHash("sha256").update(token).digest("hex")}, now() + interval '1 day')`;
       await page.goto(`/guest/${token}`);
+      // The link greets its person first (#573); the code goes out only on their click.
+      await settle(page, "text=Opening your review");
+      await page.getByRole("button", { name: "Email me a code" }).click();
       await settle(page, "text=Check your email");
       await expect(page.getByText("m•••@example.test", { exact: false })).toBeVisible();
       await saveScreen(page, "guest-code");
@@ -3923,7 +3926,7 @@ test.describe("guest link", () => {
       expect(await spent()).not.toBeNull();
 
       // Signing out asks first, saying what follows.
-      await page.getByRole("button", { name: "Mira Solberg, account" }).click();
+      await page.getByRole("button", { name: /^Mira Solberg/ }).click();
       await page.getByRole("menuitem", { name: "Sign out…" }).click();
       const dialog = page.getByRole("dialog", { name: "Sign out?" });
       await expect(dialog.getByText("You will need a new link")).toBeVisible();

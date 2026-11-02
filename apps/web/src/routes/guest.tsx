@@ -52,7 +52,10 @@ function LinkGone({ brand = null }: { brand?: FrameBrand | null }) {
 
 /** What the link asks of its guest, as its arrival page says it: "review Album masters". */
 export function arrivalAsk(reviews: GuestArrival["reviews"]): string {
-  const [first, ...rest] = reviews;
+  // What asks something of them comes before what only shares.
+  const [first, ...rest] = [...reviews].sort(
+    (a, b) => Number(a.kind === "share") - Number(b.kind === "share"),
+  );
   if (!first) return "take part in a review";
   const verb = first.kind === "share" ? "look at" : "review";
   return rest.length === 0
@@ -251,10 +254,11 @@ function GuestAccount({ me }: { me: GuestMe }) {
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`${me.guest.name}, account`}
         onClick={() => setOpen(!open)}
         className="flex min-w-0 items-center gap-2.5 rounded-control py-1 pr-1 pl-2 text-left transition-colors hover:bg-raised"
       >
+        {/* Named by what it shows; on a phone, where only the avatar shows, by the name. */}
+        <span className="sr-only @3xl/app:hidden">{me.guest.name}</span>
         <span className="hidden min-w-0 flex-col items-end leading-tight @3xl/app:flex">
           <span className="truncate text-[13px] text-ink">{me.guest.name}</span>
           {me.organisation && (

@@ -356,14 +356,13 @@ function Reviewers({ review, onNotice }: { review: ReviewDetail; onNotice: (n: s
                           <Link
                             to={fileBase}
                             params={{ fileId: r.comments.fileId }}
-                            aria-label={`${r.comments.count} ${r.comments.count === 1 ? "comment" : "comments"} by ${r.name}`}
                             className="flex h-7 shrink-0 items-center gap-1.5 rounded-control px-2 text-[13px] text-ink-2 no-underline hover:bg-raised hover:text-ink"
                           >
                             <Icon name="comment" size={13} />
                             {r.comments.count}
                             {/* The count alone on a phone, where the name needs the room. */}
-                            <span className="hidden @3xl/app:inline">
-                              {r.comments.count === 1 ? "comment" : "comments"}
+                            <span className="sr-only @3xl/app:not-sr-only">
+                              {r.comments.count === 1 ? " comment" : " comments"}
                             </span>
                           </Link>
                         )}
