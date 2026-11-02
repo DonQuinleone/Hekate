@@ -10,6 +10,7 @@ import {
   slotMoment,
   slotStatus,
   slotTime,
+  takeLogSession,
 } from "./take-log";
 
 const take = (number: number, over: Partial<LoggedTake> = {}): LoggedTake => ({
@@ -102,5 +103,19 @@ describe("the take log's reckoning (#51)", () => {
     expect(new Date(slotMoment(null, "16:00", today) ?? "").getDate()).toBe(19);
     expect(slotMoment("2026-10-14", "")).toBeNull();
     expect(slotTime(null)).toBe("");
+  });
+});
+
+describe("the session Production's Take log opens (#648)", () => {
+  const s = (id: string, recordedOn: string | null) => ({ id, recordedOn });
+  it("opens today's, else the latest before today, else the soonest to come", () => {
+    const days = [s("d1", "2026-10-12"), s("d2", "2026-10-13"), s("d3", "2026-10-20")];
+    expect(takeLogSession(days, "2026-10-13")).toBe("d2");
+    expect(takeLogSession(days, "2026-10-15")).toBe("d2");
+    expect(takeLogSession(days, "2026-10-01")).toBe("d1");
+  });
+  it("opens the first undated session, and none without sessions", () => {
+    expect(takeLogSession([s("a", null), s("b", null)], "2026-10-13")).toBe("a");
+    expect(takeLogSession([], "2026-10-13")).toBeNull();
   });
 });

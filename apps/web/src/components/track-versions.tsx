@@ -67,6 +67,12 @@ const carryWords: Record<CarryChoice, string> = {
   wont_fix: "Won't fix",
 };
 
+/** The one choice every open thread has, or null where they differ. */
+export function carryAll(chosen: readonly CarryChoice[]): CarryChoice | null {
+  const first = chosen[0];
+  return first !== undefined && chosen.every((c) => c === first) ? first : null;
+}
+
 /** The edit decision list of a version being made: uploading, or already in the project. */
 interface Pick {
   key: string;
@@ -127,6 +133,8 @@ function NewVersion({
 }) {
   const can = useProjectCan(track.projectId);
   const { words, video } = useItemWords(track.projectId);
+  // Every version in this dialog named in full, as its title is: "Version 3", "Version 2".
+  const versionLabel = (n: number) => `${capital(words.version)} ${n}`;
   const { createVersion } = useTrackMutations(track.projectId);
   const { data: carry = [] } = useQuery(carryQuery(track.id));
   const { data: files = [] } = useQuery(projectFilesQuery(track.projectId));
@@ -140,6 +148,8 @@ function NewVersion({
   const [primary, setPrimary] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [choices, setChoices] = useState<Record<string, CarryChoice>>({});
+  /** Whether each open comment's choice is shown, under the one for them all. */
+  const [each, setEach] = useState(false);
   // Where its workflow starts again from (#25), for those who edit workflows: by default it
   // carries on where it is. The track's own workflows where it has any, else the project's.
   const mayRestart = can("edit_workflows");
@@ -198,7 +208,6 @@ function NewVersion({
       inputLabel={`${capital(words.version)} files`}
       listLabel={`Files of this ${words.version}`}
       prompt={`Drop the files of this ${words.version} here, or choose them`}
-      hint={`One file per ${words.variant}.`}
       accept="audio/*,video/*"
       multiple
       initial={initial}
@@ -266,56 +275,14 @@ function NewVersion({
               }
             />
           </Field>
-          {carry.length > 0 && (
-            <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
-              <legend className="mb-1 text-[14px] text-ink-2">
-                The {carry.length} open {carry.length === 1 ? "comment" : "comments"} from V
-                {next - 1}
-                <span className="block text-[13px] text-ink-3">
-                  Each carries over unless you say otherwise. Anchors follow the music once the
-                  versions are aligned; you can move any by hand.
-                </span>
-              </legend>
-              <ul className="flex flex-col">
-                {carry.map((t) => (
-                  <li
-                    key={t.commentId}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line py-2 last:border-b-0"
-                  >
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[14px] text-ink">{t.body}</span>
-                      <span className="block truncate text-[12px] text-ink-3">
-                        {[
-                          t.authorName,
-                          t.variant,
-                          t.anchor ? formatAnchor(t.anchor).replace(/(^|\s)0(\d:)/g, "$1$2") : null,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </span>
-                    </span>
-                    <Select
-                      size="sm"
-                      value={choices[t.commentId] ?? "open"}
-                      onChange={(e) =>
-                        setChoices({ ...choices, [t.commentId]: e.target.value as CarryChoice })
-                      }
-                      aria-label={`What becomes of "${t.body}"`}
-                      className="w-36"
-                    >
-                      {(Object.keys(carryWords) as CarryChoice[]).map((c) => (
-                        <option key={c} value={c}>
-                          {carryWords[c]}
-                        </option>
-                      ))}
-                    </Select>
-                  </li>
-                ))}
-              </ul>
-            </fieldset>
-          )}
           <div className="flex flex-col gap-1.5">
-            <span className="text-[13px] text-ink-2">Edit decision list</span>
+            {/* The project's rule is said once, here; a refusal says it again only if it bites (#654). */}
+            <span className="text-[13px] text-ink-2">
+              Edit decision list
+              <span className="text-ink-3">
+                {project.requireEdl ? " · required by this project" : " · optional"}
+              </span>
+            </span>
             {edlFile ? (
               <span className="flex items-center gap-2 text-[14px] text-ink">
                 <Icon name="file" size={14} className="text-ink-3" />
@@ -335,17 +302,14 @@ function NewVersion({
                 {edlLoose.length > 0 && (
                   <Dropdown
                     size="sm"
-                    value="From the project"
+                    value="From the project's EDLs"
                     actions={edlLoose.map((f) => ({
                       label: f.name,
                       onSelect: () => edl.add(f),
                     }))}
                   />
                 )}
-                <span className="text-[13px] text-ink-3">
-                  CMX 3600, Pyramix or Sequoia.{" "}
-                  {project.requireEdl ? "This project asks for one." : "Optional here."}
-                </span>
+                <span className="text-[13px] text-ink-3">CMX 3600, Pyramix or Sequoia.</span>
               </span>
             )}
             {edl.picks[0]?.error && (
@@ -354,6 +318,96 @@ function NewVersion({
               </span>
             )}
           </div>
+          {carry.length > 0 && (
+            <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
+              <legend className="mb-1 text-[14px] text-ink-2">
+                The {carry.length} open {carry.length === 1 ? "comment" : "comments"} from{" "}
+                {versionLabel(next - 1)}
+                <span className="block text-[13px] text-ink-3">
+                  Anchors follow the music once the {words.versions} are aligned; you can move any
+                  by hand.
+                </span>
+              </legend>
+              {/* One choice for them all, and each apart only for whoever opens the list (#654). */}
+              <Field label="All of them">
+                <Select
+                  value={carryAll(carry.map((t) => choices[t.commentId] ?? "open")) ?? ""}
+                  onChange={(e) => {
+                    const all = e.target.value as CarryChoice | "";
+                    if (all) setChoices(Object.fromEntries(carry.map((t) => [t.commentId, all])));
+                  }}
+                  className="@3xl/app:w-60"
+                >
+                  {carryAll(carry.map((t) => choices[t.commentId] ?? "open")) === null && (
+                    <option value="">As chosen for each</option>
+                  )}
+                  {(Object.keys(carryWords) as CarryChoice[]).map((c) => (
+                    <option key={c} value={c}>
+                      {c === "open" ? "Carry all over" : carryWords[c]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <div>
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  aria-expanded={each}
+                  onClick={() => setEach(!each)}
+                  className="-ml-2.5"
+                >
+                  <Icon
+                    name="chevronRight"
+                    size={12}
+                    className={cn("transition-transform", each && "rotate-90")}
+                  />
+                  Choose for each comment
+                </Button>
+                {each && (
+                  <ul className="mt-2 flex flex-col">
+                    {carry.map((t) => (
+                      <li
+                        key={t.commentId}
+                        className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line py-2 last:border-b-0"
+                      >
+                        <span className="min-w-0 flex-1 basis-48">
+                          <span className="line-clamp-2 text-[14px] text-ink @3xl/app:block @3xl/app:truncate">
+                            {t.body}
+                          </span>
+                          <span className="block truncate text-[12px] text-ink-3">
+                            {[
+                              t.authorName,
+                              t.variant,
+                              t.anchor
+                                ? formatAnchor(t.anchor).replace(/(^|\s)0(\d:)/g, "$1$2")
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        </span>
+                        <Select
+                          size="sm"
+                          value={choices[t.commentId] ?? "open"}
+                          onChange={(e) =>
+                            setChoices({ ...choices, [t.commentId]: e.target.value as CarryChoice })
+                          }
+                          aria-label={`What becomes of "${t.body}"`}
+                          className="w-36"
+                        >
+                          {(Object.keys(carryWords) as CarryChoice[]).map((c) => (
+                            <option key={c} value={c}>
+                              {carryWords[c]}
+                            </option>
+                          ))}
+                        </Select>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </fieldset>
+          )}
           {mayRestart && stages.length > 0 && (
             <Field label="Restart the workflow from">
               <Select
@@ -372,8 +426,10 @@ function NewVersion({
           )}
         </>
       }
-      what={`Uploaded into the ${words.track}'s folder as ${capital(words.version)} ${next}${
-        carry.length > 0 ? `; the open comments from V${next - 1} follow as chosen above` : ""
+      what={`Uploaded into the ${words.track}'s folder as ${versionLabel(next)}${
+        carry.length > 0
+          ? `; the open comments from ${versionLabel(next - 1)} follow as chosen`
+          : ""
       }.`}
       action={(list) =>
         list.some((c) => c.file && c.state !== "sent")
@@ -473,8 +529,24 @@ function DescribeDialog({
           : undefined
       }
       onClose={onClose}
+      // The standard footer, on its hairline, as every other dialog's (#703).
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            form="describe-variants"
+            variant="primary"
+            disabled={saving || rows.some((r) => !r.name.trim())}
+          >
+            Save
+          </Button>
+        </>
+      }
     >
-      <form onSubmit={save} className="flex flex-col gap-4">
+      <form id="describe-variants" onSubmit={save} className="flex flex-col gap-4">
         {rows.map((row) => (
           <fieldset
             key={row.id}
@@ -494,7 +566,7 @@ function DescribeDialog({
                     value={row.subtitled}
                     onChange={(e) => change(row.id, { subtitled: e.target.value as Said })}
                   >
-                    <option value="">Not said</option>
+                    <option value="">Not set</option>
                     <option value="yes">Subtitled</option>
                     <option value="no">Clean</option>
                   </Select>
@@ -504,7 +576,7 @@ function DescribeDialog({
                     value={row.graded}
                     onChange={(e) => change(row.id, { graded: e.target.value as Said })}
                   >
-                    <option value="">Not said</option>
+                    <option value="">Not set</option>
                     <option value="yes">Graded</option>
                     <option value="no">Ungraded</option>
                   </Select>
@@ -518,18 +590,6 @@ function DescribeDialog({
             {error}
           </p>
         )}
-        <span className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={saving || rows.some((r) => !r.name.trim())}
-          >
-            Save
-          </Button>
-        </span>
       </form>
     </Dialog>
   );
@@ -629,17 +689,27 @@ function VersionRow({
   const pending = version.variants.some((v) => v.streamStatus === "pending");
   const failed = version.variants.some((v) => v.streamStatus === "failed");
   const actions: MenuAction[] = [
-    // Two versions side by side, aligned by their audio (#137).
+    // Two versions side by side, aligned by their audio (#137); two cuts in the player,
+    // where their pictures can be seen, with the comparison open (#569).
     ...(previous && tool("compare")
       ? [
           {
             label: `Compare with the previous ${words.version}`,
-            onSelect: () =>
-              void navigate({
-                to: "/tracks/$trackId/compare",
-                params: { trackId: track.id },
-                search: { a: previous.number, b: version.number },
-              }),
+            onSelect: () => {
+              const shown = primaryOf(version);
+              if (video && shown)
+                void navigate({
+                  to: "/files/$fileId",
+                  params: { fileId: shown.fileId },
+                  search: { cuts: "side" },
+                });
+              else
+                void navigate({
+                  to: "/tracks/$trackId/compare",
+                  params: { trackId: track.id },
+                  search: { a: previous.number, b: version.number },
+                });
+            },
           },
         ]
       : []),
@@ -767,18 +837,16 @@ function VersionRow({
                 to="/files/$fileId"
                 params={{ fileId: v.fileId }}
                 title={v.fileName}
-                className={cn(
-                  "flex min-w-0 items-center gap-3 rounded-panel border px-3 py-2 no-underline transition-colors hover:border-edge",
-                  v.isPrimary ? "border-edge bg-raised shadow-1" : "border-line bg-ground",
-                )}
+                // Every variant on one ground; the primary is said in words (#703).
+                className="flex min-w-0 items-center gap-3 rounded-panel border border-line bg-raised/40 px-3 py-2 no-underline transition-colors hover:border-edge hover:bg-raised"
               >
                 <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-ink text-ground">
                   <Icon name="play" size={12} />
                 </span>
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-[14px] text-ink">
-                    {v.name}
-                    {v.isPrimary && <span className="text-ink-3"> · primary</span>}
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-[14px] text-ink">{v.name}</span>
+                    {v.isPrimary && <span className="label shrink-0">Primary</span>}
                   </span>
                   {facts && (
                     <span className="tabular truncate text-[12px] text-ink-3">{facts}</span>
@@ -984,18 +1052,18 @@ export function TrackVersions({
                         : "in_review"
                   }
                 />
+                {/* The stage is named once: by its status where it has one (#703). */}
                 {status}
-                {standing?.status && standing.stage && (
-                  <span className="text-ink-3">· {standing.stage}</span>
-                )}
               </span>
             )}
             {standing?.next && <span>Next: {standing.next}</span>}
             {/* A score is music's; a video project has none (#16). */}
             {!video && <ScoreChoice track={track} canEdit={can("organise")} />}
-            <span>
-              {open} open {open === 1 ? "comment" : "comments"}
-            </span>
+            {open > 0 && (
+              <span>
+                {open} open {open === 1 ? "comment" : "comments"}
+              </span>
+            )}
             {profile && <span>Delivery: {profile.label}</span>}
           </div>
           <Card>

@@ -62,6 +62,7 @@ import {
   LogOut,
   type LucideIcon,
   Mail,
+  MapPin,
   Merge,
   MessageSquare,
   Mic,
@@ -230,6 +231,8 @@ const icons = {
   webhook: Webhook,
   // The instance side, named for what it is: the server Hekate runs on (#611).
   instance: Server,
+  // A place a project records in (#648); `pin` is for pinning.
+  venue: MapPin,
 } as const satisfies Record<string, LucideIcon>;
 
 /**

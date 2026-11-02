@@ -371,13 +371,17 @@ const screens: Screen[] = [
     path: (s) => `/projects/${s.musicProjectId}/sessions`,
     ready: "main >> text=Day 2",
   },
-  { name: "session", path: (s) => `/sessions/${s.sessionId}`, ready: "main table >> text=T3" },
+  {
+    name: "session",
+    path: (s) => `/sessions/${s.sessionId}`,
+    ready: "main a:has-text('T3') >> visible=true",
+  },
   // One take (#21, #45): its mix in the player, the session's takes of the track to switch
   // between, its notes, and the score at its bars.
   {
     name: "take",
     path: (s) => `/takes/${s.takeId}`,
-    ready: "main >> text=The summed mix.",
+    ready: "main [role=toolbar] button:has-text('Loop')",
   },
   {
     name: "track-takes",
@@ -816,13 +820,15 @@ test.describe("guest", () => {
 
 for (const screen of screens.filter((s) => !s.as || s.as === "owner")) capture(screen);
 
-// Sharing a take to a thread of the track's latest version (#133), from the take's page.
+// Attaching a take to a thread of the track's latest version (#133, #655), from the take's
+// page: each thread by its anchor, version, variant and author.
 test("take-share", async ({ page }) => {
   await page.clock.setFixedTime(FIXED_TIME);
   await page.goto(`/takes/${seeded().takeId}`);
-  await settle(page, "main >> text=The summed mix.");
-  await page.getByRole("button", { name: "Share to a comment" }).click();
-  await settle(page, "[role=dialog] >> text=Share this take to a comment");
+  await settle(page, "main [role=toolbar] button:has-text('Loop')");
+  await page.getByRole("button", { name: "Attach to a comment" }).click();
+  await settle(page, "[role=dialog] >> text=Attach this take to a comment");
+  await page.getByRole("dialog").getByRole("radio").first().check();
   await saveScreen(page, "take-share");
   await checkScreen(page);
 });
@@ -1010,7 +1016,7 @@ test("listen-together", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Listen together" })).toBeVisible();
 });
 
-// A listening room's link (#200), as someone about to join sees it.
+// A listening room's link (#200), as its leader sees it (#650): their own room's controls.
 test("listen-room", async ({ page }) => {
   const started = await page.request.fetch(
     `/api/projects/${seeded().musicProjectId}/listening-rooms`,
@@ -1020,7 +1026,7 @@ test("listen-room", async ({ page }) => {
   const { room } = (await started.json()) as { room: { id: string } };
   try {
     await page.goto(`/listen/${room.id}`);
-    await settle(page, "button:has-text('Join')");
+    await settle(page, "button:has-text('End for everyone')");
     await saveScreen(page, "listen-room");
     await checkScreen(page);
   } finally {
@@ -1282,7 +1288,7 @@ test("stage-plan", async ({ page }) => {
   await checkScreen(page);
   const [pdf] = await Promise.all([
     page.waitForEvent("download"),
-    page.getByRole("menuitem", { name: "A3, with rulers and scale bar" }).click(),
+    page.getByRole("menuitem", { name: "A3", exact: true }).click(),
   ]);
   expect(pdf.suggestedFilename()).toBe("Joplin Rags Endless Hall stage plan.pdf");
   // The hall's floor plan under the stage, chosen from the project's documents.
@@ -1357,7 +1363,8 @@ test("schedule", async ({ page }) => {
   await checkScreen(page);
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Coverage" }).click();
-  await expect(page.getByText(/Day 1 10:00/)).toBeVisible();
+  // Each track's slots by day, each day named once (#651).
+  await expect(page.getByText(/Day 1: 10:00/).first()).toBeVisible();
   await saveScreen(page, "schedule-coverage");
   await checkScreen(page);
 });
@@ -1367,7 +1374,7 @@ test("schedule", async ({ page }) => {
 test("personnel", async ({ page }) => {
   await page.goto(`/projects/${seeded().musicProjectId}/personnel`);
   await settle(page, "main >> text=Endless Hall Strings");
-  await page.getByRole("button", { name: "Breakdown" }).click();
+  await page.getByRole("button", { name: "Sections of Endless Hall Strings" }).click();
   await expect(page.getByText("Tomas Varga")).toBeVisible();
   await saveScreen(page, "personnel");
   await checkScreen(page);
@@ -3601,10 +3608,11 @@ test("file-comment-other-takes", async ({ page }) => {
   await expect(panel).toContainText("Left hand rushes here");
   // V2's edit decision list uses take 2 at bar 9 (#56).
   await expect(panel.getByRole("listitem").filter({ hasText: "in V2" })).toHaveCount(1);
-  // Those who triage choose which to share (#133); the one already shared says so.
-  await expect(panel.getByText("shared")).toHaveCount(1);
-  await panel.getByRole("checkbox", { name: "Tick take 2" }).check();
-  await expect(panel.getByRole("button", { name: "Share 1" })).toBeEnabled();
+  // Those who triage choose which to attach (#133, #647); the one already attached says so.
+  await expect(panel.getByText("attached", { exact: true })).toHaveCount(1);
+  await expect(panel.getByRole("button", { name: "Attach", exact: true })).toBeDisabled();
+  await panel.getByRole("checkbox", { name: "Attach take 2" }).check();
+  await expect(panel.getByRole("button", { name: "Attach 1" })).toBeEnabled();
   await panel.evaluate((el) => el.scrollIntoView({ block: "center" }));
   await saveScreen(page, "file-comment-other-takes");
   await checkScreen(page);
@@ -4339,8 +4347,19 @@ test("file-recording-edits", async ({ page }) => {
 
 // Following a track by choice (#110): adding its versions already follows it, so the button
 // starts pressed; it stops and starts again, and the account lists it again after.
-test("track-follow", async ({ page }) => {
+test("track-follow", async ({ page }, info) => {
   await page.goto(`/tracks/${seeded().trackId}?view=versions`);
+  // On a phone the header keeps its primary, and Follow is in the menu beside it (#567).
+  if (info.project.name === "phone") {
+    await page.getByRole("button", { name: "Actions for Maple Leaf Rag" }).click();
+    await expect(page.getByRole("menuitemradio", { name: "Following" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await expect(page.getByRole("button", { name: "Add version" })).toBeInViewport();
+    await checkScreen(page);
+    return;
+  }
   const button = page.getByRole("button", { name: /^Follow/ });
   await expect(button).toHaveAttribute("aria-pressed", "true");
   await expect(button).toHaveText("Following");
@@ -4681,10 +4700,10 @@ test("project-sessions-import-made", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "2026-10-12" })).toBeVisible({
       timeout: 30_000,
     });
-    const table = page.locator("main table");
+    // Under their track (#652).
+    const table = page.getByRole("region", { name: "The Entertainer" });
     await expect(table).toContainText("T41");
     await expect(table).toContainText("T42");
-    await expect(table).toContainText("The Entertainer");
 
     // The same files again add to that session, and nothing is made twice.
     const again = await openTakeImport(page);
@@ -5400,5 +5419,15 @@ test("file-composer-open", async ({ page }, info) => {
   await form.getByRole("button", { name: /^Where the comment goes/ }).click();
   await expect(page.getByRole("menuitemradio", { name: "The whole file" })).toBeVisible();
   await saveScreen(page, "file-composer-where");
+  await checkScreen(page);
+});
+
+// Production's Take log (#648) opens the day's session's take log, in Production's frame
+// with Take log current, as moving between production's pages moves only the content.
+test("project-take-log", async ({ page }) => {
+  await page.goto(`/projects/${seeded().musicProjectId}/take-log`);
+  await expect(page).toHaveURL(/\/sessions\/[^/]+\/log$/);
+  await settle(page, "main >> text=The same take log, a view per person in the room.");
+  await saveScreen(page, "project-take-log");
   await checkScreen(page);
 });

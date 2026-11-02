@@ -6,6 +6,7 @@ import { Icon } from "~/components/icons";
 import { Label } from "~/components/label";
 import { Page } from "~/components/page";
 import { PageTitle, usePageHeader } from "~/components/page-header";
+import { ShareDialog } from "~/components/share";
 import { Dot } from "~/components/status";
 import { TakeManager } from "~/components/take-manager";
 import { Button } from "~/components/ui/button";
@@ -59,7 +60,6 @@ function NewVersion({
       inputLabel="Version files"
       listLabel="Files of this version"
       prompt="Drop the files of this version here, or choose them"
-      hint="One file per variant."
       multiple
       chosen={chosen}
       onPick={() => setChosen(versionFiles)}
@@ -91,53 +91,84 @@ function NewVersion({
               className="rounded-control border border-edge bg-ground px-3 py-2 text-[14px] text-ink placeholder:text-ink-3 focus:border-ink-3 focus:outline-none"
             />
           </label>
-          <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
-            <legend className="mb-1 text-[14px] text-ink-2">
-              The 3 open comments from V{next - 1}
-              <span className="block text-[13px] text-ink-3">
-                Each carries over unless you say otherwise. Anchors follow the music once the
-                versions are aligned; you can move any by hand.
-              </span>
-            </legend>
-            <ul className="flex flex-col">
-              {[
-                ["Pedal noise on the left, just before the downbeat.", "Tomas Varga · Dry · 0:06"],
-                ["The left hand rushes through these bars.", "Ines Arlow · Dry · bars 9 to 12"],
-                ["The reverb tail could be a touch shorter.", "Mira Solberg · Wet"],
-              ].map(([body, meta], i) => (
-                <li
-                  key={body}
-                  className="flex items-center gap-3 border-b border-line py-2 last:border-b-0"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[14px] text-ink">{body}</span>
-                    <span className="block truncate text-[12px] text-ink-3">{meta}</span>
-                  </span>
-                  <select
-                    defaultValue={i === 2 ? "fixed" : "open"}
-                    aria-label={`What becomes of "${body}"`}
-                    className="h-8 w-36 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
-                  >
-                    <option value="open">Carry over</option>
-                    <option value="hidden">Carry, hidden</option>
-                    <option value="fixed">Fixed</option>
-                    <option value="wont_fix">Won't fix</option>
-                  </select>
-                </li>
-              ))}
-            </ul>
-          </fieldset>
+          {/* The EDL before the carry-over, the project's rule said once (#654). */}
           <div className="flex flex-col gap-1.5 text-[13px] text-ink-2">
-            Edit decision list
+            <span>
+              Edit decision list<span className="text-ink-3"> · required by this project</span>
+            </span>
             <span className="flex flex-wrap items-center gap-2">
               <Button variant="secondary" size="sm">
                 Attach EDL
               </Button>
-              <span className="text-[13px] text-ink-3">
-                CMX 3600, Pyramix or Sequoia. Optional here, unless the project asks for one.
-              </span>
+              <Button variant="ghost" size="sm">
+                From the project's EDLs
+              </Button>
+              <span className="text-[13px] text-ink-3">CMX 3600, Pyramix or Sequoia.</span>
             </span>
           </div>
+          <fieldset className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
+            <legend className="mb-1 text-[14px] text-ink-2">
+              The 3 open comments from Version {next - 1}
+              <span className="block text-[13px] text-ink-3">
+                Anchors follow the music once the versions are aligned; you can move any by hand.
+              </span>
+            </legend>
+            <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
+              All of them
+              <select
+                defaultValue=""
+                className="h-9 rounded-control border border-edge bg-ground px-2 text-[14px] text-ink @3xl/app:w-60"
+              >
+                <option value="">As chosen for each</option>
+                <option value="open">Carry all over</option>
+                <option value="hidden">Carry, hidden</option>
+                <option value="fixed">Fixed</option>
+                <option value="wont_fix">Won't fix</option>
+              </select>
+            </label>
+            <details className="group">
+              <summary className="flex w-fit cursor-pointer list-none items-center gap-1.5 text-[13px] text-ink-2 hover:text-ink">
+                <Icon
+                  name="chevronRight"
+                  size={12}
+                  className="transition-transform group-open:rotate-90"
+                />
+                Choose for each comment
+              </summary>
+              <ul className="mt-2 flex flex-col">
+                {[
+                  [
+                    "Pedal noise on the left, just before the downbeat.",
+                    "Tomas Varga · Dry · 0:06",
+                  ],
+                  ["The left hand rushes through these bars.", "Ines Arlow · Dry · bars 9 to 12"],
+                  ["The reverb tail could be a touch shorter.", "Mira Solberg · Wet"],
+                ].map(([body, meta], i) => (
+                  <li
+                    key={body}
+                    className="flex flex-wrap items-center gap-3 border-b border-line py-2 last:border-b-0"
+                  >
+                    <span className="min-w-0 flex-1 basis-48">
+                      <span className="line-clamp-2 text-[14px] text-ink @3xl/app:block @3xl/app:truncate">
+                        {body}
+                      </span>
+                      <span className="block truncate text-[12px] text-ink-3">{meta}</span>
+                    </span>
+                    <select
+                      defaultValue={i === 2 ? "fixed" : "open"}
+                      aria-label={`What becomes of "${body}"`}
+                      className="h-8 w-36 rounded-control border border-edge bg-ground px-2 text-[13px] text-ink"
+                    >
+                      <option value="open">Carry over</option>
+                      <option value="hidden">Carry, hidden</option>
+                      <option value="fixed">Fixed</option>
+                      <option value="wont_fix">Won't fix</option>
+                    </select>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </fieldset>
           <label className="flex flex-col gap-1.5 text-[13px] text-ink-2">
             Restart the workflow from
             <select
@@ -162,7 +193,7 @@ function NewVersion({
           )}
         </>
       }
-      what={`Uploaded into the track's folder as Version ${next}; the open comments from V${next - 1} follow as chosen above.`}
+      what={`Uploaded into the track's folder as Version ${next}; the open comments from Version ${next - 1} follow as chosen.`}
       error={
         refused && (
           <div
@@ -318,18 +349,16 @@ function VersionRow({
               <Link
                 to="/files/$fileId"
                 params={{ fileId: v.fileId }}
-                className={cn(
-                  "flex items-center gap-3 rounded-panel border px-3 py-2 no-underline hover:border-edge",
-                  v.primary ? "border-edge bg-raised shadow-1" : "border-line bg-ground",
-                )}
+                // Every variant on one ground; the primary is said in words (#703).
+                className="flex items-center gap-3 rounded-panel border border-line bg-raised/40 px-3 py-2 no-underline hover:border-edge hover:bg-raised"
               >
                 <span className="flex size-7 items-center justify-center rounded-full bg-ink text-ground">
                   <Icon name="play" size={12} />
                 </span>
                 <span className="flex flex-col">
-                  <span className="text-[14px] text-ink">
-                    {v.name}
-                    {v.primary && <span className="text-ink-3"> · primary</span>}
+                  <span className="flex items-center gap-2">
+                    <span className="text-[14px] text-ink">{v.name}</span>
+                    {v.primary && <Label>Primary</Label>}
                   </span>
                   <span className="tabular text-[12px] text-ink-3">
                     {pending
@@ -365,6 +394,7 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
   const visible = track && project && viewer.canSee(project.id);
   const [adding, setAdding] = useState(false);
   const [addingTakes, setAddingTakes] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const state = useScreenState();
   const versions = track ? [...track.versions].sort((a, b) => b.number - a.number) : [];
   const latest = versions[0];
@@ -390,35 +420,85 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
     heading: "page",
     actions: visible ? (
       <>
-        <FollowButton what="track" />
-        {viewer.can(project.id, "request_reviews") && latest && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() =>
-              navigate({ to: "/reviews/new", search: { project: project.id, item: track.id } })
-            }
-          >
-            Request a review
-          </Button>
-        )}
-        {versions.length > 1 && viewer.tools(project.id).has("compare") && (
-          <Button variant="ghost" size="sm" asChild>
-            <Link to="/tracks/$trackId/compare" params={{ trackId: track.id }}>
-              <Icon name="compare" size={14} />
-              <span className="sr-only @md/app:not-sr-only">Compare</span>
-            </Link>
-          </Button>
-        )}
+        {/* One sharing action in the header (#567): Request a review, with Share in "…".
+            On a phone only the primary stays out, the rest in the menu beside it. */}
+        <span className="hidden items-center gap-2 @3xl/app:flex">
+          <FollowButton what="track" />
+          {versions.length > 1 && viewer.tools(project.id).has("compare") && (
+            <Button variant="ghost" size="sm" asChild>
+              <Link to="/tracks/$trackId/compare" params={{ trackId: track.id }}>
+                <Icon name="compare" size={14} />
+                Compare
+              </Link>
+            </Button>
+          )}
+          {viewer.can(project.id, "request_reviews") && latest && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() =>
+                navigate({ to: "/reviews/new", search: { project: project.id, item: track.id } })
+              }
+            >
+              Request a review
+            </Button>
+          )}
+          {viewer.can(project.id, "request_reviews") && latest && (
+            <ActionMenu
+              always
+              label={track.name}
+              actions={[{ label: "Share…", onSelect: () => setSharing(true) }]}
+            />
+          )}
+        </span>
+        <span className="@3xl/app:hidden">
+          <ActionMenu
+            always
+            label={track.name}
+            actions={[
+              { label: "Follow", checked: true, onSelect: () => {} },
+              ...(versions.length > 1 && viewer.tools(project.id).has("compare")
+                ? [
+                    {
+                      label: "Compare",
+                      onSelect: () =>
+                        navigate({
+                          to: "/tracks/$trackId/compare",
+                          params: { trackId: track.id },
+                        }),
+                    },
+                  ]
+                : []),
+              ...(viewer.can(project.id, "request_reviews") && latest
+                ? [
+                    { label: "Share…", onSelect: () => setSharing(true) },
+                    {
+                      label: "Request a review",
+                      onSelect: () =>
+                        navigate({
+                          to: "/reviews/new",
+                          search: { project: project.id, item: track.id },
+                        }),
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        </span>
         {viewer.can(project.id, "upload") && view !== "takes" && (
-          <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
+          <Button variant="primary" size="sm" className="shrink-0" onClick={() => setAdding(true)}>
             <Icon name="upload" size={14} />
             {project.profile === "video" ? "Add cut" : "Add version"}
           </Button>
         )}
         {/* Takes are added from their track (#490): the dialog with the track settled. */}
         {viewer.can(project.id, "upload") && view === "takes" && withTakes && (
-          <Button variant="primary" size="sm" onClick={() => setAddingTakes(true)}>
+          <Button
+            variant="primary"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setAddingTakes(true)}
+          >
             <Icon name="upload" size={14} />
             Add takes
           </Button>
@@ -505,6 +585,13 @@ export function TrackPage({ trackId, view }: { trackId: string; view?: string })
           {addingTakes && <TakeImportDialog track={track} onClose={() => setAddingTakes(false)} />}
         </div>
       ) : null}
+      {sharing && (
+        <ShareDialog
+          project={project}
+          item={{ kind: "track", name: track.name }}
+          onClose={() => setSharing(false)}
+        />
+      )}
       {view !== "takes" && adding && (
         <NewVersion
           next={(latest?.number ?? 0) + 1}

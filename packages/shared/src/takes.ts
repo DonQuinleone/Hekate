@@ -358,7 +358,8 @@ export interface TakeRow extends TakePlace {
  */
 export interface TakeDetail extends TakeRow {
   track: { id: string; name: string; projectId: string; scoreFileId: string | null };
-  session: { id: string; name: string } | null;
+  /** The session it was recorded in, with its day: said beside the take, never above it (#568). */
+  session: { id: string; name: string; recordedOn: string | null } | null;
   /** In take order, this take among them. */
   siblings: Pick<TakeRow, "id" | "number" | "starred">[];
 }

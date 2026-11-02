@@ -14699,6 +14699,7 @@ describe.runIf(url)("api", () => {
           const day = (await (
             await send("POST", `/api/projects/${s.projectId}/sessions`, {
               name: "Day 3",
+              recordedOn: "2026-10-15",
               trackIds: [s.trackId],
             })
           ).json()) as { session: { id: string } };
@@ -14722,7 +14723,7 @@ describe.runIf(url)("api", () => {
               falseStarts: number;
               file: { id: string } | null;
               track: { id: string; name: string; projectId: string; scoreFileId: string | null };
-              session: { id: string; name: string } | null;
+              session: { id: string; name: string; recordedOn: string | null } | null;
               siblings: { id: string; number: number; starred: boolean }[];
             };
           };
@@ -14738,7 +14739,8 @@ describe.runIf(url)("api", () => {
             falseStarts: 2,
             file: { id: files[1] },
             track: { id: s.trackId, name: "Maple Leaf Rag", projectId: s.projectId },
-            session: { id: day.session.id, name: "Day 3" },
+            // Its session with its day, said beside the take rather than above it (#568).
+            session: { id: day.session.id, name: "Day 3", recordedOn: "2026-10-15" },
           });
           expect(take.siblings).toEqual([
             { id: one, number: 1, starred: false },

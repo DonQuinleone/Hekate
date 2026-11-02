@@ -8,10 +8,21 @@ import { clock, type LoggedTake, type SlotStatus } from "~/lib/take-log";
 
 /**
  * The take log in large print (#51), for the far side of the room: the take, how long it has
- * rolled, and how long the slot has left, readable from the desk or the floor. It covers the
+ * rolled, the session clock coloured by the slot (#704: on time, or running short or over),
+ * and how long the slot has left, readable from the desk or the floor. It covers the
  * page without taking its keys, so Space still starts and stops takes while it shows; where the
  * browser allows, it fills the screen, and leaving full screen closes it.
  */
+/** What the clock's colour says, for a screen reader. */
+const slotWords = (slot: SlotStatus) =>
+  !slot
+    ? "no slot booked"
+    : slot.kind === "plenty"
+      ? "on time"
+      : slot.kind === "short"
+        ? "under ten minutes left"
+        : "running over";
+
 export function TakeOverview({
   session,
   track,
@@ -85,12 +96,12 @@ export function TakeOverview({
             {session}
           </span>
         </div>
-        <span className="tabular text-[clamp(18px,2.4vw,32px)] leading-[1.25] text-ink-2">
-          {wallClock}
-        </span>
         <Button variant="ghost" size="sm" onClick={onClose}>
           Close
-          <Kbd>L</Kbd>
+          {/* A key's hint only where there is a keyboard. */}
+          <span className="[@media(hover:none)]:hidden">
+            <Kbd>L</Kbd>
+          </span>
         </Button>
       </header>
 
@@ -120,6 +131,17 @@ export function TakeOverview({
           {state}
           {live && <span className="tabular text-ink">{clock(seconds)}</span>}
         </span>
+        {/* The session clock, the second large thing, in the slot's colour (#704). */}
+        <span
+          role="timer"
+          aria-label={`Session clock, ${slotWords(slot)}`}
+          className={cn(
+            "tabular mt-[2vmin] text-[clamp(56px,13vmin,180px)] font-medium leading-[1.1] tracking-tight",
+            !slot ? "text-ink-2" : slot.kind === "plenty" ? "text-ok" : "text-signal",
+          )}
+        >
+          {wallClock}
+        </span>
       </div>
 
       <footer className="flex flex-wrap items-end gap-x-8 gap-y-3">
@@ -127,7 +149,7 @@ export function TakeOverview({
           {last && (
             <>
               <span className="tabular shrink-0 whitespace-nowrap text-ink">
-                Last, T{last.number}
+                Last take: T{last.number}
               </span>
               {last.rating > 0 && <Rating value={last.rating} />}
               {last.starred && <span className="shrink-0 text-signal">Starred</span>}

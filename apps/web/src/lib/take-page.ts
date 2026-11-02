@@ -3,20 +3,13 @@ import { barsUsedOf } from "./edit-decisions";
 import { type Loop, loopFrom } from "./loop";
 
 /**
- * A take's timecode in and out, as the session's table and the take's page write it:
- * "10:14:02:00 – 10:19:40:00", or with the out point's hours left off where they are the
- * in point's ("10:14:02:00 – 19:40:00"). Null where neither is known.
+ * A take's timecode in and out, written in full wherever it shows (the session's table, the
+ * take's page, the take log): "10:14:02:00 – 10:19:40:00". An out point is never shortened,
+ * since "19:40:00" reads as seven in the evening (#571). Null where neither is known.
  */
-export function timecodeSpan(
-  timecodeIn: string | null,
-  timecodeOut: string | null,
-  short = false,
-): string | null {
+export function timecodeSpan(timecodeIn: string | null, timecodeOut: string | null): string | null {
   if (!timecodeIn && !timecodeOut) return null;
-  if (!timecodeOut) return `${timecodeIn} –`;
-  if (!timecodeIn) return `– ${timecodeOut}`;
-  const sameHour = timecodeIn.slice(0, 3) === timecodeOut.slice(0, 3);
-  return `${timecodeIn} – ${short && sameHour ? timecodeOut.slice(3) : timecodeOut}`;
+  return `${timecodeIn ?? "…"} – ${timecodeOut ?? "…"}`;
 }
 
 /**
@@ -56,4 +49,32 @@ export function takeLoop(
 ): Loop | null {
   if (duration === null || !(duration > 0)) return null;
   return loopFrom(t.inPoint ?? 0, t.outPoint ?? duration, duration);
+}
+
+/**
+ * A session's takes under their tracks (#652), as its page lists them: the session's tracks in
+ * its order, then any other track a take of the session belongs to, each with its takes in
+ * the order given. A track without takes from the session is kept, with none.
+ */
+export function takesByTrack<T extends { track: { id: string; name: string } }>(
+  tracks: readonly { id: string; name: string }[],
+  takes: readonly T[],
+): { track: { id: string; name: string }; takes: T[] }[] {
+  const groups = new Map(tracks.map((t) => [t.id, { track: t, takes: [] as T[] }]));
+  for (const take of takes) {
+    const group = groups.get(take.track.id) ?? { track: take.track, takes: [] };
+    group.takes.push(take);
+    groups.set(take.track.id, group);
+  }
+  return [...groups.values()];
+}
+
+/** Whether a thread is among those a search asks for: its words, its author or its anchor. */
+export function threadMatches(
+  thread: { body: string; authorName: string | null; anchor: string | null },
+  search: string,
+): boolean {
+  const words = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const text = [thread.body, thread.authorName, thread.anchor].join(" ").toLowerCase();
+  return words.every((w) => text.includes(w));
 }

@@ -681,6 +681,16 @@ function Components() {
             ]}
             onChange={setMode}
           />
+          <Segmented
+            label="Which takes, disabled"
+            value="all"
+            disabled
+            options={[
+              { value: "all", label: "All" },
+              { value: "best", label: "Best" },
+            ]}
+            onChange={() => undefined}
+          />
         </Spec>
         <Spec
           name="Sub-navigation on a phone"

@@ -41,6 +41,8 @@ type Which = "a" | "b";
  * Two versions of a track side by side (#137): heard in step, one key flipping between them at
  * the same musical position, level-matched; where the audio says the same music sits in each;
  * what the checks found fixed and new; and the earlier one's comments where they fall now.
+ * Two cuts of a deliverable are compared in the player, where their pictures are (#569): here
+ * they have only their comments and findings, with the way to the pictures.
  */
 export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?: number }) {
   const navigate = useNavigate();
@@ -51,7 +53,7 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
   });
   const can = useProjectCan(data?.track.projectId);
   const { words, versionLabel, video } = useItemWords(data?.track.projectId);
-  const compareTitle = `Compare ${words.versions}`;
+  const compareTitle = video ? "Comments and findings" : `Compare ${words.versions}`;
   const realign = useRealign(trackId);
   const [blind, setBlind] = useState(false);
   /** Blind: whether key 1 is B rather than A. */
@@ -208,21 +210,34 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
         ]}
         title={compareTitle}
         actions={
-          <Button
-            variant={blind ? "primary" : "secondary"}
-            size="sm"
-            onClick={blind ? reveal : startBlind}
-          >
-            <Icon name="eyeOff" size={14} />
-            {blind ? "Reveal" : "Blind A/B"}
-          </Button>
+          video ? (
+            <Button variant="secondary" size="sm" asChild>
+              <Link
+                to="/files/$fileId"
+                params={{ fileId: data.b.fileId }}
+                search={{ cuts: "side" }}
+              >
+                <Icon name="compare" size={14} />
+                Compare the pictures
+              </Link>
+            </Button>
+          ) : (
+            <Button
+              variant={blind ? "primary" : "secondary"}
+              size="sm"
+              onClick={blind ? reveal : startBlind}
+            >
+              <Icon name="eyeOff" size={14} />
+              {blind ? "Reveal" : "Blind A/B"}
+            </Button>
+          )
         }
       />
       <Page className="gap-6">
         <div className="flex flex-wrap items-center gap-3">
           {(["a", "b"] as const).map((which) => (
+            // The keys are shown once, on the lanes (#569).
             <label key={which} className="flex items-center gap-2 text-[13px] text-ink-2">
-              <Kbd>{which === "a" ? "1" : "2"}</Kbd>
               <span className="sr-only">
                 {which === "a" ? `First ${words.version}` : `Second ${words.version}`}
               </span>
@@ -244,8 +259,8 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
               </Select>
             </label>
           ))}
-          <AlignmentState comparison={data} />
-          {mayRealign && (
+          {!video && <AlignmentState comparison={data} />}
+          {!video && mayRealign && (
             <Button
               variant="ghost"
               size="sm"
@@ -258,126 +273,141 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
           )}
         </div>
         {realign.error && <p className="m-0 text-[13px] text-signal">{realign.error.message}</p>}
-        <div className="grid gap-6 @5xl/app:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="flex min-w-0 flex-col gap-3">
-            {order.map((which) => {
-              const side = data[which];
-              const element = which === lead ? master : follower;
-              const on = heard === which;
-              return (
-                <section
-                  key={which}
-                  aria-label={label(which)}
-                  className={cn(
-                    "rounded-panel-lg border p-2 transition-colors",
-                    on ? "border-signal/50 bg-signal/[0.04]" : "border-line bg-raised/20",
-                  )}
-                >
-                  <div className="flex items-center gap-2 px-1 pb-1 text-[13px]">
-                    <button
-                      type="button"
-                      aria-pressed={on}
-                      aria-label={`Hear ${label(which)}, key ${keyFor(which)}`}
-                      onClick={() => hear(which)}
-                      className={cn(
-                        "flex size-7 cursor-pointer items-center justify-center rounded-full border-0",
-                        on ? "bg-signal text-ground" : "bg-raised text-ink",
-                      )}
-                    >
-                      <Kbd>{keyFor(which)}</Kbd>
-                    </button>
-                    <span className="font-medium text-ink">{label(which)}</span>
-                    {!blind && (
-                      <span className="min-w-0 truncate text-ink-3">
-                        {side.name}
-                        {side.notes ? ` · ${side.notes}` : ""}
-                      </span>
+        <div
+          className={cn(
+            "grid gap-6",
+            !video && "@5xl/app:grid-cols-[minmax(0,1fr)_280px]",
+            video && "max-w-[640px]",
+          )}
+        >
+          {!video && (
+            <div className="flex min-w-0 flex-col gap-3">
+              {order.map((which) => {
+                const side = data[which];
+                const element = which === lead ? master : follower;
+                const on = heard === which;
+                return (
+                  <section
+                    key={which}
+                    aria-label={label(which)}
+                    className={cn(
+                      "rounded-panel-lg border p-2 transition-colors",
+                      on ? "border-signal/50 bg-signal/[0.04]" : "border-line bg-raised/20",
                     )}
-                    <span className="tabular ml-auto shrink-0 text-ink-3">
-                      {gainLabel(gainOf(which))}
-                    </span>
-                  </div>
-                  {element ? (
-                    <Waveform
-                      fileId={side.fileId}
-                      media={element}
-                      duration={duration(side)}
-                      view="combined"
-                    />
-                  ) : (
-                    <div className="flex h-[168px] items-center justify-center rounded-control bg-sunken/40 text-[13px] text-ink-3">
-                      {side.failed
-                        ? `This ${words.version} could not be prepared to play.`
-                        : !side.ready
-                          ? `Preparing this ${words.version} to play`
-                          : null}
+                  >
+                    <div className="flex items-center gap-2 px-1 pb-1 text-[13px]">
+                      <button
+                        type="button"
+                        aria-pressed={on}
+                        aria-label={`Hear ${label(which)}, key ${keyFor(which)}`}
+                        onClick={() => hear(which)}
+                        className={cn(
+                          "flex size-7 cursor-pointer items-center justify-center rounded-full border-0",
+                          on ? "bg-signal text-ground" : "bg-raised text-ink",
+                        )}
+                      >
+                        <Kbd>{keyFor(which)}</Kbd>
+                      </button>
+                      <span className="font-medium text-ink">{label(which)}</span>
+                      {!blind && (
+                        <span className="min-w-0 truncate text-ink-3">
+                          {side.name}
+                          {side.notes ? ` · ${side.notes}` : ""}
+                        </span>
+                      )}
+                      {/* Only the one turned down says so, and says why (#569). */}
+                      {gainOf(which) < 1 && (
+                        <span className="tabular ml-auto shrink-0 text-ink-3">
+                          Level-matched {gainLabel(gainOf(which))}
+                        </span>
+                      )}
                     </div>
-                  )}
-                </section>
-              );
-            })}
-            {failed && (
-              <p className="m-0 text-[13px] text-signal">
-                One of the {words.versions} could not be loaded to play.
-              </p>
-            )}
-            <div className="flex flex-wrap items-center gap-3 px-1 text-[13px] text-ink-3">
-              <button
-                type="button"
-                aria-label={playing ? "Pause" : "Play"}
-                onClick={toggle}
-                disabled={!master}
-                className="flex size-9 cursor-pointer items-center justify-center rounded-full border-0 bg-ink text-ground disabled:opacity-40"
-              >
-                <Icon name={playing ? "pause" : "play"} size={12} />
-              </button>
-              <span className="tabular text-[15px] text-ink">{formatClock(time)}</span>
-              <span>
-                Keys 1 and 2 switch at the same {video ? "moment" : "musical position"}
-                {gains.some((g) => g < 1) ? ", level-matched" : ""}.
-              </span>
-              {blind && (
-                <span className="ml-auto text-ink-2">
-                  Which is which stays hidden until you reveal.
+                    {element ? (
+                      <Waveform
+                        fileId={side.fileId}
+                        media={element}
+                        duration={duration(side)}
+                        view="combined"
+                      />
+                    ) : (
+                      <div className="flex h-[168px] items-center justify-center rounded-control bg-sunken/40 text-[13px] text-ink-3">
+                        {side.failed
+                          ? `This ${words.version} could not be prepared to play.`
+                          : !side.ready
+                            ? `Preparing this ${words.version} to play`
+                            : null}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+              {failed && (
+                <p className="m-0 text-[13px] text-signal">
+                  One of the {words.versions} could not be loaded to play.
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-3 px-1 text-[13px] text-ink-3">
+                <button
+                  type="button"
+                  aria-label={playing ? "Pause" : "Play"}
+                  onClick={toggle}
+                  disabled={!master}
+                  className="flex size-9 cursor-pointer items-center justify-center rounded-full border-0 bg-ink text-ground disabled:opacity-40"
+                >
+                  <Icon name={playing ? "pause" : "play"} size={12} />
+                </button>
+                <span className="tabular text-[15px] text-ink">{formatClock(time)}</span>
+                <span>
+                  Keys 1 and 2 switch at the same {video ? "moment" : "musical position"}
+                  {gains.some((g) => g < 1) ? ", level-matched" : ""}.
                 </span>
+                {blind && (
+                  <span className="ml-auto text-ink-2">
+                    Which is which stays hidden until you reveal.
+                  </span>
+                )}
+              </div>
+              {data[lead].ready && (
+                <StreamSource
+                  key={data[lead].fileId}
+                  fileId={data[lead].fileId}
+                  volume={leadVolume}
+                  onElement={setMaster}
+                  onFail={() => setFailed(true)}
+                />
+              )}
+              {master && data[other].ready && (
+                <FollowerSource
+                  key={data[other].fileId}
+                  fileId={data[other].fileId}
+                  master={master}
+                  volume={(heard === other ? gainOf(other) : 0) * volumeGain(volume)}
+                  follow={toFollower}
+                  onFail={() => setFailed(true)}
+                  onElement={setFollower}
+                />
               )}
             </div>
-            {data[lead].ready && (
-              <StreamSource
-                key={data[lead].fileId}
-                fileId={data[lead].fileId}
-                volume={leadVolume}
-                onElement={setMaster}
-                onFail={() => setFailed(true)}
-              />
-            )}
-            {master && data[other].ready && (
-              <FollowerSource
-                key={data[other].fileId}
-                fileId={data[other].fileId}
-                master={master}
-                volume={(heard === other ? gainOf(other) : 0) * volumeGain(volume)}
-                follow={toFollower}
-                onFail={() => setFailed(true)}
-                onElement={setFollower}
-              />
-            )}
-          </div>
+          )}
           <aside className="flex min-w-0 flex-col gap-5">
-            <AlignmentPath comparison={data} label={label} video={video} />
-            <Findings
-              title={`Fixed in ${label(later)}`}
-              findings={data.findings.fixed}
-              measured={data.findings.measured}
-              none="Nothing fixed."
-              fixed
-            />
-            <Findings
-              title={`New in ${label(later)}`}
-              findings={data.findings.new}
-              measured={data.findings.measured}
-              none="Nothing new."
-            />
+            {!video && <AlignmentPath comparison={data} label={label} video={video} />}
+            {/* Each fact once (#569): a section only where it holds something. */}
+            {!data.findings.measured ||
+            (data.findings.fixed.length === 0 && data.findings.new.length === 0) ? (
+              <section className="flex flex-col gap-1.5">
+                <h2 className="label m-0">Findings</h2>
+                <span className="text-[12px] text-ink-3">
+                  {data.findings.measured
+                    ? `The checks found nothing fixed or new in ${label(later)}.`
+                    : "Not measured yet."}
+                </span>
+              </section>
+            ) : (
+              <>
+                <Findings title={`Fixed in ${label(later)}`} findings={data.findings.fixed} fixed />
+                <Findings title={`New in ${label(later)}`} findings={data.findings.new} />
+              </>
+            )}
             <section className="flex flex-col gap-1.5">
               <h2 className="label m-0">
                 Comments mapped · {data.alignment.status === "ready" ? data.comments.length : 0}
@@ -400,13 +430,11 @@ export function ComparePage({ trackId, a, b }: { trackId: string; a?: number; b?
                 </ul>
               )}
               {!blind && (
-                <Link
-                  to="/files/$fileId"
-                  params={{ fileId: data.b.fileId }}
-                  className="text-[13px] text-ink-2 hover:text-ink"
-                >
-                  Open {label("b")}
-                </Link>
+                <Button variant="secondary" size="sm" asChild className="mt-1 self-start">
+                  <Link to="/files/$fileId" params={{ fileId: data.b.fileId }}>
+                    Open {label("b")}
+                  </Link>
+                </Button>
               )}
             </section>
           </aside>
@@ -505,16 +533,13 @@ function AlignmentPath({
 function Findings({
   title,
   findings,
-  measured,
-  none,
   fixed = false,
 }: {
   title: string;
   findings: QaFinding[];
-  measured: boolean;
-  none: string;
   fixed?: boolean;
 }) {
+  if (findings.length === 0) return null;
   return (
     <section className="flex flex-col gap-1.5">
       <h2 className="label m-0">
@@ -534,9 +559,6 @@ function Findings({
           </span>
         </span>
       ))}
-      {findings.length === 0 && (
-        <span className="text-[12px] text-ink-3">{measured ? none : "Not measured yet."}</span>
-      )}
     </section>
   );
 }

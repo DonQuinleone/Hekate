@@ -35,7 +35,7 @@ import {
   type WaveLook,
   waveColours,
 } from "@hekate/shared";
-import { Link } from "@tanstack/react-router";
+import { Link, useSearch } from "@tanstack/react-router";
 import type Hls from "hls.js";
 import {
   type KeyboardEvent,
@@ -520,7 +520,11 @@ export function Player({
   }, [draft]);
   const [matte, setMatte] = useState<Matte | null>(null);
   // Comparing with the cut before (#147): one over the other with a wipe, or side by side.
-  const [cutView, setCutView] = useState<"wipe" | "side" | null>(null);
+  // The deliverable's Compare opens the file with it chosen (`?cuts=side`, #569).
+  const asked = (useSearch({ strict: false }) as { cuts?: unknown }).cuts;
+  const [cutView, setCutView] = useState<"wipe" | "side" | null>(
+    asked === "wipe" || asked === "side" ? asked : null,
+  );
   const [wipe, setWipe] = useState(0.5);
   // A small picture is for reading measurements beside, not for comparing cuts.
   const canCompareCuts =
@@ -1695,15 +1699,16 @@ export function Player({
               frameSeconds={frameSeconds}
               family={family}
               className="pointer-events-none absolute inset-0 aspect-video w-full"
-              style={{ clipPath: `inset(0 0 0 ${wipe * 100}%)` }}
+              // The older cut on the left, as side by side has it (#569).
+              style={{ clipPath: `inset(0 ${(1 - wipe) * 100}% 0 0)` }}
             />
             <div
               aria-hidden="true"
               className="pointer-events-none absolute inset-y-0 w-px bg-signal"
               style={{ left: `${wipe * 100}%` }}
             />
-            <CutLabel>{cuts.mine}</CutLabel>
-            <CutLabel right>{cuts.previous.label}</CutLabel>
+            <CutLabel>{cuts.previous.label}</CutLabel>
+            <CutLabel right>{cuts.mine}</CutLabel>
           </>
         )}
         {comparing === "side" && cuts && <CutLabel>{cuts.mine}</CutLabel>}
@@ -2353,7 +2358,14 @@ export function Player({
         ) : (
           // The picture as wide as the column allows and, on a wide screen, no taller than the
           // frame leaves it once its lanes are under it (#15), so the transport stays in view.
-          <div className="flex min-h-0 flex-col justify-center lg:min-h-[220px] lg:flex-1 lg:[container-type:size]">
+          // Two cuts side by side are half as tall as one: they start at the top, the lanes
+          // straight under them, rather than leaving a band above (#569).
+          <div
+            className={cn(
+              "flex min-h-0 flex-col lg:min-h-[220px] lg:flex-1 lg:[container-type:size]",
+              comparing === "side" ? "justify-start" : "justify-center",
+            )}
+          >
             <div
               className="mx-auto flex w-full flex-col gap-3 lg:w-[min(100cqw,calc((100cqh-var(--lanes))*var(--picture)))]"
               style={{

@@ -74,8 +74,8 @@ function TakeRow({
   tracks,
   fixed,
   under,
-  selected,
-  onSelect,
+  ticked,
+  onTick,
   onTrack,
   onMix,
 }: {
@@ -85,19 +85,26 @@ function TakeRow({
   fixed: boolean;
   /** Under a take whose track is settled: the bars this batch covers, if given. */
   under: string | null;
-  selected: boolean;
-  onSelect: (on: boolean) => void;
+  /** Whether it will be imported: what the box shows, and the button counts (#657). */
+  ticked: boolean;
+  onTick: (on: boolean) => void;
   onTrack: (trackId: string | null) => void;
   onMix: (fileKey: string) => void;
 }) {
   const held = takeHeld(take);
-  const second =
-    held ??
-    (fixed
-      ? under
-      : take.chosen
-        ? "Track chosen"
-        : `${tracks.find((t) => t.id === take.trackId)?.name ?? ""}, ${Math.round(take.confidence * 100)}% sure`);
+  // Its own select says what is to be chosen, once (#657): the line under it does not repeat it.
+  const asking =
+    (held === "Choose a track" && !fixed) || (held === "Choose its mix" && take.files.length > 1);
+  // A take waiting for its track or mix is ticked once it has them; one already in, never.
+  const waiting = take.imported || (!take.leftOut && held !== null);
+  const second = asking
+    ? null
+    : (held ??
+      (fixed
+        ? under
+        : take.chosen
+          ? "Track chosen"
+          : `${tracks.find((t) => t.id === take.trackId)?.name ?? ""}, ${Math.round(take.confidence * 100)}% sure`));
   return (
     <li
       className={cn(
@@ -106,9 +113,10 @@ function TakeRow({
       )}
     >
       <Checkbox
-        checked={selected}
-        onChange={(e) => onSelect(e.target.checked)}
-        aria-label={`Select ${take.label}`}
+        checked={ticked}
+        disabled={waiting}
+        onChange={(e) => onTick(e.target.checked)}
+        aria-label={`${fixed ? "Add" : "Import"} ${take.label}`}
       />
       <Icon name="take" size={13} className="shrink-0 text-ink-3" />
       <span className="min-w-0 flex-1 basis-48">
@@ -211,7 +219,8 @@ export function TakeImportDialog({
   const [read, setRead] = useState<Awaited<ReturnType<typeof readSources>> | null>(null);
   const [proposal, setProposal] = useState<ImportProposal | null>(null);
   const [history, setHistory] = useState<ImportProposal[]>([]);
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  /** The names proposed for new sessions: shown as each field's placeholder until one is typed. */
+  const [proposedNames, setProposedNames] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<Progress | null>(null);
   /** Null when nothing is being checked; empty while checking; else why it could not be. */
   const [checking, setChecking] = useState<string | null>(null);
@@ -319,9 +328,10 @@ export function TakeImportDialog({
       return;
     }
     setChecking(null);
-    setProposal(markImported(proposed, made));
+    const marked = markImported(proposed, made);
+    setProposal(marked);
+    setProposedNames(Object.fromEntries(marked.sessions.map((s) => [s.key, s.name])));
     setHistory([]);
-    setSelected(new Set());
   };
 
   const edit = (next: ImportProposal) => {
@@ -466,16 +476,21 @@ export function TakeImportDialog({
   };
 
   const total = picked?.reduce((n, p) => n + p.file.size, 0) ?? 0;
-  const allKeys = proposal?.sessions.flatMap((s) => s.takes.map((t) => t.key)) ?? [];
-  const someLeftOut = proposal?.sessions.some((s) =>
-    s.takes.some((t) => selected.has(t.key) && t.leftOut),
-  );
+  const everyTake = proposal?.sessions.flatMap((s) => s.takes) ?? [];
+  // What can be ticked: every take not already in the project.
+  const tickable = new Set(everyTake.filter((t) => !t.imported).map((t) => t.key));
+  const ticked = new Set(toMake.map((t) => t.key));
+  const allTicked = tickable.size > 0 && [...tickable].every((k) => ticked.has(k) || made.has(k));
+  // Takes still to be placed on a track, in an import: placed together from the bar above.
+  const trackless = everyTake.filter((t) => !t.imported && !t.leftOut && !t.trackId);
 
   const verb = track ? "Add" : "Import";
   const title = track ? "Add takes" : "Import takes";
-  const description = track
-    ? `Drop the takes recorded for ${track.name}: one file each, or a take's microphones together with its mix. Take numbers are read from the files.`
-    : "Drop every file of a session. Takes are grouped by take number and timecode, with their mix found among the microphones, and matched to tracks by name.";
+  const description = proposal
+    ? `Check what Hekate proposes, then ${track ? "add" : "import"} the takes.`
+    : track
+      ? `Drop the takes recorded for ${track.name}: one file each, or a take's microphones together with its mix. Take numbers are read from the files.`
+      : "Drop every file of a session. Takes are grouped by take number and timecode, with their mix found among the microphones, and matched to tracks by name.";
   /** Under a take, with the track settled: the bars this batch covers. */
   const covering = barFrom !== null && !barsProblem ? barsLabel({ barFrom, barTo }) : null;
   if (!proposal)
@@ -505,7 +520,7 @@ export function TakeImportDialog({
               <div className="grid gap-4 @md/app:grid-cols-2">
                 <Field
                   label="Session"
-                  hint="Where they were recorded; the files' own day makes one otherwise."
+                  hint="Leave as the files say to make a session from their recording date."
                 >
                   <Select value={session} onChange={(e) => setSession(e.target.value)}>
                     <option value="proposed">As the files say</option>
@@ -575,11 +590,6 @@ export function TakeImportDialog({
           <Button variant="ghost" onClick={importing ? stop : onClose}>
             {importing ? "Stop" : "Cancel"}
           </Button>
-          {!importing && (
-            <Button variant="secondary" onClick={undo} disabled={history.length === 0}>
-              Undo
-            </Button>
-          )}
           <Button
             variant="primary"
             onClick={() => void run()}
@@ -633,47 +643,43 @@ export function TakeImportDialog({
               : "Nothing here makes a take: no file has a take number or a timecode."}
           </p>
         ) : (
+          // The proposal's bulk actions, and Undo beside them once there is something to undo.
           <div className="flex min-h-9 flex-wrap items-center gap-2 text-[13px] text-ink-3">
-            <Checkbox
-              aria-label="Select every take"
-              checked={selected.size > 0 && selected.size === allKeys.length}
-              onChange={(e) => setSelected(new Set(e.target.checked ? allKeys : []))}
-            />
-            <span className="mr-auto">
-              {selected.size > 0
-                ? `${selected.size} selected`
-                : track
-                  ? count(allKeys.length, "take")
-                  : `${count(allKeys.length, "take")} in ${count(proposal.sessions.length, "session")}`}
-            </span>
-            {selected.size > 0 && (
-              <>
-                {!track && (
-                  <Select
-                    size="sm"
-                    className="w-44"
-                    aria-label="Put the selected takes on a track"
-                    value=""
-                    onChange={(e) => {
-                      if (e.target.value) edit(placeTakes(proposal, selected, e.target.value));
-                    }}
-                  >
-                    <option value="">Put on a track</option>
-                    {tracks.map((t) => (
-                      <option key={t.id} value={t.id}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </Select>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => edit(leaveOut(proposal, selected, !someLeftOut))}
-                >
-                  {someLeftOut ? "Bring back" : "Leave out"}
-                </Button>
-              </>
+            <label className="mr-auto flex items-center gap-2">
+              <Checkbox
+                checked={allTicked}
+                indeterminate={ticked.size > 0 && !allTicked}
+                onChange={(e) => edit(leaveOut(proposal, tickable, !e.target.checked))}
+              />
+              {track
+                ? count(everyTake.length, "take")
+                : `${count(everyTake.length, "take")} in ${count(proposal.sessions.length, "session")}`}
+            </label>
+            {!track && trackless.length > 1 && (
+              <Select
+                size="sm"
+                className="w-auto"
+                aria-label={`Put the ${trackless.length} takes without a track on a track`}
+                value=""
+                onChange={(e) => {
+                  if (e.target.value)
+                    edit(
+                      placeTakes(proposal, new Set(trackless.map((t) => t.key)), e.target.value),
+                    );
+                }}
+              >
+                <option value="">Put the {trackless.length} without a track on</option>
+                {tracks.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+            {history.length > 0 && !importing && (
+              <Button variant="ghost" size="sm" onClick={undo}>
+                Undo
+              </Button>
             )}
           </div>
         )}
@@ -690,13 +696,25 @@ export function TakeImportDialog({
               ) : s.sessionId && existing.some((e: SessionSummary) => e.id === s.sessionId) ? (
                 <span className="text-[14px] text-ink">{s.name}</span>
               ) : (
-                <Input
-                  size="sm"
-                  className="w-56"
-                  aria-label="Session name"
-                  value={s.name}
-                  onChange={(e) => edit(renameSession(proposal, s.key, e.target.value))}
-                />
+                // Empty until named: the name it would have is the placeholder (#657).
+                <label className="flex items-center gap-2 text-[13px] text-ink-2">
+                  Session name
+                  <Input
+                    size="sm"
+                    className="w-56"
+                    value={s.name === proposedNames[s.key] ? "" : s.name}
+                    placeholder={proposedNames[s.key] ?? ""}
+                    onChange={(e) =>
+                      edit(
+                        renameSession(
+                          proposal,
+                          s.key,
+                          e.target.value || (proposedNames[s.key] ?? ""),
+                        ),
+                      )
+                    }
+                  />
+                </label>
               )}
               <span className="text-[13px] text-ink-3">
                 {s.key === "none"
@@ -721,15 +739,8 @@ export function TakeImportDialog({
                   tracks={tracks}
                   fixed={Boolean(track)}
                   under={covering ? `${covering[0]?.toUpperCase()}${covering.slice(1)}` : null}
-                  selected={selected.has(t.key)}
-                  onSelect={(on) =>
-                    setSelected((was) => {
-                      const next = new Set(was);
-                      if (on) next.add(t.key);
-                      else next.delete(t.key);
-                      return next;
-                    })
-                  }
+                  ticked={ticked.has(t.key) || made.has(t.key)}
+                  onTick={(on) => edit(leaveOut(proposal, new Set([t.key]), !on))}
                   onTrack={(trackId) => edit(placeTakes(proposal, new Set([t.key]), trackId))}
                   onMix={(key) => edit(chooseMix(proposal, t.key, key))}
                 />
@@ -750,8 +761,8 @@ export function TakeImportDialog({
           </p>
         )}
         <p className="m-0 text-[12px] text-ink-3">
-          Each take brings its mix, kept under its track rather than among the project's files; its
-          other microphones stay where they are for now.
+          Only each take's mix is added, kept under its track rather than among the project's files;
+          microphone files are not uploaded yet.
         </p>
       </div>
     </Dialog>
