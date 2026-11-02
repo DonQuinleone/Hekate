@@ -1222,10 +1222,12 @@ export function WorkflowCanvas({
           </div>
 
           {/* Zoom. It floats over the canvas, as a canvas's controls do: a stage panned under
-              it is covered on purpose (data-e2e-layer), not crowded. */}
+              it is covered on purpose (data-e2e-layer), not crowded. It sits at the right,
+              over the map where there is one, clear of the workflows' headings at the left
+              (#678), as Figma and Miro keep theirs. */}
           <div
             data-e2e-layer
-            className="absolute bottom-3 left-3 flex items-center gap-0.5 rounded-control border border-line bg-overlay p-0.5 shadow-2"
+            className="absolute right-3 bottom-3 flex items-center gap-0.5 rounded-control border border-line bg-overlay p-0.5 shadow-2 @3xl/app:bottom-[116px]"
           >
             <Button
               variant="quiet"

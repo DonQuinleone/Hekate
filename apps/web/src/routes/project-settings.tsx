@@ -791,10 +791,14 @@ function VisibleWatermark({
                 "radial-gradient(120% 90% at 30% 20%, var(--hk-cover-video-lit), var(--hk-cover-video-deep) 70%)",
             }}
           >
+            {/* Laid out at twice the thumbnail's size and drawn at half, so the mark keeps the
+                proportion it has over a picture in the player. */}
             {!off && (
-              <VideoMark
-                mark={{ text: sample, position: settings.position, opacity: settings.opacity }}
-              />
+              <div className="absolute top-0 left-0 h-[200%] w-[200%] origin-top-left scale-50">
+                <VideoMark
+                  mark={{ text: sample, position: settings.position, opacity: settings.opacity }}
+                />
+              </div>
             )}
           </div>
         </figure>
@@ -959,43 +963,47 @@ function TrackOverrides({
   const others = tracks.filter((t) => !differs(t));
   const picked = others.find((t) => t.id === chosen) ?? others[0];
   return (
-    <Section
-      title={title}
-      count={listed.length > 0 ? listed.length : undefined}
-      intro={listed.length === 0 ? `Every ${words.track} follows the project's choice.` : undefined}
-      action={
-        !disabled && others.length > 0 ? (
-          <Button
-            variant="secondary"
-            size="md"
-            onClick={() => {
-              setChosen("");
-              setAdding(true);
-            }}
-          >
-            Override for a {words.track}…
-          </Button>
-        ) : undefined
-      }
-    >
-      {listed.length > 0
-        ? listed.map((t) => (
-            <Row
-              key={t.id}
-              name={
-                <Link
-                  to="/tracks/$trackId"
-                  params={{ trackId: t.id }}
-                  className="transition-colors hover:text-signal"
-                >
-                  {t.name}
-                </Link>
-              }
+    <>
+      <Section
+        title={title}
+        count={listed.length > 0 ? listed.length : undefined}
+        intro={
+          listed.length === 0 ? `Every ${words.track} follows the project's choice.` : undefined
+        }
+        action={
+          !disabled && others.length > 0 ? (
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={() => {
+                setChosen("");
+                setAdding(true);
+              }}
             >
-              {control(t)}
-            </Row>
-          ))
-        : null}
+              Override for a {words.track}…
+            </Button>
+          ) : undefined
+        }
+      >
+        {listed.length > 0
+          ? listed.map((t) => (
+              <Row
+                key={t.id}
+                name={
+                  <Link
+                    to="/tracks/$trackId"
+                    params={{ trackId: t.id }}
+                    className="transition-colors hover:text-signal"
+                  >
+                    {t.name}
+                  </Link>
+                }
+              >
+                {control(t)}
+              </Row>
+            ))
+          : null}
+      </Section>
       {adding && picked && (
         <Dialog
           title={`Override for a ${words.track}`}
@@ -1022,7 +1030,7 @@ function TrackOverrides({
           </div>
         </Dialog>
       )}
-    </Section>
+    </>
   );
 }
 

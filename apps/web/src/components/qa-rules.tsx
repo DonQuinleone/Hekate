@@ -107,6 +107,7 @@ function RuleRow({
   onSwitch,
   onUpload,
   menu,
+  menuSpace = false,
 }: {
   name: string;
   hint?: string;
@@ -124,6 +125,8 @@ function RuleRow({
   onSwitch: (on: boolean) => void;
   onUpload?: (upload: boolean) => void;
   menu?: React.ReactNode;
+  /** Room for a menu, where other rows have one, so the switches line up. */
+  menuSpace?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-2 px-4 py-2.5 @3xl/app:flex-row @3xl/app:items-center @3xl/app:gap-3">
@@ -131,12 +134,13 @@ function RuleRow({
         <div className={cn("text-[13px]", on ? "text-ink" : "text-ink-3")}>{name}</div>
         {hint && <div className="text-[12px] text-ink-3">{hint}</div>}
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3">
         <Select
           size="sm"
           value={severity ?? ""}
           aria-label={`Severity of ${name}`}
-          className="w-40 shrink-0"
+          // On a phone it gives way to the chip and the switch beside it.
+          className="max-w-40 min-w-0 flex-1 @3xl/app:w-40 @3xl/app:flex-none"
           disabled={disabled || !on}
           onChange={(e) => onSeverity((e.target.value || null) as RuleSeverity | null)}
         >
@@ -169,7 +173,8 @@ function RuleRow({
           ) : (
             <Switch label={name} checked={on} disabled={disabled} onChange={onSwitch} />
           )}
-          {menu ?? <span aria-hidden="true" className="hidden w-8 @3xl/app:block" />}
+          {menu ??
+            (menuSpace ? <span aria-hidden="true" className="hidden w-8 @3xl/app:block" /> : null)}
         </span>
       </div>
     </div>
@@ -238,6 +243,8 @@ export function QaRules({
         ? settings.rules.map((r) => (r.id === rule.id ? rule : r))
         : [...settings.rules, rule],
     });
+  // Rows leave room for a menu only where some row has one (the project's own rules).
+  const menuSpace = edit && settings.rules.length > 0;
   const checkRow = (check: BuiltInCheck) => {
     const own = checkOf(check);
     const delivery = isDeliveryCheck(check);
@@ -259,6 +266,7 @@ export function QaRules({
         upload={upload ? (project.checkTruePeak ?? false) : undefined}
         onUpload={upload ? (checkTruePeak) => update.mutate({ checkTruePeak }) : undefined}
         disabled={busy}
+        menuSpace={menuSpace}
         onSeverity={(severity) => setCheck(check, { severity })}
         onSwitch={(on) => setCheck(check, { on })}
       />
