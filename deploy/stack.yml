@@ -103,7 +103,7 @@ services:
   # One PostgreSQL on the labelled node, its data in a volume there. For high availability,
   # use a managed service or Patroni instead, and drop this service (docs: The database).
   db:
-    image: postgres:18-alpine
+    image: postgres:18-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
     environment:
       POSTGRES_USER: hekate
       POSTGRES_DB: hekate
@@ -123,7 +123,7 @@ services:
 
   # HTTPS for the domain, spreading requests across the API replicas.
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:e70b164da81ef698b3ad19af799ea6086ce6d9e48ed4079eb9fe26f6fbf14ee5
     ports:
       - { target: 80, published: 80, mode: host }
       - { target: 443, published: 443, mode: host }
