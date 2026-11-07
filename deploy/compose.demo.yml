@@ -8,6 +8,11 @@
 # the installer's address check needs; https://localhost through Caddy would be Caddy's, not
 # the app's. Passkeys and links from other devices need HTTPS on a real domain: see Install.
 
+# Its own project, so its containers and volumes are never an installed Hekate's: a real
+# instance on the same machine (project "hekate") keeps its database, and `down -v` here
+# forgets only the demo.
+name: hekate-demo
+
 # What the demo sets, for the app and the seed alike.
 x-demo-environment: &demo
   PUBLIC_URL: http://localhost:3000
