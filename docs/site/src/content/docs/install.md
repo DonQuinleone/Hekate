@@ -69,7 +69,7 @@ Sign in as:
 
 There is no mail server: invitations and guest links are written to the app's log (`docker compose --env-file deploy/demo.env -f deploy/compose.yml -f deploy/compose.demo.yml logs app`), so open them yourself in a private window. The demo's settings are published in `deploy/demo.env`, and `HEKATE_DEMO` makes the server refuse any address but `localhost`, so they can never run a real instance.
 
-`down` stops it and keeps what you made; `down -v` forgets everything, and the next `up` seeds it again. Passkeys, and links opened on other devices, need HTTPS on a real domain, as above.
+The demo is a Compose project of its own, `hekate-demo`, so it never shares containers or volumes with a Hekate installed on the same machine (project `hekate`). `down` stops it and keeps what you made; `down -v` forgets the demo alone, and the next `up` seeds it again. Passkeys, and links opened on other devices, need HTTPS on a real domain, as above.
 
 ## The image
 
